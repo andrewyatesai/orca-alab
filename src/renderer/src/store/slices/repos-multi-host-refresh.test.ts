@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Project, ProjectHostSetup, Repo } from '../../../../shared/types'
+import type { AppState } from '../types'
 import {
   createCompatibleRuntimeStatusResponseIfNeeded,
   type RuntimeEnvironmentCallRequest
@@ -365,7 +366,7 @@ describe('repo slice multi-host refresh', () => {
     const store = createTestStore()
     store.setState({
       repos: [{ ...localRepo, executionHostId: 'local' }]
-    } as Partial<import('../types').AppState>)
+    } as Partial<AppState>)
 
     const localRefresh = store.getState().fetchRepos()
     store.setState({ settings: { activeRuntimeEnvironmentId: 'env-1' } as never })

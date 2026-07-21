@@ -5,7 +5,8 @@ import {
 } from '../../../src/shared/ai-vault-types'
 import { isResumableTuiAgent } from '../../../src/shared/agent-session-resume'
 import type { SleepingAgentLaunchConfig } from '../../../src/shared/agent-session-resume'
-import { buildAgentResumeStartupPlan } from '../../../src/shared/tui-agent-startup'
+// Why: desktop builds this plan in Rust (napi/wasm); mobile uses the TS twin.
+import { buildAgentResumeStartupPlan } from './agent-resume-startup-plan'
 import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv

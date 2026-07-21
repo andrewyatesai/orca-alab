@@ -103,6 +103,8 @@ pub struct AgentResumeStartupPlanArgs<'a> {
     /// The provider-session `key`/`id` pair (`AgentProviderSessionMetadata`).
     pub provider_session_key: ProviderSessionKey,
     pub provider_session_id: &'a str,
+    /// Pi's transcript-path resume identity (`providerSession.transcriptPath`).
+    pub provider_session_transcript_path: Option<&'a str>,
     pub cmd_overrides: &'a [(&'a str, &'a str)],
     pub platform: &'a str,
     pub shell: Option<AgentStartupShell>,
@@ -239,7 +241,18 @@ pub fn get_agent_resume_argv(
     agent: &str,
     key: ProviderSessionKey,
     id: &str,
+    transcript_path: Option<&str>,
 ) -> Option<Vec<String>> {
+    // Why: pi resumes by absolute transcript path, not by session id (#8876);
+    // a missing/empty path cannot resume (the TS truthiness guard).
+    if agent == "pi" {
+        return match (key, transcript_path) {
+            (ProviderSessionKey::SessionId, Some(path)) if !path.is_empty() => {
+                Some(vec!["pi".to_string(), "--session".to_string(), path.to_string()])
+            }
+            _ => None,
+        };
+    }
     let argv: &[&str] = match (agent, key) {
         ("claude", ProviderSessionKey::SessionId) => &["claude", "--resume", id],
         ("codex", ProviderSessionKey::SessionId) => &["codex", "resume", id],
@@ -353,8 +366,12 @@ pub fn build_agent_startup_plan(args: &AgentStartupPlanArgs) -> Option<AgentStar
 pub fn build_agent_resume_startup_plan(
     args: &AgentResumeStartupPlanArgs,
 ) -> Option<AgentStartupPlan> {
-    let argv =
-        get_agent_resume_argv(args.agent, args.provider_session_key, args.provider_session_id)?;
+    let argv = get_agent_resume_argv(
+        args.agent,
+        args.provider_session_key,
+        args.provider_session_id,
+        args.provider_session_transcript_path,
+    )?;
     let shell = resolve_startup_shell(args.platform, args.shell);
     let config = tui_agent_config(args.agent)?;
     let resolved_agent_command = args.agent_command.map(str::trim).filter(|cmd| !cmd.is_empty());
@@ -484,7 +501,7 @@ mod tests {
     #[test]
     fn resume_argv_matches_the_ts_table_per_agent_and_key() {
         use ProviderSessionKey::{ConversationId, SessionId};
-        let argv = |a: &str, k, id: &str| get_agent_resume_argv(a, k, id);
+        let argv = |a: &str, k, id: &str| get_agent_resume_argv(a, k, id, None);
         assert_eq!(argv("claude", SessionId, "s1").unwrap(), ["claude", "--resume", "s1"]);
         assert_eq!(argv("codex", SessionId, "s2").unwrap(), ["codex", "resume", "s2"]);
         assert_eq!(argv("antigravity", ConversationId, "c1").unwrap(), ["agy", "--conversation", "c1"]);
@@ -492,8 +509,14 @@ mod tests {
         // Wrong key kind for the agent -> None (the TS key guard).
         assert_eq!(argv("claude", ConversationId, "x"), None);
         assert_eq!(argv("antigravity", SessionId, "x"), None);
-        // Non-resumable agent -> None.
+        // Pi resumes by transcript path, never by bare session id (#8876).
         assert_eq!(argv("pi", SessionId, "x"), None);
+        assert_eq!(
+            get_agent_resume_argv("pi", SessionId, "x", Some("/tmp/pi-1.jsonl")).unwrap(),
+            ["pi", "--session", "/tmp/pi-1.jsonl"]
+        );
+        assert_eq!(get_agent_resume_argv("pi", SessionId, "x", Some("")), None);
+        assert_eq!(get_agent_resume_argv("pi", ConversationId, "x", Some("/tmp/pi-1.jsonl")), None);
     }
 
     fn startup_args<'a>(agent: &'a str, prompt: &'a str, platform: &'a str) -> AgentStartupPlanArgs<'a> {
@@ -711,6 +734,7 @@ mod tests {
             agent,
             provider_session_key: ProviderSessionKey::SessionId,
             provider_session_id: id,
+            provider_session_transcript_path: None,
             cmd_overrides: &[],
             platform: "linux",
             shell: None,
@@ -829,7 +853,14 @@ mod tests {
 
     #[test]
     fn resume_returns_none_for_non_resumable_agents_or_wrong_key() {
+        // Pi without a transcript path cannot resume; with one it can (#8876).
         assert_eq!(build_agent_resume_startup_plan(&resume_args("pi", "s1")), None);
+        let pi = build_agent_resume_startup_plan(&AgentResumeStartupPlanArgs {
+            provider_session_transcript_path: Some("/tmp/pi-1.jsonl"),
+            ..resume_args("pi", "s1")
+        })
+        .unwrap();
+        assert_eq!(pi.launch_command, "pi '--session' '/tmp/pi-1.jsonl'");
         assert_eq!(
             build_agent_resume_startup_plan(&AgentResumeStartupPlanArgs {
                 provider_session_key: ProviderSessionKey::ConversationId,

@@ -368,7 +368,7 @@ describe('reconcileSerializedMarkdown', () => {
   it('places a hunk exactly in a large CJK doc where fuzzy match alone gives up (#9158)', () => {
     // UTF-8 byte offsets run ~3x ahead of UCS-2 here, far beyond the fuzzy match
     // distance — only exact index conversion keeps the source-preserving path.
-    const body = ('中文段落，这里是一些正文内容。'.repeat(10) + '\n\n').repeat(20)
+    const body = `${'中文段落，这里是一些正文内容。'.repeat(10)}\n\n`.repeat(20)
     const originalSource = `${body}_tail_ here\n`
     const baseCanonical = fakeCanonicalize(originalSource)
     const edited = baseCanonical.replace('here', 'there')

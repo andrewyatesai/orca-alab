@@ -4,7 +4,8 @@ import type {
   SetupDecision,
   TuiAgent
 } from '../../../src/shared/types'
-import { getWorkspaceSourceName } from '../../../src/shared/new-workspace/workspace-source'
+// Why: desktop derives this name in Rust (renderer wasm); mobile uses the TS twin.
+import { getWorkspaceSourceName } from './workspace-name-derivation'
 import { resolveMobileWorkspaceCreateName } from './mobile-workspace-name'
 import type { WorkspaceAgentChoice } from './workspace-agent-selection'
 

@@ -40,18 +40,18 @@
     {
       "name": "orca-cli",
       "sourcePath": "skills/orca-cli",
-      "releaseRevision": 32,
-      "packageDigest": "51740ff13f379ac5743d3fd28a14b17168dcef40f7048c20182dce166098c45f",
-      "gitTreeSha": "ded93000a5f654e2b4f324501282459bd56afe19",
+      "releaseRevision": 33,
+      "packageDigest": "5180a6ab022c2a263794aa75ce7c8cd2c74c60e9299192ee9b383bc3ef3f61ba",
+      "gitTreeSha": "c3a11d2f83a73bb497d41e48642f0229117b5c06",
       "files": [
         {
           "path": "SKILL.md",
-          "size": 21557,
+          "size": 21865,
           "executable": false,
           "classification": "text",
-          "exactSha256": "b4c36e19fc158fc8c286bdfdf05a537985cb2159a596c93862968c5417bf15be",
-          "textNormalizedSha256": "b4c36e19fc158fc8c286bdfdf05a537985cb2159a596c93862968c5417bf15be",
-          "identitySha256": "b4c36e19fc158fc8c286bdfdf05a537985cb2159a596c93862968c5417bf15be"
+          "exactSha256": "2fa1252ba744b32e4ba299c8963bdf134a963398a0db793c6b81aa30174e7af2",
+          "textNormalizedSha256": "2fa1252ba744b32e4ba299c8963bdf134a963398a0db793c6b81aa30174e7af2",
+          "identitySha256": "2fa1252ba744b32e4ba299c8963bdf134a963398a0db793c6b81aa30174e7af2"
         }
       ]
     },
@@ -130,18 +130,18 @@
     {
       "name": "orchestration",
       "sourcePath": "skills/orchestration",
-      "releaseRevision": 25,
-      "packageDigest": "c19171d213e827bdf5364b733b67889566aaa2fb3667ebe029db87044d08f908",
-      "gitTreeSha": "da346803bccae7fb1fdade31bbe9b4d851b25e38",
+      "releaseRevision": 26,
+      "packageDigest": "938040565336a707385c6d7da38ebd39a73a9849893ae887594f5ddf212f5912",
+      "gitTreeSha": "f003e7ca15a411602568ba873a7913ad5a0a7b04",
       "files": [
         {
           "path": "SKILL.md",
-          "size": 22676,
+          "size": 23935,
           "executable": false,
           "classification": "text",
-          "exactSha256": "0cfb6a082625edc0d474bae430eb22c28bbe484e54fbfebedb4ff89d96e36305",
-          "textNormalizedSha256": "0cfb6a082625edc0d474bae430eb22c28bbe484e54fbfebedb4ff89d96e36305",
-          "identitySha256": "0cfb6a082625edc0d474bae430eb22c28bbe484e54fbfebedb4ff89d96e36305"
+          "exactSha256": "53bd029fa6446aeccadd257257916c58fd6504f20a760cadefeffbecbcb24e27",
+          "textNormalizedSha256": "53bd029fa6446aeccadd257257916c58fd6504f20a760cadefeffbecbcb24e27",
+          "identitySha256": "53bd029fa6446aeccadd257257916c58fd6504f20a760cadefeffbecbcb24e27"
         }
       ]
     }

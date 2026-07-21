@@ -52,7 +52,9 @@ describe('repos folder pickers', () => {
     addRepo: vi.fn(),
     removeProject: vi.fn(),
     getRepo: vi.fn(),
-    updateRepo: vi.fn()
+    updateRepo: vi.fn(),
+    // Why: resolvePickerDefaultPath reads localWindowsRuntimeDefault to seed WSL pickers.
+    getSettings: vi.fn().mockReturnValue({})
   }
 
   const callPickFolders = (): Promise<string[]> => {

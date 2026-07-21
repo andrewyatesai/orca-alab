@@ -7,7 +7,7 @@ const { existsSyncMock, isGitRepoMock } = vi.hoisted(() => ({
 }))
 
 vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs')>()
+  const actual = await importOriginal<typeof import('node:fs')>() // eslint-disable-line @typescript-eslint/consistent-type-imports -- importOriginal requires inline import()
   return { ...actual, existsSync: existsSyncMock }
 })
 

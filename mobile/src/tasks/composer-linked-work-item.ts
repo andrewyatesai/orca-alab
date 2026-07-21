@@ -1,11 +1,11 @@
 import type { GitHubWorkItem, GitLabWorkItem, LinearIssue } from '../../../src/shared/types'
-import { getLinearIssueWorkspaceName } from '../../../src/shared/workspace-name'
+// Why: desktop derives these names in Rust (renderer wasm); mobile uses the TS twin.
+import { getLinearIssueWorkspaceName, getWorkspaceSourceName } from './workspace-name-derivation'
 import {
   buildGitHubWorkspaceSource,
   buildGitLabWorkspaceSource,
   buildLinearWorkspaceSource,
   buildWorkspaceSourceSelection,
-  getWorkspaceSourceName,
   shouldApplyWorkspaceSourceAutoName
 } from '../../../src/shared/new-workspace/workspace-source'
 import { resolveComposerBranchPick as resolveSharedComposerBranchPick } from '../../../src/shared/composer-branch-selection'

@@ -195,17 +195,9 @@ describe('launchAgentBackgroundSession', () => {
     vi.stubGlobal('window', {
       dispatchEvent: mockDispatchEvent,
       api: {
-        pty: {
-          spawn: mockSpawn,
-          write: mockWrite,
-          kill: mockKill
-        },
-        agentTrust: {
-          markTrusted: mockMarkTrusted
-        },
-        runtime: {
-          call: vi.fn()
-        },
+        pty: { spawn: mockSpawn, write: mockWrite, kill: mockKill },
+        agentTrust: { markTrusted: mockMarkTrusted },
+        runtime: { call: vi.fn() },
         runtimeEnvironments: {
           call: mockRuntimeEnvironmentTransportCall,
           subscribe: mockRuntimeEnvironmentSubscribe

@@ -1,3 +1,6 @@
+// Why: the resume startup plan builds through the orca-git wasm; init it or
+// launchSleepingAgentSession gets a null plan and wakes nothing.
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'

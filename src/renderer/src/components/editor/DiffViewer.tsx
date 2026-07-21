@@ -142,14 +142,12 @@ export default function DiffViewer({
         prev ? { ...prev, top, left: left == null ? prev.left : left, lineHeight } : prev
       )
     }
-    const scrollSub = modifiedEditor.onDidScrollChange(update)
-    const contentSub = modifiedEditor.onDidContentSizeChange(update)
-    const layoutSub = modifiedEditor.onDidLayoutChange(update)
-    return () => {
-      scrollSub.dispose()
-      contentSub.dispose()
-      layoutSub.dispose()
-    }
+    const subs = [
+      modifiedEditor.onDidScrollChange(update),
+      modifiedEditor.onDidContentSizeChange(update),
+      modifiedEditor.onDidLayoutChange(update)
+    ]
+    return () => subs.forEach((s) => s.dispose())
     // Why: depend on popover.lineNumber (not the whole object) so the effect doesn't re-subscribe on every top update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modifiedEditor, popover?.lineNumber])

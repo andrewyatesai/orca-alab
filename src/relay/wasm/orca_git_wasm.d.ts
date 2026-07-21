@@ -302,9 +302,9 @@ export interface InitOutput {
     readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly __wasm_bindgen_func_elem_1634: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1700: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1636: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_1639: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1705: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1641: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

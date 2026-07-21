@@ -312,7 +312,7 @@ function AddProfileButton({ onAdd }: { onAdd: (baseAgent: TuiAgent) => void }): 
           // (so users don't open an Edit row pre-filled with the wrong one).
           // A full shadcn Popover here would pull more focus management than
           // necessary for a one-click base-agent select.
-          className="absolute right-0 top-9 z-30 max-h-72 w-56 overflow-y-auto rounded-lg border border-border/60 bg-popover p-1 text-popover-foreground shadow-md"
+          className="absolute right-0 top-9 z-30 max-h-72 w-56 overflow-y-auto scrollbar-sleek rounded-lg border border-border/60 bg-popover p-1 text-popover-foreground shadow-md"
           onMouseLeave={() => setOpen(false)}
         >
           {getAgentCatalog().map((agent) => (

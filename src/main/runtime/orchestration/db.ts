@@ -47,6 +47,11 @@ function generateId(prefix: string): string {
   return `${prefix}_${randomBytes(6).toString('hex')}`
 }
 
+// Why: the store treats an empty filter as "no filter"; normalize before crossing napi.
+function typesFilter(types?: MessageType[]): MessageType[] | undefined {
+  return types && types.length > 0 ? types : undefined
+}
+
 // Why: this class is a thin delegating shim over the orca-runtime SQLite store
 // (the `OrchestrationStore` napi class). The `node:sqlite` twin — schema,
 // migrations, every query — was deleted; Rust is the sole implementation. The
@@ -111,9 +116,7 @@ export class OrchestrationDb {
   }
 
   getUnreadMessages(toHandle: string, types?: MessageType[]): MessageRow[] {
-    return messageListFromJson(
-      this.store.getUnreadMessages(toHandle, types && types.length > 0 ? types : undefined)
-    )
+    return messageListFromJson(this.store.getUnreadMessages(toHandle, typesFilter(types)))
   }
 
   // Why: rewrites a superseded worker_done/heartbeat into a high-priority
@@ -128,10 +131,7 @@ export class OrchestrationDb {
 
   getUndeliveredUnreadMessages(toHandle: string, types?: MessageType[]): MessageRow[] {
     return messageListFromJson(
-      this.store.getUndeliveredUnreadMessages(
-        toHandle,
-        types && types.length > 0 ? types : undefined
-      )
+      this.store.getUndeliveredUnreadMessages(toHandle, typesFilter(types))
     )
   }
 
@@ -173,11 +173,7 @@ export class OrchestrationDb {
 
   getAllMessagesForHandle(toHandle: string, limit = 100, types?: MessageType[]): MessageRow[] {
     return messageListFromJson(
-      this.store.getAllMessagesForHandle(
-        toHandle,
-        limit,
-        types && types.length > 0 ? types : undefined
-      )
+      this.store.getAllMessagesForHandle(toHandle, limit, typesFilter(types))
     )
   }
 

@@ -59,7 +59,7 @@ vi.mock('./daemon-health', async (importOriginal) => {
 // Why: #8985 — spawn awaits the login(1) PAM preflight; stub it so adapter
 // tests never execFile a real /usr/bin/login on macOS hosts.
 vi.mock('../providers/macos-tcc-login-shell', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../providers/macos-tcc-login-shell')>()
+  const actual = await importOriginal<typeof import('../providers/macos-tcc-login-shell')>() // eslint-disable-line @typescript-eslint/consistent-type-imports -- importOriginal requires inline import()
   return {
     ...actual,
     prepareMacosTccLoginShell: prepareMacosTccLoginShellMock

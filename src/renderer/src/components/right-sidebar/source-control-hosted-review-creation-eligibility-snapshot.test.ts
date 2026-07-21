@@ -1,3 +1,6 @@
+// Why: base-ref normalization runs through the orca-git wasm; init it or
+// origin/-prefixed base refs pass through unstripped and blockers misfire.
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, expect, it } from 'vitest'
 import {
   buildLocalBlockerHostedReviewCreationEligibility,

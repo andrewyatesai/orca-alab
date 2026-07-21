@@ -59,6 +59,9 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
                     .and_then(|value| value.get("id"))
                     .and_then(Value::as_str)
                     .unwrap_or(""),
+                provider_session_transcript_path: session
+                    .and_then(|value| value.get("transcriptPath"))
+                    .and_then(Value::as_str),
                 cmd_overrides: &cmd_overrides,
                 platform: str_field(input, "platform"),
                 shell: parse_shell(input.get("shell")),

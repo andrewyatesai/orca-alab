@@ -666,10 +666,9 @@ export class AtermGpuTerminal {
      * triples (a `Uint32Array` in JS). The host renders them tentatively
      * (dim/underline) and may advance its DRAWN cursor past the last one,
      * mosh-style. Runs the expiry self-heal first, then the display gate:
-     * `always` ⇒ all pending; `adaptive` ⇒ all pending the moment an echo is
-     * confirmed on this line (instant epoch-gated echo — no link-speed
-     * threshold). Empty while scrolled into history (guesses are active-grid
-     * coords; the viewport is not).
+     * `always` ⇒ all pending; `adaptive` ⇒ all pending after an echo is confirmed
+     * on this line and measured RTT is high enough to help. Empty in app-owned
+     * Kitty composers and while scrolled into history.
      * @returns {Uint32Array}
      */
     predict_overlay() {
@@ -683,8 +682,8 @@ export class AtermGpuTerminal {
      * applies a PTY chunk. Confirmed leading guesses retire (arming the
      * epoch's display gate), any divergence flushes the set, and a no-echo
      * context refuses prediction outright — the alternate screen (vim/less/
-     * htop) OR kitty REPORT_ALL_KEYS_AS_ESC, whose apps never receive echoing
-     * text (the native gate). While scrolled into history only the expiry
+     * htop) OR an app-owned Kitty composer (REPORT_EVENT_TYPES /
+     * REPORT_ALL_KEYS_AS_ESC). While scrolled into history only the expiry
      * self-heal runs: guesses live in ACTIVE-grid coords, so the scrollback
      * view is never reconciled against them (the native discipline).
      */
@@ -692,13 +691,22 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_predict_reconcile(this.__wbg_ptr);
     }
     /**
-     * Drop all in-flight guesses — the coordinate space changed (`resize`
-     * calls this automatically; the host calls it on pane swaps). The
-     * confirmation epoch is forgotten too, so `adaptive` re-confirms an echo
-     * before displaying again.
+     * Drop all in-flight guesses because this SAME terminal's coordinate space
+     * changed (`resize` calls this automatically). The confirmation epoch is
+     * forgotten, while this session's learned link RTT remains useful.
      */
     predict_reset() {
         wasm.atermgputerminal_predict_reset(this.__wbg_ptr);
+    }
+    /**
+     * Reset for a DIFFERENT pane/session. In addition to coordinate-bound
+     * guesses, forget the learned echo RTT so a slow remote pane cannot make a
+     * newly selected local pane display speculation. Hosts that keep one
+     * `AtermGpuTerminal` per session never need this; pane-reusing hosts call it
+     * at the identity switch.
+     */
+    predict_session_reset() {
+        wasm.atermgputerminal_predict_session_reset(this.__wbg_ptr);
     }
     /**
      * Feed raw PTY output bytes into the engine.
@@ -761,8 +769,12 @@ export class AtermGpuTerminal {
         return ret !== 0;
     }
     /**
-     * Present one frame on the GPU canvas. Errors (returned as JS strings) if
-     * WebGL was not initialized.
+     * Present one frame on the GPU canvas. Errors (returned as JS strings) when
+     * WebGL is uninitialized or the canvas surface reports a typed transient
+     * present failure (`Reconfigured`, `Timeout`, `Occluded`, or `Validation`).
+     * `Reconfigured` means the resize repair already ran but this frame was not
+     * presented; the host should keep its rAF loop alive and retry a later frame,
+     * not treat a single dropped present as terminal shutdown.
      *
      * Draws the ACTUAL terminal grid: snapshot the engine state
      * (`term.cell_frame`), then aterm-gpu's `present_input` renders it offscreen
@@ -1461,9 +1473,8 @@ export class AtermGpuTerminal {
     }
     /**
      * Set the predictive-echo display mode: `"off"` (the default) |
-     * `"adaptive"` (instant epoch-gated echo: show the moment one guess has
-     * been confirmed on the current line, proving the app line-echoes — the
-     * recommended setting) | `"always"` (power users / demos). Case-
+     * `"adaptive"` (show after the current line confirms echo and its measured
+     * RTT is high enough to benefit) | `"always"` (power users / demos). Case-
      * insensitive; unknown strings fail safe to `off` — the native
      * `predictive_echo` domain.
      * @param {string} mode
@@ -2744,7 +2755,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598(a, state0.b, arg0, arg1);
+                        return wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -3120,8 +3131,8 @@ function __wbg_get_imports() {
             arg0.viewport(arg1, arg2, arg3, arg4);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 35, function: Function { arguments: [Externref], shim_idx: 36, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h1a0100ca1d7e7abb, wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 36, function: Function { arguments: [Externref], shim_idx: 37, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______, wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0) {
@@ -3185,12 +3196,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da(arg0, arg1, arg2);
+function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2) {
+    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598(arg0, arg1, arg2, arg3);
+function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3) {
+    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3);
 }
 
 const AtermGpuTerminalFinalization = (typeof FinalizationRegistry === 'undefined')

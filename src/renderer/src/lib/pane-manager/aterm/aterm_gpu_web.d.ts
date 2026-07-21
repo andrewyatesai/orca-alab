@@ -218,10 +218,9 @@ export class AtermGpuTerminal {
      * triples (a `Uint32Array` in JS). The host renders them tentatively
      * (dim/underline) and may advance its DRAWN cursor past the last one,
      * mosh-style. Runs the expiry self-heal first, then the display gate:
-     * `always` ⇒ all pending; `adaptive` ⇒ all pending the moment an echo is
-     * confirmed on this line (instant epoch-gated echo — no link-speed
-     * threshold). Empty while scrolled into history (guesses are active-grid
-     * coords; the viewport is not).
+     * `always` ⇒ all pending; `adaptive` ⇒ all pending after an echo is confirmed
+     * on this line and measured RTT is high enough to help. Empty in app-owned
+     * Kitty composers and while scrolled into history.
      */
     predict_overlay(): Uint32Array;
     /**
@@ -229,19 +228,26 @@ export class AtermGpuTerminal {
      * applies a PTY chunk. Confirmed leading guesses retire (arming the
      * epoch's display gate), any divergence flushes the set, and a no-echo
      * context refuses prediction outright — the alternate screen (vim/less/
-     * htop) OR kitty REPORT_ALL_KEYS_AS_ESC, whose apps never receive echoing
-     * text (the native gate). While scrolled into history only the expiry
+     * htop) OR an app-owned Kitty composer (REPORT_EVENT_TYPES /
+     * REPORT_ALL_KEYS_AS_ESC). While scrolled into history only the expiry
      * self-heal runs: guesses live in ACTIVE-grid coords, so the scrollback
      * view is never reconciled against them (the native discipline).
      */
     predict_reconcile(): void;
     /**
-     * Drop all in-flight guesses — the coordinate space changed (`resize`
-     * calls this automatically; the host calls it on pane swaps). The
-     * confirmation epoch is forgotten too, so `adaptive` re-confirms an echo
-     * before displaying again.
+     * Drop all in-flight guesses because this SAME terminal's coordinate space
+     * changed (`resize` calls this automatically). The confirmation epoch is
+     * forgotten, while this session's learned link RTT remains useful.
      */
     predict_reset(): void;
+    /**
+     * Reset for a DIFFERENT pane/session. In addition to coordinate-bound
+     * guesses, forget the learned echo RTT so a slow remote pane cannot make a
+     * newly selected local pane display speculation. Hosts that keep one
+     * `AtermGpuTerminal` per session never need this; pane-reusing hosts call it
+     * at the identity switch.
+     */
+    predict_session_reset(): void;
     /**
      * Feed raw PTY output bytes into the engine.
      */
@@ -280,8 +286,12 @@ export class AtermGpuTerminal {
      */
     pump_reflow_budget(max_lines: number): void;
     /**
-     * Present one frame on the GPU canvas. Errors (returned as JS strings) if
-     * WebGL was not initialized.
+     * Present one frame on the GPU canvas. Errors (returned as JS strings) when
+     * WebGL is uninitialized or the canvas surface reports a typed transient
+     * present failure (`Reconfigured`, `Timeout`, `Occluded`, or `Validation`).
+     * `Reconfigured` means the resize repair already ran but this frame was not
+     * presented; the host should keep its rAF loop alive and retry a later frame,
+     * not treat a single dropped present as terminal shutdown.
      *
      * Draws the ACTUAL terminal grid: snapshot the engine state
      * (`term.cell_frame`), then aterm-gpu's `present_input` renders it offscreen
@@ -640,9 +650,8 @@ export class AtermGpuTerminal {
     set_palette_color(index: number, r: number, g: number, b: number): void;
     /**
      * Set the predictive-echo display mode: `"off"` (the default) |
-     * `"adaptive"` (instant epoch-gated echo: show the moment one guess has
-     * been confirmed on the current line, proving the app line-echoes — the
-     * recommended setting) | `"always"` (power users / demos). Case-
+     * `"adaptive"` (show after the current line confirms echo and its measured
+     * RTT is high enough to benefit) | `"always"` (power users / demos). Case-
      * insensitive; unknown strings fail safe to `off` — the native
      * `predictive_echo` domain.
      */
@@ -1202,6 +1211,7 @@ export interface InitOutput {
     readonly atermgputerminal_predict_overlay: (a: number) => [number, number];
     readonly atermgputerminal_predict_reconcile: (a: number) => void;
     readonly atermgputerminal_predict_reset: (a: number) => void;
+    readonly atermgputerminal_predict_session_reset: (a: number) => void;
     readonly atermgputerminal_process: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_pump_reflow: (a: number) => number;
     readonly atermgputerminal_pump_reflow_budget: (a: number, b: number) => void;
@@ -1310,9 +1320,9 @@ export interface InitOutput {
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly wasm_bindgen__closure__destroy__h1a0100ca1d7e7abb: (a: number, b: number) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

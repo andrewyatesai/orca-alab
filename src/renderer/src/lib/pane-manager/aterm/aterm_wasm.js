@@ -619,10 +619,9 @@ export class AtermTerminal {
      * triples (a `Uint32Array` in JS). The host renders them tentatively
      * (dim/underline) and may advance its DRAWN cursor past the last one,
      * mosh-style. Runs the expiry self-heal first, then the display gate:
-     * `always` ⇒ all pending; `adaptive` ⇒ all pending the moment an echo is
-     * confirmed on this line (instant epoch-gated echo — no link-speed
-     * threshold). Empty while scrolled into history (guesses are active-grid
-     * coords; the viewport is not).
+     * `always` ⇒ all pending; `adaptive` ⇒ all pending after an echo is confirmed
+     * on this line and measured RTT is high enough to help. Empty in app-owned
+     * Kitty composers and while scrolled into history.
      * @returns {Uint32Array}
      */
     predict_overlay() {
@@ -636,8 +635,8 @@ export class AtermTerminal {
      * applies a PTY chunk. Confirmed leading guesses retire (arming the
      * epoch's display gate), any divergence flushes the set, and a no-echo
      * context refuses prediction outright — the alternate screen (vim/less/
-     * htop) OR kitty REPORT_ALL_KEYS_AS_ESC, whose apps never receive echoing
-     * text (the native gate). While scrolled into history only the expiry
+     * htop) OR an app-owned Kitty composer (REPORT_EVENT_TYPES /
+     * REPORT_ALL_KEYS_AS_ESC). While scrolled into history only the expiry
      * self-heal runs: guesses live in ACTIVE-grid coords, so the scrollback
      * view is never reconciled against them (the native discipline).
      */
@@ -645,13 +644,22 @@ export class AtermTerminal {
         wasm.atermterminal_predict_reconcile(this.__wbg_ptr);
     }
     /**
-     * Drop all in-flight guesses — the coordinate space changed (`resize`
-     * calls this automatically; the host calls it on pane swaps). The
-     * confirmation epoch is forgotten too, so `adaptive` re-confirms an echo
-     * before displaying again.
+     * Drop all in-flight guesses because this SAME terminal's coordinate space
+     * changed (`resize` calls this automatically). The confirmation epoch is
+     * forgotten, while this session's learned link RTT remains useful.
      */
     predict_reset() {
         wasm.atermterminal_predict_reset(this.__wbg_ptr);
+    }
+    /**
+     * Reset for a DIFFERENT pane/session. In addition to coordinate-bound
+     * guesses, forget the learned echo RTT so a slow remote pane cannot make a
+     * newly selected local pane display speculation. Hosts that keep one
+     * `AtermTerminal` per session never need this; pane-reusing hosts call it at
+     * the identity switch.
+     */
+    predict_session_reset() {
+        wasm.atermterminal_predict_session_reset(this.__wbg_ptr);
     }
     /**
      * Feed raw PTY output bytes into the engine.
@@ -1433,9 +1441,8 @@ export class AtermTerminal {
     }
     /**
      * Set the predictive-echo display mode: `"off"` (the default) |
-     * `"adaptive"` (instant epoch-gated echo: show the moment one guess has
-     * been confirmed on the current line, proving the app line-echoes — the
-     * recommended setting) | `"always"` (power users / demos). Case-
+     * `"adaptive"` (show after the current line confirms echo and its measured
+     * RTT is high enough to benefit) | `"always"` (power users / demos). Case-
      * insensitive; unknown strings fail safe to `off` — the native
      * `predictive_echo` domain.
      * @param {string} mode

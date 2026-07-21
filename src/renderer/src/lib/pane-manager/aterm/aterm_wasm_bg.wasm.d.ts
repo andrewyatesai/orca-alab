@@ -56,6 +56,7 @@ export const atermterminal_predict_next_deadline_ms: (a: number) => [number, num
 export const atermterminal_predict_overlay: (a: number) => [number, number];
 export const atermterminal_predict_reconcile: (a: number) => void;
 export const atermterminal_predict_reset: (a: number) => void;
+export const atermterminal_predict_session_reset: (a: number) => void;
 export const atermterminal_process: (a: number, b: number, c: number) => void;
 export const atermterminal_process_str: (a: number, b: number, c: number) => void;
 export const atermterminal_pump_reflow: (a: number) => number;

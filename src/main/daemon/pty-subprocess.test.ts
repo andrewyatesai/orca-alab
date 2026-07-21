@@ -1383,6 +1383,104 @@ describe('createPtySubprocess', () => {
     expect(proc.write).toHaveBeenCalledWith('still alive\n')
   })
 
+  it('chunks and paces large writes on Windows ConPTY without losing bytes', () => {
+    vi.useFakeTimers()
+    const proc = mockPtyProcess()
+    spawnMock.mockReturnValue(proc)
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+
+    try {
+      const handle = createPtySubprocess({ sessionId: 'test', cols: 80, rows: 24 })
+      const payload = 'x'.repeat(1000)
+      handle.write(payload)
+
+      // First chunk flushes synchronously; the remainder is paced over timers.
+      expect(proc.write).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(100)
+
+      const chunks = proc.write.mock.calls.map((call) => call[0] as string)
+      expect(chunks.length).toBeGreaterThan(1)
+      expect(chunks.every((chunk) => chunk.length <= 256)).toBe(true)
+      expect(chunks.join('')).toBe(payload)
+    } finally {
+      vi.useRealTimers()
+      if (platform) {
+        Object.defineProperty(process, 'platform', platform)
+      }
+    }
+  })
+
+  it('preserves byte order when a keystroke races a paced ConPTY drain on Windows', () => {
+    vi.useFakeTimers()
+    const proc = mockPtyProcess()
+    spawnMock.mockReturnValue(proc)
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+
+    try {
+      const handle = createPtySubprocess({ sessionId: 'test', cols: 80, rows: 24 })
+      const paste = 'a'.repeat(600)
+      handle.write(paste)
+      // A keystroke arrives while the paste is still draining; it must queue behind.
+      handle.write('b')
+      vi.advanceTimersByTime(100)
+
+      const written = proc.write.mock.calls.map((call) => call[0] as string).join('')
+      expect(written).toBe(`${paste}b`)
+    } finally {
+      vi.useRealTimers()
+      if (platform) {
+        Object.defineProperty(process, 'platform', platform)
+      }
+    }
+  })
+
+  it('keeps input alive after a paced ConPTY chunk write throws (#8426 invariant)', () => {
+    vi.useFakeTimers()
+    const proc = mockPtyProcess()
+    spawnMock.mockReturnValue(proc)
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+
+    try {
+      const handle = createPtySubprocess({ sessionId: 'test', cols: 80, rows: 24 })
+      proc.write.mockImplementationOnce(() => {
+        throw new Error('write EAGAIN: resource temporarily unavailable')
+      })
+      handle.write('x'.repeat(600))
+      vi.advanceTimersByTime(100)
+
+      handle.write('b')
+      expect(proc.write).toHaveBeenLastCalledWith('b')
+    } finally {
+      vi.useRealTimers()
+      if (platform) {
+        Object.defineProperty(process, 'platform', platform)
+      }
+    }
+  })
+
+  it('writes large input directly on non-Windows platforms', () => {
+    const proc = mockPtyProcess()
+    spawnMock.mockReturnValue(proc)
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+
+    try {
+      const handle = createPtySubprocess({ sessionId: 'test', cols: 80, rows: 24 })
+      const payload = 'y'.repeat(1000)
+      handle.write(payload)
+
+      expect(proc.write).toHaveBeenCalledTimes(1)
+      expect(proc.write).toHaveBeenCalledWith(payload)
+    } finally {
+      if (platform) {
+        Object.defineProperty(process, 'platform', platform)
+      }
+    }
+  })
+
   it('forwards resize calls', () => {
     const proc = mockPtyProcess()
     spawnMock.mockReturnValue(proc)

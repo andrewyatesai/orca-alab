@@ -45,6 +45,27 @@ export const getGitPaneSearchEntries = createLocalizedCatalog(() => [
   },
   {
     title: translate(
+      'auto.components.settings.git.search.publishRemoteBranchTitle',
+      'Publish New Workspace Branches'
+    ),
+    description: translate(
+      'auto.components.settings.git.search.publishRemoteBranchDescription',
+      'Push newly-created worktree branches to origin and set upstream tracking.'
+    ),
+    keywords: [
+      ...translateSearchKeyword('auto.components.settings.git.search.publish', 'publish'),
+      ...translateSearchKeyword(
+        'auto.components.settings.git.search.remoteBranch',
+        'remote branch'
+      ),
+      ...translateSearchKeyword('auto.components.settings.git.search.origin', 'origin'),
+      ...translateSearchKeyword('auto.components.settings.git.search.upstream', 'upstream'),
+      ...translateSearchKeyword('auto.components.settings.git.search.push', 'push'),
+      ...translateSearchKeyword('auto.components.settings.git.search.035134fcd9', 'worktree')
+    ]
+  },
+  {
+    title: translate(
       'auto.components.settings.git.search.sourceControlGroupOrderTitle',
       'Source Control Group Order'
     ),

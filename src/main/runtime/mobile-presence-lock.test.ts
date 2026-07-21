@@ -53,6 +53,7 @@ const store = {
     workspaceDir: '/tmp/workspaces',
     nestWorkspaces: false,
     refreshLocalBaseRefOnWorktreeCreate: false,
+    publishRemoteBranchOnWorktreeCreate: false,
     branchPrefix: 'none',
     branchPrefixCustom: '',
     // Why: default to a finite 5s (not the real null/indefinite) so legacy auto-restore tests still fire. See docs/mobile-fit-hold.md.

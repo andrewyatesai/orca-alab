@@ -3078,6 +3078,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             openSettingsPage: get().openSettingsPage,
             openSettingsTarget: get().openSettingsTarget
           })
+          if (result.warning) {
+            toast.warning(result.warning)
+          }
           return result
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)

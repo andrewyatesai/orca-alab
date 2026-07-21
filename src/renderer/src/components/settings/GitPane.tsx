@@ -9,6 +9,10 @@ import { SearchableSetting } from './SearchableSetting'
 import { matchesSettingsSearch } from './settings-search'
 import { AutoRenameBranchFromWorkSetting } from './AutoRenameBranchFromWorkSetting'
 import {
+  PublishRemoteBranchSetting,
+  publishRemoteBranchMatchesSearch
+} from './PublishRemoteBranchSetting'
+import {
   CompareAgainstUpstreamSetting,
   compareAgainstUpstreamMatchesSearch
 } from './CompareAgainstUpstreamSetting'
@@ -274,6 +278,13 @@ export function GitPane({
           />
         </button>
       </SearchableSetting>
+    ) : null,
+    publishRemoteBranchMatchesSearch(searchQuery) ? (
+      <PublishRemoteBranchSetting
+        key="publish-remote-branch"
+        settings={settings}
+        updateSettings={updateSettings}
+      />
     ) : null,
     matchesSettingsSearch(searchQuery, {
       title: translate(

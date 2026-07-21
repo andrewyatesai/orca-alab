@@ -37,6 +37,7 @@ import { validateGitPushTarget } from '../git/push-target-validation'
 import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
 import { gitExecFileAsync } from '../git/runner'
 import { parseGitHubOwnerRepo } from '../github/gh-utils'
+import { gitPush } from '../git/remote'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type { RemoteFetchResult, RemoteTrackingBase } from '../runtime/orca-runtime'
 import { getProjectHostSetupWorktreeMeta } from '../../shared/project-host-setup-projection'
@@ -1526,6 +1527,24 @@ export function emitCreateWorktreeProgress(
   }
 }
 
+function formatPublishRemoteBranchWarning(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return `Workspace created, but Orca could not publish its branch to origin: ${message}`
+}
+
+async function publishCreatedBranchToOrigin(
+  publish: () => Promise<void>
+): Promise<string | undefined> {
+  try {
+    await publish()
+    return undefined
+  } catch (error) {
+    // Why: publishing is a post-create convenience. If auth or network fails,
+    // keep the real local/SSH worktree visible and surface the publish failure.
+    return formatPublishRemoteBranchWarning(error)
+  }
+}
+
 export async function createRemoteWorktree(
   args: CreateWorktreeArgsWithSystemProvenance,
   repo: Repo,
@@ -1863,6 +1882,11 @@ export async function createRemoteWorktree(
     return { worktree: mergeWorktree(repo.id, created, meta) }
   })
   const workspaceLineage = recordWorkspaceLineageForCreatedWorktree(store, args, worktree, now)
+  const publishWarning = settings.publishRemoteBranchOnWorktreeCreate
+    ? await timing.time('publish_remote_branch', () =>
+        publishCreatedBranchToOrigin(() => provider.pushBranch(created.path, true))
+      )
+    : undefined
 
   // Why: shared/symlink paths are local-only; remote (SSH) support needs a new relay method + auth surface, so configured symlinkPaths are ignored here.
 
@@ -1915,6 +1939,7 @@ export async function createRemoteWorktree(
     ...(defaultTabs ? { defaultTabs } : {}),
     ...(localBaseRefRefresh ? { localBaseRefRefresh } : {}),
     ...(localBaseRefUpdateSuggestion ? { localBaseRefUpdateSuggestion } : {}),
+    ...(publishWarning ? { warning: publishWarning } : {}),
     timing: timing.finish()
   }
 }
@@ -2449,6 +2474,11 @@ export async function createLocalWorktree(
     repo.path,
     ...gitWorktrees.map((worktree) => worktree.path)
   ])
+  const publishWarning = settings.publishRemoteBranchOnWorktreeCreate
+    ? await timing.time('publish_remote_branch', () =>
+        publishCreatedBranchToOrigin(() => gitPush(created.path, true))
+      )
+    : undefined
 
   // Why: link user-configured shared paths (e.g. `node_modules`, `.env`) before setup runs so setup scripts see them in place.
   const symlinkPaths = repo.symlinkPaths ?? []
@@ -2512,6 +2542,8 @@ export async function createLocalWorktree(
   )
 
   notifyWorktreesChanged(mainWindow, repo.id)
+  const combinedWarning =
+    [stagedStartup.warning, publishWarning].filter(Boolean).join('\n') || undefined
   return {
     worktree: { ...worktree, workspaceLineage },
     ...(workspaceLineage ? { workspaceLineage } : {}),
@@ -2528,7 +2560,7 @@ export async function createLocalWorktree(
       ? { localBaseRefUpdateSuggestion: addResult.localBaseRefUpdateSuggestion }
       : {}),
     ...(stagedStartup.startupTerminal ? { startupTerminal: stagedStartup.startupTerminal } : {}),
-    ...(stagedStartup.warning ? { warning: stagedStartup.warning } : {}),
+    ...(combinedWarning ? { warning: combinedWarning } : {}),
     timing: timing.finish()
   }
 }

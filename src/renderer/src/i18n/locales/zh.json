@@ -5669,7 +5669,11 @@
           "compareAgainstUpstreamTitle": "默认对比基准",
           "compareAgainstUpstreamDescription": "选择源代码管理在比较已提交变更时默认使用的基准。分支上游会自动跟随当前分支；如果没有上游，则回退到仓库默认分支。你仍然可以在对应 worktree 的 Git 面板中按 worktree 更改对比基准。Pull Request 和变基目标不会改变。",
           "compareBaseRepositoryDefault": "仓库默认",
-          "compareBaseBranchUpstream": "分支上游"
+          "compareBaseBranchUpstream": "分支上游",
+          "publishRemoteBranchTitle": "Publish New Workspace Branches",
+          "publishRemoteBranchDescription": "Push newly-created worktree branches to origin and set upstream tracking.",
+          "publishRemoteBranchBodyLead": "When enabled, Orca runs",
+          "publishRemoteBranchBodyTail": "after creating a workspace so terminal pushes target the workspace branch."
         },
         "HiddenExperimentalGroup": {
           "d0f914a528": "占位符切换",
@@ -7890,7 +7894,9 @@
             "defaultCompareBase": "默认对比基准",
             "defaultBranch": "默认分支",
             "repositoryDefault": "仓库默认",
-            "branchUpstream": "分支上游"
+            "branchUpstream": "分支上游",
+            "publishRemoteBranchTitle": "Publish New Workspace Branches",
+            "publishRemoteBranchDescription": "Push newly-created worktree branches to origin and set upstream tracking."
           }
         },
         "input": {
@@ -9485,6 +9491,9 @@
           "6c0fb2434a": "value",
           "0a09ab825e": "KEY",
           "520ba5f307": "claude"
+        },
+        "PublishRemoteBranchSetting": {
+          "cd5221266b": "git push -u origin HEAD"
         }
       },
       "right": {

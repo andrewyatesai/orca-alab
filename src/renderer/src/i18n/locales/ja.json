@@ -5706,7 +5706,11 @@
           "compareAgainstUpstreamTitle": "既定の比較ベース",
           "compareAgainstUpstreamDescription": "ソース管理がコミット済み変更の比較に既定で使うベースを選択します。ブランチの上流は現在のブランチに自動的に追従し、上流がない場合はリポジトリの既定ブランチにフォールバックします。比較ベースは各 worktree の Git パネルから worktree ごとに変更できます。Pull Request やリベースの対象は変更されません。",
           "compareBaseRepositoryDefault": "リポジトリ既定",
-          "compareBaseBranchUpstream": "ブランチの上流"
+          "compareBaseBranchUpstream": "ブランチの上流",
+          "publishRemoteBranchTitle": "Publish New Workspace Branches",
+          "publishRemoteBranchDescription": "Push newly-created worktree branches to origin and set upstream tracking.",
+          "publishRemoteBranchBodyLead": "When enabled, Orca runs",
+          "publishRemoteBranchBodyTail": "after creating a workspace so terminal pushes target the workspace branch."
         },
         "HiddenExperimentalGroup": {
           "d0f914a528": "プレースホルダーの切り替え",
@@ -7927,7 +7931,9 @@
             "defaultCompareBase": "既定の比較ベース",
             "defaultBranch": "既定ブランチ",
             "repositoryDefault": "リポジトリ既定",
-            "branchUpstream": "ブランチ上流"
+            "branchUpstream": "ブランチ上流",
+            "publishRemoteBranchTitle": "Publish New Workspace Branches",
+            "publishRemoteBranchDescription": "Push newly-created worktree branches to origin and set upstream tracking."
           }
         },
         "input": {
@@ -9485,6 +9491,9 @@
           "6c0fb2434a": "value",
           "0a09ab825e": "KEY",
           "520ba5f307": "claude"
+        },
+        "PublishRemoteBranchSetting": {
+          "cd5221266b": "git push -u origin HEAD"
         }
       },
       "right": {

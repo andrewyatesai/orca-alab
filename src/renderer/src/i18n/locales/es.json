@@ -5684,7 +5684,11 @@
           "compareAgainstUpstreamTitle": "Base de comparación predeterminada",
           "compareAgainstUpstreamDescription": "Elige qué base usa Control de código fuente de forma predeterminada para las comparaciones de cambios confirmados. El upstream de la rama sigue automáticamente la rama actual y recurre a la rama predeterminada del repositorio cuando no hay upstream. Aun así, puedes cambiar la base de comparación por worktree desde el panel Git de ese worktree. Los objetivos de Pull Request y rebase no cambian.",
           "compareBaseRepositoryDefault": "Predeterminada del repositorio",
-          "compareBaseBranchUpstream": "Upstream de la rama"
+          "compareBaseBranchUpstream": "Upstream de la rama",
+          "publishRemoteBranchTitle": "Publish New Workspace Branches",
+          "publishRemoteBranchDescription": "Push newly-created worktree branches to origin and set upstream tracking.",
+          "publishRemoteBranchBodyLead": "When enabled, Orca runs",
+          "publishRemoteBranchBodyTail": "after creating a workspace so terminal pushes target the workspace branch."
         },
         "HiddenExperimentalGroup": {
           "d0f914a528": "Alternar marcador de posición",
@@ -7905,7 +7909,9 @@
             "defaultCompareBase": "base de comparación predeterminada",
             "defaultBranch": "rama predeterminada",
             "repositoryDefault": "predeterminada del repositorio",
-            "branchUpstream": "upstream de la rama"
+            "branchUpstream": "upstream de la rama",
+            "publishRemoteBranchTitle": "Publish New Workspace Branches",
+            "publishRemoteBranchDescription": "Push newly-created worktree branches to origin and set upstream tracking."
           }
         },
         "input": {
@@ -9485,6 +9491,9 @@
           "6c0fb2434a": "value",
           "0a09ab825e": "KEY",
           "520ba5f307": "claude"
+        },
+        "PublishRemoteBranchSetting": {
+          "cd5221266b": "git push -u origin HEAD"
         }
       },
       "right": {

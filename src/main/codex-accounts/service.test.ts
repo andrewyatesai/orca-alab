@@ -52,6 +52,7 @@ function createSettings(overrides: Partial<GlobalSettings> = {}): GlobalSettings
     refreshLocalBaseRefOnWorktreeCreate: false,
     localBaseRefSuggestionDismissed: false,
     autoRenameBranchFromWork: false,
+    publishRemoteBranchOnWorktreeCreate: false,
     branchPrefix: 'git-username',
     branchPrefixCustom: '',
     theme: 'system',

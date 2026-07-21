@@ -35,6 +35,7 @@ import {
   WORKTREE_TEARDOWN_RPC_MARGIN_MS
 } from './worktree-teardown'
 import { clearSubmodulePathsCacheForTests, listSubmodulePaths } from '../git/status'
+import { gitPush } from '../git/remote'
 import {
   createSetupRunnerScript,
   getEffectiveHooks,
@@ -180,6 +181,7 @@ vi.mock('../ipc/filesystem-watcher', () => ({
 const {
   MOCK_GIT_WORKTREES,
   addWorktreeMock,
+  gitPushMock,
   removeWorktreeMock,
   forceDeleteLocalBranchMock,
   computeWorktreePathMock,
@@ -273,6 +275,7 @@ const {
       }
     ],
     addWorktreeMock: vi.fn(),
+    gitPushMock: vi.fn(),
     removeWorktreeMock: vi.fn(),
     forceDeleteLocalBranchMock: vi.fn(),
     computeWorktreePathMock: vi.fn(),
@@ -409,6 +412,10 @@ vi.mock('../agent-trust-presets', () => ({
   markCodexProjectTrusted: markCodexProjectTrustedMock,
   markCopilotFolderTrusted: markCopilotFolderTrustedMock,
   markCursorWorkspaceTrusted: markCursorWorkspaceTrustedMock
+}))
+
+vi.mock('../git/remote', () => ({
+  gitPush: gitPushMock
 }))
 
 vi.mock('../hooks', () => ({
@@ -606,6 +613,7 @@ function resetRuntimeTestMocks(): void {
   vi.mocked(addWorktree).mockReset()
   vi.mocked(assertWorktreeCleanForRemoval).mockReset()
   vi.mocked(assertWorktreeCleanForRemoval).mockResolvedValue(undefined)
+  vi.mocked(gitPush).mockReset()
   vi.mocked(removeWorktree).mockReset()
   findExistingWorktreeSymlinkPathsMock.mockReset().mockResolvedValue([])
   removeWorktreeLinkedPathsMock.mockReset()
@@ -1234,6 +1242,7 @@ const store = {
     workspaceDir: '/tmp/workspaces',
     nestWorkspaces: false,
     refreshLocalBaseRefOnWorktreeCreate: false,
+    publishRemoteBranchOnWorktreeCreate: false,
     branchPrefix: 'none',
     branchPrefixCustom: ''
   }),
@@ -30742,6 +30751,69 @@ describe('OrcaRuntimeService', () => {
     expect(result.worktree.createdAt).toBe(result.worktree.lastActivityAt)
   })
 
+  it('publishes CLI-created worktree branches when the setting is enabled', async () => {
+    const publishStore = {
+      ...store,
+      getSettings: () => ({
+        ...store.getSettings(),
+        publishRemoteBranchOnWorktreeCreate: true
+      })
+    }
+    const runtime = new OrcaRuntimeService(publishStore as never)
+    computeWorktreePathMock.mockReturnValue('/tmp/workspaces/runtime-publish')
+    ensurePathWithinWorkspaceMock.mockReturnValue('/tmp/workspaces/runtime-publish')
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      {
+        path: '/tmp/workspaces/runtime-publish',
+        head: 'def',
+        branch: 'runtime-publish',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+
+    const result = await runtime.createManagedWorktree({
+      repoSelector: 'id:repo-1',
+      name: 'runtime-publish'
+    })
+
+    expect(gitPush).toHaveBeenCalledWith('/tmp/workspaces/runtime-publish', true)
+    expect(result.warning).toBeUndefined()
+  })
+
+  it('keeps CLI worktree creation successful when publish fails', async () => {
+    const publishStore = {
+      ...store,
+      getSettings: () => ({
+        ...store.getSettings(),
+        publishRemoteBranchOnWorktreeCreate: true
+      })
+    }
+    const runtime = new OrcaRuntimeService(publishStore as never)
+    computeWorktreePathMock.mockReturnValue('/tmp/workspaces/runtime-publish-fail')
+    ensurePathWithinWorkspaceMock.mockReturnValue('/tmp/workspaces/runtime-publish-fail')
+    vi.mocked(gitPush).mockRejectedValueOnce(new Error('Authentication failed.'))
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      {
+        path: '/tmp/workspaces/runtime-publish-fail',
+        head: 'def',
+        branch: 'runtime-publish-fail',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+
+    const result = await runtime.createManagedWorktree({
+      repoSelector: 'id:repo-1',
+      name: 'runtime-publish-fail'
+    })
+
+    expect(result.worktree.path).toBe('/tmp/workspaces/runtime-publish-fail')
+    expect(result.warning).toBe(
+      'Workspace created, but Orca could not publish its branch to origin: Authentication failed.'
+    )
+  })
+
   it('routes runtime worktree creation through the selected WSL project runtime', async () => {
     setPlatform('win32')
     const runtimeStore = {
@@ -32405,6 +32477,7 @@ describe('OrcaRuntimeService', () => {
         workspaceDir: 'C:\\workspaces',
         nestWorkspaces: false,
         refreshLocalBaseRefOnWorktreeCreate: false,
+        publishRemoteBranchOnWorktreeCreate: false,
         branchPrefix: 'none',
         branchPrefixCustom: ''
       })

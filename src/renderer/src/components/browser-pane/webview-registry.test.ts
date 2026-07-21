@@ -11,6 +11,8 @@ function createWebview(overrides: Partial<Electron.WebviewTag> = {}): Electron.W
     style: {},
     blur: vi.fn(),
     remove: vi.fn(),
+    stop: vi.fn(),
+    loadURL: vi.fn().mockResolvedValue(undefined),
     contains: vi.fn(() => false),
     ...overrides
   } as unknown as Electron.WebviewTag
@@ -88,6 +90,46 @@ describe('webview registry drag listeners', () => {
     expect(removedListeners.map((entry) => entry.type)).toEqual(['dragstart', 'dragend', 'drop'])
     expect(unregisterGuestMock).toHaveBeenCalledWith({ browserPageId: 'page-1' })
     expect(unregisterGuestMock).toHaveBeenCalledWith({ browserPageId: 'page-2' })
+  })
+
+  it('kills the guest media session before removing the webview from the DOM', async () => {
+    const { destroyPersistentWebview, registerPersistentWebview } =
+      await import('./webview-registry')
+    const calls: string[] = []
+    const webview = createWebview({
+      stop: vi.fn(() => {
+        calls.push('stop')
+      }),
+      loadURL: vi.fn(() => {
+        calls.push('loadURL')
+        return Promise.resolve()
+      }),
+      remove: vi.fn(() => {
+        calls.push('remove')
+      })
+    } as Partial<Electron.WebviewTag>)
+    registerPersistentWebview('page-1', webview)
+
+    destroyPersistentWebview('page-1')
+
+    expect(calls).toEqual(['stop', 'loadURL', 'remove'])
+    expect(webview.loadURL).toHaveBeenCalledWith('about:blank')
+  })
+
+  it('still removes the webview when the media-session teardown throws', async () => {
+    const { destroyPersistentWebview, registerPersistentWebview } =
+      await import('./webview-registry')
+    const webview = createWebview({
+      stop: vi.fn(() => {
+        throw new Error('webview already torn down')
+      })
+    } as Partial<Electron.WebviewTag>)
+    registerPersistentWebview('page-1', webview)
+
+    destroyPersistentWebview('page-1')
+
+    expect(webview.remove).toHaveBeenCalledTimes(1)
+    expect(unregisterGuestMock).toHaveBeenCalledWith({ browserPageId: 'page-1' })
   })
 
   it('releases native drag passthrough when the last webview is destroyed', async () => {

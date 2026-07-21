@@ -1163,6 +1163,12 @@ export class BrowserManager {
     const wcId = this.webContentsIdByTabId.get(browserTabId)
     if (wcId !== undefined) {
       this.tabIdByWebContentsId.delete(wcId)
+      // Why: webview.remove() does not synchronously destroy the guest, so its
+      // media session lives until GC and media keys still control a "dead" tab.
+      const wc = webContents.fromId(wcId)
+      if (wc && !wc.isDestroyed()) {
+        wc.close()
+      }
     }
     this.webContentsIdByTabId.delete(browserTabId)
     this.rendererWebContentsIdByTabId.delete(browserTabId)

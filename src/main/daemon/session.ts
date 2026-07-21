@@ -1,5 +1,6 @@
 /* oxlint-disable max-lines */
 import { createHeadlessEmulator, type TerminalEmulator } from './headless-emulator-factory'
+import { ConinAtomicSequenceWriter } from './conin-atomic-sequence-writer'
 import { isValidPtySize, normalizePtySize } from './daemon-pty-size'
 import { PostReadyFlushGate } from './post-ready-flush-gate'
 import {
@@ -124,6 +125,9 @@ export class Session {
   private subprocessDisposed = false
   private readonly physicalExit = new PhysicalExitTracker()
   private readonly startupIngress: PtyStartupIngress
+  // Why win32-only: ConPTY's input parser drops VT state at conin write
+  // boundaries, turning a split escape sequence into literal keystrokes.
+  private readonly coninWriter: ConinAtomicSequenceWriter | null
 
   constructor(opts: SessionOptions) {
     this.sessionId = opts.sessionId
@@ -158,10 +162,18 @@ export class Session {
       this._shellState = 'unsupported'
     }
 
+    this.coninWriter =
+      process.platform === 'win32'
+        ? new ConinAtomicSequenceWriter((data) => this.subprocess.write(data), {
+            sessionIdSuffix: this.sessionId.slice(-10)
+          })
+        : null
+
     this.postReadyFlushGate = new PostReadyFlushGate(() => this.flushPreReadyQueue())
     this.startupIngress = new PtyStartupIngress({
       ...(opts.startupIngress ? { intent: opts.startupIngress } : {}),
-      write: (data) => this.subprocess.write(data),
+      // Why through the guard: a reply must not reorder around a held conin tail.
+      write: (data) => this.writeToSubprocess(data),
       onEmission: (emission) => this.emitSubprocessOutput(emission)
     })
     this.subprocess.onData((data) => this.handleSubprocessData(data))
@@ -220,6 +232,16 @@ export class Session {
       return
     }
 
+    this.writeToSubprocess(data)
+  }
+
+  // Why: on Windows every conin write funnels through the atomic-sequence
+  // guard so a split escape sequence cannot reach ConPTY across two writes.
+  private writeToSubprocess(data: string): void {
+    if (this.coninWriter) {
+      this.coninWriter.write(data)
+      return
+    }
     this.subprocess.write(data)
   }
 
@@ -486,7 +508,8 @@ export class Session {
     if (!this.emulator.isCursorOnEmptyPromptLine()) {
       return
     }
-    this.subprocess.write('\x0c')
+    // Why through the guard: bypassing it could reorder around a held tail.
+    this.writeToSubprocess('\x0c')
   }
 
   prepareForFinalSnapshot(): string {
@@ -553,6 +576,8 @@ export class Session {
       return
     }
     this._disposed = true
+    // Why: drop any held partial input — the PTY is going away.
+    this.coninWriter?.dispose()
     // Why: never leave a paused fd behind on teardown; the handle's dead-guard makes this a no-op once the child is reaped.
     this.releaseProducerPause({ resume: true })
     if (this.killTimer) {
@@ -652,6 +677,7 @@ export class Session {
     this._exitCode = code
     this._state = 'exited'
     this._isTerminating = false
+    this.coninWriter?.dispose()
     // Why resume:false — the child is reaped (nothing to unblock); only the failsafe timer must not outlive the session.
     this.releaseProducerPause({ resume: false })
 
@@ -719,7 +745,7 @@ export class Session {
     const queued = this.preReadyStdinQueue
     this.preReadyStdinQueue = []
     for (const data of queued) {
-      this.subprocess.write(data)
+      this.writeToSubprocess(data)
     }
   }
 

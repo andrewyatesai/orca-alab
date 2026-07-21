@@ -64,8 +64,7 @@ export class OrchestrationDb {
   constructor(dbPath: string | ':memory:') {
     // Lazy-require so merely importing this module never forces the native addon
     // to load — only an actual store instantiation depends on it.
-    const binding = requireRustGitBinding()
-    this.store = new binding.OrchestrationStore(dbPath)
+    this.store = new (requireRustGitBinding().OrchestrationStore)(dbPath)
   }
 
   private static row<T>(json: string): T {
@@ -381,6 +380,11 @@ export class OrchestrationDb {
 
   getActiveCoordinatorRun(): CoordinatorRun | undefined {
     return OrchestrationDb.optRow<CoordinatorRun>(this.store.getActiveCoordinatorRun())
+  }
+
+  // Why: orchestrators may run concurrently (#4389) — gating needs every running row.
+  getActiveCoordinatorRuns(): CoordinatorRun[] {
+    return OrchestrationDb.list<CoordinatorRun>(this.store.getActiveCoordinatorRuns())
   }
 
   // ── Queries for Coordinator ──

@@ -130,6 +130,8 @@ export type RustOrchestrationStoreHandle = {
   getCoordinatorRun(id: string): string | null
   updateCoordinatorRun(id: string, status: string, completedAt: string | null): string | null
   getActiveCoordinatorRun(): string | null
+  /** Every still-running coordinator, newest first — multi-orchestrator gating (#4389). */
+  getActiveCoordinatorRuns(): string
   // queries + lifecycle
   getIdleTerminals(excludeHandles: string[]): string
   resetAll(): void

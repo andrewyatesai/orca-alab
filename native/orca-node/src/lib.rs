@@ -938,6 +938,11 @@ impl JsOrchestrationStore {
         Ok(self.store()?.active_coordinator_run().map_err(napi_err)?.map(|r| row_json(&r)))
     }
 
+    #[napi(catch_unwind)]
+    pub fn get_active_coordinator_runs(&self) -> napi::Result<String> {
+        self.store()?.active_coordinator_runs().map(|r| row_json(&r)).map_err(napi_err)
+    }
+
     // ---- queries + lifecycle ----
 
     #[napi(catch_unwind)]

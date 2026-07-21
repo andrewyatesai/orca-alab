@@ -1,13 +1,31 @@
 import { z } from 'zod'
 import { defineMethod, type RpcMethod } from '../core'
 import { OptionalFiniteNumber, OptionalString, requiredString } from '../schemas'
-import type { GateStatus } from '../../orchestration/db'
+import type { CoordinatorRun, GateStatus, OrchestrationDb } from '../../orchestration/db'
 import { Coordinator } from '../../orchestration/coordinator'
 
-// Why: the coordinator instance is stored at module scope so orchestration.runStop
-// can signal it to halt. Only one coordinator can run at a time (enforced by
-// the DB's active-run check), so a single reference suffices.
-let activeCoordinator: Coordinator | null = null
+// Why: live coordinators are keyed by run id so orchestration.runStop can
+// target one without touching the others. Runs are keyed by coordinator
+// handle (#4389): one live run per handle, but different handles may
+// coordinate concurrently in the same workspace.
+const activeCoordinators = new Map<string, { coordinator: Coordinator; handle: string }>()
+
+function findLiveRunIdForHandle(handle: string): string | undefined {
+  for (const [runId, entry] of activeCoordinators) {
+    if (entry.handle === handle) {
+      return runId
+    }
+  }
+  return undefined
+}
+
+function markStaleCoordinatorRunFailed(db: OrchestrationDb, run: CoordinatorRun): void {
+  // Why: a process restart loses the in-memory coordinator handle but can
+  // leave the durable row marked running. Without a live handle, the row cannot
+  // make progress, so fail it before accepting or acknowledging new lifecycle
+  // commands.
+  db.updateCoordinatorRun(run.id, 'failed')
+}
 
 const RunParams = z.object({
   spec: requiredString('Missing --spec'),
@@ -17,7 +35,10 @@ const RunParams = z.object({
   worktree: OptionalString
 })
 
-const RunStopParams = z.object({})
+const RunStopParams = z.object({
+  runId: OptionalString,
+  from: OptionalString
+})
 
 const GateCreateParams = z.object({
   task: requiredString('Missing --task'),
@@ -46,12 +67,23 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
 
-      const existing = db.getActiveCoordinatorRun()
-      if (existing) {
-        throw new Error(`Coordinator already running: ${existing.id}`)
+      const coordinatorHandle = params.from ?? 'coordinator'
+      const liveRunId = findLiveRunIdForHandle(coordinatorHandle)
+      if (liveRunId) {
+        throw new Error(`Coordinator already running: ${liveRunId}`)
+      }
+      // Why: only rows owned by THIS handle gate or get reaped here — another
+      // handle's live run must neither block this start nor be failed as stale.
+      for (const existing of db.getActiveCoordinatorRuns()) {
+        if (existing.coordinator_handle !== coordinatorHandle) {
+          continue
+        }
+        if (activeCoordinators.has(existing.id)) {
+          throw new Error(`Coordinator already running: ${existing.id}`)
+        }
+        markStaleCoordinatorRunFailed(db, existing)
       }
 
-      const coordinatorHandle = params.from ?? 'coordinator'
       const coordinator = new Coordinator(db, runtime, {
         spec: params.spec,
         coordinatorHandle,
@@ -60,20 +92,20 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
         worktree: params.worktree
       })
 
-      activeCoordinator = coordinator
-
       const run = db.createCoordinatorRun({
         spec: params.spec,
         coordinatorHandle,
         pollIntervalMs: params.pollIntervalMs
       })
 
+      activeCoordinators.set(run.id, { coordinator, handle: coordinatorHandle })
+
       // Why: fire-and-forget — the coordinator loop runs in the event loop
       // background. Results are persisted to the DB; callers query via
       // orchestration.taskList or orchestration.runStatus.
       coordinator.runFromExistingRun(run.id).finally(() => {
-        if (activeCoordinator === coordinator) {
-          activeCoordinator = null
+        if (activeCoordinators.get(run.id)?.coordinator === coordinator) {
+          activeCoordinators.delete(run.id)
         }
       })
 
@@ -84,16 +116,46 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'orchestration.runStop',
     params: RunStopParams,
-    handler: (_params, { runtime }) => {
+    handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
-      const run = db.getActiveCoordinatorRun()
-      if (!run) {
-        throw new Error('No active coordinator run')
+      const activeRuns = db.getActiveCoordinatorRuns()
+
+      let run: CoordinatorRun
+      if (params.runId) {
+        const match = activeRuns.find((candidate) => candidate.id === params.runId)
+        if (!match) {
+          throw new Error(`No active coordinator run: ${params.runId}`)
+        }
+        run = match
+      } else if (params.from) {
+        const match = activeRuns.find(
+          (candidate) => candidate.coordinator_handle === params.from
+        )
+        if (!match) {
+          throw new Error(`No active coordinator run for handle: ${params.from}`)
+        }
+        run = match
+      } else {
+        if (activeRuns.length === 0) {
+          throw new Error('No active coordinator run')
+        }
+        // Why: an untargeted stop with several orchestrators live would pick one
+        // arbitrarily — the mutual-kill in #4389 — so demand a target instead.
+        if (activeRuns.length > 1) {
+          throw new Error(
+            `Multiple active coordinator runs (${activeRuns
+              .map((candidate) => `${candidate.id}:${candidate.coordinator_handle}`)
+              .join(', ')}); pass --run <run_id> or --from <handle>`
+          )
+        }
+        run = activeRuns[0]
       }
 
-      if (activeCoordinator) {
-        activeCoordinator.stop()
-        activeCoordinator = null
+      const live = activeCoordinators.get(run.id)
+      if (live) {
+        live.coordinator.stop()
+      } else {
+        markStaleCoordinatorRunFailed(db, run)
       }
 
       return { runId: run.id, stopped: true }

@@ -582,6 +582,18 @@ describe('OrchestrationDb', () => {
       d.updateCoordinatorRun(run.id, 'completed')
       expect(d.getActiveCoordinatorRun()).toBeUndefined()
     })
+
+    it('lists every active coordinator run newest first', () => {
+      const d = createDb()
+      expect(d.getActiveCoordinatorRuns()).toEqual([])
+
+      const first = d.createCoordinatorRun({ spec: 'a', coordinatorHandle: 'coord-a' })
+      const second = d.createCoordinatorRun({ spec: 'b', coordinatorHandle: 'coord-b' })
+      const third = d.createCoordinatorRun({ spec: 'c', coordinatorHandle: 'coord-c' })
+      d.updateCoordinatorRun(second.id, 'failed')
+
+      expect(d.getActiveCoordinatorRuns().map((run) => run.id)).toEqual([third.id, first.id])
+    })
   })
 
   describe('lifecycle', () => {

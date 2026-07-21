@@ -153,7 +153,10 @@ vi.mock('../agent-hooks/server', () => ({
     buildPtyEnv: buildAgentHookEnvMock,
     clearPaneState: clearAgentHookPaneStateMock,
     registerPaneKeyAlias: registerPaneKeyAliasMock,
-    clearPaneKeyAliasesForPty: clearPaneKeyAliasesForPtyMock
+    clearPaneKeyAliasesForPty: clearPaneKeyAliasesForPtyMock,
+    registerProviderSessionPane: vi.fn(),
+    clearProviderSessionPanesForPty: vi.fn(),
+    setClaudePaneInputProbe: vi.fn()
   }
 }))
 
@@ -7414,7 +7417,11 @@ describe('registerPtyHandlers', () => {
         mockProc.emitData('\x1b]133;A\x07% ')
         await Promise.resolve()
         vi.runAllTimers()
-        expect(mockProc.proc.write).toHaveBeenCalledWith('claude\n')
+        // Why: local claude launches get a pinned --session-id appended for
+        // daemon-proof pane attribution (#9237); timing is what's under test.
+        expect(mockProc.proc.write).toHaveBeenCalledWith(
+          expect.stringMatching(/^claude( --session-id [0-9a-f-]{36})?\n$/)
+        )
       } finally {
         vi.useRealTimers()
       }

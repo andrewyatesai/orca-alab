@@ -5400,6 +5400,98 @@ describe('connectPanePty', () => {
     expect(mockStoreState.removeAgentStatus).not.toHaveBeenCalled()
   })
 
+  async function driveLaunchFailureCommandFinished(args: {
+    row: { prompt: string; updatedAt: number; stateStartedAt: number }
+    exitLine: string
+  }): Promise<string> {
+    const { connectPanePty } = await import('./pty-connection')
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    // Why (test): the fresh agent row defers the drop behind a foreground
+    // confirmation; a shell reading settles it deterministically.
+    vi.mocked(window.api.pty.confirmForegroundProcess).mockResolvedValue('zsh')
+
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const transport = createMockTransport()
+    let currentPtyId: string | null = null
+    vi.mocked(transport.getPtyId).mockImplementation(() => currentPtyId)
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      currentPtyId = 'pty-local-1'
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-local-1'
+    })
+    transportFactoryQueue.push(transport)
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      agentType: 'codex',
+      stateHistory: [],
+      ...args.row
+    }
+
+    connectPanePty(
+      createPane(1) as never,
+      createManager(1) as never,
+      createDeps({ isVisibleRef: { current: false } }) as never
+    )
+
+    capturedDataCallback.current?.(args.exitLine)
+    await flushAsyncTicks()
+    await vi.advanceTimersByTimeAsync(350)
+    await flushAsyncTicks()
+    return paneKey
+  }
+
+  it('marks a pre-recognition seeded row failed to launch on a 127 command exit', async () => {
+    const seededAt = Date.now()
+    const paneKey = await driveLaunchFailureCommandFinished({
+      row: { prompt: 'Fix the login flow', updatedAt: seededAt, stateStartedAt: seededAt },
+      exitLine: '\x1b]133;D;127\x07zsh: command not found: codex\r\n'
+    })
+
+    expect(mockStoreState.dropAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.setAgentStatus).toHaveBeenCalledWith(
+      paneKey,
+      {
+        state: 'done',
+        prompt: 'Fix the login flow',
+        agentType: 'codex',
+        launchFailed: true,
+        lastAssistantMessage:
+          'Codex failed to launch: command not found (exit 127). Install the CLI on this host and try again.'
+      },
+      undefined
+    )
+    expect(mockStoreState.clearAgentLaunchConfig).toHaveBeenCalledWith(paneKey)
+  })
+
+  it('drops instead of failing the row when 127 arrives long after the launch seed', async () => {
+    const seededAt = Date.now() - 5 * 60_000
+    const paneKey = await driveLaunchFailureCommandFinished({
+      row: { prompt: 'Old stuck turn', updatedAt: seededAt, stateStartedAt: seededAt },
+      exitLine: '\x1b]133;D;127\x07zsh: command not found: foo\r\n'
+    })
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.dropAgentStatus).toHaveBeenCalledWith(paneKey)
+  })
+
+  it('does not fail a hook-touched working row on a nonzero command exit', async () => {
+    const seededAt = Date.now() - 2_000
+    const paneKey = await driveLaunchFailureCommandFinished({
+      // Why (test): a later hook ping bumps updatedAt past stateStartedAt.
+      row: {
+        prompt: 'Live turn with hook updates',
+        updatedAt: seededAt + 1_000,
+        stateStartedAt: seededAt
+      },
+      exitLine: '\x1b]133;D;1\x07thebr ~/repo $ '
+    })
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.dropAgentStatus).toHaveBeenCalledWith(paneKey)
+  })
+
   it('clears pre-hook launch config when an Orca-started command exits', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout'] })
     const { connectPanePty } = await import('./pty-connection')
@@ -16551,19 +16643,16 @@ describe('connectPanePty', () => {
     const binding = connectPanePty(pane as never, manager as never, deps as never)
     await flushAsyncTicks()
     // Why: connect wiring and the first cadence sample land after an
-    // environment-dependent number of async ticks; drive until the codex
-    // foreground sample is actually observed before simulating the exit.
-    for (
-      let elapsed = 0;
-      elapsed < 10_000 && api.pty.getForegroundProcess.mock.calls.length === 0;
-      elapsed += 250
-    ) {
+    // environment-dependent number of async ticks. Drive a fixed span of full
+    // poll cadences — the getForegroundProcess call count is unreliable here
+    // because prior tests' coordinators leak real poll timers whose callbacks
+    // hit the live window.api mocks and satisfy a count gate for them.
+    for (let elapsed = 0; elapsed < 8_000; elapsed += 250) {
       binding.syncProcessTracking()
       await vi.advanceTimersByTimeAsync(250)
+      await flushAsyncTicks()
     }
     expect(api.pty.getForegroundProcess.mock.calls.length).toBeGreaterThan(0)
-    await vi.advanceTimersByTimeAsync(250)
-    await flushAsyncTicks()
 
     foregroundProcess = null
     // Why: the exit backstop needs two idle inspection samples on a jittered

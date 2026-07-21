@@ -205,6 +205,10 @@ import { resolveTerminalPasteRuntime } from './terminal-paste-runtime'
 import { isKnownTuiAgentTerminalStartupCommand } from './terminal-startup-command-classifier'
 import { createCommandCodeOutputStatusDetector } from '../../../../shared/command-code-output-status'
 import { createCodexErrorOutputStatusDetector } from '../../../../shared/codex-error-output-status'
+import {
+  agentLaunchFailureMessage,
+  isAgentLaunchFailureExit
+} from '../../../../shared/agent-launch-failure'
 import type { PtyDataMeta } from './pty-dispatcher'
 import { getEagerPtyBufferHandle } from './pty-dispatcher'
 import { createTerminalGitHubPRLinkDetector } from '../../../../shared/terminal-github-pr-link-detector'
@@ -1844,7 +1848,7 @@ export function connectPanePty(
   })
   const dropCommandFinishedStatusIfSameTurn = (
     entry: AgentStatusEntry | undefined,
-    options?: { allowInferredInterrupt?: boolean }
+    options?: { allowInferredInterrupt?: boolean; exitCode?: number | null }
   ): void => {
     const state = useAppStore.getState()
     if (!entry) {
@@ -1877,6 +1881,36 @@ export function connectPanePty(
           history.startedAt === entry.stateStartedAt
       ) === true
     if (!unchanged && !inferredFromEntry) {
+      return
+    }
+    // Why: a single-write working row (updatedAt === stateStartedAt) is the
+    // launch seed no hook ever touched; 126/127 near the seed proves the CLI
+    // is missing, so mark the row failed, not a misleading Done (#7047).
+    const exitCode = options?.exitCode ?? null
+    if (
+      unchanged &&
+      current.state === 'working' &&
+      current.updatedAt === current.stateStartedAt &&
+      current.agentType &&
+      current.agentType !== 'unknown' &&
+      exitCode !== null &&
+      isAgentLaunchFailureExit({
+        exitCode,
+        msSinceStatusSeed: Date.now() - current.stateStartedAt
+      })
+    ) {
+      state.setAgentStatus(
+        cacheKey,
+        {
+          state: 'done',
+          prompt: current.prompt,
+          agentType: current.agentType,
+          launchFailed: true,
+          lastAssistantMessage: agentLaunchFailureMessage(exitCode, current.agentType)
+        },
+        current.terminalTitle
+      )
+      state.clearAgentLaunchConfig(cacheKey)
       return
     }
     state.dropAgentStatus(cacheKey)
@@ -2116,18 +2150,22 @@ export function connectPanePty(
     const inferenceResult = flushPendingInterruptInference()
     const dropStatus = (): void => {
       if (inferenceResult === true) {
-        dropCommandFinishedStatusIfSameTurn(entry, { allowInferredInterrupt: true })
+        dropCommandFinishedStatusIfSameTurn(entry, {
+          allowInferredInterrupt: true,
+          exitCode: bestEffortExitCode
+        })
         return
       }
       if (inferenceResult instanceof Promise) {
         void inferenceResult.then((applied) => {
           dropCommandFinishedStatusIfSameTurn(entry, {
-            allowInferredInterrupt: applied === true
+            allowInferredInterrupt: applied === true,
+            exitCode: bestEffortExitCode
           })
         })
         return
       }
-      dropCommandFinishedStatusIfSameTurn(entry)
+      dropCommandFinishedStatusIfSameTurn(entry, { exitCode: bestEffortExitCode })
     }
     if (shouldDeferStatusDrop) {
       // Why: keep the concrete pane identity routable while the local process

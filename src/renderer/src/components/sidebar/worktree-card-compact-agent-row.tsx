@@ -50,6 +50,9 @@ function getCompactAgentPrimary(agent: DashboardAgentRowData): string {
 }
 
 function getCompactAgentSecondary(agent: DashboardAgentRowData): string {
+  if (agent.entry.launchFailed === true) {
+    return agent.entry.lastAssistantMessage?.trim() || 'Failed to launch'
+  }
   if (agent.entry.interrupted === true) {
     return 'Interrupted by user'
   }

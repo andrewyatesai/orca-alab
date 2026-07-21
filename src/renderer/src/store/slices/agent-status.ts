@@ -513,7 +513,8 @@ function isValidManualSleepLiveAgentEntry(
 }
 
 function isValidCompletedAgentHibernationEntry(entry: AgentStatusEntry): boolean {
-  return entry.state === 'done' && entry.interrupted !== true
+  // Why: a failed launch has no provider session to resume — hibernating it would offer a dead "wake" affordance (#7047).
+  return entry.state === 'done' && entry.interrupted !== true && entry.launchFailed !== true
 }
 
 function isCompletedPiWithLiveRecoveryRecord(
@@ -668,7 +669,8 @@ export function collectHibernatedCompletionEvidenceForWorktree(
       !allowedPaneKeys.has(paneKey) ||
       entry.state !== 'done' ||
       agentType === undefined ||
-      entry.interrupted === true
+      entry.interrupted === true ||
+      entry.launchFailed === true
     ) {
       continue
     }
@@ -1747,7 +1749,8 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           ...(providerSession ? { providerSession } : {}),
           ...(promptInteractionKey ? { promptInteractionKey } : {}),
           // Why: `interrupted` is done-only; parseAgentStatusPayload already clamps it for non-done states, so write it through directly.
-          interrupted: payload.interrupted
+          interrupted: payload.interrupted,
+          launchFailed: payload.launchFailed
         }
         generatedTitleEntry.current = entry
         if (
@@ -1792,7 +1795,8 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
             entry.orchestration !== existing.orchestration ||
             entry.subagents !== existing.subagents ||
             entry.providerSession !== existing.providerSession ||
-            entry.interrupted !== existing.interrupted)
+            entry.interrupted !== existing.interrupted ||
+            entry.launchFailed !== existing.launchFailed)
         const retentionRelevantChange =
           sortRelevantChange || attributionChanged || doneRetentionFieldsChanged
         // Why: a fresh status means the agent is live again — lift its one-shot retention suppressor.
@@ -2343,7 +2347,8 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         if (
           liveEntry?.state === 'done' &&
           liveEntry.agentType !== undefined &&
-          liveEntry.interrupted !== true
+          liveEntry.interrupted !== true &&
+          liveEntry.launchFailed !== true
         ) {
           retainedEvidence.set(
             paneKey,
@@ -2472,7 +2477,8 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
               allowedPaneKeys.has(paneKey) &&
               entry.state === 'done' &&
               agentType !== undefined &&
-              entry.interrupted !== true
+              entry.interrupted !== true &&
+              entry.launchFailed !== true
             ) {
               retainedEvidence.set(
                 paneKey,

@@ -91,6 +91,7 @@ describe('parcel watcher process canary', () => {
   })
 
   it('still restarts when unsubscribe deadlocks while another root remains live', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     subscribeMock
       .mockResolvedValueOnce({ unsubscribe: vi.fn() })
       .mockResolvedValueOnce({ unsubscribe: vi.fn(() => new Promise(() => undefined)) })
@@ -109,9 +110,13 @@ describe('parcel watcher process canary', () => {
 
     expect(writeFileSyncMock).toHaveBeenCalledTimes(3)
     expect(exitSpy).toHaveBeenCalledWith(2)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[parcel-watcher-process] event delivery wedged (canary starved); restarting watcher process\n'
+    )
   })
 
   it('drains active crawls before starting teardown deadlock detection', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     let finishSecondCrawl:
       | ((subscription: { unsubscribe: () => Promise<void> }) => void)
       | undefined
@@ -144,9 +149,13 @@ describe('parcel watcher process canary', () => {
 
     expect(deadlockedUnsubscribe).toHaveBeenCalledTimes(1)
     expect(exitSpy).toHaveBeenCalledWith(2)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[parcel-watcher-process] event delivery wedged (canary starved); restarting watcher process\n'
+    )
   })
 
   it('keeps later crawls queued behind teardown deadlock detection', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     const deadlockedUnsubscribe = vi.fn(() => new Promise<void>(() => undefined))
     subscribeMock
       .mockResolvedValueOnce({ unsubscribe: vi.fn() })
@@ -170,9 +179,13 @@ describe('parcel watcher process canary', () => {
 
     expect(subscribeMock).toHaveBeenCalledTimes(3)
     expect(exitSpy).toHaveBeenCalledWith(2)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[parcel-watcher-process] event delivery wedged (canary starved); restarting watcher process\n'
+    )
   })
 
   it('reserves teardown order while its subscription is still crawling', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     let finishCrawl: ((subscription: { unsubscribe: () => Promise<void> }) => void) | undefined
     const deadlockedUnsubscribe = vi.fn(() => new Promise<void>(() => undefined))
     subscribeMock
@@ -205,6 +218,9 @@ describe('parcel watcher process canary', () => {
     expect(deadlockedUnsubscribe).toHaveBeenCalledTimes(1)
     expect(subscribeMock).toHaveBeenCalledTimes(3)
     expect(exitSpy).toHaveBeenCalledWith(2)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[parcel-watcher-process] event delivery wedged (canary starved); restarting watcher process\n'
+    )
   })
 
   it('removes a cancelled queued crawl before it reaches Parcel', async () => {
@@ -260,6 +276,7 @@ describe('parcel watcher process canary', () => {
   })
 
   it('reports native unsubscribe rejection without acknowledging handle release', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     const unsubscribeError = new Error('native handle still active')
     subscribeMock
       .mockResolvedValueOnce({ unsubscribe: vi.fn() })
@@ -280,6 +297,9 @@ describe('parcel watcher process canary', () => {
       message: 'native handle still active'
     })
     expect(sendMock).not.toHaveBeenCalledWith({ op: 'unsubscribed', id: 1 })
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[parcel-watcher-process] unsubscribe 1 failed: native handle still active\n'
+    )
   })
 
   it('asks the host to restart when an active crawl is cancelled', async () => {
@@ -305,6 +325,7 @@ describe('parcel watcher process canary', () => {
   })
 
   it('still restarts after consecutive missed events once every subscription is live', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     subscribeMock.mockResolvedValue({ unsubscribe: vi.fn() })
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
 
@@ -317,6 +338,9 @@ describe('parcel watcher process canary', () => {
 
     expect(writeFileSyncMock).toHaveBeenCalledTimes(3)
     expect(exitSpy).toHaveBeenCalledWith(2)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[parcel-watcher-process] event delivery wedged (canary starved); restarting watcher process\n'
+    )
   })
 
   it('collapses and enriches runtime batches before they cross child IPC', async () => {

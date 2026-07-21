@@ -31,7 +31,7 @@ export function useDiffSectionLayoutMetrics({
   const wasmReady = useSyncExternalStore(subscribeGitWasmReady, isGitWasmReady)
   const lineStats = useMemo(
     () =>
-      section.loading || section.error || isLargeDiffLimited
+      section.loading || section.error || isLargeDiffLimited || !wasmReady
         ? null
         : computeLineStats(section.originalContent, section.modifiedContent, section.status),
     [

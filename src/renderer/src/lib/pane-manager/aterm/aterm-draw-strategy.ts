@@ -56,6 +56,11 @@ export type AtermDrawStrategy = {
    *  the moment the worker message arrives. Unset for in-process strategies (their
    *  side-channel drain is synchronous after process()). */
   onSideChannel?: (handler: () => void) => void
+  /** Worker path only: subscribe so the predictive-echo controller re-arms its ONE
+   *  glitch-expiry timer when the worker reflects a fresh (post-heal) deadline in STATE.
+   *  The predictor is off-thread, so a real future deadline can only arrive with a frame;
+   *  unset for in-process strategies (whose controller reads the engine deadline directly). */
+  onPredictDeadline?: (handler: (ms: number | undefined) => void) => void
   /** Worker path only: fresh serialize via a worker round-trip (the engine + its
    *  off-screen history live in the worker, so the sync term.serialize() can't reach
    *  them). The controller routes its async serialize here; unset for in-process

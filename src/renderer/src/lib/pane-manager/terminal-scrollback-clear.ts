@@ -1,4 +1,5 @@
-import { markTerminalFollowOutput, type TerminalScrollIntentTarget } from './terminal-scroll-intent'
+import { markTerminalFollowOutput } from './terminal-scroll-intent'
+import type { TerminalScrollIntentTarget } from './terminal-scroll-intent-types'
 
 type TerminalScrollbackClearTarget = TerminalScrollIntentTarget & {
   clear: () => void

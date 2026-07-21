@@ -1,0 +1,15 @@
+/* Keep Custom Highlight API selectors in a standalone stylesheet. It needs no
+   Tailwind expansion, and Lightning CSS does not yet parse the standards-
+   compliant ::highlight(name) grammar. Vite still bundles and minifies it. */
+
+/* Search hits use Ranges instead of injected <mark> elements. Custom
+   highlights support color/background only, not border-radius or padding. */
+::highlight(markdown-preview-search-match) {
+  background-color: color-mix(in srgb, var(--markdown-search-match) 50%, transparent);
+  color: inherit;
+}
+
+::highlight(markdown-preview-search-active-match) {
+  background-color: color-mix(in srgb, var(--markdown-search-match-active) 60%, transparent);
+  color: inherit;
+}

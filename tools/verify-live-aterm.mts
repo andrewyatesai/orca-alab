@@ -2,11 +2,34 @@
 // no flag) and renders correctly end-to-end through the real
 // `createHeadlessEmulator` -> napi -> aterm path. Self-contained: feeds a
 // representative byte stream and asserts the snapshot invariants. Run with:
-//   node config/scripts/build-terminal-addon.mjs && npx tsx tools/verify-live-aterm.mts
+//   node config/scripts/build-terminal-addon.mjs && node tools/verify-live-aterm.mts
 import { fileURLToPath } from 'node:url'
 import { existsSync } from 'node:fs'
+import { registerHooks } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+// Node 24 strips TypeScript syntax itself, but ESM still requires extensions.
+// The application source intentionally uses bundler-style relative specifiers,
+// so give this standalone verifier the same local `.ts` resolution without a
+// downloaded runner such as `npx tsx`/`pnpm dlx tsx`.
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context)
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !('code' in error) ||
+        error.code !== 'ERR_MODULE_NOT_FOUND' ||
+        !/^\.{1,2}\//.test(specifier)
+      ) {
+        throw error
+      }
+      return nextResolve(`${specifier}.ts`, context)
+    }
+  }
+})
 
 const addonPath = fileURLToPath(new URL('../native/orca-node/orca_node.node', import.meta.url))
 if (!existsSync(addonPath)) {
@@ -18,9 +41,7 @@ if (!existsSync(addonPath)) {
 process.env.ORCA_RUST_TERMINAL_ADDON = addonPath
 process.env.ORCA_ENGINE_MARKER = join(tmpdir(), 'orca-aterm-engine-marker')
 
-const { createHeadlessEmulator } = await import(
-  '../src/main/daemon/headless-emulator-factory.ts'
-)
+const { createHeadlessEmulator } = await import('../src/main/daemon/headless-emulator-factory.ts')
 
 const em = createHeadlessEmulator({ cols: 80, rows: 24, scrollback: 5000 })
 // cwd (OSC-7), title (OSC 0/2), colour, an OSC-8 hyperlink, then scrollback fill.
@@ -52,6 +73,8 @@ for (const [name, pass] of checks) {
   console.log(`  ${pass ? '✅' : '❌'} ${name}`)
   ok = ok && pass
 }
-console.log(`engine: aterm | main scrollbackLines=${mainSnap.scrollbackLines} | snapshotAnsi=${snap.snapshotAnsi.length}B`)
+console.log(
+  `engine: aterm | main scrollbackLines=${mainSnap.scrollbackLines} | snapshotAnsi=${snap.snapshotAnsi.length}B`
+)
 em.dispose()
 process.exit(ok ? 0 : 1)

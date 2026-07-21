@@ -10,7 +10,7 @@
  * temp file so the worker fixture can pick it up at runtime.
  */
 
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -31,14 +31,18 @@ export default function globalSetup(): void {
     // Why: --mode e2e is the build-time signal that exposes window.__store;
     // the explicit env var keeps older local overrides working too.
     console.error('[e2e] Building Electron app with electron-vite build --mode e2e...')
-    execSync('npx electron-vite build --mode e2e', {
-      env: { ...process.env, VITE_EXPOSE_STORE: 'true' },
-      cwd: root,
-      stdio: 'inherit',
-      // Why: Windows renderer builds can exceed 120s on local/CI hosts even
-      // when healthy; global setup should not fail before specs can run.
-      timeout: ELECTRON_E2E_BUILD_TIMEOUT_MS
-    })
+    execFileSync(
+      process.execPath,
+      [path.join(root, 'config/scripts/run-electron-vite-build.mjs'), '--mode', 'e2e'],
+      {
+        env: { ...process.env, VITE_EXPOSE_STORE: 'true' },
+        cwd: root,
+        stdio: 'inherit',
+        // Why: Windows renderer builds can exceed 120s on local/CI hosts even
+        // when healthy; global setup should not fail before specs can run.
+        timeout: ELECTRON_E2E_BUILD_TIMEOUT_MS
+      }
+    )
     console.error('[e2e] Build complete.')
   }
   if (process.env.ORCA_E2E_SSH_LOCALHOST === '1' || process.env.ORCA_E2E_SSH_DOCKER === '1') {

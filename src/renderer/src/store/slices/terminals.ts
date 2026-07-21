@@ -1082,7 +1082,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     }
     const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
     if (runtimeEnvironmentId) {
-      const { createWebRuntimeSessionTerminal } = await import('@/runtime/web-runtime-session')
+      const { createWebRuntimeSessionTerminal } =
+        await import('@/runtime/web-runtime-session-deferred')
       await createWebRuntimeSessionTerminal({
         worktreeId,
         environmentId: runtimeEnvironmentId,
@@ -1816,7 +1817,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         (state.unifiedTabsByWorktree[wId] ?? []).some((entry) => entry.id === item.id)
       )
       if (owningWorktreeId && getRuntimeEnvironmentIdForWorktree(state, owningWorktreeId)) {
-        void import('@/runtime/web-runtime-session').then(({ setWebRuntimeTabProps }) =>
+        void import('@/runtime/web-runtime-session-deferred').then(({ setWebRuntimeTabProps }) =>
           setWebRuntimeTabProps({ worktreeId: owningWorktreeId, tabId: item.id, color })
         )
       }

@@ -4,11 +4,14 @@ import {
   enforceTerminalCurrentScrollIntent,
   getTerminalScrollIntentKind,
   isTerminalScrollIntentKeyBindingCurrent,
-  markTerminalPinnedViewport,
+  markTerminalPinnedViewportFromUserInteraction,
   syncTerminalScrollIntentFromViewport
 } from './terminal-scroll-intent'
 import { syncTerminalScrollIntentSoon } from './terminal-scroll-intent-settle'
-import type { TerminalScrollIntentKey, TerminalScrollIntentTarget } from './terminal-scroll-intent'
+import type {
+  TerminalScrollIntentKey,
+  TerminalScrollIntentTarget
+} from './terminal-scroll-intent-types'
 import {
   isTerminalScrollIntentRebuildInFlight,
   onTerminalScrollIntentBufferRebuildComplete
@@ -144,7 +147,10 @@ export function attachTerminalScrollIntentTracking(
     }
     latestCommittedInteractionRevision = interactionRevision
     if (!isTerminalScrollIntentRebuildInFlight(terminal)) {
-      syncTerminalScrollIntentFromViewport(terminal, { allowBufferShrink: true })
+      syncTerminalScrollIntentFromViewport(terminal, {
+        allowBufferShrink: true,
+        userInteraction: true
+      })
       return true
     }
     postRebuildSync = { revision: interactionRevision, mode }
@@ -166,11 +172,12 @@ export function attachTerminalScrollIntentTracking(
             preservePinnedAtBottom &&
             getTerminalScrollIntentKind(terminal) !== 'pinnedViewport'
           ) {
-            markTerminalPinnedViewport(terminal)
+            markTerminalPinnedViewportFromUserInteraction(terminal)
           }
           syncTerminalScrollIntentFromViewport(terminal, {
             allowBufferShrink: true,
-            preservePinnedAtBottom
+            preservePinnedAtBottom,
+            userInteraction: true
           })
           if (preservePinnedAtBottom) {
             // Why: an upward wheel or scrollbar gesture against the cleared 0/0
@@ -179,6 +186,7 @@ export function attachTerminalScrollIntentTracking(
             syncTerminalScrollIntentSoon(terminal, {
               allowBufferShrink: true,
               preservePinnedAtBottom: true,
+              userInteraction: true,
               shouldSync: isActive
             })
           }
@@ -199,14 +207,15 @@ export function attachTerminalScrollIntentTracking(
       return
     }
     if (event.deltaY < 0) {
-      markTerminalPinnedViewport(terminal)
+      markTerminalPinnedViewportFromUserInteraction(terminal)
       syncTerminalScrollIntentSoon(terminal, {
         preservePinnedAtBottom: true,
+        userInteraction: true,
         shouldSync: isActive
       })
       return
     }
-    syncTerminalScrollIntentSoon(terminal, { shouldSync: isActive })
+    syncTerminalScrollIntentSoon(terminal, { userInteraction: true, shouldSync: isActive })
   }
 
   const onPointerDown = (event: PointerEvent): void => {

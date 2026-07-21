@@ -37,24 +37,28 @@ const ESC = String.fromCharCode(27)
 
 /** Read the (unopened) xterm Terminal's bracketedPasteMode via the pane manager —
  *  the SAME object pane.terminal.paste() consults when wrapping a paste. */
-async function readShimBracketedPasteMode(orcaPage: Page): Promise<boolean | null> {
-  return orcaPage.evaluate(() => {
+async function readShimBracketedPasteMode(orcaPage: Page, ptyId: string): Promise<boolean | null> {
+  return orcaPage.evaluate((targetPtyId) => {
     const managers = (window as unknown as { __paneManagers?: Map<string, unknown> }).__paneManagers
     if (!managers) {
       return null
     }
     for (const manager of managers.values()) {
       const m = manager as {
-        getActivePane?: () => { terminal?: { modes?: { bracketedPasteMode?: boolean } } } | null
-        getPanes?: () => { terminal?: { modes?: { bracketedPasteMode?: boolean } } }[]
+        getPanes?: () => {
+          container: HTMLElement
+          terminal?: { modes?: { bracketedPasteMode?: boolean } }
+        }[]
       }
-      const pane = m.getActivePane?.() ?? m.getPanes?.()[0] ?? null
+      const pane = m
+        .getPanes?.()
+        .find((candidate) => candidate.container.dataset.ptyId === targetPtyId)
       if (pane?.terminal?.modes) {
         return pane.terminal.modes.bracketedPasteMode === true
       }
     }
     return null
-  })
+  }, ptyId)
 }
 
 /** Wrap the main-process `clipboard:writeText` IPC handler so the e2e can read
@@ -115,46 +119,60 @@ async function openAtermTerminal(orcaPage: Page): Promise<string> {
  *  active aterm pane's .xterm-helper-textarea — the same event a programmatic /
  *  OS paste produces. The aterm textarea-input handler routes insertFromPaste to
  *  the controller's pasteSink → pane.terminal.paste(). */
-async function dispatchAtermPaste(orcaPage: Page, text: string): Promise<void> {
-  const ok = await orcaPage.evaluate((pasteText) => {
-    const canvasEl = document.querySelector('[data-testid="aterm-canvas"]')
-    const ta = canvasEl
-      ?.closest('.xterm')
-      ?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
-    if (!ta) {
-      return false
-    }
-    ta.value = pasteText
-    ta.dispatchEvent(
-      new InputEvent('input', { data: pasteText, inputType: 'insertFromPaste', bubbles: true })
-    )
-    return true
-  }, text)
+async function dispatchAtermPaste(orcaPage: Page, ptyId: string, text: string): Promise<void> {
+  const ok = await orcaPage.evaluate(
+    ({ pasteText, targetPtyId }) => {
+      const paneEl = Array.from(document.querySelectorAll<HTMLElement>('[data-pty-id]')).find(
+        (candidate) => candidate.dataset.ptyId === targetPtyId
+      )
+      const canvasEl = paneEl?.querySelector('[data-testid="aterm-canvas"]')
+      const ta = canvasEl
+        ?.closest('.xterm')
+        ?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
+      if (!ta) {
+        return false
+      }
+      ta.value = pasteText
+      ta.dispatchEvent(
+        new InputEvent('input', { data: pasteText, inputType: 'insertFromPaste', bubbles: true })
+      )
+      return true
+    },
+    { pasteText: text, targetPtyId: ptyId }
+  )
   expect(ok, 'aterm pane should expose a helper textarea to paste into').toBe(true)
 }
 
 /** Write a raw control sequence straight onto the shim's output path
  *  (terminal.write) — the exact path PTY output uses to update terminal modes. */
-async function writeToShim(orcaPage: Page, sequence: string): Promise<void> {
-  const ok = await orcaPage.evaluate((seq) => {
-    const managers = (window as unknown as { __paneManagers?: Map<string, unknown> }).__paneManagers
-    if (!managers) {
+async function writeToShim(orcaPage: Page, ptyId: string, sequence: string): Promise<void> {
+  const ok = await orcaPage.evaluate(
+    ({ seq, targetPtyId }) => {
+      const managers = (window as unknown as { __paneManagers?: Map<string, unknown> })
+        .__paneManagers
+      if (!managers) {
+        return false
+      }
+      for (const manager of managers.values()) {
+        const m = manager as {
+          getPanes?: () => {
+            container: HTMLElement
+            terminal?: { write?: (d: string) => void }
+          }[]
+        }
+        const pane = m
+          .getPanes?.()
+          .find((candidate) => candidate.container.dataset.ptyId === targetPtyId)
+        if (pane?.terminal?.write) {
+          pane.terminal.write(seq)
+          return true
+        }
+      }
       return false
-    }
-    for (const manager of managers.values()) {
-      const m = manager as {
-        getActivePane?: () => { terminal?: { write?: (d: string) => void } } | null
-        getPanes?: () => { terminal?: { write?: (d: string) => void } }[]
-      }
-      const pane = m.getActivePane?.() ?? m.getPanes?.()[0] ?? null
-      if (pane?.terminal?.write) {
-        pane.terminal.write(seq)
-        return true
-      }
-    }
-    return false
-  }, sequence)
-  expect(ok, 'active pane terminal should accept a shim write').toBe(true)
+    },
+    { seq: sequence, targetPtyId: ptyId }
+  )
+  expect(ok, 'target pane terminal should accept a shim write').toBe(true)
 }
 
 test.describe('aterm renderer clipboard capabilities', () => {
@@ -175,14 +193,14 @@ test.describe('aterm renderer clipboard capabilities', () => {
     await sendToTerminal(orcaPage, ptyId, `printf '\\033[?2004h'\r`)
     // Output is async, so poll the shim's tracked mode before pasting.
     await expect
-      .poll(async () => readShimBracketedPasteMode(orcaPage), {
+      .poll(async () => readShimBracketedPasteMode(orcaPage, ptyId), {
         timeout: 15_000,
         message: 'shim bracketedPasteMode did not turn on after DECSET 2004h'
       })
       .toBe(true)
 
     await clearTerminalPtyWriteLog(electronApp)
-    await dispatchAtermPaste(orcaPage, 'PASTED')
+    await dispatchAtermPaste(orcaPage, ptyId, 'PASTED')
 
     // The bytes sent to the PTY must be WRAPPED: ESC[200~ PASTED ESC[201~.
     await expect
@@ -199,16 +217,16 @@ test.describe('aterm renderer clipboard capabilities', () => {
     //    reset is immediately undone by the next prompt. Writing the reset to the
     //    shim (with no shell Enter, so no prompt redraw) keeps the mode
     //    deterministically OFF for the paste that follows.
-    await writeToShim(orcaPage, `${ESC}[?2004l`)
+    await writeToShim(orcaPage, ptyId, `${ESC}[?2004l`)
     await expect
-      .poll(async () => readShimBracketedPasteMode(orcaPage), {
+      .poll(async () => readShimBracketedPasteMode(orcaPage, ptyId), {
         timeout: 15_000,
         message: 'shim bracketedPasteMode did not turn off after DECSET 2004l'
       })
       .toBe(false)
 
     await clearTerminalPtyWriteLog(electronApp)
-    await dispatchAtermPaste(orcaPage, 'RAWPASTE')
+    await dispatchAtermPaste(orcaPage, ptyId, 'RAWPASTE')
 
     await expect
       .poll(async () => (await readTerminalPtyWrites(electronApp)).join(''), {

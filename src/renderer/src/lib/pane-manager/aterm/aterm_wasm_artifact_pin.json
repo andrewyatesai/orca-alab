@@ -1,6 +1,10 @@
 {
-  "schema": 1,
+  "schema": 2,
   "sourceCommit": "97b9dcbe5f6cf8619f3228d4367a7dca0ac2ff20",
+  "sourcePatch": {
+    "path": "config/patches/aterm-gpu-wasm-clock.patch",
+    "sha256": "af2e17dda30efbbf3666eeed1ac852aa8dff67d4456f2796bc814209be1bd757"
+  },
   "artifacts": {
     "aterm_wasm.js": {
       "bytes": 100865,
@@ -12,7 +16,7 @@
     },
     "aterm_wasm_bg.wasm": {
       "bytes": 3752181,
-      "sha256": "5a822c3a5b316526636d73a44cff5ae9b5d67135cd65a1a8b6bb27ace72971e1"
+      "sha256": "8364a197eba293b64283e2eedc7ab23d5cf7d5cae3d482fffca1fa1dcdc0e8a1"
     },
     "aterm_wasm_bg.wasm.d.ts": {
       "bytes": 14338,
@@ -27,8 +31,8 @@
       "sha256": "2a2db0a1e10d35c5fd36df2b4e83947f6487d7efb278148612ae0a8c73d046d1"
     },
     "aterm_gpu_web_bg.wasm": {
-      "bytes": 6214822,
-      "sha256": "29662b8a43c24c19892395009d75da21291cdee8e67dd49d6badeab9fc76b6ef"
+      "bytes": 6216384,
+      "sha256": "58c1a81df0cf4c80aa0980b4f47b2b409698dfe03ddc4a35933d546f73058fd9"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
       "bytes": 15597,

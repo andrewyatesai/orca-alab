@@ -4,8 +4,9 @@
 // exists to produce field observability. Building one without a PostHog
 // write key compiles telemetry out to a silent no-op and the cohort ships
 // blind — so the preflight FAILS LOUDLY unless ORCA_ALLOW_NO_TELEMETRY=1
-// explicitly opts into "dark staging". Non-staging builds are untouched:
-// contributor / dev / upstream-style builds keep the no-key compile-out.
+// explicitly opts into "dark staging". `ORCA_LOCAL_BUILD=1` is a separate,
+// CI-disabled contributor mode that guarantees both constants are absent and
+// keeps the no-key compile-out without mislabeling the result as shippable.
 //
 // The key must be a FORK-provisioned PostHog project key. The public
 // vendor's key is trivially extractable from public binaries, but pasting
@@ -24,19 +25,41 @@ const POSTHOG_KEY_RE = /^phc_[A-Za-z0-9_-]+$/
  * @param {object} input
  * @param {string} input.version package.json version of the build
  * @param {Record<string, string | undefined>} input.env process env
- * @returns {{ ok: boolean, staging: boolean, dark: boolean, messages: string[], errors: string[] }}
+ * @returns {{ ok: boolean, staging: boolean, dark: boolean, local: boolean, messages: string[], errors: string[] }}
  */
 export function runStagingTelemetryPreflight({ version, env }) {
   const messages = []
   const errors = []
 
   const staging = version.includes('-fork.') || env.ORCA_STAGING === '1'
+  const local = env.ORCA_LOCAL_BUILD === '1'
+  if (local) {
+    const runningInCi = Boolean(env.CI && env.CI !== '0' && env.CI.toLowerCase() !== 'false')
+    if (runningInCi || env.ORCA_MAC_RELEASE === '1') {
+      errors.push(
+        'ORCA_LOCAL_BUILD=1 is limited to contributor builds and cannot be used in CI or with ORCA_MAC_RELEASE=1.'
+      )
+    }
+    if (env.ORCA_POSTHOG_WRITE_KEY || env.ORCA_BUILD_IDENTITY) {
+      errors.push(
+        'ORCA_LOCAL_BUILD=1 requires ORCA_POSTHOG_WRITE_KEY and ORCA_BUILD_IDENTITY to be unset so telemetry is guaranteed to compile out.'
+      )
+    }
+    if (errors.length > 0) {
+      return { ok: false, staging, dark: false, local: true, messages, errors }
+    }
+    messages.push(
+      'Local contributor build: telemetry constants are intentionally omitted and transport is compiled out.'
+    )
+    return { ok: true, staging, dark: false, local: true, messages, errors }
+  }
+
   if (!staging) {
     messages.push(
       `Not a staging build (version "${version}" has no -fork. suffix and ORCA_STAGING is unset) — ` +
         'telemetry constants are optional; compile-out (no-key) behavior applies.'
     )
-    return { ok: true, staging: false, dark: false, messages, errors }
+    return { ok: true, staging: false, dark: false, local: false, messages, errors }
   }
 
   const writeKey = env.ORCA_POSTHOG_WRITE_KEY
@@ -50,7 +73,7 @@ export function runStagingTelemetryPreflight({ version, env }) {
           'transmits NO telemetry — the staging cohort will produce zero field ' +
           'data. Ship it only if that is a deliberate decision.'
       )
-      return { ok: true, staging: true, dark: true, messages, errors }
+      return { ok: true, staging: true, dark: true, local: false, messages, errors }
     }
     errors.push(
       'staging build requires telemetry constants: ORCA_POSTHOG_WRITE_KEY is unset. ' +
@@ -59,7 +82,7 @@ export function runStagingTelemetryPreflight({ version, env }) {
         'ORCA_BUILD_IDENTITY=rc before the build, or set ORCA_ALLOW_NO_TELEMETRY=1 ' +
         'to explicitly build a dark (no-telemetry) staging artifact.'
     )
-    return { ok: false, staging: true, dark: false, messages, errors }
+    return { ok: false, staging: true, dark: false, local: false, messages, errors }
   }
 
   if (!POSTHOG_KEY_RE.test(writeKey)) {
@@ -88,12 +111,12 @@ export function runStagingTelemetryPreflight({ version, env }) {
   }
 
   if (errors.length > 0) {
-    return { ok: false, staging: true, dark: false, messages, errors }
+    return { ok: false, staging: true, dark: false, local: false, messages, errors }
   }
 
   messages.push(
     `Staging telemetry preflight OK: ORCA_BUILD_IDENTITY="${identity}", ` +
       `ORCA_POSTHOG_WRITE_KEY="${writeKey.slice(0, 8)}..." (length=${writeKey.length}).`
   )
-  return { ok: true, staging: true, dark: false, messages, errors }
+  return { ok: true, staging: true, dark: false, local: false, messages, errors }
 }

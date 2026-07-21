@@ -118,6 +118,7 @@ describe('PtyHandler', () => {
     await vi.runAllTimersAsync()
     await cleanup.catch(() => {})
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('registers all expected handlers', () => {
@@ -1569,6 +1570,7 @@ describe('PtyHandler', () => {
   })
 
   it('retries a rejected graceful SIGKILL fallback while retaining ownership', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     let onExitCb: ((evt: { exitCode: number }) => void) | undefined
     let forceAttempts = 0
     const mockKill = vi.fn((signal: string) => {
@@ -1592,6 +1594,9 @@ describe('PtyHandler', () => {
     expect(mockKill.mock.calls).toEqual([['SIGTERM'], ['SIGKILL']])
     expect(handler.activePtyCount).toBe(1)
     expect(vi.getTimerCount()).toBe(1)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[pty-handler] failed to force-kill PTY pty-1: transient kill failure\n'
+    )
 
     vi.runOnlyPendingTimers()
     expect(mockKill.mock.calls).toEqual([['SIGTERM'], ['SIGKILL'], ['SIGKILL']])
@@ -2666,6 +2671,7 @@ describe('PtyHandler', () => {
   })
 
   it('takes ownership when dispose overlaps a queued graceful force-kill retry', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     let onExitCb: ((evt: { exitCode: number }) => void) | undefined
     let forceAttempts = 0
     const mockKill = vi.fn((signal: string) => {
@@ -2692,6 +2698,9 @@ describe('PtyHandler', () => {
     await Promise.resolve()
     expect(mockKill.mock.calls).toEqual([['SIGTERM'], ['SIGKILL'], ['SIGKILL']])
     expect(vi.getTimerCount()).toBe(1)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[pty-handler] failed to force-kill PTY pty-1: transient overlapping kill failure\n'
+    )
     await vi.advanceTimersByTimeAsync(250)
     expect(mockKill.mock.calls).toEqual([['SIGTERM'], ['SIGKILL'], ['SIGKILL'], ['SIGKILL']])
     expect(handler.activePtyCount).toBe(1)

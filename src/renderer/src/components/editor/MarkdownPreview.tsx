@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- Why: MarkdownPreview keeps rendering, link interception, search, and viewport state together so preview behavior stays coherent. */
 /* oxlint-disable react-doctor/no-adjust-state-on-prop-change -- Why: search match state is synchronized with DOM highlights inserted into the rendered markdown body. */
+import '../../assets/markdown-preview-highlights.css'
 import React, {
   useCallback,
   useEffect,

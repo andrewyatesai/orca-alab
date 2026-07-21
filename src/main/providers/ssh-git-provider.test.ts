@@ -961,7 +961,7 @@ describe('SshGitProvider', () => {
     expect(mux.request).toHaveBeenCalledTimes(1)
     pendingDiff.resolve()
 
-    await expect(Promise.all(reads)).resolves.toEqual(Array(8).fill(diff))
+    await expect(Promise.all(reads)).resolves.toEqual(reads.map(() => diff))
 
     mux.request.mockReset()
     const branchDiffs = [diff]
@@ -978,7 +978,7 @@ describe('SshGitProvider', () => {
     await waitForRequestCount(mux.request, 1)
     expect(mux.request).toHaveBeenCalledTimes(1)
     pendingBranchDiff.resolve()
-    await expect(Promise.all(branchReads)).resolves.toEqual(Array(8).fill(branchDiffs))
+    await expect(Promise.all(branchReads)).resolves.toEqual(branchReads.map(() => branchDiffs))
 
     mux.request.mockReset()
     const pendingCommitDiff = deferredValue(diff)
@@ -995,7 +995,7 @@ describe('SshGitProvider', () => {
     await waitForRequestCount(mux.request, 1)
     expect(mux.request).toHaveBeenCalledTimes(1)
     pendingCommitDiff.resolve()
-    await expect(Promise.all(commitReads)).resolves.toEqual(Array(8).fill(diff))
+    await expect(Promise.all(commitReads)).resolves.toEqual(commitReads.map(() => diff))
   })
 
   it('retries diff RPCs after an in-flight rejection settles', async () => {

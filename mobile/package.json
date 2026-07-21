@@ -13,8 +13,8 @@
     "lint": "oxlint",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
-    "mock-server": "npx tsx scripts/mock-server.ts",
-    "repro:workspace-picker-lag": "npx tsx scripts/repro-workspace-picker-lag.ts",
+    "mock-server": "tsx scripts/mock-server.ts",
+    "repro:workspace-picker-lag": "tsx scripts/repro-workspace-picker-lag.ts",
     "start:emulator": "node scripts/start-emulator.mjs"
   },
   "dependencies": {

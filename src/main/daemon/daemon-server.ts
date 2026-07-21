@@ -149,6 +149,11 @@ export class DaemonServer {
   // Why: bypass batching within this window so keystroke echo/redraws skip the daemon's fixed batch delay.
   private static readonly INTERACTIVE_OUTPUT_WINDOW_MS = 100
   private static readonly INTERACTIVE_OUTPUT_MAX_CHARS = 1024
+  // Why: a per-keystroke TUI/prompt redraw (fancy zsh/starship prompt, git-status
+  // in the prompt, a Codex/Claude per-key frame) can exceed 1 KB but is still
+  // latency-sensitive. Mirror main's isLikelyInteractiveRedraw (pty.ts) so those
+  // bypass the daemon batch too, while plain bulk output stays on the batch path.
+  private static readonly INTERACTIVE_REDRAW_MAX_CHARS = 16 * 1024
 
   constructor(opts: DaemonServerOptions) {
     this.socketPath = opts.socketPath
@@ -709,13 +714,21 @@ export class DaemonServer {
                 // Scan BEFORE enqueue: the batcher may drop this chunk, but its facts must be captured regardless.
                 this.transientFactRelay.onSessionData(p.sessionId, data)
                 const lastInputAt = this.lastInputAtBySessionId.get(p.sessionId)
-                const isInteractiveOutput =
-                  data.length <= DaemonServer.INTERACTIVE_OUTPUT_MAX_CHARS &&
+                const recentInput =
                   lastInputAt !== undefined &&
                   performance.now() - lastInputAt <= DaemonServer.INTERACTIVE_OUTPUT_WINDOW_MS
+                // Small echo OR a ≤16 KB ANSI redraw — both are latency-sensitive after
+                // recent input (mirrors main's isLikelyInteractiveRedraw).
+                const isInteractiveOutput =
+                  recentInput &&
+                  (data.length <= DaemonServer.INTERACTIVE_OUTPUT_MAX_CHARS ||
+                    (data.length <= DaemonServer.INTERACTIVE_REDRAW_MAX_CHARS &&
+                      data.includes('\x1b[')))
                 this.streamDataBatcher.enqueue(clientId, p.sessionId, data, {
                   flushImmediately: isInteractiveOutput,
-                  flushMaxChars: DaemonServer.INTERACTIVE_OUTPUT_MAX_CHARS,
+                  // The immediate-flush guard: allow the full redraw (not just 1 KB)
+                  // to flush now; a larger accumulated backlog still falls to the batch.
+                  flushMaxChars: DaemonServer.INTERACTIVE_REDRAW_MAX_CHARS,
                   rawLength,
                   transformed,
                   seq

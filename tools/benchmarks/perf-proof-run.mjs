@@ -22,14 +22,18 @@
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import os from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { normalizeChildColorEnv } from '../../config/scripts/child-process-color-env.mjs'
 import { parseCriterionOutput } from './criterion-output-parse.mjs'
 import { extractMetrics, formatMetricValue, PERF_PROOF_METRICS } from './perf-proof-metrics.mjs'
 
 const scriptDir = import.meta.dirname
 const repoRoot = resolve(scriptDir, '..', '..')
 const resultsDir = join(scriptDir, 'results')
+const require = createRequire(import.meta.url)
+const playwrightCli = resolve(dirname(require.resolve('@playwright/test/package.json')), 'cli.js')
 
 function parseArgs(argv) {
   const args = {
@@ -75,16 +79,13 @@ function parseArgs(argv) {
   return args
 }
 
-// npx/node resolution needs a shell on Windows (npx is npx.cmd there).
-const needsShell = process.platform === 'win32'
-
 function runE2eLane({ skipBuild }) {
   const rawOut = join(os.tmpdir(), `orca-perf-proof-raw-${process.pid}-${Date.now()}.json`)
   console.log('[perf-proof] driving the in-app harnesses via Playwright (electron-headless)…')
   const result = spawnSync(
-    'npx',
+    process.execPath,
     [
-      'playwright',
+      playwrightCli,
       'test',
       'tests/e2e/aterm-perf-proof.spec.ts',
       '--config',
@@ -96,9 +97,8 @@ function runE2eLane({ skipBuild }) {
     {
       cwd: repoRoot,
       stdio: 'inherit',
-      shell: needsShell,
       env: {
-        ...process.env,
+        ...normalizeChildColorEnv(),
         ORCA_PERF_PROOF: '1',
         ORCA_PERF_PROOF_OUT: rawOut,
         ...(skipBuild ? { SKIP_BUILD: '1' } : {})

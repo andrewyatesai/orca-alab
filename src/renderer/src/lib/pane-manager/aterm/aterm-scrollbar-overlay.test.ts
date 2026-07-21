@@ -7,7 +7,7 @@ import {
   markTerminalPinnedViewport,
   syncTerminalScrollIntentFromViewport
 } from '../terminal-scroll-intent'
-import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent'
+import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 // The thumb has no .xterm class and the canvas emits no DOM scroll event, so
@@ -86,7 +86,9 @@ describe('createAtermScrollbarOverlay thumb-drag scroll intent', () => {
     expect(engine.scrollLines).toHaveBeenCalled()
     // mark-then-sync, mirroring keyboard-handlers' Cmd+Up path and the wheel path.
     expect(markTerminalPinnedViewport).toHaveBeenCalledWith(target)
-    expect(syncTerminalScrollIntentFromViewport).toHaveBeenCalledWith(target)
+    expect(syncTerminalScrollIntentFromViewport).toHaveBeenCalledWith(target, {
+      userInteraction: true
+    })
     dispose()
   })
 
@@ -103,7 +105,9 @@ describe('createAtermScrollbarOverlay thumb-drag scroll intent', () => {
     endDrag()
     // onDragEnd re-records so a final no-delta move still commits the reading position.
     expect(markTerminalPinnedViewport).toHaveBeenCalledWith(target)
-    expect(syncTerminalScrollIntentFromViewport).toHaveBeenCalledWith(target)
+    expect(syncTerminalScrollIntentFromViewport).toHaveBeenCalledWith(target, {
+      userInteraction: true
+    })
     dispose()
   })
 

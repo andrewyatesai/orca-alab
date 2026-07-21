@@ -133,6 +133,8 @@ function makeWorkerState(overrides: Partial<AtermWorkerState> = {}): AtermWorker
     searchMatchRects: [],
     spillExportCapable: false,
     dirtyRows: [],
+    predictOverlay: new Uint32Array(0),
+    predictDeadlineMs: null,
     ...overrides
   }
 }

@@ -42,7 +42,7 @@ function stringFromThrown(value: unknown): { name: string; message: string; stac
 
 async function collectRendererErrorContext(): Promise<RendererErrorContext> {
   try {
-    const { useAppStore } = await import('@/store')
+    const { useAppStore } = await import('@/store/error-context-store-deferred')
     const state = useAppStore.getState()
     return {
       activeView: state.activeView,

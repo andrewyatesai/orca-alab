@@ -337,8 +337,13 @@ export async function loadAtermWorkerEngine(
       ring
     })
   }
-  backed.term.set_effects_focused = (focused: boolean): void =>
+  backed.term.set_effects_focused = (focused: boolean): void => {
     post({ type: 'setEffectsFocused', focused })
+    // Worker QoS (R4): the same focus event drives the scheduler's priority — the
+    // focused pane's keystroke echo is serviced ahead of a flooding sibling's bulk
+    // process. Piggybacks the effects-focus signal (one focus source of truth).
+    post({ type: 'setFocused', focused })
+  }
   backed.term.set_chrome = (pad: number, head: number): void =>
     post({ type: 'setChrome', pad, head })
   // Cross-pane spill (stage 4): the worker computes hasAtermSpillExports over
@@ -400,6 +405,7 @@ export async function loadAtermWorkerEngine(
       onReply: (handler) => backed!.onReply(handler),
       onMetricsChange: (handler) => backed!.onMetricsChange(handler),
       onSideChannel: (handler) => backed!.onSideChannel(handler),
+      onPredictDeadline: (handler) => backed!.onPredictDeadline(handler),
       settle: () => backed!.settle(),
       serializeAsync: (scrollbackRows) => backed!.serializeAsync(scrollbackRows),
       serializeScrollbackAsync: (maxRows) => backed!.serializeScrollbackAsync(maxRows),

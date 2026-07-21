@@ -10,6 +10,7 @@ import {
   dispatchAtermWorkerRainCommand,
   type AtermWorkerRainTarget
 } from './aterm-worker-rain-dispatch'
+import { dispatchAtermWorkerPredictCommand } from './aterm-worker-predictor'
 import type {
   AtermWorkerPaneEvent,
   AtermWorkerPaneRuntimeCommand
@@ -114,6 +115,11 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       if (side.keyboardModeBits !== undefined) {
         pane.post({ type: 'keyboardModeBits', bits: side.keyboardModeBits })
       }
+      // Reconcile speculative guesses against the grid THIS chunk just produced —
+      // confirmed ghosts retire, divergence/no-echo flushes. Must run here (not on a
+      // separate posted command) so it sees the freshly-applied grid; scheduleDraw then
+      // repaints (buildState reflects the retired ghosts). No-op while prediction is off.
+      term.predict.reconcile()
       scheduleDraw()
       pane.serializeCache.schedule()
       return
@@ -208,6 +214,14 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
     case 'setDefaultCursorStyle':
       term?.setDefaultCursorStyle(msg.param)
       scheduleDraw()
+      return
+    // Predictive echo: route each keystroke seam to the pane's predictor (+ a repaint).
+    case 'predictSetMode':
+    case 'predictChar':
+    case 'predictBackspace':
+    case 'predictSubmit':
+    case 'predictReset':
+      dispatchAtermWorkerPredictCommand(term?.predict, scheduleDraw, msg)
       return
     case 'setColorScheme': {
       // set_color_scheme may queue a CSI ?997 push (when the scheme changed AND the app

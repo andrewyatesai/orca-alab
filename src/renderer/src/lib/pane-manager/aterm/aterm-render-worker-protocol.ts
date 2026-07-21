@@ -19,6 +19,7 @@
 import type { AtermThemeColors } from './aterm-theme-colors'
 import type { AtermWorkerRainCommand } from './aterm-worker-rain-protocol'
 import type { AtermWorkerSpillCommand } from './aterm-worker-spill-protocol'
+import type { AtermWorkerPredictCommand } from './aterm-worker-predict-protocol'
 import type {
   AtermFontClass,
   AtermWorkerFontClass,
@@ -78,10 +79,7 @@ export type AtermWorkerSetDefaultCursorStyle = { type: 'setDefaultCursorStyle'; 
 export type AtermWorkerSetMinimumContrast = { type: 'setMinimumContrast'; ratio: number }
 /** Double-click word separators (terminalWordSeparator); null restores the engine's
  *  default word logic. */
-export type AtermWorkerSetWordSeparators = {
-  type: 'setWordSeparators'
-  separators: string | null
-}
+export type AtermWorkerSetWordSeparators = { type: 'setWordSeparators'; separators: string | null }
 /** DEFAULT-background alpha (terminalBackgroundOpacity); 1 = opaque (engine default). */
 export type AtermWorkerSetBackgroundOpacity = { type: 'setBackgroundOpacity'; opacity: number }
 /** Cursor-fill alpha (terminalCursorOpacity); 1 = opaque (engine default). */
@@ -128,6 +126,12 @@ export type AtermWorkerSetCursorGlow = {
 export type AtermWorkerSetChrome = { type: 'setChrome'; pad: number; head: number }
 /** Pane focus for the effects idle one-shots (an unfocused pane fires no blinks). */
 export type AtermWorkerSetEffectsFocused = { type: 'setEffectsFocused'; focused: boolean }
+/** Worker QoS focus signal (R4): which pane the user is typing in. The worker's
+ *  command scheduler services the focused pane's interactive work AHEAD of a
+ *  background pane's bulk `process`, so a flooding sibling can't starve keystroke
+ *  echo. Distinct from setEffectsFocused (that carries effects semantics + is
+ *  superseded by the rain tri-state on the worker path); this is pure QoS priority. */
+export type AtermWorkerSetFocused = { type: 'setFocused'; focused: boolean }
 export type AtermWorkerScrollLines = { type: 'scrollLines'; delta: number }
 export type AtermWorkerScrollToBottom = { type: 'scrollToBottom' }
 export type AtermWorkerScrollToTop = { type: 'scrollToTop' }
@@ -269,6 +273,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetCursorGlow
   | AtermWorkerSetChrome
   | AtermWorkerSetEffectsFocused
+  | AtermWorkerSetFocused
   | AtermWorkerScrollLines
   | AtermWorkerScrollToBottom
   | AtermWorkerScrollToTop
@@ -295,6 +300,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetPrimaryFont
   | AtermWorkerSetBoldFont
   | AtermWorkerMouseEncode
+  | AtermWorkerPredictCommand
   | AtermWorkerQuery
   | AtermWorkerFallback
   | AtermWorkerDispose
@@ -302,9 +308,11 @@ export type AtermWorkerPaneCommand =
 /** Pane lifecycle (the worker entry owns these: registry create / CPU rebuild /
  *  engine free); every other pane command is dispatched to the pane's runtime. */
 export type AtermWorkerPaneLifecycle = AtermWorkerInit | AtermWorkerFallback | AtermWorkerDispose
+// setFocused is worker-entry scheduler bookkeeping, not engine work — excluded from
+// the per-pane runtime dispatch (dispatchPaneCommand never sees it).
 export type AtermWorkerPaneRuntimeCommand = Exclude<
   AtermWorkerPaneCommand,
-  AtermWorkerPaneLifecycle
+  AtermWorkerPaneLifecycle | AtermWorkerSetFocused
 >
 
 /** Everything the main thread posts to the worker (the wire union). The spill
@@ -416,6 +424,17 @@ export type AtermWorkerState = {
   /** Changed visible rows since the last state (empty when content is unchanged or
    *  when this pane serves content reads via the query channel instead). */
   dirtyRows: AtermWorkerGridRow[]
+  /** Predictive-echo ghost cells for the main-thread overlay to paint dim+underlined
+   *  (`[row, col, codepoint]` triples in active-grid display coords), empty when
+   *  prediction is off / nothing pends / scrolled into history. Display-only: the
+   *  ghosts never touch the real grid (dirtyRows), so they stay password-safe. */
+  predictOverlay: Uint32Array
+  /** Ms until the oldest pending guess self-expires (the glitch flush), or null when
+   *  none pends. The controller arms ONE main-thread timer from this + repaints, so a
+   *  stale ghost is erased even with no further input/output. Read AFTER the worker's
+   *  expiry self-heal (predict_overlay), so it's never a permanently-past instant that
+   *  would pin the timer (the native stranded-deadline 100%-CPU invariant). */
+  predictDeadlineMs: number | null
 }
 
 /** Engine query replies (DA/DSR/CPR/colour/CSI 14t-16t) to forward to the PTY.

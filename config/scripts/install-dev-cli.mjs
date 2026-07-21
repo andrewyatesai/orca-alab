@@ -1,18 +1,21 @@
 #!/usr/bin/env node
-// Symlinks the orca-dev wrapper into /usr/local/bin so the dev CLI is
-// available globally after `pnpm run build:cli`.
-import { existsSync, lstatSync, readlinkSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+// Symlinks the orca-dev wrapper into the developer's user-local bin directory
+// so `pnpm run build:cli` never needs sudo or mutates a package-manager prefix.
+import { existsSync, lstatSync, mkdirSync, readlinkSync, symlinkSync } from 'node:fs'
 import path from 'node:path'
 
 const scriptDir = import.meta.dirname
 const source = path.join(scriptDir, 'orca-dev.mjs')
+const homeDir = process.env.HOME ?? process.env.USERPROFILE
+const supportsUserLocalBin = process.platform === 'darwin' || process.platform === 'linux'
 
 const commandPath =
-  process.platform === 'darwin' || process.platform === 'linux' ? '/usr/local/bin/orca-dev' : null
+  supportsUserLocalBin && homeDir ? path.join(homeDir, '.local', 'bin', 'orca-dev') : null
 
 if (!commandPath) {
-  console.log('[orca-dev] Skipping global symlink (unsupported platform).')
+  console.log(
+    `[orca-dev] Skipping user-local symlink (${supportsUserLocalBin ? 'home directory unavailable' : 'unsupported platform'}).`
+  )
   process.exit(0)
 }
 
@@ -39,11 +42,13 @@ if (existsSync(commandPath)) {
 }
 
 try {
-  execFileSync('ln', ['-s', source, commandPath], { stdio: 'inherit' })
+  mkdirSync(path.dirname(commandPath), { recursive: true })
+  symlinkSync(source, commandPath)
   console.log(`[orca-dev] Symlinked ${commandPath} → ${source}`)
-} catch {
-  console.log(
-    `[orca-dev] Could not create ${commandPath} (permission denied). Run once with:\n` +
-      `  sudo ln -s ${source} ${commandPath}`
+} catch (error) {
+  // Why: the symlink is a local convenience; a read-only home must not make
+  // the portable CLI or a release build fail after its artifacts are valid.
+  console.error(
+    `[orca-dev] Could not create ${commandPath}: ${error instanceof Error ? error.message : String(error)}`
   )
 }

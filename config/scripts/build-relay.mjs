@@ -12,6 +12,7 @@ import { build } from 'esbuild'
 import { createHash } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { relaySyncOnlyWasmGluePlugin } from './relay-sync-only-wasm-glue-plugin.mjs'
 
 const __dirname = import.meta.dirname
 // Why: the script lives under config/scripts, so go two levels up to reach the repo root.
@@ -46,10 +47,7 @@ const RELAY_VERSION = '0.1.0'
 // Native-source hunks (src/unix/pty.cc) are excluded — remotes compile the
 // registry tarball, so only local builds get those.
 const NODE_PTY_PATCH_PAYLOAD_DIR = 'node-pty-patched'
-const NODE_PTY_PATCHED_RUNTIME_FILES = [
-  'lib/conpty_console_list_agent.js',
-  'lib/unixTerminal.js'
-]
+const NODE_PTY_PATCHED_RUNTIME_FILES = ['lib/conpty_console_list_agent.js', 'lib/unixTerminal.js']
 
 function copyNodePtyPatchPayload(outDir) {
   const nodePtyRoot = join(ROOT, 'node_modules', 'node-pty')
@@ -80,6 +78,7 @@ for (const platform of PLATFORMS) {
     // Native addons cannot be bundled — they must exist on the remote host.
     // The relay gracefully degrades when they are absent.
     external: ['node-pty', '@parcel/watcher', 'electron'],
+    plugins: [relaySyncOnlyWasmGluePlugin()],
     sourcemap: false,
     minify: true,
     define: {
@@ -99,12 +98,7 @@ for (const platform of PLATFORMS) {
     minify: true,
     define: {
       'process.env.NODE_ENV': '"production"'
-    },
-    // The orca-git wasm glue's UNUSED default init (`__wbg_init`) references
-    // `import.meta.url`; the relay drives it via `initSync` with embedded base64
-    // bytes (git-wasm.ts) and never calls that path, so silence the CJS
-    // import.meta warning rather than let it mask real ones.
-    logOverride: { 'empty-import-meta': 'silent' }
+    }
   })
 
   await build({

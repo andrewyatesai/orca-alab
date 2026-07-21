@@ -32,6 +32,7 @@ describe('RelayDispatcher', () => {
   afterEach(() => {
     dispatcher.dispose()
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('sends keepalive frames on interval', () => {
@@ -274,6 +275,7 @@ describe('RelayDispatcher', () => {
   })
 
   it('isolates failed socket-client writes from other clients', () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     const goodSocketWritten: Buffer[] = []
     const failingClientId = dispatcher.attachClient(() => {
       throw new Error('socket closed')
@@ -287,6 +289,9 @@ describe('RelayDispatcher', () => {
 
     expect(written).toHaveLength(2)
     expect(goodSocketWritten).toHaveLength(2)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[relay] Client write failed: socket closed\n'
+    )
     dispatcher.detachClient(failingClientId)
   })
 
@@ -414,6 +419,7 @@ describe('RelayDispatcher', () => {
   })
 
   it('detaches the primary client when its write throws (frame lost, trigger reconnect)', () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     // Regression: a primary-client write throw dropped the frame (possibly
     // pty.data/pty.exit) with no resend AND without notifying detach, so the
     // owning Orca's reconnect + PTY-reattach path never engaged until the ~20s
@@ -446,12 +452,16 @@ describe('RelayDispatcher', () => {
       })
       detachDispatcher.notify('pty.data', { id: 'pty-1', data: 'x' })
       expect(recovered.length).toBeGreaterThan(0)
+      expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+        '[relay] Client write failed: socket closed\n'
+      )
     } finally {
       detachDispatcher.dispose()
     }
   })
 
   it('aborts in-flight primary requests when a client write throws', () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     let throwOnWrite = false
     const detachDispatcher = new RelayDispatcher(() => {
       if (throwOnWrite) {
@@ -475,6 +485,9 @@ describe('RelayDispatcher', () => {
       detachDispatcher.notify('pty.exit', { id: 'pty-1', code: 0 })
 
       expect(requestSignal?.aborted).toBe(true)
+      expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+        '[relay] Client write failed: socket closed\n'
+      )
     } finally {
       detachDispatcher.dispose()
     }

@@ -44,6 +44,48 @@ describe('runStagingTelemetryPreflight', () => {
     expect(result.messages.join('\n')).toContain('DARK STAGING')
   })
 
+  it('allows an explicit local contributor build without a staging warning', () => {
+    const result = runStagingTelemetryPreflight({
+      version: '1.4.122-fork.1',
+      env: { ORCA_LOCAL_BUILD: '1' }
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      staging: true,
+      dark: false,
+      local: true
+    })
+    expect(result.messages.join('\n')).toContain('Local contributor build')
+    expect(result.messages.join('\n')).not.toContain('WARNING')
+  })
+
+  it('rejects local-build mode in CI or a macOS release build', () => {
+    for (const env of [
+      { ORCA_LOCAL_BUILD: '1', CI: 'true' },
+      { ORCA_LOCAL_BUILD: '1', ORCA_MAC_RELEASE: '1' }
+    ]) {
+      const result = runStagingTelemetryPreflight({
+        version: '1.4.122-fork.1',
+        env
+      })
+      expect(result.ok).toBe(false)
+      expect(result.errors.join('\n')).toContain('limited to contributor builds')
+    }
+  })
+
+  it('rejects telemetry constants in local-build mode', () => {
+    const result = runStagingTelemetryPreflight({
+      version: '1.4.122-fork.1',
+      env: {
+        ORCA_LOCAL_BUILD: '1',
+        ORCA_POSTHOG_WRITE_KEY: FORK_KEY,
+        ORCA_BUILD_IDENTITY: 'rc'
+      }
+    })
+    expect(result.ok).toBe(false)
+    expect(result.errors.join('\n')).toContain('guaranteed to compile out')
+  })
+
   it('passes a fully keyed staging build', () => {
     const result = runStagingTelemetryPreflight({
       version: '1.4.122-fork.1',
@@ -112,6 +154,7 @@ describe('verify-telemetry-constants --preflight CLI', () => {
     delete env.ORCA_POSTHOG_WRITE_KEY
     delete env.ORCA_BUILD_IDENTITY
     delete env.ORCA_ALLOW_NO_TELEMETRY
+    delete env.ORCA_LOCAL_BUILD
     delete env.ORCA_FORK_POSTHOG_KEY_PREFIX
     env.ORCA_TELEMETRY_PREFLIGHT_VERSION = '1.4.122-rc.3'
     Object.assign(env, extraEnv)
@@ -133,6 +176,16 @@ describe('verify-telemetry-constants --preflight CLI', () => {
     const result = runPreflight({ ORCA_STAGING: '1', ORCA_ALLOW_NO_TELEMETRY: '1' })
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('DARK STAGING')
+  })
+
+  it('exits 0 for an explicit local contributor build without a warning', () => {
+    const result = runPreflight({
+      ORCA_TELEMETRY_PREFLIGHT_VERSION: '1.4.122-fork.1',
+      ORCA_LOCAL_BUILD: '1'
+    })
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('Local contributor build')
+    expect(result.stdout).not.toContain('WARNING')
   })
 
   it('exits 0 for a keyed staging build', () => {

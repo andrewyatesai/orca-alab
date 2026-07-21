@@ -65,10 +65,15 @@ describe('key releases are silent without kitty REPORT_EVENT_TYPES (real wasm)',
   })
 
   it('with REPORT_EVENT_TYPES negotiated, releases carry the :3 marker', () => {
-    // Releases ARE reported in this mode — and must never be press-identical.
+    // Kitty's reference impl (key_encoding.c: release + flag 2 disables text
+    // encoding, serializes CSI-u) and ghostty both report text-key releases;
+    // only the reset-hatch keys below stay silent without report-all.
     expect(encode('a', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe(
       '\x1b[97;1:3u'
     )
+    expect(
+      encode('a', ATERM_KEY_MOD_CTRL, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)
+    ).toBe('\x1b[97;5:3u')
   })
 
   it('reset escape hatch: bare Enter/Tab/Backspace releases stay silent even with :3 reporting', () => {

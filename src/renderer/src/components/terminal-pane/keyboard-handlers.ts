@@ -40,9 +40,9 @@ import { resolveWindowsShiftEnterEncodingForPane } from './terminal-windows-shif
 import { resolveTerminalInputHostPlatform } from './terminal-input-host-platform'
 import {
   markTerminalFollowOutput,
-  markTerminalPinnedViewport,
-  syncTerminalScrollIntentFromViewport
+  markTerminalPinnedViewportFromUserInteraction
 } from '@/lib/pane-manager/terminal-scroll-intent'
+import { syncTerminalScrollIntentSoon } from '@/lib/pane-manager/terminal-scroll-intent-settle'
 
 export function resolveTerminalKeyboardShortcutAction(
   event: Parameters<typeof resolveTerminalShortcutAction>[0],
@@ -259,6 +259,8 @@ export function useTerminalKeyboardShortcuts({
   keybindings,
   terminalShortcutPolicy = 'orca-first'
 }: KeyboardHandlersDeps): void {
+  const panePtyBindings = panePtyBindingsRef?.current
+
   useEffect(() => {
     if (!isActive) {
       return
@@ -451,7 +453,7 @@ export function useTerminalKeyboardShortcuts({
             if (action.data === '\x1b[13;2u') {
               // Why: this direct shortcut write does not pass through PTY onData,
               // so no-OSC shells need an explicit post-write confirmation ladder.
-              const binding = panePtyBindingsRef?.current?.get(pane.id) as
+              const binding = panePtyBindings?.get(pane.id) as
                 | (IDisposable & { requestDroidReconfirmation?: () => void })
                 | undefined
               binding?.requestDroidReconfirmation?.()
@@ -553,13 +555,16 @@ export function useTerminalKeyboardShortcuts({
           return
         }
         if (action.position === 'top') {
-          markTerminalPinnedViewport(pane.terminal)
+          markTerminalPinnedViewportFromUserInteraction(pane.terminal)
           pane.terminal.scrollToLine(0)
-          syncTerminalScrollIntentFromViewport(pane.terminal)
+          syncTerminalScrollIntentSoon(pane.terminal, {
+            preservePinnedAtBottom: true,
+            userInteraction: true
+          })
         } else {
           markTerminalFollowOutput(pane.terminal)
           pane.terminal.scrollToBottom()
-          syncTerminalScrollIntentFromViewport(pane.terminal)
+          syncTerminalScrollIntentSoon(pane.terminal, { userInteraction: true })
         }
         return
       }
@@ -735,6 +740,7 @@ export function useTerminalKeyboardShortcuts({
     keyboardScopeRef,
     managerRef,
     paneTransportsRef,
+    panePtyBindings,
     paneCwdRef,
     fallbackCwd,
     expandedPaneIdRef,

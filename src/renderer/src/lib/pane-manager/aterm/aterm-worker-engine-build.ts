@@ -130,6 +130,16 @@ export type WorkerEngine = Pick<
   | 'encode_mouse_release'
   | 'encode_mouse_motion'
   | 'encode_mouse_wheel'
+  // Predictive echo (mosh-style): both engines export the same predictor seam. The
+  // worker drives it from posted predict* commands and reflects overlay + deadline.
+  | 'set_predictive_echo'
+  | 'predict_char'
+  | 'predict_backspace'
+  | 'predict_line_submit'
+  | 'predict_reconcile'
+  | 'predict_overlay'
+  | 'predict_next_deadline_ms'
+  | 'predict_reset'
   | 'free'
 > & {
   /** Optional while Orca and aterm generated artifacts roll independently. */
@@ -217,7 +227,7 @@ export async function buildCpuEngine(
   p: StoredInit,
   canvas: OffscreenCanvas
 ): Promise<EngineHandle> {
-  const out = await (cpuInitPromise ??= init(wasmUrl))
+  const out = await (cpuInitPromise ??= init({ module_or_path: wasmUrl }))
   const memory = out.memory
   cpuWasmMemory = memory
   // Register the worker-resident faces ONCE per module; this and every later
@@ -281,7 +291,7 @@ export async function buildGpuEngine(
   p: StoredInit,
   canvas: OffscreenCanvas
 ): Promise<EngineHandle> {
-  const gpuOut = await (gpuInitPromise ??= gpuInit(gpuWasmUrl))
+  const gpuOut = await (gpuInitPromise ??= gpuInit({ module_or_path: gpuWasmUrl }))
   gpuWasmMemory = gpuOut.memory
   const rows = p.rows
   const cols = p.cols

@@ -1,13 +1,12 @@
-import {
-  syncTerminalScrollIntentFromViewport,
-  type TerminalScrollIntentTarget
-} from './terminal-scroll-intent'
+import { syncTerminalScrollIntentFromViewport } from './terminal-scroll-intent'
+import type { TerminalScrollIntentTarget } from './terminal-scroll-intent-types'
 
 export function syncTerminalScrollIntentSoon(
   terminal: TerminalScrollIntentTarget,
   options: {
     allowBufferShrink?: boolean
     preservePinnedAtBottom?: boolean
+    userInteraction?: boolean
     shouldSync?: () => boolean
   } = {}
 ): void {
@@ -26,7 +25,8 @@ export function syncTerminalScrollIntentSoon(
   setTimeout(() => {
     if (options.shouldSync?.() !== false) {
       syncTerminalScrollIntentFromViewport(terminal, {
-        allowBufferShrink: options.allowBufferShrink
+        allowBufferShrink: options.allowBufferShrink,
+        userInteraction: options.userInteraction
       })
     }
   }, 80)

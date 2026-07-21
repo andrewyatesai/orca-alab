@@ -672,6 +672,7 @@ describe('gcOldRelayVersions', () => {
   })
 
   it('removes a sibling with a stale lock + .install-complete (rm-lock failed mid-finalize)', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     mockExec.mockResolvedValueOnce('relay-0.1.0+aaa\n')
     mockExec.mockResolvedValueOnce('LOCKED')
     // isLockStale: age well above the stale window → stale.
@@ -692,6 +693,16 @@ describe('gcOldRelayVersions', () => {
     const lastCmd = mockExec.mock.calls.at(-1)?.[1] ?? ''
     expect(lastCmd).toContain('rm -rf')
     expect(lastCmd).toContain('relay-0.1.0+aaa')
+    expect(stderrWrite).toHaveBeenCalledTimes(2)
+    expect(stderrWrite).toHaveBeenNthCalledWith(
+      1,
+      '[ssh-relay] GC: lock at /home/u/.orca-remote/relay-0.1.0+aaa/.install-lock is stale; treating as recoverable\n'
+    )
+    expect(stderrWrite).toHaveBeenNthCalledWith(
+      2,
+      '[ssh-relay] GC: lock at /home/u/.orca-remote/relay-0.1.0+aaa/.install-lock is stale; treating as recoverable\n'
+    )
+    stderrWrite.mockRestore()
   })
 
   it('GCs a legacy relay-v0.1.0 dir whose daemon is dead (no .install-complete required)', async () => {

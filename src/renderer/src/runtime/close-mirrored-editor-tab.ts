@@ -43,7 +43,7 @@ export function notifyHostOfMirroredEditorClose(
   // Why: this helper is imported by the editor slice during store creation.
   // Importing web-runtime-session eagerly would import the store back and can
   // trip cyclic initialization in full-suite test/import order.
-  void import('./web-runtime-session').then(({ closeWebRuntimeSessionTab }) =>
+  void import('./web-runtime-session-deferred').then(({ closeWebRuntimeSessionTab }) =>
     closeWebRuntimeSessionTab({
       worktreeId,
       tabId: unifiedTab.id,

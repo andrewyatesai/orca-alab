@@ -1,4 +1,5 @@
 import { paintAtermLinkUnderline, type AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
+import { paintAtermPredictionOverlay } from './aterm-prediction-overlay'
 import { SEARCH_ACTIVE_FILL, SEARCH_MATCH_FILL } from './aterm-search-overlay'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
 
@@ -82,8 +83,16 @@ export function createAtermWorkerOverlay(
       // When there's nothing to draw now AND nothing was drawn last frame, skip the
       // full-canvas clearRect (millions of px on the MAIN thread, ~60/sec/streaming pane).
       const mainSpan = getMainThreadSpan()
+      // Predictive-echo ghosts (mosh-style speculative typing) are the worker path's
+      // equivalent of the in-process CPU/GPU painters' getPredictionCells draw — the
+      // worker owns the pane canvas (2d blit OR webgl2), so the dim+underlined ghost
+      // paints here, on the stacked 2d overlay, uniformly for both worker engines.
+      const hasPrediction = state.predictOverlay.length >= 3
       const hasContent =
-        state.searchMatchRects.length > 0 || state.hoverLink !== null || mainSpan !== null
+        state.searchMatchRects.length > 0 ||
+        state.hoverLink !== null ||
+        mainSpan !== null ||
+        hasPrediction
       if (!hasContent && !hadContent) {
         return
       }
@@ -105,6 +114,14 @@ export function createAtermWorkerOverlay(
         cellWidth: state.cellWidth,
         cellHeight: state.cellHeight,
         dpr
+      })
+      // Ghosts last so they sit above the glyphs (grid-relative device px, like the
+      // search rects — this overlay is grid-origin, so no chrome translate is needed).
+      paintAtermPredictionOverlay(ctx, state.predictOverlay, {
+        cellWidth: state.cellWidth,
+        cellHeight: state.cellHeight,
+        dpr,
+        fgColor: getFgColor()
       })
       hadContent = hasContent
     },

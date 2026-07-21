@@ -17,10 +17,19 @@ import {
   needsPerTargetMacBuild,
   resolveMacBuildArches
 } from './mac-build-arches.mjs'
+import { CargoCommandFailure, runStreamedCargoCommand } from './stream-cargo-command.mjs'
+import {
+  clearInstalledAtermSourceCommit,
+  installedAtermSourceIsCurrent,
+  readCleanAtermSourceCommit,
+  writeInstalledAtermSourceCommit
+} from './terminal-addon-source-stamp.mjs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
 const addonDir = resolve(projectDir, 'native/orca-node')
+const atermSource = resolve(projectDir, 'rust/aterm')
 const ADDON_NAME = 'orca_node.node'
+const ATERM_SOURCE_STAMP = resolve(addonDir, 'target/.orca-installed-aterm-source.json')
 // Skip the cargo fingerprint pass when the installed addon is already newer than
 // every input the build would touch; `--force` always rebuilds.
 const ifMissing = process.argv.includes('--if-missing')
@@ -59,7 +68,9 @@ function cargoEnv() {
 const RUST_TOOLCHAIN = process.env.ORCA_RUST_TOOLCHAIN || 'stable'
 
 function rustupStableBin(tool) {
-  const r = spawnSync('rustup', ['which', tool, '--toolchain', RUST_TOOLCHAIN], { encoding: 'utf8' })
+  const r = spawnSync('rustup', ['which', tool, '--toolchain', RUST_TOOLCHAIN], {
+    encoding: 'utf8'
+  })
   return r.status === 0 ? r.stdout.trim() : null
 }
 
@@ -97,12 +108,7 @@ function newestMtime() {
     resolve(addonDir, 'src'),
     resolve(addonDir, 'Cargo.toml'),
     resolve(projectDir, 'rust/crates/orca-terminal/src'),
-    resolve(projectDir, 'rust/crates/orca-terminal/Cargo.toml'),
-    // aterm is a pinned git submodule; its Cargo.lock changes on an engine bump
-    // and `git checkout` refreshes the file's mtime — a cheap proxy for the whole
-    // engine tree so a fresh pin triggers a rebuild without walking 900+ files.
-    // (The bump script also rebuilds with --force, so this is just a fast path.)
-    resolve(projectDir, 'rust/aterm/Cargo.lock')
+    resolve(projectDir, 'rust/crates/orca-terminal/Cargo.toml')
   ]
   let newest = 0
   const walk = (p) => {
@@ -141,13 +147,22 @@ if (!force) {
     console.log('[terminal-addon] addon present; skipping (--if-missing).')
     process.exit(0)
   }
-  if (existsSync(dest) && statSync(dest).mtimeMs >= newestMtime() && destCoversRequestedArches()) {
+  if (
+    existsSync(dest) &&
+    statSync(dest).mtimeMs >= newestMtime() &&
+    destCoversRequestedArches() &&
+    installedAtermSourceIsCurrent(atermSource, ATERM_SOURCE_STAMP)
+  ) {
     console.log('[terminal-addon] addon up to date; skipping rebuild.')
     process.exit(0)
   }
 }
 
 ensureAtermSubmodule()
+const buildAtermSourceCommit = readCleanAtermSourceCommit(atermSource)
+// Clear before Cargo starts: if a rebuild fails, a prior stamp must not make the
+// surviving old addon look current on the next invocation.
+clearInstalledAtermSourceCommit(ATERM_SOURCE_STAMP)
 
 // Pin BOTH cargo and rustc to rustup's stable toolchain (matches run-parity.mjs):
 // a Homebrew cargo on PATH ignores rust-toolchain.toml, and even rustup's cargo
@@ -160,24 +175,25 @@ if (stableRustc) {
   env.RUSTC = stableRustc
 }
 
-function runCargoBuild(targetTriple) {
+async function runCargoBuild(targetTriple) {
   const args = ['build', '--release', ...(targetTriple ? ['--target', targetTriple] : [])]
-  const build = spawnSync(stableCargo ?? 'cargo', args, {
-    cwd: addonDir,
-    env,
-    stdio: 'inherit',
-    // shell only for bare-name PATH lookup; an absolute cargo path may contain spaces.
-    shell: process.platform === 'win32' && !stableCargo
-  })
-  if (build.error) {
-    console.error(`[terminal-addon] cargo failed to start: ${build.error.message}`)
-    console.error(
-      '[terminal-addon] Install rustup with a stable toolchain >=1.96 (https://rustup.rs), then re-run.'
-    )
-    process.exit(1)
-  }
-  if (build.status !== 0) {
-    process.exit(build.status ?? 1)
+  try {
+    await runStreamedCargoCommand({
+      command: stableCargo ?? 'cargo',
+      args,
+      cwd: addonDir,
+      env,
+      label: 'terminal-addon',
+      // shell only for bare-name PATH lookup; an absolute cargo path may contain spaces.
+      shell: process.platform === 'win32' && !stableCargo
+    })
+  } catch (error) {
+    if (error instanceof CargoCommandFailure && error.reason === 'spawn') {
+      console.error(
+        '[terminal-addon] Install rustup with a stable toolchain >=1.96 (https://rustup.rs), then re-run.'
+      )
+    }
+    throw error
   }
   const built = resolve(
     addonDir,
@@ -185,28 +201,52 @@ function runCargoBuild(targetTriple) {
     cdylibName()
   )
   if (!existsSync(built)) {
-    console.error(`[terminal-addon] expected cargo artifact missing: ${built}`)
-    process.exit(1)
+    throw new CargoCommandFailure(`expected cargo artifact missing: ${built}`)
   }
   return built
 }
 
-if (perTargetMacBuild) {
-  assertRustupDarwinTargetsInstalled(macArches)
-  const perTargetArtifacts = macArches.map((arch) => {
-    const triple = DARWIN_TRIPLES[arch]
-    console.log(`[terminal-addon] building aterm napi addon for ${triple}…`)
-    return runCargoBuild(triple)
-  })
-  if (perTargetArtifacts.length === 1) {
-    copyFileSync(perTargetArtifacts[0], dest)
+async function main() {
+  if (perTargetMacBuild) {
+    assertRustupDarwinTargetsInstalled(macArches)
+    const perTargetArtifacts = []
+    for (const arch of macArches) {
+      const triple = DARWIN_TRIPLES[arch]
+      console.log(`[terminal-addon] building aterm napi addon for ${triple}…`)
+      perTargetArtifacts.push(await runCargoBuild(triple))
+    }
+    if (perTargetArtifacts.length === 1) {
+      copyFileSync(perTargetArtifacts[0], dest)
+    } else {
+      lipoCreate(perTargetArtifacts, dest)
+    }
+    console.log(`[terminal-addon] installed ${dest} (${macArches.join(' + ')})`)
   } else {
-    lipoCreate(perTargetArtifacts, dest)
+    console.log('[terminal-addon] building aterm napi addon (cargo build --release)…')
+    const built = await runCargoBuild(null)
+    copyFileSync(built, dest)
+    console.log(`[terminal-addon] installed ${dest}`)
   }
-  console.log(`[terminal-addon] installed ${dest} (${macArches.join(' + ')})`)
-} else {
-  console.log('[terminal-addon] building aterm napi addon (cargo build --release)…')
-  const built = runCargoBuild(null)
-  copyFileSync(built, dest)
-  console.log(`[terminal-addon] installed ${dest}`)
+
+  const installedAtermSourceCommit = readCleanAtermSourceCommit(atermSource)
+  if (buildAtermSourceCommit && installedAtermSourceCommit === buildAtermSourceCommit) {
+    writeInstalledAtermSourceCommit(ATERM_SOURCE_STAMP, buildAtermSourceCommit)
+    console.log(`[terminal-addon] stamped aterm source ${buildAtermSourceCommit.slice(0, 12)}`)
+  } else {
+    // Dirty source and a checkout that changes while Cargo runs are both valid
+    // for local experimentation, but neither has a trustworthy commit identity.
+    console.log(
+      '[terminal-addon] aterm source is dirty, changed, or unidentified; addon remains uncacheable.'
+    )
+  }
+}
+
+try {
+  await main()
+} catch (error) {
+  if (!(error instanceof CargoCommandFailure)) {
+    throw error
+  }
+  console.error(`[terminal-addon] ${error.message}`)
+  process.exitCode = error.exitCode
 }

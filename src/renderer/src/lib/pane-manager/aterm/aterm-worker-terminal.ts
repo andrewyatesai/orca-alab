@@ -7,6 +7,8 @@
 // and reports search/hover so the UI stays correct.
 
 import { workerWasmHeapBytes, type EngineHandle } from './aterm-worker-engine-build'
+import { createWorkerPredictor, type WorkerPredictor } from './aterm-worker-predictor'
+import { applyAtermWorkerThemeSet } from './aterm-worker-theme-apply'
 import { hasAtermSpillExports } from './aterm-spill-engine-read'
 import { createWorkerSearch } from './aterm-worker-search'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
@@ -69,6 +71,9 @@ export function createWorkerTerminal(
   setLigatures: (on: boolean) => void
   setScrollbackLimit: (lines: number) => void
   setDefaultCursorStyle: (param: number) => void
+  /** Predictive-echo driver (mosh-style): the dispatch routes predict* commands to it,
+   *  buildState reflects its overlay()/deadlineMs(), and 'process' calls its reconcile(). */
+  predict: WorkerPredictor
   /** Push the OS color scheme; returns any queued CSI ?997 reply bytes (ASCII), '' if none. */
   setColorScheme: (dark: boolean) => string
   themeSet: (m: AtermWorkerThemeSet) => void
@@ -135,6 +140,10 @@ export function createWorkerTerminal(
 
   // Per-visible-row change detection (emit only changed rows); state + logic extracted.
   const dirtyRowTracker = createAtermDirtyRowTracker(e)
+
+  // Predictive echo (mosh-style): drives the SAME engine predictor the in-process path
+  // uses; buildState reflects its ghost cells + glitch deadline for the main-thread overlay.
+  const predictor = createWorkerPredictor(e)
 
   // Effects clock (extracted): the frame scheduler drives it per rendered frame.
   const effectsTick = createAtermWorkerEffectsTick(e)
@@ -225,7 +234,11 @@ export function createWorkerTerminal(
         searchActiveRect: search.activeRect(),
         searchMatchRects: search.visibleRects(),
         spillExportCapable,
-        dirtyRows: dirtyRowTracker.build(rows, cols)
+        dirtyRows: dirtyRowTracker.build(rows, cols),
+        // The ghost cells + glitch deadline for the main-thread overlay; both inert while
+        // off, and the deadline is read after overlay()'s expiry self-heal (see predictor).
+        predictOverlay: predictor.overlay(),
+        predictDeadlineMs: predictor.deadlineMs()
       }
     },
     dimensions: () => ({ cols, rows, cellWidth: e.cell_width, cellHeight: e.cell_height }),
@@ -240,32 +253,13 @@ export function createWorkerTerminal(
     setLigatures: (on) => e.set_ligatures(on),
     setScrollbackLimit: (lines) => e.set_scrollback_limit(lines),
     setDefaultCursorStyle: (param) => e.set_default_cursor_style(param),
+    predict: predictor,
     setColorScheme: (dark) => {
       e.set_color_scheme(dark)
       // The CSI ?997 push (if any) is ASCII; latin1-decode like other engine replies.
       return decodeReply(e.take_response())
     },
-    themeSet: (m) => {
-      switch (m.op) {
-        case 'theme':
-          e.set_theme(m.fg, m.bg, m.cursor, m.selection)
-          return
-        case 'paletteColor':
-          e.set_palette_color(m.index, m.r, m.g, m.b)
-          return
-        case 'defaultForeground':
-          e.set_default_foreground(m.r, m.g, m.b)
-          return
-        case 'defaultBackground':
-          e.set_default_background(m.r, m.g, m.b)
-          return
-        case 'selectionFg':
-          e.set_selection_fg(m.fg ?? undefined)
-          return
-        case 'cellPixelSize':
-          e.set_cell_pixel_size(m.width, m.height)
-      }
-    },
+    themeSet: (m) => applyAtermWorkerThemeSet(e, m),
     // The main-thread cursor-blink timer (attachAtermCursorBlink) drives these as
     // commands; the engine paints the toggled phase / hollow box on the next render.
     setCursorBlinkPhase: (on) => e.set_cursor_blink_phase(on),

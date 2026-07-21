@@ -33,7 +33,7 @@ function markReady(): void {
 /** Kick off the async wasm init (idempotent). Called once from the renderer
  *  bootstrap so the module is compiled long before any diff section renders. */
 export function startGitWasm(): Promise<void> {
-  startPromise ??= initGitWasm(wasmUrl).then(markReady)
+  startPromise ??= initGitWasm({ module_or_path: wasmUrl }).then(markReady)
   return startPromise
 }
 

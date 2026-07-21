@@ -6,9 +6,6 @@ import WebSocket from 'ws'
 import { WebSocketTransport } from './ws-transport'
 import { loadOrCreateTlsCertificate } from '../tls-certificate'
 
-// Why: disable TLS verification for self-signed certs in tests.
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
-
 function makeTls() {
   const userDataPath = mkdtempSync(join(tmpdir(), 'ws-transport-test-'))
   return loadOrCreateTlsCertificate(userDataPath)

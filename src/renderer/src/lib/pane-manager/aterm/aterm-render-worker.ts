@@ -33,6 +33,10 @@ import {
   type EngineSettingSetters,
   type PaneRuntime
 } from './aterm-worker-pane-dispatch'
+import {
+  createAtermWorkerCommandScheduler,
+  type PaneRuntimeCommand
+} from './aterm-worker-command-scheduler'
 import { createAtermWorkerSpillCompositor } from './aterm-worker-spill-compositor'
 import { isAtermWorkerSpillCommand } from './aterm-worker-spill-protocol'
 import type {
@@ -255,22 +259,62 @@ function handleDispose(paneId: number): void {
   pane.storedInit = null
   pane.canvas = null
   panes.delete(paneId)
+  // Drop any deferred QoS work so a queued chunk never executes against a freed engine.
+  commandScheduler.forget(paneId)
 }
 
-ctx.onmessage = (event): void => {
+// A wasm RuntimeError escaping dispatch poisons the module state for EVERY engine in
+// the worker, and the bare worker 'error' event carries no structured payload — post a
+// worker-scoped crash first so the manager retires the worker and each pane rebuilds
+// in-process, then rethrow to keep the error-event/console semantics. Shared by the
+// onmessage path AND the QoS scheduler's DEFERRED drain (which runs a background pane's
+// bulk `process` on a later macrotask, outside onmessage) so a deferred-chunk panic
+// retires the worker exactly like a synchronous one.
+function guarded(run: () => void): void {
   try {
-    dispatch(event.data)
+    run()
   } catch (err) {
-    // A wasm RuntimeError escaping here poisons the module state for EVERY engine in
-    // it, and the bare worker 'error' event carries no structured payload — post a
-    // worker-scoped crash first so the manager retires the worker and each pane
-    // rebuilds in-process, then rethrow to keep the error-event/console semantics.
     ctx.postMessage({
       type: 'crash',
       message: err instanceof Error && err.stack ? err.stack : String(err)
     })
     throw err
   }
+}
+
+// Worker QoS (R4): a single MessageChannel macrotask backs the scheduler's deferred
+// drain. Posting on port1 yields to the worker's message queue FIRST — so a
+// focused-pane keystroke that arrived meanwhile is dispatched (and fast-pathed) before
+// the drain resumes — then port2 runs the resume inside the crash guard.
+const drainChannel = new MessageChannel()
+let pendingDrainResume: (() => void) | null = null
+drainChannel.port2.onmessage = (): void => {
+  const resume = pendingDrainResume
+  pendingDrainResume = null
+  if (resume) {
+    guarded(resume)
+  }
+}
+
+// Cross-pane QoS: the focused pane's interactive work (keystroke echo / predict / draw)
+// runs synchronously on arrival; a BACKGROUND pane's bulk `process` is chunked and
+// time-sliced so a flooding sibling can't starve keystroke echo. Per-pane byte ORDER is
+// never reordered — only priority BETWEEN panes shifts.
+const commandScheduler = createAtermWorkerCommandScheduler({
+  execute: (command: PaneRuntimeCommand): void => {
+    const pane = panes.get(command.paneId)
+    if (pane) {
+      dispatchPaneCommand(pane, command)
+    }
+  },
+  scheduleDrain: (resume): void => {
+    pendingDrainResume = resume
+    drainChannel.port1.postMessage(null)
+  }
+})
+
+ctx.onmessage = (event): void => {
+  guarded(() => dispatch(event.data))
 }
 
 function dispatch(msg: AtermWorkerRequest): void {
@@ -330,8 +374,14 @@ function dispatch(msg: AtermWorkerRequest): void {
     handleDispose(msg.paneId)
     return
   }
-  const pane = panes.get(msg.paneId)
-  if (pane) {
-    dispatchPaneCommand(pane, msg)
+  // Worker QoS focus signal (R4): scheduler bookkeeping only, not engine work.
+  if (msg.type === 'setFocused') {
+    commandScheduler.noteFocus(msg.paneId, msg.focused)
+    return
+  }
+  // Route every per-pane runtime command through the QoS scheduler: focused/cheap work
+  // runs now; a background flood defers so it can't starve keystroke echo.
+  if (panes.has(msg.paneId)) {
+    commandScheduler.submit(msg)
   }
 }

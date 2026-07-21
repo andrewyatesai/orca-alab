@@ -1,8 +1,8 @@
 import {
   markTerminalPinnedViewport,
-  syncTerminalScrollIntentFromViewport,
-  type TerminalScrollIntentTarget
+  syncTerminalScrollIntentFromViewport
 } from '../terminal-scroll-intent'
+import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 /** The engine slice the scrollbar reads/drives. Both the in-process engines and
@@ -60,7 +60,7 @@ export function createAtermScrollbarOverlay(
     const intentTarget = getScrollIntentTarget?.()
     if (intentTarget) {
       markTerminalPinnedViewport(intentTarget)
-      syncTerminalScrollIntentFromViewport(intentTarget)
+      syncTerminalScrollIntentFromViewport(intentTarget, { userInteraction: true })
     }
   }
 

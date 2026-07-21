@@ -63,6 +63,8 @@ import {
   CLIPBOARD_TEXT_WRITE_TOO_LARGE_ERROR
 } from '../../shared/clipboard-text'
 
+type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void
+
 // Why: the bridge resolves webContents via dynamic require('electron').webContents.fromId
 // inside a try/catch. Override the private method to inject our mock.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -108,31 +110,37 @@ function mockWebContents(id: number, url = 'https://example.com', title = 'Examp
 }
 
 function succeedWith(data: unknown): void {
-  execFileMock.mockImplementation((_bin: string, _args: string[], _opts: unknown, cb: Function) => {
-    cb(null, JSON.stringify({ success: true, data }), '')
-    return {
-      stdin: { on: vi.fn(), end: (text: string) => stdinWrites.push(text) }
+  execFileMock.mockImplementation(
+    (_bin: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
+      cb(null, JSON.stringify({ success: true, data }), '')
+      return {
+        stdin: { on: vi.fn(), end: (text: string) => stdinWrites.push(text) }
+      }
     }
-  })
+  )
 }
 
 function succeedForContentEditable(data: unknown = { ok: true }): void {
-  execFileMock.mockImplementation((_bin: string, args: string[], _opts: unknown, cb: Function) => {
-    const result =
-      args.includes('get') && args.includes('attr') && args.includes('contenteditable')
-        ? { value: 'true' }
-        : data
-    cb(null, JSON.stringify({ success: true, data: result }), '')
-    return {
-      stdin: { on: vi.fn(), end: (text: string) => stdinWrites.push(text) }
+  execFileMock.mockImplementation(
+    (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
+      const result =
+        args.includes('get') && args.includes('attr') && args.includes('contenteditable')
+          ? { value: 'true' }
+          : data
+      cb(null, JSON.stringify({ success: true, data: result }), '')
+      return {
+        stdin: { on: vi.fn(), end: (text: string) => stdinWrites.push(text) }
+      }
     }
-  })
+  )
 }
 
 function failWith(error: string): void {
-  execFileMock.mockImplementation((_bin: string, _args: string[], _opts: unknown, cb: Function) => {
-    cb(null, JSON.stringify({ success: false, error }), '')
-  })
+  execFileMock.mockImplementation(
+    (_bin: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
+      cb(null, JSON.stringify({ success: false, error }), '')
+    }
+  )
 }
 
 class TestEvent {
@@ -336,7 +344,7 @@ describe('AgentBrowserBridge', () => {
     try {
       const closeKill = vi.fn()
       execFileMock.mockImplementation(
-        (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+        (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
           if (args.includes('close')) {
             return { kill: closeKill }
           }
@@ -429,7 +437,7 @@ describe('AgentBrowserBridge', () => {
     let releaseSnapshot: (() => void) | null = null
     const activeChild = { kill: vi.fn() }
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         if (args.includes('snapshot')) {
           releaseSnapshot = () => {
             cb(null, JSON.stringify({ success: false, error: CDP_DISCOVERY_FAILURE }), '')
@@ -470,7 +478,7 @@ describe('AgentBrowserBridge', () => {
 
   it('handles malformed JSON from agent-browser', async () => {
     execFileMock.mockImplementation(
-      (_bin: string, _args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
         cb(null, 'not json at all', '')
       }
     )
@@ -732,7 +740,7 @@ describe('AgentBrowserBridge', () => {
     const commandCalls: string[][] = []
 
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         commandCalls.push(args)
         cb(null, JSON.stringify({ success: true, data: { ok: true } }), '')
       }
@@ -766,7 +774,7 @@ describe('AgentBrowserBridge', () => {
 
     let releaseSnapshot: (() => void) | null = null
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         if (args.includes('close')) {
           cb(null, JSON.stringify({ success: true, data: null }), '')
           return
@@ -861,7 +869,7 @@ describe('AgentBrowserBridge', () => {
 
     const commandCalls: string[][] = []
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         commandCalls.push(args)
         cb(null, JSON.stringify({ success: true, data: { ok: true } }), '')
       }
@@ -1006,7 +1014,7 @@ describe('AgentBrowserBridge', () => {
 
       let releaseFirstScreenshot: (() => void) | null = null
       execFileMock.mockImplementation(
-        (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+        (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
           if (args.includes('close')) {
             cb(null, JSON.stringify({ success: true, data: null }), '')
             return
@@ -1085,7 +1093,7 @@ describe('AgentBrowserBridge', () => {
       webContentsFromIdMock.mockReturnValue(wc)
 
       execFileMock.mockImplementation(
-        (_bin: string, _args: string[], _opts: unknown, cb: Function) => {
+        (_bin: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
           cb(null, JSON.stringify({ success: true, data: null }), '')
         }
       )
@@ -1119,7 +1127,7 @@ describe('AgentBrowserBridge', () => {
     const killedError = Object.assign(new Error('timeout'), { killed: true })
 
     execFileMock.mockImplementation(
-      (_bin: string, _args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
         cb(killedError, '', '')
       }
     )
@@ -1145,7 +1153,7 @@ describe('AgentBrowserBridge', () => {
     const commandCalls: string[][] = []
     let releaseDestroyClose: (() => void) | null = null
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         commandCalls.push(args)
         if (args.includes('close')) {
           if (!releaseDestroyClose) {
@@ -1190,7 +1198,7 @@ describe('AgentBrowserBridge', () => {
     const commandCalls: string[][] = []
     let releaseStaleClose: (() => void) | null = null
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         commandCalls.push(args)
         if (args.includes('close') && !releaseStaleClose) {
           releaseStaleClose = () => {
@@ -1248,7 +1256,7 @@ describe('AgentBrowserBridge', () => {
     }
 
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         if (args.includes('snapshot')) {
           resolveRunningCommand = () => cb(killedError, '', '')
           return activeChild
@@ -1332,7 +1340,7 @@ describe('AgentBrowserBridge', () => {
 
     const commandCalls: string[][] = []
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         commandCalls.push(args)
         cb(null, JSON.stringify({ success: true, data: { ok: true } }), '')
       }
@@ -1368,7 +1376,7 @@ describe('AgentBrowserBridge', () => {
 
     const commandCalls: string[][] = []
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         commandCalls.push(args)
         cb(null, JSON.stringify({ success: true, data: { ok: true } }), '')
       }
@@ -1555,7 +1563,7 @@ describe('AgentBrowserBridge', () => {
 
     let releaseSnapshot: (() => void) | null = null
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         if (args.includes('close')) {
           cb(null, JSON.stringify({ success: true, data: null }), '')
           return
@@ -2097,7 +2105,7 @@ describe('AgentBrowserBridge', () => {
   it('returns browser_timeout for timed conditional waits without recycling the session', async () => {
     const killedError = Object.assign(new Error('timeout'), { killed: true })
     execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
         if (args.includes('wait')) {
           cb(killedError, '', '')
           return
@@ -2121,7 +2129,7 @@ describe('AgentBrowserBridge', () => {
 
   it('passes stderr through as error message on execFile failure', async () => {
     execFileMock.mockImplementation(
-      (_bin: string, _args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
         cb(new Error('exit code 1'), '', 'daemon crashed: segfault')
       }
     )
@@ -2130,7 +2138,7 @@ describe('AgentBrowserBridge', () => {
 
   it('falls back to error.message when stderr is empty', async () => {
     execFileMock.mockImplementation(
-      (_bin: string, _args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
         cb(new Error('Command failed'), '', '')
       }
     )
@@ -2141,7 +2149,7 @@ describe('AgentBrowserBridge', () => {
 
   it('returns browser_error with truncated output for malformed JSON', async () => {
     execFileMock.mockImplementation(
-      (_bin: string, _args: string[], _opts: unknown, cb: Function) => {
+      (_bin: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
         cb(null, 'Error: not json output', '')
       }
     )

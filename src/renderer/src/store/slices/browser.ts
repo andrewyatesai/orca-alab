@@ -602,7 +602,8 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     const defaultUrl = state.browserDefaultUrl ?? 'about:blank'
     const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
     if (runtimeEnvironmentId) {
-      const { createWebRuntimeSessionBrowserTab } = await import('@/runtime/web-runtime-session')
+      const { createWebRuntimeSessionBrowserTab } =
+        await import('@/runtime/web-runtime-session-deferred')
       try {
         const created = await createWebRuntimeSessionBrowserTab({
           worktreeId,

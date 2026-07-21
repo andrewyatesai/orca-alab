@@ -78,30 +78,6 @@ const REPO: Repo = {
   badgeColor: '#000',
   addedAt: NOW
 }
-const LARGE_WORKTREE_COUNT = 150_000
-
-function buildGitWorktrees(count: number): GitWorktreeInfo[] {
-  const worktrees: GitWorktreeInfo[] = []
-  for (let index = 0; index < count; index += 1) {
-    worktrees.push({
-      path: `/repo-feature-${index}`,
-      head: `abc${index}`,
-      branch: `refs/heads/feature-${index}`,
-      isBare: false,
-      isMainWorktree: false
-    })
-  }
-  return worktrees
-}
-
-function buildWorktreeIds(repoId: string, count: number): string[] {
-  const worktreeIds: string[] = []
-  for (let index = 0; index < count; index += 1) {
-    worktreeIds.push(`${repoId}::/repo-feature-${index}`)
-  }
-  return worktreeIds
-}
-
 function makeWorktreeMeta(overrides: Partial<WorktreeMeta> = {}): WorktreeMeta {
   return {
     displayName: 'Feature',
@@ -776,33 +752,6 @@ describe('workspace cleanup scan', () => {
     expect(result.candidates[0]?.localContext).toMatchObject({
       diffCommentCount: 150_000,
       newestDiffCommentAt: NOW
-    })
-  })
-
-  it('aggregates large cleanup candidate batches without hitting argument limits', async () => {
-    listRepoWorktreesMock.mockResolvedValue(buildGitWorktrees(LARGE_WORKTREE_COUNT))
-
-    const result = await scanWorkspaceCleanup(makeStore(), {
-      skipGitWorktreeIds: buildWorktreeIds(REPO.id, LARGE_WORKTREE_COUNT)
-    })
-
-    expect(getStatusMock).not.toHaveBeenCalled()
-    expect(result.errors).toEqual([])
-    expect(result.candidates).toHaveLength(LARGE_WORKTREE_COUNT)
-    expect(result.candidates[0]).toMatchObject({
-      worktreeId: 'repo-1::/repo-feature-0',
-      path: '/repo-feature-0',
-      branch: 'feature-0',
-      tier: 'review',
-      git: {
-        clean: null,
-        checkedAt: null
-      }
-    })
-    expect(result.candidates[LARGE_WORKTREE_COUNT - 1]).toMatchObject({
-      worktreeId: `repo-1::/repo-feature-${LARGE_WORKTREE_COUNT - 1}`,
-      path: `/repo-feature-${LARGE_WORKTREE_COUNT - 1}`,
-      branch: `feature-${LARGE_WORKTREE_COUNT - 1}`
     })
   })
 

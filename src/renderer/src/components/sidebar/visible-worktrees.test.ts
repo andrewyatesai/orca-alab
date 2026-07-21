@@ -459,7 +459,7 @@ describe('computeVisibleWorktreeIds', () => {
     expect(result).toEqual([feature2.id])
   })
 
-  it('includes valid lineage parents even when another filter would hide the parent', () => {
+  it('does not restore inactive lineage parents when sleeping workspaces are hidden', () => {
     const parent = makeWorktree('parent')
     const child = makeWorktree('child')
     const lineage = makeWorktreeLineage(child, parent)
@@ -471,6 +471,29 @@ describe('computeVisibleWorktreeIds', () => {
         showSleepingWorkspaces: false,
         tabsByWorktree: { [child.id]: [makeTab('t-child', child.id, 'p-child')] },
         ptyIdsByTabId: { 't-child': ['p-child'] },
+        worktreeLineageById: { [child.id]: lineage }
+      })
+    )
+
+    expect(result).toEqual([child.id])
+  })
+
+  it('restores an active lineage parent hidden by another filter while sleeping workspaces are hidden', () => {
+    const parent = makeWorktree('parent', 'repo1')
+    const child = makeWorktree('child', 'repo2')
+    const lineage = makeWorktreeLineage(child, parent)
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [parent], repo2: [child] },
+      [child.id, parent.id],
+      visibleOptions({
+        filterRepoIds: ['repo2'],
+        showSleepingWorkspaces: false,
+        tabsByWorktree: {
+          [parent.id]: [makeTab('t-parent', parent.id, 'p-parent')],
+          [child.id]: [makeTab('t-child', child.id, 'p-child')]
+        },
+        ptyIdsByTabId: { 't-parent': ['p-parent'], 't-child': ['p-child'] },
         worktreeLineageById: { [child.id]: lineage }
       })
     )

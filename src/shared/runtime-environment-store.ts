@@ -145,17 +145,20 @@ export function markEnvironmentUsed(
   userDataPath: string,
   selector: string,
   args: { runtimeId?: string | null; now?: number } = {}
-): void {
+): { environmentId: string; runtimeInstanceChanged: boolean } {
   const store = readEnvironmentStore(userDataPath)
   const environment = resolveEnvironmentFromStore(store, selector)
   const now = args.now ?? Date.now()
   const runtimeIdChanged = args.runtimeId != null && args.runtimeId !== environment.runtimeId
+  // Why: churn means a previously known runtime instance was replaced — the first
+  // observed runtimeId (null → id) is a fresh pairing, not a host restart.
+  const runtimeInstanceChanged = runtimeIdChanged && environment.runtimeId != null
   const lastUsedIsFresh =
     environment.lastUsedAt != null &&
     now >= environment.lastUsedAt &&
     now - environment.lastUsedAt < LAST_USED_PERSIST_INTERVAL_MS
   if (!runtimeIdChanged && lastUsedIsFresh) {
-    return
+    return { environmentId: environment.id, runtimeInstanceChanged }
   }
   const next = store.environments.map((entry) =>
     entry.id === environment.id
@@ -168,6 +171,7 @@ export function markEnvironmentUsed(
       : entry
   )
   writeEnvironmentStore(userDataPath, { version: 1, environments: next })
+  return { environmentId: environment.id, runtimeInstanceChanged }
 }
 
 function resolveEnvironmentFromStore(

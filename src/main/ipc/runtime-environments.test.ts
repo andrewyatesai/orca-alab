@@ -60,6 +60,7 @@ vi.mock('./runtime-environment-request-connections', () => ({
 }))
 
 import { registerRuntimeEnvironmentHandlers } from './runtime-environments'
+import { toRuntimeExecutionHostId } from '../../shared/execution-host'
 
 function pairingCode(endpoint = 'ws://127.0.0.1:6768'): string {
   return encodePairingOffer({
@@ -84,6 +85,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
   let store: {
     getSettings: () => { activeRuntimeEnvironmentId: string | null }
     updateSettings: ReturnType<typeof vi.fn>
+    deleteHostWorkspaceSession: ReturnType<typeof vi.fn>
+    clearHostWorkspaceSessionPtyBindings: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
@@ -93,7 +96,9 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       getSettings: () => ({ activeRuntimeEnvironmentId }),
       updateSettings: vi.fn((updates: { activeRuntimeEnvironmentId: string | null }) => {
         activeRuntimeEnvironmentId = updates.activeRuntimeEnvironmentId
-      })
+      }),
+      deleteHostWorkspaceSession: vi.fn(),
+      clearHostWorkspaceSessionPtyBindings: vi.fn()
     }
     getPathMock.mockReset()
     getPathMock.mockReturnValue(userDataPath)
@@ -149,6 +154,42 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       'runtimeEnvironments:unsubscribe'
     ])
     expect(removeAllListenersMock).toHaveBeenCalledWith('runtimeEnvironments:subscriptionBinary')
+  })
+
+  it('prunes the removed environment persisted terminal host session on remove', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    const added = await add(null, { name: 'desk', pairingCode: pairingCode() })
+
+    const remove = handler<{ selector: string }, { removed: { id: string } }>(
+      'runtimeEnvironments:remove'
+    )
+    await remove(null, { selector: added.environment.id })
+
+    expect(store.deleteHostWorkspaceSession).toHaveBeenCalledWith(
+      toRuntimeExecutionHostId(added.environment.id)
+    )
+  })
+
+  it('does not prune the persisted host session on disconnect (non-destructive)', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    const added = await add(null, { name: 'desk', pairingCode: pairingCode() })
+
+    const disconnect = handler<{ selector: string }, { disconnected: { id: string } }>(
+      'runtimeEnvironments:disconnect'
+    )
+    await disconnect(null, { selector: added.environment.id })
+
+    expect(store.deleteHostWorkspaceSession).not.toHaveBeenCalled()
   })
 
   it('stores, resolves, lists, and removes environments under Electron userData', async () => {
@@ -275,6 +316,42 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       id: added.environment.id,
       runtimeId: 'runtime-remote'
     })
+  })
+
+  it('prunes stale PTY bindings when the runtime id churns, but not on first contact', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+    const statusResponse = (runtimeId: string) => ({
+      id: 'rpc-status',
+      ok: true,
+      result: { runtimeId, graphStatus: 'ready' },
+      _meta: { runtimeId }
+    })
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    const added = await add(null, { name: 'desk', pairingCode: pairingCode() })
+    const getStatus = handler<{ selector: string; timeoutMs?: number }, { ok: boolean }>(
+      'runtimeEnvironments:getStatus'
+    )
+
+    // First contact (null → id) is a fresh pairing, not a restart — no prune.
+    sendRemoteRuntimeRequestMock.mockResolvedValue(statusResponse('runtime-gen-1'))
+    await getStatus(null, { selector: 'desk', timeoutMs: 50 })
+    expect(store.clearHostWorkspaceSessionPtyBindings).not.toHaveBeenCalled()
+
+    // Same runtime instance again — still no prune.
+    await getStatus(null, { selector: 'desk', timeoutMs: 50 })
+    expect(store.clearHostWorkspaceSessionPtyBindings).not.toHaveBeenCalled()
+
+    // Host restarted: churned runtimeId must drop the environment's dead handles.
+    sendRemoteRuntimeRequestMock.mockResolvedValue(statusResponse('runtime-gen-2'))
+    await getStatus(null, { selector: 'desk', timeoutMs: 50 })
+    expect(store.clearHostWorkspaceSessionPtyBindings).toHaveBeenCalledTimes(1)
+    expect(store.clearHostWorkspaceSessionPtyBindings).toHaveBeenCalledWith(
+      toRuntimeExecutionHostId(added.environment.id)
+    )
   })
 
   it('attaches shared-control diagnostics to saved remote runtime status', async () => {

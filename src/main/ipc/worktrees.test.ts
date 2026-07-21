@@ -540,6 +540,22 @@ describe('registerWorktreeHandlers', () => {
     expect(handlers['worktrees:getBranchRenameFailureOutput']).toBeDefined()
   })
 
+  it('persistSortOrder only reorders existing worktrees and never mints meta for a stale id', () => {
+    const liveId = 'repo-1::/workspace/repo'
+    const staleId = 'removed-repo::/workspace/gone'
+    // Only the live worktree has meta; the stale id (e.g. a removed repo the
+    // renderer still lists) has none and must be skipped, not created.
+    store.getWorktreeMeta.mockImplementation((id: string) =>
+      id === liveId ? ({ instanceId: 'x' } as never) : undefined
+    )
+
+    handlers['worktrees:persistSortOrder'](null, { orderedIds: [liveId, staleId] })
+
+    const orderedTargets = store.setWorktreeMeta.mock.calls.map((call) => call[0])
+    expect(orderedTargets).toContain(liveId)
+    expect(orderedTargets).not.toContain(staleId)
+  })
+
   it('prefetches the local default create base through the runtime refresh cache', async () => {
     const repo = {
       id: 'repo-1',
@@ -2304,6 +2320,48 @@ describe('registerWorktreeHandlers', () => {
       source: 'git',
       worktrees: [expect.objectContaining({ path: '/workspace/repo' })]
     })
+  })
+
+  it('hides agent scratch created inside a linked checkout from desktop listings', async () => {
+    const linkedCheckoutPath = '/workspace/feature-x'
+    const scratchPath = `${linkedCheckoutPath}/.claude/worktrees/agent-a04ccaaa`
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: '/workspace/repo',
+        head: 'main-head',
+        branch: 'refs/heads/main',
+        isBare: false,
+        isMainWorktree: true
+      },
+      {
+        path: linkedCheckoutPath,
+        head: 'feature-head',
+        branch: 'refs/heads/feature-x',
+        isBare: false,
+        isMainWorktree: false
+      },
+      {
+        path: scratchPath,
+        head: 'scratch-head',
+        branch: 'refs/heads/worktree-agent-a04ccaaa',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+
+    const detected = (await handlers['worktrees:listDetected'](null, {
+      repoId: 'repo-1'
+    })) as { worktrees: (Worktree & { ownership: string; visible: boolean })[] }
+    const visible = (await handlers['worktrees:list'](null, { repoId: 'repo-1' })) as Worktree[]
+
+    expect(detected.worktrees.find((worktree) => worktree.path === scratchPath)).toMatchObject({
+      ownership: 'agent-scratch',
+      visible: false
+    })
+    expect(visible.map((worktree) => worktree.path)).toEqual([
+      '/workspace/repo',
+      linkedCheckoutPath
+    ])
   })
 
   it('does not reuse host detected worktree scans for a selected WSL runtime', async () => {

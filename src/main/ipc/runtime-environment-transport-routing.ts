@@ -2,7 +2,7 @@ import {
   getPreferredPairingOffer,
   type KnownRuntimeEnvironment
 } from '../../shared/runtime-environments'
-import { resolveEnvironment, markEnvironmentUsed } from '../../shared/runtime-environment-store'
+import { resolveEnvironment } from '../../shared/runtime-environment-store'
 import type { RuntimeRpcResponse } from '../../shared/runtime-rpc-envelope'
 import type { RuntimeStatus } from '../../shared/runtime-types'
 import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../shared/protocol-version'
@@ -13,6 +13,7 @@ import {
 } from '../../shared/remote-runtime-client'
 import { withRemoteRuntimeTailscaleHint } from '../../shared/remote-runtime-tailscale-hint'
 import { enqueueRuntimeCall } from './runtime-environment-call-queue'
+import { markEnvironmentUsedWithChurnPrune } from '../runtime-host-pty-binding-churn-prune'
 import {
   sendRemoteRuntimeConnectionRequest,
   sendRemoteRuntimeSharedControlRequest,
@@ -84,7 +85,7 @@ export async function getRuntimeEnvironmentStatus(
     )
   }
   if (response.ok === true) {
-    markEnvironmentUsed(userDataPath, environment.id, { runtimeId: response._meta.runtimeId })
+    markEnvironmentUsedWithChurnPrune(userDataPath, environment.id, response._meta.runtimeId)
   }
   return attachRemoteControlDiagnostics(
     withTailscaleHintForResponse(response, pairing.endpoint),
@@ -177,7 +178,7 @@ export async function subscribeRuntimeEnvironment(
       return
     }
     markedUsed = true
-    markEnvironmentUsed(userDataPath, environment.id, { runtimeId })
+    markEnvironmentUsedWithChurnPrune(userDataPath, environment.id, runtimeId)
   }
   const callbacksWithMarkUsed = {
     onResponse: (response: RuntimeRpcResponse<unknown>) => {
@@ -237,7 +238,7 @@ function markEnvironmentUsedFromResponse(
   response: RuntimeRpcResponse<unknown>
 ): void {
   if (response.ok === true) {
-    markEnvironmentUsed(userDataPath, environmentId, { runtimeId: response._meta.runtimeId })
+    markEnvironmentUsedWithChurnPrune(userDataPath, environmentId, response._meta.runtimeId)
   }
 }
 
@@ -280,7 +281,7 @@ async function supportsSharedControl(
       timeoutMs
     )
     if (response.ok === true) {
-      markEnvironmentUsed(userDataPath, environment.id, { runtimeId: response._meta.runtimeId })
+      markEnvironmentUsedWithChurnPrune(userDataPath, environment.id, response._meta.runtimeId)
       resolvedCacheKey = getSharedControlSupportCacheKey(
         environment,
         pairing,

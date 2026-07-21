@@ -95,4 +95,25 @@ describe('runtime environment store', () => {
       runtimeId: 'runtime-2'
     })
   })
+
+  it('reports runtime instance churn only when a known runtimeId is replaced', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    const env = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'dev box',
+      pairingCode: pairingCode()
+    })
+
+    // First observation (null → id) is a fresh pairing, not a host restart.
+    const first = markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 1_000 })
+    expect(first).toEqual({ environmentId: env.id, runtimeInstanceChanged: false })
+
+    // Same runtime instance again — no churn, even on the throttled no-write path.
+    const same = markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 2_000 })
+    expect(same.runtimeInstanceChanged).toBe(false)
+
+    // Host restarted: a different runtimeId replaces the known one.
+    const churned = markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-2', now: 3_000 })
+    expect(churned).toEqual({ environmentId: env.id, runtimeInstanceChanged: true })
+  })
 })

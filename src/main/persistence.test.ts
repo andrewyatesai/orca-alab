@@ -1603,7 +1603,7 @@ describe('Store', () => {
     const acknowledgedAt = 1_700_000_000_000
     writeDataFile({
       schemaVersion: 1,
-      repos: [makeRepo()],
+      repos: [makeRepo({ id: 'repo1' })],
       worktreeMeta: {},
       settings: {},
       ui: {
@@ -1615,7 +1615,7 @@ describe('Store', () => {
       },
       githubCache: { pr: {}, issue: {} },
       workspaceSession: {
-        activeRepoId: 'r1',
+        activeRepoId: 'repo1',
         activeWorktreeId: 'repo1::/worktree',
         activeTabId: 'tab1',
         tabsByWorktree: {
@@ -1665,7 +1665,7 @@ describe('Store', () => {
 
     writeDataFile({
       schemaVersion: 1,
-      repos: [makeRepo()],
+      repos: [makeRepo({ id: 'repo1' })],
       worktreeMeta: {},
       settings: {},
       ui: {
@@ -1676,7 +1676,7 @@ describe('Store', () => {
       },
       githubCache: { pr: {}, issue: {} },
       workspaceSession: {
-        activeRepoId: 'r1',
+        activeRepoId: 'repo1',
         activeWorktreeId: 'repo1::/worktree',
         activeTabId: 'tab1',
         tabsByWorktree: {
@@ -3481,6 +3481,47 @@ describe('Store', () => {
     expect(store.getWorktreeMeta('r2::/other')!.displayName).toBe('other')
   })
 
+  it('removeProject prunes the repo worktrees from workspace session state', async () => {
+    const store = await createStore()
+    store.addRepo(makeRepo({ id: 'r1' }))
+    store.addRepo(makeRepo({ id: 'r2', path: '/repo2' }))
+
+    store.setWorktreeMeta('r1::/path/wt1', { displayName: 'wt1' })
+    store.setWorktreeMeta('r2::/other', { displayName: 'other' })
+
+    store.setWorkspaceSession({
+      ...getDefaultWorkspaceSession(),
+      lastVisitedAtByWorktreeId: { 'r1::/path/wt1': 111, 'r2::/other': 222 }
+    })
+
+    store.removeProject('r1')
+
+    const session = store.getWorkspaceSession()
+    expect(session.lastVisitedAtByWorktreeId?.['r1::/path/wt1']).toBeUndefined()
+    expect(session.lastVisitedAtByWorktreeId?.['r2::/other']).toBe(222)
+  })
+
+  it('removeProject prunes the repo worktrees from per-host workspace session partitions', async () => {
+    const store = await createStore()
+    store.addRepo(makeRepo({ id: 'r1' }))
+
+    store.setWorktreeMeta('r1::/path/wt1', { displayName: 'wt1' })
+
+    const hostId = 'ssh:host-a'
+    store.setWorkspaceSession(
+      {
+        ...getDefaultWorkspaceSession(),
+        lastVisitedAtByWorktreeId: { 'r1::/path/wt1': 333 }
+      },
+      hostId
+    )
+
+    store.removeProject('r1')
+
+    const hostSession = store.getWorkspaceSession(hostId)
+    expect(hostSession.lastVisitedAtByWorktreeId?.['r1::/path/wt1']).toBeUndefined()
+  })
+
   it('removeProject removes the derived project host setup compatibility record', async () => {
     const store = await createStore()
     store.addRepo(makeRepo({ id: 'r1' }))
@@ -3554,6 +3595,124 @@ describe('Store', () => {
     // Local worktree meta survives; the SSH host's meta is pruned.
     expect(store.getWorktreeMeta('shared::/local/repo/wt')).toBeDefined()
     expect(store.getWorktreeMeta('shared::/remote/repo/wt')).toBeUndefined()
+  })
+
+  it('removeProjectForHost keeps the surviving host session for a shared repo id + path', async () => {
+    const store = await createStore()
+    // Same repo id AND same path on both local and an SSH host, so the owner key
+    // `shared::/repo` is identical across hosts. The host-scoped prune must only
+    // touch the removed host's session partition.
+    store.addRepo(makeRepo({ id: 'shared', path: '/repo' }))
+    store.addRepo(
+      makeRepo({
+        id: 'shared',
+        path: '/repo',
+        connectionId: 'ssh-a',
+        executionHostId: 'ssh:ssh-a'
+      })
+    )
+    store.setWorktreeMeta('shared::/repo', { displayName: 'local', hostId: 'local' })
+
+    store.setWorkspaceSession({
+      ...getDefaultWorkspaceSession(),
+      lastVisitedAtByWorktreeId: { 'shared::/repo': 111 }
+    })
+    store.setWorkspaceSession(
+      {
+        ...getDefaultWorkspaceSession(),
+        lastVisitedAtByWorktreeId: { 'shared::/repo': 222 }
+      },
+      'ssh:ssh-a'
+    )
+
+    store.removeProjectForHost('shared', 'ssh:ssh-a')
+
+    // The removed SSH host's session is pruned; the surviving local session stays.
+    expect(store.getWorkspaceSession('ssh:ssh-a').lastVisitedAtByWorktreeId?.['shared::/repo']).toBeUndefined()
+    expect(store.getWorkspaceSession().lastVisitedAtByWorktreeId?.['shared::/repo']).toBe(111)
+  })
+
+  it('removeProjectForHost on the local host keeps a surviving SSH host session', async () => {
+    const store = await createStore()
+    store.addRepo(makeRepo({ id: 'shared', path: '/repo' }))
+    store.addRepo(
+      makeRepo({
+        id: 'shared',
+        path: '/repo',
+        connectionId: 'ssh-a',
+        executionHostId: 'ssh:ssh-a'
+      })
+    )
+    store.setWorktreeMeta('shared::/repo', { displayName: 'local', hostId: 'local' })
+
+    store.setWorkspaceSession({
+      ...getDefaultWorkspaceSession(),
+      lastVisitedAtByWorktreeId: { 'shared::/repo': 111 }
+    })
+    store.setWorkspaceSession(
+      {
+        ...getDefaultWorkspaceSession(),
+        lastVisitedAtByWorktreeId: { 'shared::/repo': 222 }
+      },
+      'ssh:ssh-a'
+    )
+
+    store.removeProjectForHost('shared', 'local')
+
+    expect(store.getWorkspaceSession().lastVisitedAtByWorktreeId?.['shared::/repo']).toBeUndefined()
+    expect(store.getWorkspaceSession('ssh:ssh-a').lastVisitedAtByWorktreeId?.['shared::/repo']).toBe(222)
+  })
+
+  it('removeProjectForHost prunes only the removed host when a third host also shares the owner key', async () => {
+    const store = await createStore()
+    // Same repo id + path on local and two SSH hosts, so the owner key
+    // `shared::/repo` is identical across all three. Removing one non-local host
+    // must prune only that host's partition and leave both the local session and
+    // the other surviving SSH host intact.
+    store.addRepo(makeRepo({ id: 'shared', path: '/repo' }))
+    store.addRepo(
+      makeRepo({
+        id: 'shared',
+        path: '/repo',
+        connectionId: 'ssh-a',
+        executionHostId: 'ssh:ssh-a'
+      })
+    )
+    store.addRepo(
+      makeRepo({
+        id: 'shared',
+        path: '/repo',
+        connectionId: 'ssh-b',
+        executionHostId: 'ssh:ssh-b'
+      })
+    )
+    store.setWorktreeMeta('shared::/repo', { displayName: 'local', hostId: 'local' })
+
+    store.setWorkspaceSession({
+      ...getDefaultWorkspaceSession(),
+      lastVisitedAtByWorktreeId: { 'shared::/repo': 111 }
+    })
+    store.setWorkspaceSession(
+      {
+        ...getDefaultWorkspaceSession(),
+        lastVisitedAtByWorktreeId: { 'shared::/repo': 222 }
+      },
+      'ssh:ssh-a'
+    )
+    store.setWorkspaceSession(
+      {
+        ...getDefaultWorkspaceSession(),
+        lastVisitedAtByWorktreeId: { 'shared::/repo': 333 }
+      },
+      'ssh:ssh-b'
+    )
+
+    store.removeProjectForHost('shared', 'ssh:ssh-a')
+
+    // Only the removed host's partition is pruned; local and the other SSH host survive.
+    expect(store.getWorkspaceSession('ssh:ssh-a').lastVisitedAtByWorktreeId?.['shared::/repo']).toBeUndefined()
+    expect(store.getWorkspaceSession().lastVisitedAtByWorktreeId?.['shared::/repo']).toBe(111)
+    expect(store.getWorkspaceSession('ssh:ssh-b').lastVisitedAtByWorktreeId?.['shared::/repo']).toBe(333)
   })
 
   it('reorderReposForHost independently reorders local and SSH rows with shared ids', async () => {
@@ -3771,6 +3930,178 @@ describe('Store', () => {
     expect(reloaded.getWorkspaceSession('ssh:ssh-new').tabsByWorktree['r1::/wt'][0].ptyId).toBe(
       'ssh:ssh-new@@pty-9'
     )
+  })
+
+  it('deleteHostWorkspaceSession drops a runtime host partition and persists it', async () => {
+    const gone = '83a64365-660b-4723-890e-9e557eb45e40'
+    const kept = '11111111-1111-4111-8111-111111111111'
+    const store = await createStore()
+    const sessionWith = (ptyId: string) => ({
+      activeRepoId: null,
+      activeWorktreeId: null,
+      activeTabId: null,
+      tabsByWorktree: { 'r1::/wt': [makeTerminalTab({ id: 'tab1', ptyId })] },
+      terminalLayoutsByTabId: {}
+    })
+    store.setWorkspaceSession(sessionWith('local@@pty-0'))
+    store.setWorkspaceSession(sessionWith(`remote:${gone}@@pty-1`), toRuntimeExecutionHostId(gone))
+    store.setWorkspaceSession(sessionWith(`remote:${kept}@@pty-2`), toRuntimeExecutionHostId(kept))
+    store.setWorkspaceSession(sessionWith('ssh:builder@@pty-3'), toSshExecutionHostId('builder'))
+
+    store.deleteHostWorkspaceSession(toRuntimeExecutionHostId(gone))
+    store.flush()
+
+    const reloaded = await createStore()
+    // Removed runtime partition is gone from disk.
+    expect(reloaded.getWorkspaceSession(toRuntimeExecutionHostId(gone)).tabsByWorktree).toEqual({})
+    // Every other host partition survives.
+    expect(
+      reloaded.getWorkspaceSession(toRuntimeExecutionHostId(kept)).tabsByWorktree['r1::/wt'][0]
+        .ptyId
+    ).toBe(`remote:${kept}@@pty-2`)
+    expect(
+      reloaded.getWorkspaceSession(toSshExecutionHostId('builder')).tabsByWorktree['r1::/wt'][0]
+        .ptyId
+    ).toBe('ssh:builder@@pty-3')
+    expect(reloaded.getWorkspaceSession().tabsByWorktree['r1::/wt'][0].ptyId).toBe('local@@pty-0')
+  })
+
+  it('deleteHostWorkspaceSession is a no-op for local and for a missing partition', async () => {
+    const store = await createStore()
+    const localSession = {
+      activeRepoId: null,
+      activeWorktreeId: null,
+      activeTabId: null,
+      tabsByWorktree: { 'r1::/wt': [makeTerminalTab({ id: 'tab1', ptyId: 'local@@pty-0' })] },
+      terminalLayoutsByTabId: {}
+    }
+    store.setWorkspaceSession(localSession)
+
+    store.deleteHostWorkspaceSession('local')
+    store.deleteHostWorkspaceSession(toRuntimeExecutionHostId('never-existed'))
+    store.flush()
+
+    const reloaded = await createStore()
+    expect(reloaded.getWorkspaceSession().tabsByWorktree['r1::/wt'][0].ptyId).toBe('local@@pty-0')
+  })
+
+  it('clearHostWorkspaceSessionPtyBindings clears stale handles but keeps the tabs', async () => {
+    const churned = '83a64365-660b-4723-890e-9e557eb45e40'
+    const kept = '11111111-1111-4111-8111-111111111111'
+    const store = await createStore()
+    const sessionWith = (envId: string): WorkspaceSessionState => ({
+      ...getDefaultWorkspaceSession(),
+      tabsByWorktree: {
+        'r1::/wt': [makeTerminalTab({ id: 'tab1', ptyId: `remote:${envId}@@term_a` })]
+      },
+      terminalLayoutsByTabId: {
+        tab1: {
+          root: null,
+          activeLeafId: null,
+          expandedLeafId: null,
+          ptyIdsByLeafId: { 'leaf-1': `remote:${envId}@@term_a` },
+          buffersByLeafId: { 'leaf-1': 'scrollback' }
+        }
+      },
+      remoteSessionIdsByTabId: { tab1: `remote:${envId}@@term_a` }
+    })
+    store.setWorkspaceSession(sessionWith(churned), toRuntimeExecutionHostId(churned))
+    store.setWorkspaceSession(sessionWith(kept), toRuntimeExecutionHostId(kept))
+
+    store.clearHostWorkspaceSessionPtyBindings(toRuntimeExecutionHostId(churned))
+    store.flush()
+
+    const reloaded = await createStore()
+    const churnedSession = reloaded.getWorkspaceSession(toRuntimeExecutionHostId(churned))
+    // Tab survives (the host republished list reconciles it) but every dead handle is gone.
+    expect(churnedSession.tabsByWorktree['r1::/wt']).toHaveLength(1)
+    expect(churnedSession.tabsByWorktree['r1::/wt'][0].ptyId).toBeNull()
+    expect(churnedSession.remoteSessionIdsByTabId?.tab1).toBeUndefined()
+    expect(churnedSession.terminalLayoutsByTabId.tab1.ptyIdsByLeafId).toBeUndefined()
+    // Scrollback content is not a PTY binding and must survive.
+    expect(churnedSession.terminalLayoutsByTabId.tab1.buffersByLeafId).toEqual({
+      'leaf-1': 'scrollback'
+    })
+    // An unrelated runtime host keeps its live bindings.
+    const keptSession = reloaded.getWorkspaceSession(toRuntimeExecutionHostId(kept))
+    expect(keptSession.tabsByWorktree['r1::/wt'][0].ptyId).toBe(`remote:${kept}@@term_a`)
+    expect(keptSession.remoteSessionIdsByTabId?.tab1).toBe(`remote:${kept}@@term_a`)
+  })
+
+  it('clearHostWorkspaceSessionPtyBindings is a no-op for local and for a missing partition', async () => {
+    const store = await createStore()
+    store.setWorkspaceSession({
+      ...getDefaultWorkspaceSession(),
+      tabsByWorktree: { 'r1::/wt': [makeTerminalTab({ id: 'tab1', ptyId: 'local@@pty-0' })] }
+    })
+
+    store.clearHostWorkspaceSessionPtyBindings('local')
+    store.clearHostWorkspaceSessionPtyBindings(toRuntimeExecutionHostId('never-existed'))
+    store.flush()
+
+    const reloaded = await createStore()
+    expect(reloaded.getWorkspaceSession().tabsByWorktree['r1::/wt'][0].ptyId).toBe('local@@pty-0')
+  })
+
+  it('pruneOrphanedRuntimeHostWorkspaceSessions drops only runtime hosts absent from the saved set', async () => {
+    const gone = '83a64365-660b-4723-890e-9e557eb45e40'
+    const kept = '11111111-1111-4111-8111-111111111111'
+    const store = await createStore()
+    const sessionWith = (ptyId: string) => ({
+      activeRepoId: null,
+      activeWorktreeId: null,
+      activeTabId: null,
+      tabsByWorktree: { 'r1::/wt': [makeTerminalTab({ id: 'tab1', ptyId })] },
+      terminalLayoutsByTabId: {}
+    })
+    store.setWorkspaceSession(sessionWith('local@@pty-0'))
+    store.setWorkspaceSession(sessionWith(`remote:${gone}@@pty-1`), toRuntimeExecutionHostId(gone))
+    store.setWorkspaceSession(sessionWith(`remote:${kept}@@pty-2`), toRuntimeExecutionHostId(kept))
+    store.setWorkspaceSession(sessionWith('ssh:builder@@pty-3'), toSshExecutionHostId('builder'))
+
+    const removed = store.pruneOrphanedRuntimeHostWorkspaceSessions(new Set([kept]))
+    store.flush()
+
+    expect(removed).toEqual([toRuntimeExecutionHostId(gone)])
+    const reloaded = await createStore()
+    expect(reloaded.getWorkspaceSession(toRuntimeExecutionHostId(gone)).tabsByWorktree).toEqual({})
+    // The still-saved runtime host, the ssh host, and local all survive.
+    expect(
+      reloaded.getWorkspaceSession(toRuntimeExecutionHostId(kept)).tabsByWorktree['r1::/wt'][0]
+        .ptyId
+    ).toBe(`remote:${kept}@@pty-2`)
+    expect(
+      reloaded.getWorkspaceSession(toSshExecutionHostId('builder')).tabsByWorktree['r1::/wt'][0]
+        .ptyId
+    ).toBe('ssh:builder@@pty-3')
+    expect(reloaded.getWorkspaceSession().tabsByWorktree['r1::/wt'][0].ptyId).toBe('local@@pty-0')
+  })
+
+  it('pruneOrphanedRuntimeHostWorkspaceSessions with an empty saved set clears runtime hosts but not ssh/local', async () => {
+    const gone = '83a64365-660b-4723-890e-9e557eb45e40'
+    const store = await createStore()
+    const sessionWith = (ptyId: string) => ({
+      activeRepoId: null,
+      activeWorktreeId: null,
+      activeTabId: null,
+      tabsByWorktree: { 'r1::/wt': [makeTerminalTab({ id: 'tab1', ptyId })] },
+      terminalLayoutsByTabId: {}
+    })
+    store.setWorkspaceSession(sessionWith('local@@pty-0'))
+    store.setWorkspaceSession(sessionWith(`remote:${gone}@@pty-1`), toRuntimeExecutionHostId(gone))
+    store.setWorkspaceSession(sessionWith('ssh:builder@@pty-3'), toSshExecutionHostId('builder'))
+
+    const removed = store.pruneOrphanedRuntimeHostWorkspaceSessions(new Set())
+    store.flush()
+
+    expect(removed).toEqual([toRuntimeExecutionHostId(gone)])
+    const reloaded = await createStore()
+    expect(reloaded.getWorkspaceSession(toRuntimeExecutionHostId(gone)).tabsByWorktree).toEqual({})
+    expect(
+      reloaded.getWorkspaceSession(toSshExecutionHostId('builder')).tabsByWorktree['r1::/wt'][0]
+        .ptyId
+    ).toBe('ssh:builder@@pty-3')
+    expect(reloaded.getWorkspaceSession().tabsByWorktree['r1::/wt'][0].ptyId).toBe('local@@pty-0')
   })
 
   it('reassignSshTargetId keeps the live partition when both host keys exist', async () => {
@@ -5186,7 +5517,7 @@ describe('Store', () => {
 
   it('reloads sourceControlViewMode from global settings without touching workspace state', async () => {
     const workspaceSession = {
-      activeRepoId: 'r1',
+      activeRepoId: 'repo1',
       activeWorktreeId: 'repo1::/worktree-a',
       activeTabId: 'tab1',
       tabsByWorktree: {
@@ -5216,7 +5547,7 @@ describe('Store', () => {
     }
     writeDataFile({
       schemaVersion: 1,
-      repos: [makeRepo()],
+      repos: [makeRepo({ id: 'repo1' })],
       worktreeMeta: {
         'repo1::/worktree-a': { status: 'active' },
         'repo1::/worktree-b': { status: 'active' }
@@ -5480,6 +5811,129 @@ describe('Store', () => {
 
     const store = await createStore()
     expect(Object.keys(store.getAllWorktreeMeta())).toContain(folderInstanceKey)
+  })
+
+  it('sweeps worktreeMeta for a repo id absent from repos even when its path is live or its host is remote', async () => {
+    const OLD = Date.now() - 40 * 24 * 60 * 60 * 1000
+    const meta = (extra: Record<string, unknown> = {}) => ({
+      displayName: '',
+      comment: '',
+      lastActivityAt: OLD,
+      ...extra
+    })
+    // Why: the stale-path GC keeps this existing directory, matching the reported duplicate.
+    const livePath = testState.dir
+    const liveKey = `live-repo::${livePath}`
+    const orphanSamePathKey = `orphan-repo::${livePath}`
+    const orphanRemoteHostKey = `orphan-repo::/home/tiger/gone`
+    writeDataFile({
+      repos: [makeRepo({ id: 'live-repo', path: livePath })],
+      worktreeMeta: {
+        [liveKey]: meta(),
+        [orphanSamePathKey]: meta(),
+        [orphanRemoteHostKey]: meta({ hostId: 'ssh:conn-x' })
+      }
+    })
+
+    const store = await createStore()
+    const kept = Object.keys(store.getAllWorktreeMeta())
+
+    expect(kept).toContain(liveKey)
+    expect(kept).not.toContain(orphanSamePathKey)
+    expect(kept).not.toContain(orphanRemoteHostKey)
+  })
+
+  it('sweeps workspace-session owner keys for a repo id absent from repos, across the legacy blob and host partitions', async () => {
+    const liveKey = `live-repo::${testState.dir}`
+    const orphanKey = 'orphan-repo::/home/tiger/workspace/libtorch'
+    const orphanEditorOnlyKey = 'orphan-repo::/home/tiger/workspace/editor-only'
+    const liveTab = makeTerminalTab({ id: 'live-tab', worktreeId: liveKey })
+    const orphanTab = makeTerminalTab({ id: 'orphan-tab', worktreeId: orphanKey })
+    const orphanFile = {
+      filePath: '/home/tiger/workspace/editor-only/README.md',
+      relativePath: 'README.md',
+      worktreeId: orphanEditorOnlyKey,
+      language: 'markdown'
+    }
+    const sshHost = toSshExecutionHostId('conn-1')
+    writeDataFile({
+      repos: [makeRepo({ id: 'live-repo', path: testState.dir })],
+      worktreeMeta: { [liveKey]: { displayName: '', comment: '', lastActivityAt: 1 } },
+      workspaceSession: {
+        ...getDefaultWorkspaceSession(),
+        activeRepoId: 'orphan-repo',
+        activeWorkspaceKey: worktreeWorkspaceKey(orphanKey),
+        activeWorktreeId: orphanKey,
+        activeWorktreeIdsOnShutdown: [orphanKey, liveKey],
+        tabsByWorktree: { [liveKey]: [liveTab], [orphanKey]: [orphanTab] },
+        terminalLayoutsByTabId: {
+          'live-tab': { root: null, activeLeafId: null, expandedLeafId: null },
+          'orphan-tab': { root: null, activeLeafId: null, expandedLeafId: null }
+        },
+        remoteSessionIdsByTabId: {
+          'live-tab': 'remote-live',
+          'orphan-tab': 'remote-orphan'
+        },
+        openFilesByWorktree: { [orphanEditorOnlyKey]: [orphanFile] },
+        lastVisitedAtByWorktreeId: { [liveKey]: 5, [orphanKey]: 9 }
+      },
+      workspaceSessionsByHostId: {
+        [sshHost]: {
+          ...getDefaultWorkspaceSession(),
+          openFilesByWorktree: { [orphanEditorOnlyKey]: [orphanFile] }
+        }
+      }
+    })
+
+    const store = await createStore()
+    const legacy = store.getWorkspaceSession()
+
+    expect(legacy.tabsByWorktree[liveKey]).toBeDefined()
+    expect(legacy.tabsByWorktree[orphanKey]).toBeUndefined()
+    expect(legacy.lastVisitedAtByWorktreeId?.[liveKey]).toBe(5)
+    expect(legacy.lastVisitedAtByWorktreeId?.[orphanKey]).toBeUndefined()
+    expect(legacy.terminalLayoutsByTabId['live-tab']).toBeDefined()
+    expect(legacy.terminalLayoutsByTabId['orphan-tab']).toBeUndefined()
+    expect(legacy.remoteSessionIdsByTabId?.['live-tab']).toBe('remote-live')
+    expect(legacy.remoteSessionIdsByTabId?.['orphan-tab']).toBeUndefined()
+    expect(legacy.openFilesByWorktree?.[orphanEditorOnlyKey]).toBeUndefined()
+    expect(legacy.activeRepoId).toBeNull()
+    expect(legacy.activeWorkspaceKey).toBeNull()
+    expect(legacy.activeWorktreeId).toBeNull()
+    expect(legacy.activeWorktreeIdsOnShutdown).toEqual([liveKey])
+
+    const hostSession = store.getWorkspaceSession(sshHost)
+    expect(hostSession.openFilesByWorktree?.[orphanEditorOnlyKey]).toBeUndefined()
+  })
+
+  it('does not wipe worktree state when there are no live repos (guards an anomalous empty-owner load)', async () => {
+    const key = 'some-repo::/home/tiger/gone'
+    writeDataFile({
+      repos: [],
+      worktreeMeta: {
+        [key]: { displayName: '', comment: '', lastActivityAt: 1, hostId: 'ssh:conn-1' }
+      }
+    })
+
+    const store = await createStore()
+    expect(Object.keys(store.getAllWorktreeMeta())).toContain(key)
+  })
+
+  it('sweeps and persists a lineage entry whose parent repo id is gone (no worktreeMeta/session twin)', async () => {
+    const liveKey = `live-repo::${testState.dir}`
+    // Why: lineage-only deletion must still mark the loaded state for persistence.
+    writeDataFile({
+      repos: [makeRepo({ id: 'live-repo', path: testState.dir })],
+      worktreeMeta: { [liveKey]: { displayName: '', comment: '', lastActivityAt: 1 } },
+      worktreeLineageById: { [liveKey]: { parentWorktreeId: 'orphan-repo::/home/tiger/gone' } }
+    })
+
+    const store = await createStore()
+    expect(store.getWorktreeLineage(liveKey)).toBeUndefined()
+
+    store.flush()
+    const persisted = readDataFile() as { worktreeLineageById?: Record<string, unknown> }
+    expect(persisted.worktreeLineageById?.[liveKey]).toBeUndefined()
   })
 
   it('never GCs Linux-style WSL worktree paths on Windows', async () => {
@@ -9427,6 +9881,44 @@ describe('Store', () => {
     expect(store.getWorktreeMeta('b')).toBeDefined()
   })
 
+  it('removeWorktreeMeta clears the removed worktree session state across host partitions', async () => {
+    const store = await createStore()
+    const removedId = 'r1::/path/gone'
+    const keptId = 'r1::/path/kept'
+    store.setWorktreeMeta(removedId, { displayName: 'Gone' })
+    // Worktree activation stores the canonical workspace key in activeWorkspaceKey
+    // but the raw worktree id everywhere else (store/slices/worktrees.ts) — the
+    // mix a prefixed-key-only cleanup would miss.
+    const removedTab = makeTerminalTab({ id: 'gone-tab', worktreeId: removedId })
+    const keptTab = makeTerminalTab({ id: 'kept-tab', worktreeId: keptId })
+    const makeSession = (): WorkspaceSessionState => ({
+      ...getDefaultWorkspaceSession(),
+      activeWorkspaceKey: worktreeWorkspaceKey(removedId),
+      activeWorktreeId: removedId,
+      activeTabId: removedTab.id,
+      tabsByWorktree: { [removedId]: [removedTab], [keptId]: [keptTab] },
+      activeWorktreeIdsOnShutdown: [removedId, keptId]
+    })
+    store.setWorkspaceSession(makeSession())
+    // Runtime-host worktrees persist in a per-host partition, not the local one.
+    store.setWorkspaceSession(makeSession(), 'runtime:env-a')
+
+    store.removeWorktreeMeta(removedId)
+
+    for (const hostId of [undefined, 'runtime:env-a']) {
+      const session = store.getWorkspaceSession(hostId)
+      // Why: any of these left dangling makes startup restore reopen a deleted
+      // worktree and spawn a terminal at a path that no longer exists.
+      expect(session.activeWorkspaceKey).toBeNull()
+      expect(session.activeWorktreeId).toBeNull()
+      expect(session.activeTabId).toBeNull()
+      expect(session.tabsByWorktree[removedId]).toBeUndefined()
+      expect(session.activeWorktreeIdsOnShutdown).toEqual([keptId])
+      // Scoped only: an unrelated worktree's session state must survive.
+      expect(session.tabsByWorktree[keptId]).toHaveLength(1)
+    }
+  })
+
   it('stores and removes worktree lineage independently from metadata', async () => {
     const store = await createStore()
     const lineage = makeWorktreeLineage()
@@ -10324,13 +10816,13 @@ describe('Store native-chat tab viewMode persistence', () => {
     const WORKTREE = 'repo1::/worktree'
     writeDataFile({
       schemaVersion: 1,
-      repos: [makeRepo()],
+      repos: [makeRepo({ id: 'repo1' })],
       worktreeMeta: {},
       settings: {},
       ui: {},
       githubCache: { pr: {}, issue: {} },
       workspaceSession: {
-        activeRepoId: 'r1',
+        activeRepoId: 'repo1',
         activeWorktreeId: WORKTREE,
         activeTabId: 'chat-tab',
         tabsByWorktree: {},

@@ -126,6 +126,12 @@ export type AtermWorkerSetCursorGlow = {
 export type AtermWorkerSetChrome = { type: 'setChrome'; pad: number; head: number }
 /** Pane focus for the effects idle one-shots (an unfocused pane fires no blinks). */
 export type AtermWorkerSetEffectsFocused = { type: 'setEffectsFocused'; focused: boolean }
+/** Worker QoS focus signal (R4): which pane the user is typing in. The worker's
+ *  command scheduler services the focused pane's interactive work AHEAD of a
+ *  background pane's bulk `process`, so a flooding sibling can't starve keystroke
+ *  echo. Distinct from setEffectsFocused (that carries effects semantics + is
+ *  superseded by the rain tri-state on the worker path); this is pure QoS priority. */
+export type AtermWorkerSetFocused = { type: 'setFocused'; focused: boolean }
 export type AtermWorkerScrollLines = { type: 'scrollLines'; delta: number }
 export type AtermWorkerScrollToBottom = { type: 'scrollToBottom' }
 export type AtermWorkerScrollToTop = { type: 'scrollToTop' }
@@ -267,6 +273,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetCursorGlow
   | AtermWorkerSetChrome
   | AtermWorkerSetEffectsFocused
+  | AtermWorkerSetFocused
   | AtermWorkerScrollLines
   | AtermWorkerScrollToBottom
   | AtermWorkerScrollToTop
@@ -301,9 +308,11 @@ export type AtermWorkerPaneCommand =
 /** Pane lifecycle (the worker entry owns these: registry create / CPU rebuild /
  *  engine free); every other pane command is dispatched to the pane's runtime. */
 export type AtermWorkerPaneLifecycle = AtermWorkerInit | AtermWorkerFallback | AtermWorkerDispose
+// setFocused is worker-entry scheduler bookkeeping, not engine work — excluded from
+// the per-pane runtime dispatch (dispatchPaneCommand never sees it).
 export type AtermWorkerPaneRuntimeCommand = Exclude<
   AtermWorkerPaneCommand,
-  AtermWorkerPaneLifecycle
+  AtermWorkerPaneLifecycle | AtermWorkerSetFocused
 >
 
 /** Everything the main thread posts to the worker (the wire union). The spill

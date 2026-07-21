@@ -784,6 +784,7 @@ import {
 } from '../providers/ssh-git-dispatch'
 import { detectRepoIconAndUpstream } from '../repo-icon-autodetect'
 import { enrichMissingRepoGitRemoteIdentities } from '../repo-git-remote-identity-enrichment'
+import { promoteFolderReposWithGitRepositories } from '../repo-folder-git-promotion'
 import { githubAvatarIcon } from '../rust-repo-icon'
 import type { ClaudeAccountService } from '../claude-accounts/service'
 import type { CodexAccountService } from '../codex-accounts/service'
@@ -12711,6 +12712,18 @@ export class OrcaRuntimeService {
       return
     }
     enrichMissingRepoGitRemoteIdentities(this.store, {
+      onChanged: () => {
+        this.invalidateResolvedWorktreeCache()
+        this.notifyReposChanged()
+      }
+    })
+  }
+
+  promoteFolderReposWithGitRepositories(): void {
+    if (!this.store) {
+      return
+    }
+    promoteFolderReposWithGitRepositories(this.store, {
       onChanged: () => {
         this.invalidateResolvedWorktreeCache()
         this.notifyReposChanged()

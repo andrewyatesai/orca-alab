@@ -38,13 +38,10 @@ function getSpawnTabId(): string {
 }
 
 function expectStablePaneSpawn(): string {
-  const spawnArgs = mockSpawn.mock.calls[0]?.[0]
-  const paneKey = spawnArgs?.env?.ORCA_PANE_KEY
-  const leafId = spawnArgs?.leafId
-  const tabId = getSpawnTabId()
+  const { env, leafId } = mockSpawn.mock.calls[0]?.[0] ?? {}
   expect(leafId).toMatch(UUID_RE)
-  expect(paneKey).toBe(`${tabId}:${leafId}`)
-  return paneKey
+  expect(env?.ORCA_PANE_KEY).toBe(`${getSpawnTabId()}:${leafId}`)
+  return env.ORCA_PANE_KEY
 }
 
 const state = {

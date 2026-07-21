@@ -38,7 +38,6 @@ import { recognizeAgentProcessFromCommandLine } from '../../shared/agent-process
 import { shouldUseShellReadyStartupDelivery } from '../../shared/codex-startup-delivery'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 import { resolveSafePtyDefaultCwd } from '../providers/pty-default-cwd'
-import { prepareMacosTccLoginShell } from '../providers/macos-tcc-login-shell'
 import {
   captureDescendantSnapshot,
   terminateDescendantSnapshot

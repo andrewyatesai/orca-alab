@@ -16,7 +16,7 @@ import type {
   SleepingAgentLaunchConfig
 } from '../../../shared/agent-session-resume'
 import { shouldAutoCreateInitialTerminal } from '@/components/terminal/initial-terminal'
-import { buildSetupRunnerCommand } from './setup-runner'
+import { buildSetupRunnerCommand, getWorktreeSetupTerminalShellFamily } from './setup-runner'
 import { createSequencedSetupAgentCommands } from '../../../shared/setup-agent-sequencing'
 import { getSetupRunnerCommandPlatformForPath } from '../../../shared/setup-runner-command'
 import { buildAgentStartupPlan } from './tui-agent-startup'
@@ -455,7 +455,12 @@ export function ensureWorktreeHasInitialTerminal(
     const sequenced = createSequencedSetupAgentCommands({
       runnerScriptPath: setup.runnerScriptPath,
       startupCommand: startup.command,
-      platform
+      platform,
+      terminalShellFamily: getWorktreeSetupTerminalShellFamily(
+        ownerState,
+        worktreeId,
+        useAppStore.getState().settings?.terminalWindowsShell
+      )
     })
     sequencedStartup = {
       ...startup,
@@ -679,12 +684,20 @@ function queueSetupAndIssueCommands(
   wrappedSetupCommandStr: string | undefined,
   opts: { activateCreatedTabs?: boolean } | undefined
 ): void {
+  const activationState = useAppStore.getState()
+  const terminalShellFamily = getWorktreeSetupTerminalShellFamily(
+    activationState,
+    worktreeId,
+    activationState.settings?.terminalWindowsShell
+  )
   // Why: setup launch location is user-configurable — 'new-tab' keeps setup output off the primary pane; splits keep it adjacent.
   if (setup) {
-    const mode = useAppStore.getState().settings?.setupScriptLaunchMode ?? 'new-tab'
+    const mode = activationState.settings?.setupScriptLaunchMode ?? 'new-tab'
     const setupCommand = {
       command:
-        wrappedSetupCommandStr ?? setup.command ?? buildSetupRunnerCommand(setup.runnerScriptPath),
+        wrappedSetupCommandStr ??
+        setup.command ??
+        buildSetupRunnerCommand(setup.runnerScriptPath, terminalShellFamily),
       env: setup.envVars
     }
     if (mode === 'new-tab') {
@@ -713,7 +726,7 @@ function queueSetupAndIssueCommands(
     const queuedIssueCommand =
       'runnerScriptPath' in issueCommand
         ? {
-            command: buildSetupRunnerCommand(issueCommand.runnerScriptPath),
+            command: buildSetupRunnerCommand(issueCommand.runnerScriptPath, terminalShellFamily),
             env: issueCommand.envVars
           }
         : { command: issueCommand.command, env: issueCommand.env }

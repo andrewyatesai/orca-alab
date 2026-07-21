@@ -12,6 +12,7 @@ import { translate } from '@/i18n/i18n'
 import { isWindowsAbsolutePathLike } from '../../../shared/cross-platform-path'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import { buildSetupRunnerCommand } from '../../../shared/setup-runner-command'
+import { getWorktreeSetupTerminalShellFamily } from '@/lib/setup-runner'
 import type {
   TerminalLayoutSnapshot,
   Worktree,
@@ -119,10 +120,14 @@ function registerBackgroundPaneBuffer(tabId: string, leafId: string, ptyId: stri
   })
 }
 
-function buildSetupCommand(setup: WorktreeSetupLaunch): string {
+function buildSetupCommand(setup: WorktreeSetupLaunch, worktreeId: string): string {
+  const state = useAppStore.getState()
   return buildSetupRunnerCommand(
     setup.runnerScriptPath,
-    isWindowsAbsolutePathLike(setup.runnerScriptPath) ? 'windows' : 'posix'
+    isWindowsAbsolutePathLike(setup.runnerScriptPath) ? 'windows' : 'posix',
+    // Why: the setup command is typed into the pane's interactive shell, so a
+    // Git Bash terminal needs POSIX delivery instead of a cmd.exe wrapper (#6896).
+    getWorktreeSetupTerminalShellFamily(state, worktreeId, state.settings?.terminalWindowsShell)
   )
 }
 
@@ -210,7 +215,7 @@ async function addSetupSplit(args: {
     connectionId: args.connectionId,
     tabId: args.tab.tabId,
     leafId: setupLeafId,
-    command: buildSetupCommand(args.setup),
+    command: buildSetupCommand(args.setup, args.worktree.id),
     env: args.setup.envVars
   })
   if (
@@ -305,7 +310,7 @@ export async function launchWorktreeBackgroundTerminals(
       connectionId,
       launch: {
         title: getSetupTabTitle(),
-        command: buildSetupCommand(args.setup),
+        command: buildSetupCommand(args.setup, worktree.id),
         env: args.setup.envVars
       }
     })

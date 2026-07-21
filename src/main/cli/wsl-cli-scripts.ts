@@ -45,6 +45,62 @@ param(
   [string[]]$ForwardArgs
 )
 
+function Repair-OrcaDuplicateEnvNames {
+  # Why: WSL interop can hand the Windows child both 'PATH' and 'Path'; .NET
+  # children crash building a case-insensitive env dictionary from that block (#9498).
+  try {
+    $null = (New-Object System.Diagnostics.ProcessStartInfo).EnvironmentVariables
+    return
+  } catch {
+  }
+  try {
+    $definition = @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern System.IntPtr GetEnvironmentStringsW();
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern bool FreeEnvironmentStringsW(System.IntPtr block);
+'@
+    $native = Add-Type -MemberDefinition $definition -Name 'NativeEnvironmentBlock' -Namespace 'OrcaWslBridge' -PassThru
+    $block = $native::GetEnvironmentStringsW()
+    if ($block -eq [System.IntPtr]::Zero) { return }
+    $names = @{}
+    try {
+      $cursor = $block
+      while ($true) {
+        $entry = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($cursor)
+        if ([string]::IsNullOrEmpty($entry)) { break }
+        $cursor = [System.IntPtr]($cursor.ToInt64() + (($entry.Length + 1) * 2))
+        $separator = $entry.IndexOf('=', 1)
+        if ($separator -lt 1) { continue }
+        $name = $entry.Substring(0, $separator)
+        $upper = $name.ToUpperInvariant()
+        if (-not $names.ContainsKey($upper)) { $names[$upper] = @() }
+        $names[$upper] += ,@($name, $entry.Substring($separator + 1))
+      }
+    } finally {
+      $null = $native::FreeEnvironmentStringsW($block)
+    }
+    foreach ($upper in @($names.Keys)) {
+      $variants = $names[$upper]
+      if ($variants.Count -le 1) { continue }
+      # Why: keep the Windows-conventional spelling (e.g. 'Path') so Windows
+      # children still resolve system binaries; the WSL-forwarded twin loses.
+      $keep = $variants[0]
+      foreach ($variant in $variants) {
+        if ($variant[0] -cne $variant[0].ToUpperInvariant()) { $keep = $variant; break }
+      }
+      $attempts = 0
+      while ($attempts -lt 8 -and $null -ne [System.Environment]::GetEnvironmentVariable($keep[0])) {
+        [System.Environment]::SetEnvironmentVariable($keep[0], $null)
+        $attempts = $attempts + 1
+      }
+      [System.Environment]::SetEnvironmentVariable($keep[0], $keep[1])
+    }
+  } catch {
+  }
+}
+Repair-OrcaDuplicateEnvNames
+
 $exitCode = 0
 try {
   if ([string]::IsNullOrEmpty($WslCwd)) {

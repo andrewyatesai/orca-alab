@@ -4,6 +4,10 @@ import { areWorktreePathsEqual, formatWorktreeRemovalError } from './ipc/worktre
 import { gitExecFileAsync } from './git/runner'
 import { listWorktreesStrict, type GitWorktreeExecOptions } from './git/worktree'
 import { removeLocalWorktreePath } from './local-worktree-filesystem'
+import {
+  lockedPathFromRemovalError,
+  retryWorktreeRemovalAfterHandleSweep
+} from './windows-worktree-handle-sweep'
 
 type LocalWindowsRemovalRecoveryArgs = {
   error: unknown
@@ -126,7 +130,20 @@ export async function recoverLocalWindowsWorktreeRemoval(
   try {
     await removeLocalWorktreePath(args.canonicalWorktreePath, args.localWorktreeGitOptions)
   } catch (error) {
-    throw new Error(formatWorktreeRemovalError(error, args.canonicalWorktreePath, args.force))
+    // Why: orphaned agent CLIs (claude.exe) can hold handles that survive the
+    // Windows retry ladder (#9045); sweep holders, then retry the delete once.
+    const lockedPathHint = lockedPathFromRemovalError(error)
+    const sweptRemoval = await retryWorktreeRemovalAfterHandleSweep({
+      worktreePath: args.canonicalWorktreePath,
+      ...(args.localWorktreeGitOptions.wslDistro
+        ? { wslDistro: args.localWorktreeGitOptions.wslDistro }
+        : {}),
+      ...(lockedPathHint ? { lockedPathHint } : {}),
+      retry: () => removeLocalWorktreePath(args.canonicalWorktreePath, args.localWorktreeGitOptions)
+    })
+    if (!sweptRemoval) {
+      throw new Error(formatWorktreeRemovalError(error, args.canonicalWorktreePath, args.force))
+    }
   }
   return removeRequiredGitWorktreeRegistration(args, args.force)
 }

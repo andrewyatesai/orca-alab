@@ -1,4 +1,5 @@
 import { isWindowsAbsolutePathLike } from './cross-platform-path'
+import type { AgentStartupShell } from './tui-agent-startup-shell'
 
 export type SetupRunnerCommandPlatform = 'windows' | 'posix'
 export type SetupRunnerCommandShell = 'posix' | 'windows'
@@ -11,9 +12,10 @@ export type SetupRunnerCommandResolution = {
 
 export function buildSetupRunnerCommand(
   runnerScriptPath: string,
-  platform: SetupRunnerCommandPlatform
+  platform: SetupRunnerCommandPlatform,
+  terminalShellFamily?: AgentStartupShell
 ): string {
-  return resolveSetupRunnerCommand(runnerScriptPath, platform).command
+  return resolveSetupRunnerCommand(runnerScriptPath, platform, terminalShellFamily).command
 }
 
 export function getSetupRunnerCommandPlatformForPath(
@@ -31,7 +33,8 @@ export function getSetupRunnerCommandPlatformForPath(
 
 export function resolveSetupRunnerCommand(
   runnerScriptPath: string,
-  platform: SetupRunnerCommandPlatform
+  platform: SetupRunnerCommandPlatform,
+  terminalShellFamily?: AgentStartupShell
 ): SetupRunnerCommandResolution {
   if (platform === 'windows') {
     if (isWslUncPath(runnerScriptPath)) {
@@ -46,6 +49,15 @@ export function resolveSetupRunnerCommand(
       return {
         command: `bash ${quotePosixArg(runnerScriptPath)}`,
         runnerScriptPathForShell: runnerScriptPath,
+        shell: 'posix'
+      }
+    }
+    if (terminalShellFamily === 'posix') {
+      // Why: Git Bash history-expands `!` inside double quotes and MSYS-converts /c to C:\ (#6896);
+      // single-quote the .cmd path, disable path conversion, and keep sequencing in POSIX form.
+      return {
+        command: `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c ${quotePosixArg(runnerScriptPath)}`,
+        runnerScriptPathForShell: runnerScriptPath.replace(/\\/g, '/'),
         shell: 'posix'
       }
     }

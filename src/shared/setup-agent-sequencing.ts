@@ -3,6 +3,7 @@ import {
   type SetupRunnerCommandPlatform,
   type SetupRunnerCommandShell
 } from './setup-runner-command'
+import type { AgentStartupShell } from './tui-agent-startup-shell'
 
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 2 * 60 * 60
 export const SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV = 'ORCA_SEQUENCED_STARTUP_COMMAND'
@@ -33,11 +34,16 @@ export function createSequencedSetupAgentCommands(args: {
   runnerScriptPath: string
   startupCommand: string
   platform: SetupRunnerCommandPlatform
+  terminalShellFamily?: AgentStartupShell
   nonce?: string
   waitTimeoutSeconds?: number
 }): SequencedSetupAgentCommands {
   const nonce = args.nonce ?? createSetupAgentSequenceNonce()
-  const resolution = resolveSetupRunnerCommand(args.runnerScriptPath, args.platform)
+  const resolution = resolveSetupRunnerCommand(
+    args.runnerScriptPath,
+    args.platform,
+    args.terminalShellFamily
+  )
   // Why: overlapping gated launches of the same setup runner must not race on
   // a shared completion marker.
   const markerPath = `${resolution.runnerScriptPathForShell}.${nonce}.done`
@@ -231,7 +237,9 @@ function buildWindowsStartupCommand(
 }
 
 function wrapCmd(parts: string[]): string {
-  return `cmd.exe /d /s /v:on /c ${quoteWindowsArg(parts.join(' & '))}`
+  // Why: /s strips only the outer quote pair, so inner quotes must stay literal —
+  // doubling them corrupts `set "VAR=…"`, the marker never matches, and the agent never starts (#8787).
+  return `cmd.exe /d /s /v:on /c "${parts.join(' & ')}"`
 }
 
 function quotePosixArg(value: string): string {

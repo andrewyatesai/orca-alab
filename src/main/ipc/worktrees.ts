@@ -195,6 +195,7 @@ import {
   removeStaleLocalWorktreeRegistrationAfterFilesystemRemoval,
   recoverLocalWindowsWorktreeRemoval
 } from '../local-worktree-removal-recovery'
+import { retryWorktreeRemovalAfterHandleSweep } from '../windows-worktree-handle-sweep'
 
 const WORKTREE_ARCHIVE_HOOK_TIMEOUT_MS = 120_000
 const WORKTREE_LIST_ALL_CONCURRENCY = 8
@@ -1822,13 +1823,13 @@ export function registerWorktreeHandlers(
           // Why: hold the watcher/terminal gate through Git and any recursive fallback so no late spawn recreates a native handle.
           await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId)
 
+          const removeOptions = {
+            ...(!deleteBranch ? { deleteBranch } : {}),
+            // Why: reuse the authoritative worktree list already computed here instead of rescanning siblings on the hot delete path.
+            knownRemovedWorktree: refreshedRegisteredWorktree,
+            ...(hasLocalWorktreeGitOptions ? localWorktreeGitOptions : {})
+          }
           try {
-            const removeOptions = {
-              ...(!deleteBranch ? { deleteBranch } : {}),
-              // Why: reuse the authoritative worktree list already computed here instead of rescanning siblings on the hot delete path.
-              knownRemovedWorktree: refreshedRegisteredWorktree,
-              ...(hasLocalWorktreeGitOptions ? localWorktreeGitOptions : {})
-            }
             removalResult = preserveBranchHeadFallback(
               await removeWorktree(
                 repo.path,
@@ -1896,8 +1897,29 @@ export function registerWorktreeHandlers(
               removalCompleted = true
               return {}
             } else {
-              throw new Error(
-                formatWorktreeRemovalError(error, canonicalWorktreePath, args.force ?? false)
+              // Why: orphaned agent CLIs (claude.exe) can outlive PTY teardown and hold
+              // handles that fail Git's unlink (#9045); sweep holders, then retry once.
+              const sweptRemoval = await retryWorktreeRemovalAfterHandleSweep({
+                worktreePath: canonicalWorktreePath,
+                ...(localWorktreeGitOptions.wslDistro
+                  ? { wslDistro: localWorktreeGitOptions.wslDistro }
+                  : {}),
+                retry: () =>
+                  removeWorktree(
+                    repo.path,
+                    canonicalWorktreePath,
+                    args.force ?? false,
+                    removeOptions
+                  )
+              })
+              if (!sweptRemoval) {
+                throw new Error(
+                  formatWorktreeRemovalError(error, canonicalWorktreePath, args.force ?? false)
+                )
+              }
+              removalResult = preserveBranchHeadFallback(
+                sweptRemoval.result,
+                refreshedRegisteredWorktree.head
               )
             }
           }

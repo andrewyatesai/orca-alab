@@ -1,12 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as WindowsWorktreeHandleSweep from './windows-worktree-handle-sweep'
 
-const { gitExecFileAsyncMock, listWorktreesStrictMock, removeLocalWorktreePathMock } = vi.hoisted(
-  () => ({
-    gitExecFileAsyncMock: vi.fn(),
-    listWorktreesStrictMock: vi.fn(),
-    removeLocalWorktreePathMock: vi.fn()
-  })
-)
+const {
+  gitExecFileAsyncMock,
+  listWorktreesStrictMock,
+  removeLocalWorktreePathMock,
+  retryWorktreeRemovalAfterHandleSweepMock
+} = vi.hoisted(() => ({
+  gitExecFileAsyncMock: vi.fn(),
+  listWorktreesStrictMock: vi.fn(),
+  removeLocalWorktreePathMock: vi.fn(),
+  retryWorktreeRemovalAfterHandleSweepMock: vi.fn()
+}))
 
 vi.mock('./git/runner', () => ({
   gitExecFileAsync: gitExecFileAsyncMock
@@ -18,6 +23,11 @@ vi.mock('./local-worktree-filesystem', () => ({
 
 vi.mock('./git/worktree', () => ({
   listWorktreesStrict: listWorktreesStrictMock
+}))
+
+vi.mock('./windows-worktree-handle-sweep', async (importOriginal) => ({
+  ...(await importOriginal<typeof WindowsWorktreeHandleSweep>()),
+  retryWorktreeRemovalAfterHandleSweep: retryWorktreeRemovalAfterHandleSweepMock
 }))
 
 import {
@@ -40,9 +50,11 @@ describe('recoverLocalWindowsWorktreeRemoval', () => {
     gitExecFileAsyncMock.mockReset()
     listWorktreesStrictMock.mockReset()
     removeLocalWorktreePathMock.mockReset()
+    retryWorktreeRemovalAfterHandleSweepMock.mockReset()
     gitExecFileAsyncMock.mockResolvedValue({ stdout: '', stderr: '' })
     listWorktreesStrictMock.mockResolvedValue([])
     removeLocalWorktreePathMock.mockResolvedValue(undefined)
+    retryWorktreeRemovalAfterHandleSweepMock.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -113,6 +125,69 @@ describe('recoverLocalWindowsWorktreeRemoval', () => {
           head: 'abc123'
         }
       })
+    })
+  })
+
+  it('completes recovery after the orphaned-handle sweep frees the directory (#9045)', async () => {
+    await withPlatform('win32', async () => {
+      const lockError = Object.assign(new Error('EBUSY: resource busy'), {
+        code: 'EBUSY',
+        path: 'C:/repo/worktree/feature/held.log'
+      })
+      removeLocalWorktreePathMock.mockRejectedValueOnce(lockError)
+      retryWorktreeRemovalAfterHandleSweepMock.mockImplementation(
+        async (args: { retry: () => Promise<unknown> }) => ({ result: await args.retry() })
+      )
+
+      const result = await recoverLocalWindowsWorktreeRemoval({
+        error: Object.assign(new Error('git worktree remove failed'), {
+          stderr: "error: failed to delete 'C:/repo/worktree/feature': Permission denied"
+        }),
+        force: true,
+        canonicalWorktreePath: 'C:/repo/worktree/feature',
+        repoPath: 'C:/repo',
+        localWorktreeGitOptions: {},
+        registeredWorktree: { branch: 'refs/heads/feature', head: 'abc123' },
+        deleteBranch: true,
+        closeWatcher: vi.fn().mockResolvedValue(undefined)
+      })
+
+      expect(retryWorktreeRemovalAfterHandleSweepMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          worktreePath: 'C:/repo/worktree/feature',
+          lockedPathHint: 'C:/repo/worktree/feature/held.log'
+        })
+      )
+      expect(removeLocalWorktreePathMock).toHaveBeenCalledTimes(2)
+      expect(result).toEqual({
+        preservedBranch: { branchName: 'feature', head: 'abc123' }
+      })
+    })
+  })
+
+  it('surfaces the original filesystem error when the sweep declines', async () => {
+    await withPlatform('win32', async () => {
+      removeLocalWorktreePathMock.mockRejectedValueOnce(
+        Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' })
+      )
+
+      await expect(
+        recoverLocalWindowsWorktreeRemoval({
+          error: Object.assign(new Error('git worktree remove failed'), {
+            stderr: "error: failed to delete 'C:/repo/worktree/feature': Permission denied"
+          }),
+          force: true,
+          canonicalWorktreePath: 'C:/repo/worktree/feature',
+          repoPath: 'C:/repo',
+          localWorktreeGitOptions: {},
+          registeredWorktree: { branch: 'refs/heads/feature', head: 'abc123' },
+          deleteBranch: true,
+          closeWatcher: vi.fn().mockResolvedValue(undefined)
+        })
+      ).rejects.toThrow('EBUSY')
+
+      expect(retryWorktreeRemovalAfterHandleSweepMock).toHaveBeenCalledTimes(1)
+      expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
     })
   })
 

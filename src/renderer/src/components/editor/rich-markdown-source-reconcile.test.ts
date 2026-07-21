@@ -325,6 +325,19 @@ describe('reconcileSerializedMarkdown', () => {
     expect(reconciled.replace(/\r\n/g, '')).not.toContain('\n')
   })
 
+  it('does not crash on a multi-byte doc and still preserves style (#9492)', () => {
+    // Multi-byte codepoints before the edit made applyPatches' internal UTF-8→UCS-2
+    // index adjustment overshoot the source end and throw, dropping the save.
+    const originalSource = '中文中文中文中文中文中文中文中文中文中文 🎉🎉🎉🎉🎉\n\n_tail_ here\n'
+    const baseCanonical = fakeCanonicalize(originalSource)
+    const edited = baseCanonical.replace('here', 'there')
+
+    const reconciled = reconcileWithFake(originalSource, edited)
+
+    expect(fakeCanonicalize(reconciled).trimEnd()).toBe(edited.trimEnd())
+    expect(reconciled).toContain('_tail_ there')
+  })
+
   it('lands a repeated-substring edit on the correct occurrence or falls back', () => {
     const originalSource = ['- _alpha_', '- _beta_', '', '- _alpha_', '- _beta_', ''].join('\n')
     const baseCanonical = fakeCanonicalize(originalSource)

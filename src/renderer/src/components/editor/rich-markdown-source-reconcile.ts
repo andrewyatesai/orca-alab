@@ -107,7 +107,14 @@ export function reconcileSerializedMarkdown({
     diffs = cleanupEfficiency(diffs)
   }
   const patches = makePatches(baseLf, diffs)
-  const [reconciledLf, results] = applyPatches(patches, originalSourceLf)
+  // Why: adjustIndiciesToUcs2 treats patch.start1 (character index) as a UTF-8
+  // byte offset. For multi-byte codepoints (中文, emoji, accented Latin) this
+  // causes advanceTo to overshoot and throw. allowExceedingIndices makes it
+  // return the nearest index instead — fuzzy match in apply() still locates the
+  // correct position, and branch 6's round-trip proof catches any misplacement.
+  const [reconciledLf, results] = applyPatches(patches, originalSourceLf, {
+    allowExceedingIndices: true
+  })
 
   // Branch 5: a hunk that failed to locate in the non-canonical source → the
   // fuzzy match is unreliable here, so fall back to canonical.

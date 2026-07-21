@@ -69,8 +69,13 @@ function browseWithPosixShell(
   conn: SshBrowseConnection,
   dirPath: string
 ): Promise<{ entries: RemoteDirEntry[]; resolvedPath: string }> {
-  // Why: `command ls` skips aliases; `&&` makes a failing ls exit non-zero (not look empty); -1Ap = one-per-line + trailing / on dirs.
-  return runBrowseCommand(conn, `cd ${shellEscape(dirPath)} && pwd && command ls -1Ap`)
+  // Why: `command ls` skips aliases; `&&` makes a failing ls exit non-zero (not look empty).
+  // Dir markers come from `[ -d ]` (follows symlinks) instead of `ls -p` (does not), so a
+  // symlinked directory stays descendable; capturing ls first keeps its failure out of the pipeline.
+  return runBrowseCommand(
+    conn,
+    `cd ${shellEscape(dirPath)} && pwd && entries=$(command ls -1A) && printf '%s\\n' "$entries" | while IFS= read -r f; do if [ -d "$f" ]; then printf '%s/\\n' "$f"; else printf '%s\\n' "$f"; fi; done`
+  )
 }
 
 function browseWithWindowsPowerShell(

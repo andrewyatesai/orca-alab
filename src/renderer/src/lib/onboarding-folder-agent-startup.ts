@@ -32,7 +32,14 @@ function getClientPlatform(): NodeJS.Platform {
 export function buildOnboardingFolderAgentStartup(
   settings: GlobalSettings | null
 ): OnboardingFolderAgentStartup | undefined {
-  const agent = settings?.defaultTuiAgent
+  const pref = settings?.defaultTuiAgent
+  // Why: a custom-profile default launches as its baseAgent with the profile
+  // command; a stale profile id degrades to no auto-launch (matches builtin).
+  const customProfile =
+    pref && typeof pref === 'object' && pref.kind === 'custom'
+      ? ((settings?.customAgents ?? []).find((p) => p.id === pref.id) ?? null)
+      : null
+  const agent = pref && typeof pref === 'object' ? customProfile?.baseAgent : pref
   if (
     !settings ||
     !agent ||
@@ -46,6 +53,7 @@ export function buildOnboardingFolderAgentStartup(
     agent,
     prompt: '',
     cmdOverrides: settings.agentCmdOverrides ?? {},
+    customProfile,
     agentArgs: resolveTuiAgentLaunchArgs(agent, settings.agentDefaultArgs),
     agentEnv: resolveTuiAgentLaunchEnv(agent, settings.agentDefaultEnv),
     sessionOptions: resolveNativeChatSessionOptionDefaults(

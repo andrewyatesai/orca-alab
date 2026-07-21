@@ -2,7 +2,7 @@
    selection, per-agent controls, and runtime location together so settings
    reconciliation stays visible in one file. */
 import { useId, useMemo, useState } from 'react'
-import { Check, ChevronDown, ExternalLink, Info, RefreshCw, Terminal } from 'lucide-react'
+import { Check, ChevronDown, ExternalLink, Info, RefreshCw, Terminal, Wrench } from 'lucide-react'
 import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
 import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
 import { useDetectedAgents } from '@/hooks/useDetectedAgents'
@@ -48,6 +48,7 @@ import { getSettingOwnershipSummary } from './setting-ownership'
 import { translate } from '@/i18n/i18n'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { parseAgentDefaultEnvDraft, stringifyAgentDefaultEnvDraft } from './agent-default-env-draft'
+import { CustomAgentsSection } from './CustomAgentsSection'
 
 export { getAgentsPaneSearchEntries } from './agents-search'
 
@@ -701,8 +702,9 @@ export function AgentsPane({
     agentDefaultEnv
   })
   const disabledAgents = normalizeDisabledTuiAgents(settings.disabledTuiAgents)
+  const customAgents = settings.customAgents ?? []
 
-  const setDefault = (id: TuiAgent | 'blank' | null): void => {
+  const setDefault = (id: TuiAgent | 'blank' | { kind: 'custom'; id: string } | null): void => {
     updateSettings({ defaultTuiAgent: id })
   }
 
@@ -771,9 +773,14 @@ export function AgentsPane({
   // selected agent id is no longer detected on PATH.
   const isAutoDefault =
     defaultAgent === null ||
-    (defaultAgent !== 'blank' &&
+    (typeof defaultAgent !== 'object' &&
+      defaultAgent !== 'blank' &&
       (!detectedIds?.has(defaultAgent) || !isTuiAgentEnabled(defaultAgent, disabledAgents)))
   const isBlankDefault = defaultAgent === 'blank'
+  const defaultCustomAgentId =
+    defaultAgent && typeof defaultAgent === 'object' && defaultAgent.kind === 'custom'
+      ? defaultAgent.id
+      : null
 
   return (
     <div className="space-y-8">
@@ -816,8 +823,50 @@ export function AgentsPane({
               </DefaultAgentPill>
             )
           })}
+
+          {/* Custom-agent pills. Only profiles whose baseAgent is detected and
+              enabled show up here — a profile pointed at an uninstalled or
+              hidden CLI can't actually launch, so making it the "default"
+              would just stall. */}
+          {customAgents
+            .filter(
+              (p) =>
+                (detectedIds === null || detectedIds.has(p.baseAgent)) &&
+                isTuiAgentEnabled(p.baseAgent, disabledAgents)
+            )
+            .map((profile) => {
+              const isActive = defaultCustomAgentId === profile.id
+              return (
+                <DefaultAgentPill
+                  key={`custom:${profile.id}`}
+                  active={isActive}
+                  onClick={() => setDefault({ kind: 'custom', id: profile.id })}
+                >
+                  <span className="relative inline-flex">
+                    <AgentIcon agent={profile.baseAgent} size={14} />
+                    <Wrench
+                      className="absolute -right-1 -bottom-1 size-2 rounded-sm bg-background p-[1px] text-muted-foreground"
+                      aria-hidden
+                    />
+                  </span>
+                  {profile.label}
+                  {isActive && <Check className="size-3.5" />}
+                </DefaultAgentPill>
+              )
+            })}
         </div>
       </section>
+
+      <CustomAgentsSection
+        customAgents={customAgents}
+        onChange={(next) => updateSettings({ customAgents: next })}
+        defaultCustomAgentId={defaultCustomAgentId}
+        onSetDefault={(id) => setDefault({ kind: 'custom', id })}
+        // Why: the env shell-prefix path uses POSIX quoting; on Windows the
+        // user needs to wrap with `cmd /c …` to apply env vars cleanly. The
+        // settings hint flags this without blocking the input.
+        isWindows={typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows')}
+      />
 
       <AgentRuntimeSetting
         settings={settings}
@@ -839,6 +888,7 @@ export function AgentsPane({
 
       <AgentPermissionsSetting mode={agentPermissionMode} onChange={saveAgentPermissionMode} />
 
+      {/* Detected agents */}
       {detectedAgents.length > 0 && (
         <section className="space-y-3">
           <SettingsSubsectionHeader

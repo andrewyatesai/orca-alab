@@ -39,13 +39,18 @@ function getCatalogEntry(agent: TuiAgent): { id: TuiAgent; label: string } | nul
 }
 
 function orderAgents(
-  defaultAgent: TuiAgent | 'blank' | null | undefined,
+  defaultAgent: TuiAgent | 'blank' | { kind: 'custom'; id: string } | null | undefined,
   detected: TuiAgent[]
 ): TuiAgent[] {
   const inCatalogOrder = getAgentCatalog()
     .filter((entry) => detected.includes(entry.id))
     .map((entry) => entry.id)
-  if (!defaultAgent || defaultAgent === 'blank' || !inCatalogOrder.includes(defaultAgent)) {
+  if (
+    !defaultAgent ||
+    defaultAgent === 'blank' ||
+    typeof defaultAgent === 'object' ||
+    !inCatalogOrder.includes(defaultAgent)
+  ) {
     return inCatalogOrder
   }
   // Why: surface the user's configured default first — matches the prior
@@ -108,6 +113,7 @@ function QuickLaunchAgentMenuItemsInner({
   const { detectedIds } = useDetectedAgents(connectionId)
   const defaultAgent = useAppStore((s) => s.settings?.defaultTuiAgent)
   const disabledAgents = useAppStore((s) => s.settings?.disabledTuiAgents ?? [])
+  const customAgents = useAppStore((s) => s.settings?.customAgents ?? [])
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const newAgentShortcut = useOptionalShortcutLabel('tab.newAgent')
@@ -118,13 +124,14 @@ function QuickLaunchAgentMenuItemsInner({
   }, [openSettingsPage, openSettingsTarget])
 
   const runLaunch = useCallback(
-    (agent: TuiAgent) => {
+    (agent: TuiAgent, customAgentId: string | null = null) => {
       const entry = getCatalogEntry(agent)
       const label = entry?.label ?? agent
       const result = launchAgentInNewTab({
         agent,
         worktreeId,
         groupId,
+        customAgentId,
         ...(prompt !== undefined ? { prompt } : {}),
         ...(promptDelivery !== undefined ? { promptDelivery } : {}),
         ...(launchSource !== undefined ? { launchSource } : {}),
@@ -173,10 +180,15 @@ function QuickLaunchAgentMenuItemsInner({
 
   const enabledDetectedIds = detectedIds ? filterEnabledTuiAgents(detectedIds, disabledAgents) : []
   const agents = detectedIds ? orderAgents(defaultAgent, enabledDetectedIds) : []
+  // Why: only surface custom profiles whose baseAgent is detected and enabled
+  // — launching a profile pointing at an uninstalled or hidden CLI just hangs.
+  const visibleCustomAgents = detectedIds
+    ? customAgents.filter((p) => enabledDetectedIds.includes(p.baseAgent))
+    : []
 
   return (
     <>
-      {agents.length === 0 ? (
+      {agents.length === 0 && visibleCustomAgents.length === 0 ? (
         <DropdownMenuItem
           disabled
           className="gap-2 rounded-[7px] px-2 py-1.5 text-[12px] leading-5 text-muted-foreground"
@@ -213,6 +225,21 @@ function QuickLaunchAgentMenuItemsInner({
           </DropdownMenuItem>
         )
       })}
+      {visibleCustomAgents.map((profile) => (
+        <DropdownMenuItem
+          key={`custom:${profile.id}`}
+          onSelect={() => runLaunch(profile.baseAgent, profile.id)}
+          className="gap-2 rounded-[7px] px-2 py-1.5 text-[12px] leading-5 font-medium"
+          title={translate(
+            'auto.components.tab.bar.QuickLaunchButton.ec2adf093e',
+            'Launch {{value0}} in a new terminal',
+            { value0: profile.label }
+          )}
+        >
+          <AgentIcon agent={profile.baseAgent} size={14} />
+          {profile.label}
+        </DropdownMenuItem>
+      ))}
       <DropdownMenuItem
         onSelect={openAgentSettings}
         className="gap-2 rounded-[7px] px-2 py-1.5 text-[12px] leading-5 font-medium text-muted-foreground"

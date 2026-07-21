@@ -22,13 +22,43 @@ import type {
   AgentProviderSessionMetadata,
   ResumableTuiAgent
 } from '../../../../shared/agent-session-resume'
-import type { TuiAgent } from '../../../../shared/types'
+import { resolveCustomAgentBaseCommand } from '../../../../shared/custom-agent-profile'
+import type { CustomAgentProfile, TuiAgent } from '../../../../shared/types'
 
 function op<T>(fn: string, input: unknown): T | null {
   if (!isGitWasmReady()) {
     return null
   }
   return JSON.parse(tuiAgentStartupOp(fn, JSON.stringify(input))) as T | null
+}
+
+// Why: the Rust core has no custom-profile concept (upstream #1479). Injecting
+// the resolved profile command (env prefix + command) as the per-agent
+// cmdOverride reproduces upstream's "profile replaces catalog cmd + override"
+// exactly — the core already prefers cmdOverrides[agent] over the catalog. The
+// profile's command/env fully describe the launch, so base-agent default
+// args/env are suppressed.
+function withCustomProfileOverride<
+  A extends {
+    agent: TuiAgent
+    cmdOverrides: Partial<Record<TuiAgent, string>>
+    platform: NodeJS.Platform
+    agentArgs?: string | null
+    agentEnv?: Record<string, string> | null
+  }
+>(args: A, customProfile: CustomAgentProfile | null): A {
+  if (!customProfile) {
+    return args
+  }
+  return {
+    ...args,
+    cmdOverrides: {
+      ...args.cmdOverrides,
+      [args.agent]: resolveCustomAgentBaseCommand(customProfile, args.platform)
+    },
+    agentArgs: null,
+    agentEnv: null
+  }
 }
 
 export function buildAgentStartupPlan(args: {
@@ -42,26 +72,29 @@ export function buildAgentStartupPlan(args: {
   agentEnv?: Record<string, string> | null
   sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
+  customProfile?: CustomAgentProfile | null
 }): AgentStartupPlan | null {
-  const plan = op<AgentStartupPlan>('buildAgentStartupPlan', args)
+  const { customProfile = null, ...rest } = args
+  const opArgs = withCustomProfileOverride(rest, customProfile)
+  const plan = op<AgentStartupPlan>('buildAgentStartupPlan', opArgs)
   // Hermes owns readiness/submission via `chat --query` + a startup-query env
   // var, not stdin-after-start. The Rust core resolves the base command +
   // launchConfig; rebuild the launch here through the tested TS query builder
   // (the single source, also used by the main-process pty providers).
-  if (plan && args.agent === 'hermes' && args.prompt.trim()) {
+  if (plan && opArgs.agent === 'hermes' && opArgs.prompt.trim()) {
     // planHermesStartupQuery needs the base command and the configured args
     // SEPARATELY (it reorders them around the `chat` subcommand), so re-resolve
     // the base (the Rust core folds the arg suffix into its base command). A
     // present-but-empty override is falsy and falls through to the launch cmd.
-    const baseCommand = args.cmdOverrides.hermes?.trim() || 'hermes --tui'
+    const baseCommand = opArgs.cmdOverrides.hermes?.trim() || 'hermes --tui'
     const queryPlan = planHermesStartupQuery({
       baseCommand,
-      agentArgs: args.agentArgs,
-      prompt: args.prompt.trim(),
-      agentEnv: args.agentEnv,
-      platform: args.platform,
-      shell: resolveStartupShell(args.platform, args.shell),
-      isRemote: args.isRemote
+      agentArgs: opArgs.agentArgs,
+      prompt: opArgs.prompt.trim(),
+      agentEnv: opArgs.agentEnv,
+      platform: opArgs.platform,
+      shell: resolveStartupShell(opArgs.platform, opArgs.shell),
+      isRemote: opArgs.isRemote
     })
     if (!queryPlan) {
       return null
@@ -76,7 +109,7 @@ export function buildAgentStartupPlan(args: {
   }
   // Layer the native-chat session-option flags (upstream #9085) over the Rust
   // plan; a no-catalog agent or absent options is an identity pass.
-  return plan ? spliceSessionOptionsIntoPlan(plan, args) : plan
+  return plan ? spliceSessionOptionsIntoPlan(plan, opArgs) : plan
 }
 
 export function buildAgentResumeStartupPlan(args: {
@@ -106,7 +139,10 @@ export function buildAgentDraftLaunchPlan(args: {
   agentEnv?: Record<string, string> | null
   sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
+  customProfile?: CustomAgentProfile | null
 }): AgentDraftLaunchPlan | null {
-  const plan = op<AgentDraftLaunchPlan>('buildAgentDraftLaunchPlan', args)
-  return plan ? spliceSessionOptionsIntoPlan(plan, args) : plan
+  const { customProfile = null, ...rest } = args
+  const opArgs = withCustomProfileOverride(rest, customProfile)
+  const plan = op<AgentDraftLaunchPlan>('buildAgentDraftLaunchPlan', opArgs)
+  return plan ? spliceSessionOptionsIntoPlan(plan, opArgs) : plan
 }

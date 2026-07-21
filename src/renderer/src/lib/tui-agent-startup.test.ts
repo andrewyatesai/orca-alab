@@ -259,6 +259,49 @@ describe('buildAgentStartupPlan', () => {
       launchConfig: emptyLaunchConfig('copilot')
     })
   })
+
+  it('uses customProfile command + env shell prefix and ignores per-agent cmdOverrides', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'claude',
+        prompt: 'Fix the bug',
+        cmdOverrides: { claude: '/should/be/ignored' },
+        platform: 'darwin',
+        customProfile: {
+          id: 'p1',
+          label: 'Claude (zai)',
+          baseAgent: 'claude',
+          command: 'claude',
+          env: { ANTHROPIC_BASE_URL: 'http://localhost:1234' }
+        }
+      })
+    ).toEqual({
+      agent: 'claude',
+      launchCommand: "ANTHROPIC_BASE_URL='http://localhost:1234' claude 'Fix the bug'",
+      expectedProcess: 'claude',
+      followupPrompt: null,
+      launchConfig: emptyLaunchConfig("ANTHROPIC_BASE_URL='http://localhost:1234' claude")
+    })
+  })
+
+  it('quotes single quotes in env values via the POSIX close-reopen trick', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'claude',
+        prompt: '',
+        cmdOverrides: {},
+        platform: 'linux',
+        allowEmptyPromptLaunch: true,
+        customProfile: {
+          id: 'p2',
+          label: 'Claude (tricky)',
+          baseAgent: 'claude',
+          command: 'claude',
+          env: { TOKEN: "a'b" }
+        }
+      })?.launchCommand
+    ).toBe("TOKEN='a'\\''b' claude")
+  })
 })
 
 describe('buildAgentDraftLaunchPlan', () => {
@@ -351,6 +394,29 @@ describe('buildAgentDraftLaunchPlan', () => {
       launchCommand: "openclaude --prefill 'review this'",
       expectedProcess: 'openclaude',
       launchConfig: emptyLaunchConfig('openclaude')
+    })
+  })
+
+  it('uses customProfile command + env shell prefix for the prefill flag', () => {
+    expect(
+      buildAgentDraftLaunchPlan({
+        agent: 'claude',
+        draft: 'review this',
+        cmdOverrides: { claude: '/should/be/ignored' },
+        platform: 'linux',
+        customProfile: {
+          id: 'p1',
+          label: 'Claude (zai)',
+          baseAgent: 'claude',
+          command: 'claude',
+          env: { ANTHROPIC_BASE_URL: 'http://localhost:1234' }
+        }
+      })
+    ).toEqual({
+      agent: 'claude',
+      launchCommand: "ANTHROPIC_BASE_URL='http://localhost:1234' claude --prefill 'review this'",
+      expectedProcess: 'claude',
+      launchConfig: emptyLaunchConfig("ANTHROPIC_BASE_URL='http://localhost:1234' claude")
     })
   })
 })

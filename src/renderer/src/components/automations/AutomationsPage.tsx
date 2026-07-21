@@ -15,7 +15,11 @@ import {
   X
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
+import {
+  collapseDefaultTuiAgentToBuiltin,
+  filterEnabledTuiAgents,
+  isTuiAgentEnabled
+} from '../../../../shared/tui-agent-selection'
 import type { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { installWindowVisibilityInterval } from '@/lib/window-visibility-interval'
@@ -393,11 +397,16 @@ export default function AutomationsPage(): React.JSX.Element {
   const repoMap = useRepoMap()
   const worktreeMap = useWorktreeMap()
   const enabledAgents = filterEnabledTuiAgents(AGENTS, settings?.disabledTuiAgents)
+  // Why: automations run builtin agent ids; a custom-profile default collapses to its baseAgent.
+  const collapsedDefaultAgent = collapseDefaultTuiAgentToBuiltin(
+    settings?.defaultTuiAgent,
+    settings?.customAgents
+  )
   const defaultAgent =
-    settings?.defaultTuiAgent &&
-    settings.defaultTuiAgent !== 'blank' &&
-    isTuiAgentEnabled(settings.defaultTuiAgent, settings.disabledTuiAgents)
-      ? settings.defaultTuiAgent
+    collapsedDefaultAgent &&
+    collapsedDefaultAgent !== 'blank' &&
+    isTuiAgentEnabled(collapsedDefaultAgent, settings?.disabledTuiAgents)
+      ? collapsedDefaultAgent
       : (enabledAgents[0] ?? AGENTS[0])
 
   const [automations, setAutomations] = useState<Automation[]>([])

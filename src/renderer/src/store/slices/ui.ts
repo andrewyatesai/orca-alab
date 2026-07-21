@@ -690,6 +690,10 @@ export type UISlice = {
     /** Preserve where provider data came from, separately from the host chosen to run the workspace. */
     taskSourceContext?: TaskSourceContext | null
     agent: TuiAgent
+    /** Optional custom-agent profile id selected in the picker. When set,
+     *  the launch flow uses the profile's command + env instead of the
+     *  catalog default for `agent` (which equals the profile's baseAgent). */
+    customAgentId?: string | null
     linkedIssue: string
     linkedPR: number | null
     /** GitLab parallels — number for an issue, iid for an MR. Optional so pre-GitLab drafts still load without migration. */

@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- Why: single orchestrator for every onboarding-step transition; splitting would scatter ordering across hooks and lose the controller-shape contract OnboardingFlow.tsx consumes. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
 import { toast } from 'sonner'
 import { getAgentCatalog } from '@/lib/agent-catalog'
 import { useAppStore } from '@/store'
@@ -256,9 +257,13 @@ export function useOnboardingFlow(
   )
   const [stepIndex, setStepIndex] = useState(initialStep)
   const [selectedAgent, setSelectedAgent] = useState<TuiAgent | null>(
-    settings?.defaultTuiAgent && settings.defaultTuiAgent !== 'blank'
-      ? settings.defaultTuiAgent
-      : null
+    (() => {
+      const collapsed = collapseDefaultTuiAgentToBuiltin(
+        settings?.defaultTuiAgent,
+        settings?.customAgents
+      )
+      return collapsed && collapsed !== 'blank' ? collapsed : null
+    })()
   )
   const [yoloPermissions, setYoloPermissions] = useState(
     resolveAgentPermissionModeSummary({

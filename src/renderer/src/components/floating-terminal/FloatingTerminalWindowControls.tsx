@@ -10,7 +10,10 @@ import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { useAppStore } from '@/store'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
-import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
+import {
+  collapseDefaultTuiAgentToBuiltin,
+  isTuiAgentEnabled
+} from '../../../../shared/tui-agent-selection'
 import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
@@ -42,7 +45,13 @@ export function FloatingTerminalWindowControls({
   onToggleMaximized,
   onMinimize
 }: FloatingTerminalWindowControlsProps): React.JSX.Element {
-  const defaultTuiAgent = useAppStore((s) => s.settings?.defaultTuiAgent ?? null)
+  const defaultTuiAgent = useAppStore(
+    // Why: floating-terminal launch options are builtin-shaped; collapse a
+    // custom-profile default to its baseAgent.
+    (s) =>
+      collapseDefaultTuiAgentToBuiltin(s.settings?.defaultTuiAgent, s.settings?.customAgents) ??
+      null
+  )
   const createTab = useAppStore((s) => s.createTab)
   const setActiveTabForWorktree = useAppStore((s) => s.setActiveTabForWorktree)
   const activateTab = useAppStore((s) => s.activateTab)

@@ -102,6 +102,7 @@ async function pickExistingWorktreeAgent(
   const settings = useAppStore.getState().settings
   const agent = pickSourceControlLaunchAgent({
     defaultAgent: settings?.defaultTuiAgent,
+    customAgents: settings?.customAgents,
     detectedAgents,
     disabledAgents: settings?.disabledTuiAgents
   })

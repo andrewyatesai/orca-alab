@@ -2455,6 +2455,28 @@ export type TuiAgent =
   | 'devin' // Devin CLI
   | 'ante' // Ante (Antigma Labs)
 
+/** A user-defined CLI agent profile — a named variant of a built-in TuiAgent
+ *  with its own launch command and optional env vars. Surfaced in the agent
+ *  picker alongside built-ins; resolved by `id` at launch time. */
+export type CustomAgentProfile = {
+  /** Stable opaque id (uuid). Referenced by `defaultTuiAgent` and composer state. */
+  id: string
+  /** Display label shown in the picker, e.g. "Claude (zai)". */
+  label: string
+  /** Built-in agent this profile inherits prompt-injection mode, icon, and
+   *  telemetry kind from. The profile's `command` replaces the catalog
+   *  `launchCmd` for this profile only. */
+  baseAgent: TuiAgent
+  /** Full launch command, e.g. `claude --dangerously-skip-permissions`.
+   *  May include shell metacharacters; runs in the user's interactive shell
+   *  via the existing startup-command path. */
+  command: string
+  /** Optional env vars merged into the launch as a `KEY='value' …` shell
+   *  prefix. Stored as a record so the settings UI can edit individual keys
+   *  without parsing arbitrary shell. */
+  env?: Record<string, string>
+}
+
 export type TaskViewPresetId = 'all' | 'issues' | 'review' | 'my-issues' | 'my-prs' | 'prs'
 
 /** Where the repo setup script runs when a worktree is created.
@@ -2794,8 +2816,11 @@ export type GlobalSettings = {
   /** Which agent to pre-select in the new-workspace composer.
    *  - null: auto (first detected agent)
    *  - 'blank': blank terminal (no agent launched)
-   *  - TuiAgent: a specific agent id */
-  defaultTuiAgent: TuiAgent | 'blank' | null
+   *  - TuiAgent: a specific built-in agent id
+   *  - { kind: 'custom', id }: a user-defined custom agent profile (see
+   *    `customAgents`). Resolved by id at launch; if the id no longer
+   *    exists the picker falls back to auto. */
+  defaultTuiAgent: TuiAgent | 'blank' | { kind: 'custom'; id: string } | null
   /** Agents hidden from picker/auto-launch; detection stays a raw PATH snapshot. */
   disabledTuiAgents: TuiAgent[]
   /** One-shot guard: start Claude Agent Teams hidden for existing profiles without overriding later opt-ins. */
@@ -2844,6 +2869,12 @@ export type GlobalSettings = {
   geminiCliOAuthEnabled: boolean
   /** Per-agent CLI command overrides. A missing key means use the catalog default binary name. */
   agentCmdOverrides: Partial<Record<TuiAgent, string>>
+  /** User-defined CLI agent profiles. Each profile is a named variant of a
+   *  built-in `baseAgent` with its own launch command and optional env vars,
+   *  e.g. "Claude (zai)" pointing the same `claude` binary at a different
+   *  ANTHROPIC_BASE_URL. Inherits the base agent's prompt-injection mode,
+   *  icon, and telemetry kind so the launch flow stays unchanged. */
+  customAgents: CustomAgentProfile[]
   /** Custom CODEX_HOME for Codex session-history discovery (defaults to ~/.codex).
    *  History-only: does not change which account/config/hooks Orca uses. */
   codexSessionSourceHome?: {

@@ -5,6 +5,7 @@ import {
   buildAgentStartupPlan,
   type AgentStartupPlan
 } from '@/lib/tui-agent-startup'
+import { findCustomAgentProfile } from '@/lib/custom-agent-resolve'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { getAgentLaunchPlatformForRepo } from '@/lib/agent-launch-platform'
 import { reconcileTabOrder } from '@/components/tab-bar/reconcile-order'
@@ -50,6 +51,9 @@ export type LaunchAgentInNewTabArgs = {
   launchPlatform?: NodeJS.Platform
   /** Called after the prompt is actually delivered to the agent input path. */
   onPromptDelivered?: () => void
+  /** Optional custom-agent profile id. When set, the launch uses the
+   *  profile's command + env vars instead of the catalog default for `agent`. */
+  customAgentId?: string | null
 }
 
 export type LaunchAgentInNewTabResult = {
@@ -80,9 +84,11 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     launchSource,
     quickCommandLabel,
     launchPlatform,
-    onPromptDelivered
+    onPromptDelivered,
+    customAgentId = null
   } = args
   const store = useAppStore.getState()
+  const customProfile = findCustomAgentProfile(store.settings, customAgentId)
   const worktree = store.allWorktrees?.().find((entry: { id: string }) => entry.id === worktreeId)
   const repo = worktree ? store.repos?.find((entry) => entry.id === worktree.repoId) : null
   const resolvedLaunchPlatform =
@@ -117,7 +123,8 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     sessionOptions: resolveNativeChatSessionOptionDefaults(
       store.settings?.nativeChatSessionOptions,
       agent
-    )
+    ),
+    customProfile
   }
   const trimmedPrompt = prompt?.trim() ?? ''
   const hasPrompt = trimmedPrompt.length > 0

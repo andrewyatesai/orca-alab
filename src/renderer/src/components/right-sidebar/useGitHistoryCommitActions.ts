@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import {
@@ -248,7 +249,10 @@ export function useGitHistoryCommitActions({
       const state = useAppStore.getState()
       const connectionId = getConnectionId(activeWorktreeId)
       const agent = resolveDefaultAgentForNewTab({
-        defaultTuiAgent: state.settings?.defaultTuiAgent,
+        defaultTuiAgent: collapseDefaultTuiAgentToBuiltin(
+          state.settings?.defaultTuiAgent,
+          state.settings?.customAgents
+        ),
         detectedAgentIds:
           typeof connectionId === 'string'
             ? state.remoteDetectedAgentIds[connectionId]

@@ -622,6 +622,17 @@
             "triageFollowupsPrompt": "Use {{value0}} to triage the linked Linear issue — set priority and estimate — and create a parented follow-up ticket for the deferred cleanup."
           }
         }
+      },
+      "pane": {
+        "manager": {
+          "aterm": {
+            "aterm": {
+              "render": {
+                "worker": {}
+              }
+            }
+          }
+        }
       }
     },
     "hooks": {
@@ -9440,6 +9451,40 @@
         },
         "MobileRelayBetaNotice": {
           "notice": "Orca Relay is in beta."
+        },
+        "CustomAgentsSection": {
+          "b4903769af": "Based on",
+          "f7ada76050": "Add",
+          "fb32b3444c": "Save",
+          "0f12fd331d": "Add variable",
+          "6d18282737": "Environment variables",
+          "4e2b76d091": "Shell command used to launch the agent. Env vars below are prepended as a shell prefix (POSIX quoting) before this command.",
+          "9c9f93700f": "Command",
+          "6d6b6383c2": "Inherits prompt-injection mode, icon, and trust preflight from this built-in agent.",
+          "db6ffcf46c": "Base agent",
+          "ca98ab9d85": "Delete profile",
+          "5d88f2e239": "Edit",
+          "8054ef4458": "Done",
+          "8e6e786c9a": "no command",
+          "4ba5122112": "Unnamed",
+          "37ce37fd95": "e.g. Claude (zai)",
+          "eeaceac120": "ANTHROPIC_BASE_URL",
+          "eee34f329b": "to define one — for example, a Claude profile pointed at a self-hosted endpoint via",
+          "ae2e07a0bc": "No custom agents yet. Click",
+          "cdcae0f619": "(env prefix uses POSIX shell quoting; on Windows wrap with `cmd /c …` if needed)",
+          "576a6eedaa": "Named variants of a built-in agent with their own command and env vars",
+          "916fc48436": "Custom Agents",
+          "e1d70fd5a1": "Remove env var",
+          "f0e1d2c3b4": "Default agent",
+          "a5b6c7d8e9": "Set as default",
+          "1a2b3c4d5e": "Default",
+          "6f7a8b9c0d": "Set default"
+        },
+        "TerminalEngineTextSection": {},
+        "CustomAgentProfileEditor": {
+          "6c0fb2434a": "value",
+          "0a09ab825e": "KEY",
+          "520ba5f307": "claude"
         }
       },
       "right": {

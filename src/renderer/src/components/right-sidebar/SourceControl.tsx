@@ -208,6 +208,7 @@ import type {
   GitPushTarget,
   GitStatusEntry,
   GitUpstreamStatus,
+  GlobalSettings,
   SourceControlViewMode,
   TuiAgent
 } from '../../../../shared/types'
@@ -703,12 +704,14 @@ export function shouldRenderCommitArea(
 }
 
 export function pickDefaultSourceControlAgent(
-  defaultAgent: TuiAgent | 'blank' | null | undefined,
+  defaultAgent: GlobalSettings['defaultTuiAgent'] | undefined,
   detectedAgents: TuiAgent[],
-  disabledAgents?: TuiAgent[]
+  disabledAgents?: TuiAgent[],
+  customAgents?: GlobalSettings['customAgents']
 ): TuiAgent | null {
   return pickSourceControlLaunchAgent({
     defaultAgent,
+    customAgents,
     detectedAgents,
     disabledAgents
   })

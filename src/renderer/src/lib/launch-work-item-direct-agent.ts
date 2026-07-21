@@ -10,7 +10,7 @@ import type { AgentStartedTelemetry } from '@/lib/worktree-activation'
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import type { StartupCommandDelivery } from '../../../shared/codex-startup-delivery'
-import type { TuiAgent } from '../../../shared/types'
+import type { CustomAgentProfile, TuiAgent } from '../../../shared/types'
 import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
@@ -37,6 +37,9 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
   /** Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only
    * `orca-ide` rename must not be applied for remote launches. */
   isRemote?: boolean
+  /** When set, the launch command comes from this custom profile (command +
+   * env shell prefix) instead of the catalog default for `agent`. */
+  customProfile?: CustomAgentProfile | null
 }): {
   startupPlan: AgentStartupPlan | null
   draftLaunchedNatively: boolean
@@ -66,7 +69,8 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
           isRemote: args.isRemote,
           agentArgs: effectiveAgentArgs,
           agentEnv: effectiveAgentEnv,
-          sessionOptions
+          sessionOptions,
+          customProfile: args.customProfile
         })
 
   if (draftLaunchPlan) {
@@ -99,7 +103,8 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
     agentArgs: effectiveAgentArgs,
     agentEnv: effectiveAgentEnv,
     sessionOptions,
-    allowEmptyPromptLaunch: true
+    allowEmptyPromptLaunch: true,
+    customProfile: args.customProfile
   })
   if (startupPlan && args.promptDelivery === 'draft') {
     startupPlan.draftPrompt = args.draftContent

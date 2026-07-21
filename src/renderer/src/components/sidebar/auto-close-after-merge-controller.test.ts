@@ -19,23 +19,26 @@ type FakeState = Pick<
   'settings' | 'worktreesByRepo' | 'repos' | 'prCache' | 'hostedReviewCache'
 >
 
+type FakeListener = (state: AppState, prevState: AppState) => void
+
 function createFakeStore(initial: FakeState): {
   getState: () => AppState
-  subscribe: (listener: () => void) => () => void
+  subscribe: (listener: FakeListener) => () => void
   setState: (updates: Partial<FakeState>) => void
 } {
   let state = initial
-  const listeners = new Set<() => void>()
+  const listeners = new Set<FakeListener>()
   return {
     getState: () => state as AppState,
-    subscribe: (listener: () => void) => {
+    subscribe: (listener: FakeListener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
     setState: (updates: Partial<FakeState>) => {
+      const prev = state
       state = { ...state, ...updates }
       for (const listener of listeners) {
-        listener()
+        listener(state as AppState, prev as AppState)
       }
     }
   }
@@ -80,7 +83,7 @@ describe('attachAutoCloseAfterMergeController', () => {
 
     store.setState({
       prCache: { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 } }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
 
     expect(mocks.runWorktreeDeleteWithToast).toHaveBeenCalledTimes(1)
     expect(mocks.runWorktreeDeleteWithToast).toHaveBeenCalledWith('repo-1::/tmp/wt-feat', 'feat')
@@ -92,8 +95,8 @@ describe('attachAutoCloseAfterMergeController', () => {
     const detach = attachAutoCloseAfterMergeController(store)
 
     const prCache = { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 } }
-    store.setState({ prCache } as Partial<FakeState>)
-    store.setState({ prCache: { ...prCache } } as Partial<FakeState>)
+    store.setState({ prCache } as unknown as Partial<FakeState>)
+    store.setState({ prCache: { ...prCache } } as unknown as Partial<FakeState>)
 
     expect(mocks.runWorktreeDeleteWithToast).toHaveBeenCalledTimes(1)
     detach()
@@ -104,7 +107,7 @@ describe('attachAutoCloseAfterMergeController', () => {
     const store = createFakeStore(
       makeState({
         prCache: { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: staleFetchedAt } }
-      } as Partial<FakeState> as FakeState)
+      } as unknown as FakeState)
     )
     const detach = attachAutoCloseAfterMergeController(store)
     expect(mocks.runWorktreeDeleteWithToast).not.toHaveBeenCalled()
@@ -112,7 +115,7 @@ describe('attachAutoCloseAfterMergeController', () => {
     // A live refresh re-observes the same merged PR with a fresh timestamp.
     store.setState({
       prCache: { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 } }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
 
     expect(mocks.runWorktreeDeleteWithToast).not.toHaveBeenCalled()
     detach()
@@ -126,7 +129,7 @@ describe('attachAutoCloseAfterMergeController', () => {
 
     store.setState({
       prCache: { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 } }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
     expect(mocks.runWorktreeDeleteWithToast).not.toHaveBeenCalled()
 
     store.setState({ settings: { autoCloseAfterMerge: true } as FakeState['settings'] })
@@ -148,7 +151,7 @@ describe('attachAutoCloseAfterMergeController', () => {
 
     store.setState({
       prCache: { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 } }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
 
     expect(mocks.runWorktreeDeleteWithToast).not.toHaveBeenCalled()
     detach()
@@ -165,7 +168,7 @@ describe('attachAutoCloseAfterMergeController', () => {
           fetchedAt: Date.now() + 1000
         }
       }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
 
     expect(mocks.runWorktreeDeleteWithToast).toHaveBeenCalledTimes(1)
     detach()
@@ -181,7 +184,7 @@ describe('attachAutoCloseAfterMergeController', () => {
         [HOSTED_KEY]: { data: { provider: 'gitlab', state: 'open' }, fetchedAt: Date.now() + 1000 }
       },
       prCache: { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 } }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
 
     expect(mocks.runWorktreeDeleteWithToast).not.toHaveBeenCalled()
     detach()
@@ -204,7 +207,7 @@ describe('attachAutoCloseAfterMergeController', () => {
 
     store.setState({
       prCache: { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 } }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
     expect(mocks.runWorktreeDeleteWithToast).not.toHaveBeenCalled()
 
     store.setState({
@@ -212,7 +215,7 @@ describe('attachAutoCloseAfterMergeController', () => {
         [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 },
         ['ssh:box::repo-1::feat']: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 }
       }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
     expect(mocks.runWorktreeDeleteWithToast).toHaveBeenCalledTimes(1)
     expect(mocks.runWorktreeDeleteWithToast).toHaveBeenCalledWith('repo-1::/remote/wt-feat', 'feat')
     detach()
@@ -224,7 +227,7 @@ describe('attachAutoCloseAfterMergeController', () => {
 
     store.setState({
       prCache: { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 1000 } }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
     expect(mocks.runWorktreeDeleteWithToast).toHaveBeenCalledTimes(1)
 
     // Worktree removed → handled entry evicted; recreate at the same path with
@@ -232,11 +235,11 @@ describe('attachAutoCloseAfterMergeController', () => {
     store.setState({
       worktreesByRepo: {} as unknown as FakeState['worktreesByRepo'],
       prCache: {}
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
     store.setState({
       worktreesByRepo: { 'repo-1': [makeWorktree()] } as unknown as FakeState['worktreesByRepo'],
       prCache: { [PR_KEY]: { data: { state: 'merged' }, fetchedAt: Date.now() + 2000 } }
-    } as Partial<FakeState>)
+    } as unknown as Partial<FakeState>)
 
     expect(mocks.runWorktreeDeleteWithToast).toHaveBeenCalledTimes(2)
     detach()

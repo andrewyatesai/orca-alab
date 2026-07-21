@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
 import { Check } from 'lucide-react'
 import type {
   FeatureWallSetupStep,
@@ -186,10 +187,13 @@ function DefaultAgentAction(): React.JSX.Element {
   const refreshDetectedAgents = useAppStore((s) => s.refreshDetectedAgents)
   const detectedAgentIds = useAppStore((s) => s.detectedAgentIds)
   const isDetectingAgents = useAppStore((s) => s.isDetectingAgents || s.isRefreshingAgents)
-  const selectedAgent =
-    settings?.defaultTuiAgent && settings.defaultTuiAgent !== 'blank'
-      ? settings.defaultTuiAgent
-      : null
+  const selectedAgent = (() => {
+    const collapsed = collapseDefaultTuiAgentToBuiltin(
+      settings?.defaultTuiAgent,
+      settings?.customAgents
+    )
+    return collapsed && collapsed !== 'blank' ? collapsed : null
+  })()
   const detectedSet = useMemo(() => new Set(detectedAgentIds ?? []), [detectedAgentIds])
   const handleSelectAgent = useCallback(
     (agent: TuiAgent) => {

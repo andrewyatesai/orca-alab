@@ -448,6 +448,77 @@ describe('ConPTY DA1 override', () => {
   })
 })
 
+describe('ConPTY OSC color reply suppression (#6975)', () => {
+  // Why: ConPTY swallows the ESC of an OSC reply written to conin and echoes
+  // the printable remainder (`]11;rgb:...`) into the visible prompt.
+  it.each([
+    ['OSC 10 foreground query', '\x1b]10;?\x07'],
+    ['OSC 11 background query', '\x1b]11;?\x07'],
+    ['OSC 12 cursor color query', '\x1b]12;?\x1b\\'],
+    ['OSC 10 stacked params', '\x1b]10;?;?\x07']
+  ])('mutes %s on a marked native-Windows ConPTY PTY', async (_label, chunk) => {
+    const { runtime, replies } = createResponderRuntime()
+    markNativeWindowsConptyPty('pty-win-osc')
+    markHiddenRendererPty('pty-win-osc')
+    setTerminalViewAttributes(viewAttributes())
+
+    runtime.onPtyData('pty-win-osc', chunk, Date.now())
+    await settle(runtime, 'pty-win-osc')
+
+    expect(replies).toEqual([])
+  })
+
+  it('keeps DA1, OSC 4, and ?996n replies flowing while 10/11/12 are muted', async () => {
+    const { runtime, replies } = createResponderRuntime()
+    markNativeWindowsConptyPty('pty-win-osc-rest')
+    markHiddenRendererPty('pty-win-osc-rest')
+    setTerminalViewAttributes(viewAttributes())
+
+    runtime.onPtyData(
+      'pty-win-osc-rest',
+      '\x1b]11;?\x07\x1b[c\x1b]4;1;?\x07\x1b[?996n',
+      Date.now()
+    )
+    await settle(runtime, 'pty-win-osc-rest')
+
+    expect(replies.map((reply) => reply.data)).toEqual([
+      '\x1b[?61;4c',
+      '\x1b]4;1;rgb:cccc/0000/0000\x1b\\',
+      '\x1b[?997;1n'
+    ])
+  })
+
+  it('still tracks OSC 10/11 SET mutations for ?996n while replies are muted', async () => {
+    const { runtime, replies } = createResponderRuntime()
+    markNativeWindowsConptyPty('pty-win-osc-set')
+    markHiddenRendererPty('pty-win-osc-set')
+    setTerminalViewAttributes(viewAttributes())
+
+    runtime.onPtyData(
+      'pty-win-osc-set',
+      '\x1b]11;#ffffff\x07\x1b]10;#101010\x07\x1b[?996n',
+      Date.now()
+    )
+    await settle(runtime, 'pty-win-osc-set')
+
+    expect(replies.map((reply) => reply.data)).toEqual(['\x1b[?997;2n'])
+  })
+
+  it('retrofits the suppression when the spawn mark lands after data created the emulator', async () => {
+    const { runtime, replies } = createResponderRuntime()
+    markHiddenRendererPty('pty-win-osc-late')
+    setTerminalViewAttributes(viewAttributes())
+
+    runtime.onPtyData('pty-win-osc-late', 'warm reattach flush', Date.now())
+    markNativeWindowsConptyPty('pty-win-osc-late')
+
+    runtime.onPtyData('pty-win-osc-late', '\x1b]11;?\x07', Date.now())
+    await settle(runtime, 'pty-win-osc-late')
+
+    expect(replies).toEqual([])
+  })
+})
+
 describe('HeadlessEmulator forwarding window', () => {
   it('forwards replies only for writes flagged forwardQueryReplies', async () => {
     const onQueryReply = vi.fn()

@@ -131,13 +131,11 @@ export class HeadlessEmulator {
    *  onQueryReply, no view-attr responder, no ConPTY override) never carries
    *  one. Wired to read onQueryReply + engine state at reply time. */
   private ensureQueryResponder(): TerminalModelQueryResponder {
-    if (!this.queryResponder) {
-      this.queryResponder = createTerminalModelQueryResponder({
-        emitReply: (reply) => this.onQueryReply?.(reply),
-        getCursor: () => this.readCursor(),
-        getRows: () => this.rows
-      })
-    }
+    this.queryResponder ??= createTerminalModelQueryResponder({
+      emitReply: (reply) => this.onQueryReply?.(reply),
+      getCursor: () => this.readCursor(),
+      getRows: () => this.rows
+    })
     return this.queryResponder
   }
 
@@ -235,6 +233,11 @@ export class HeadlessEmulator {
    *  different identity; override the DA1 reply to `CSI ?61;4c`. Idempotent. */
   installConptyPrimaryDeviceAttributesOverride(): void {
     this.ensureQueryResponder().enableConptyDa1Override()
+  }
+
+  /** ConPTY echoes OSC 10/11/12 replies written as PTY input into the prompt (#6975); mute them. Idempotent. */
+  installConptyOscColorReplySuppression(): void {
+    this.ensureQueryResponder().enableConptyOscColorReplySuppression()
   }
 
   /** Re-seed persisted kitty-keyboard flags via the same `CSI = flags ; 1 u`

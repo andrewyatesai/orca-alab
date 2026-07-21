@@ -49,8 +49,13 @@ export type TerminalModelQueryResponder = {
   setViewAttributesGetter: (getter: () => TerminalViewAttributes | null) => void
   applyPushedViewAttributes: (attributes: TerminalViewAttributes) => void
   enableConptyDa1Override: () => void
+  enableConptyOscColorReplySuppression: () => void
   onResize: () => void
 }
+
+// ConPTY swallows the ESC of an OSC reply written to conin and echoes the
+// printable remainder (`]11;rgb:...`) into the visible prompt (#6975).
+const CONPTY_LEAKY_OSC_COLOR_REPLY_PREFIXES = ['\x1b]10;', '\x1b]11;', '\x1b]12;']
 
 export function createTerminalModelQueryResponder(
   deps: TerminalModelQueryResponderDeps
@@ -58,6 +63,7 @@ export function createTerminalModelQueryResponder(
   let pending = ''
   let forwardingActive = false
   let conptyDa1Override = false
+  let conptyOscColorReplySuppression = false
   let viewAttributesGetter: () => TerminalViewAttributes | null = () => null
   const modes: TerminalQueryModeTracker = createTerminalQueryModeTracker()
   let kittyFlags = 0
@@ -73,7 +79,17 @@ export function createTerminalModelQueryResponder(
 
   const colorResponder: TerminalViewAttributeResponder = installTerminalViewAttributeResponder({
     getBaseAttributes: () => viewAttributesGetter(),
-    emitReply: emit
+    // Why the filter: OSC 10/11/12 reports leak as prompt text on ConPTY; SET
+    // tracking and CSI-shaped reports (?996n) are unaffected.
+    emitReply: (reply) => {
+      if (
+        conptyOscColorReplySuppression &&
+        CONPTY_LEAKY_OSC_COLOR_REPLY_PREFIXES.some((prefix) => reply.startsWith(prefix))
+      ) {
+        return
+      }
+      emit(reply)
+    }
   })
 
   const answerDeviceAttributes = (token: Extract<TerminalQueryToken, { kind: 'csi' }>): void => {
@@ -255,6 +271,9 @@ export function createTerminalModelQueryResponder(
     },
     enableConptyDa1Override: () => {
       conptyDa1Override = true
+    },
+    enableConptyOscColorReplySuppression: () => {
+      conptyOscColorReplySuppression = true
     },
     onResize: () => {
       scrollMargins = null

@@ -21,6 +21,20 @@ function quotePosixSingle(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
+// Why: user startup files can re-add the CLI bin dir mid-PATH, where a
+// system-installed CLI earlier in PATH shadows the relay-deployed one (#8608).
+// Strip every occurrence, then prepend so the pinned CLI always wins.
+const REMOTE_CLI_BIN_FRONT_OF_PATH_BLOCK = `if [[ -n "\${ORCA_REMOTE_CLI_BIN_DIR:-}" ]]; then
+  __orca_cli_path=":$PATH:"
+  while [[ "$__orca_cli_path" == *:"\${ORCA_REMOTE_CLI_BIN_DIR}":* ]]; do
+    __orca_cli_path="\${__orca_cli_path/:"\${ORCA_REMOTE_CLI_BIN_DIR}":/:}"
+  done
+  __orca_cli_path="\${__orca_cli_path#:}"
+  __orca_cli_path="\${__orca_cli_path%:}"
+  export PATH="\${ORCA_REMOTE_CLI_BIN_DIR}\${__orca_cli_path:+:$__orca_cli_path}"
+  unset __orca_cli_path
+fi`
+
 function shellBasename(shellPath: string): string {
   return shellPath.replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? ''
 }
@@ -111,7 +125,7 @@ if [[ ! -o login ]]; then
   # Why: remote startup files can re-export user defaults after relay spawn.
   [[ -n "\${ORCA_OPENCODE_CONFIG_DIR:-}" ]] && export OPENCODE_CONFIG_DIR="\${ORCA_OPENCODE_CONFIG_DIR}"
   [[ -n "\${ORCA_MIMOCODE_HOME:-}" ]] && export MIMOCODE_HOME="\${ORCA_MIMOCODE_HOME}"
-  [[ -n "\${ORCA_REMOTE_CLI_BIN_DIR:-}" ]] && case ":$PATH:" in *:"\${ORCA_REMOTE_CLI_BIN_DIR}":*) ;; *) export PATH="\${ORCA_REMOTE_CLI_BIN_DIR}:$PATH" ;; esac
+  ${REMOTE_CLI_BIN_FRONT_OF_PATH_BLOCK}
   ${getPosixOmpShellWrapper()}
 fi
 if [[ ! -o login ]]; then
@@ -127,7 +141,7 @@ ${getZshStartupFileSourceBlock({
 # Why: .zlogin is the final zsh login startup file before the prompt.
 [[ -n "\${ORCA_OPENCODE_CONFIG_DIR:-}" ]] && export OPENCODE_CONFIG_DIR="\${ORCA_OPENCODE_CONFIG_DIR}"
 [[ -n "\${ORCA_MIMOCODE_HOME:-}" ]] && export MIMOCODE_HOME="\${ORCA_MIMOCODE_HOME}"
-[[ -n "\${ORCA_REMOTE_CLI_BIN_DIR:-}" ]] && case ":$PATH:" in *:"\${ORCA_REMOTE_CLI_BIN_DIR}":*) ;; *) export PATH="\${ORCA_REMOTE_CLI_BIN_DIR}:$PATH" ;; esac
+${REMOTE_CLI_BIN_FRONT_OF_PATH_BLOCK}
 ${getPosixOmpShellWrapper()}
 ${getZshFinalZdotdirRestoreBlock('"${ORCA_USER_ZDOTDIR:-${ORCA_ORIG_ZDOTDIR:-$HOME}}"')}
 ${getZshShellReadyMarkerRegistrationBlock(SHELL_READY_MARKER_ESCAPED)}
@@ -149,7 +163,7 @@ fi
 # Why: remote startup files can re-export user defaults after relay spawn.
 [[ -n "\${ORCA_OPENCODE_CONFIG_DIR:-}" ]] && export OPENCODE_CONFIG_DIR="\${ORCA_OPENCODE_CONFIG_DIR}"
 [[ -n "\${ORCA_MIMOCODE_HOME:-}" ]] && export MIMOCODE_HOME="\${ORCA_MIMOCODE_HOME}"
-[[ -n "\${ORCA_REMOTE_CLI_BIN_DIR:-}" ]] && case ":$PATH:" in *:"\${ORCA_REMOTE_CLI_BIN_DIR}":*) ;; *) export PATH="\${ORCA_REMOTE_CLI_BIN_DIR}:$PATH" ;; esac
+${REMOTE_CLI_BIN_FRONT_OF_PATH_BLOCK}
 ${getPosixOmpShellWrapper()}
 # Why: SSH bash sessions need the same command lifecycle markers as local
 # bash so agent rows stop showing "working" when the foreground command exits.

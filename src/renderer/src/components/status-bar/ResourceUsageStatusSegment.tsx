@@ -73,8 +73,8 @@ import {
   getResourceManagerTooltipLines
 } from './resource-manager-terminal-copy'
 import {
-  buildResourceSessionBindingIndex,
   countUnboundDaemonSessions,
+  selectVerifiedOrphanSessions,
   type ResourceSessionBindingInputs
 } from './resource-session-bindings'
 import { createClosedResourceSessionCountSelector } from './resource-session-count-selector'
@@ -776,6 +776,8 @@ export function ResourceUsageStatusSegment({
   const [sessionsError, setSessionsError] = useState(false)
   const [killConfirm, setKillConfirm] = useState<UnifiedSessionRow | null>(null)
   const [killing, setKilling] = useState(false)
+  const [orphanKillConfirm, setOrphanKillConfirm] = useState(false)
+  const [killingOrphans, setKillingOrphans] = useState(false)
   const [spaceScanSnapshot, setSpaceScanSnapshot] = useState<ResourceUsageSpaceScanSnapshot>(
     () => ({
       ready: false,
@@ -836,18 +838,22 @@ export function ResourceUsageStatusSegment({
     [cancelPopoverBodyFocusFrame]
   )
 
-  const refreshSessions = useCallback(async () => {
+  // Why: returns the fresh inventory (null on failure) so the orphan bulk kill
+  // can re-verify against live daemon state without a second listSessions site.
+  const refreshSessions = useCallback(async (): Promise<DaemonSession[] | null> => {
     try {
       const result = await window.api.pty.listSessions()
       if (!mountedRef.current) {
-        return
+        return result
       }
       setSessions(result)
       setSessionsError(false)
+      return result
     } catch {
       if (mountedRef.current) {
         setSessionsError(true)
       }
+      return null
     }
   }, [mountedRef])
 
@@ -1101,9 +1107,8 @@ export function ResourceUsageStatusSegment({
     (session: UnifiedSessionRow): void => {
       // Why: orphan sessions have no tab in this Orca instance, so there's
       // no "unsaved work in that pane" the user could lose by killing them.
-      // Skip the confirm dialog for orphans and fire the kill straight away
-      // (with optimistic removal) — same UX as a one-off kill from the
-      // bulk "Kill orphan terminals" button. Bound sessions still confirm.
+      // A single row kill is targeted, so it skips the confirm dialog (with
+      // optimistic removal). Bound sessions and the bulk kill still confirm.
       if (!session.bound) {
         setSessions((prev) => prev.filter((s) => s.id !== session.sessionId))
         // Why: await the kill before refreshing — otherwise the optimistic
@@ -1124,22 +1129,37 @@ export function ResourceUsageStatusSegment({
     [refreshSessions]
   )
 
-  const handleKillOrphans = useCallback(async () => {
+  const runKillOrphansConfirmed = useCallback(async () => {
     if (!workspaceSessionReady) {
+      setOrphanKillConfirm(false)
       return
     }
-    const bound = buildResourceSessionBindingIndex(resourceSessionBindings).boundPtyIds
-    const orphans = sessions.filter((s) => !bound.has(s.id))
-    if (orphans.length === 0) {
-      return
+    setKillingOrphans(true)
+    try {
+      // Why: the popover's session list can be stale. Re-verify against fresh
+      // daemon inventory pre-kill so sessions that were bound (or reattached)
+      // since the popover opened are never force-killed as orphans (#8459).
+      const freshSessions = await refreshSessions()
+      if (freshSessions === null) {
+        return
+      }
+      const orphans = selectVerifiedOrphanSessions(freshSessions, resourceSessionBindings)
+      if (orphans.length === 0) {
+        return
+      }
+      // Why: optimistic removal so rows disappear immediately instead of waiting
+      // for the next explicit daemon-side list refresh.
+      const orphanIds = new Set(orphans.map((s) => s.id))
+      setSessions((prev) => prev.filter((s) => !orphanIds.has(s.id)))
+      await Promise.allSettled(orphans.map((s) => window.api.pty.kill(s.id)))
+      await refreshSessions()
+    } finally {
+      if (mountedRef.current) {
+        setKillingOrphans(false)
+        setOrphanKillConfirm(false)
+      }
     }
-    // Why: optimistic removal so rows disappear immediately instead of waiting
-    // for the next explicit daemon-side list refresh.
-    const orphanIds = new Set(orphans.map((s) => s.id))
-    setSessions((prev) => prev.filter((s) => !orphanIds.has(s.id)))
-    await Promise.allSettled(orphans.map((s) => window.api.pty.kill(s.id)))
-    void refreshSessions()
-  }, [sessions, resourceSessionBindings, workspaceSessionReady, refreshSessions])
+  }, [resourceSessionBindings, workspaceSessionReady, refreshSessions, mountedRef])
 
   const runKillConfirmed = useCallback(async () => {
     if (!killConfirm) {
@@ -1591,7 +1611,7 @@ export function ResourceUsageStatusSegment({
           {orphanCount > 0 ? (
             <button
               type="button"
-              onClick={() => void handleKillOrphans()}
+              onClick={() => setOrphanKillConfirm(true)}
               className="mt-2 inline-flex w-full items-center justify-center rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/60"
             >
               {orphanCount === 1
@@ -1685,6 +1705,73 @@ export function ResourceUsageStatusSegment({
                 : translate(
                     'auto.components.status.bar.ResourceUsageStatusSegment.b10695d6ce',
                     'Kill session'
+                  )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={orphanKillConfirm}
+        onOpenChange={(next) => {
+          if (next || killingOrphans) {
+            return
+          }
+          setOrphanKillConfirm(false)
+        }}
+      >
+        <DialogContent
+          className="max-w-md"
+          showCloseButton={!killingOrphans}
+          onPointerDownOutside={(e) => {
+            if (killingOrphans) {
+              e.preventDefault()
+            }
+          }}
+          onEscapeKeyDown={(e) => {
+            if (killingOrphans) {
+              e.preventDefault()
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-sm">
+              {translate(
+                'auto.components.status.bar.ResourceUsageStatusSegment.f2f69ce275',
+                'Kill orphan terminals?'
+              )}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {translate(
+                'auto.components.status.bar.ResourceUsageStatusSegment.481e629873',
+                "Force-quits terminals not attached to any tab in this window. Orca re-checks the live daemon list first so newly attached sessions are kept. This can't be undone."
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setOrphanKillConfirm(false)}
+              disabled={killingOrphans}
+            >
+              {translate(
+                'auto.components.status.bar.ResourceUsageStatusSegment.946d9f94d0',
+                'Cancel'
+              )}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void runKillOrphansConfirmed()}
+              disabled={killingOrphans}
+            >
+              {killingOrphans ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              {killingOrphans
+                ? translate(
+                    'auto.components.status.bar.ResourceUsageStatusSegment.41ae4fa725',
+                    'Killing…'
+                  )
+                : translate(
+                    'auto.components.status.bar.ResourceUsageStatusSegment.d313bc7de9',
+                    'Kill orphans'
                   )}
             </Button>
           </DialogFooter>

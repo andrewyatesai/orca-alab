@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../../shared/types'
 import {
   buildResourceSessionBindingIndex,
-  countUnboundDaemonSessions
+  countUnboundDaemonSessions,
+  selectVerifiedOrphanSessions
 } from './resource-session-bindings'
 
 function makeTab(id: string, ptyId: string | null = null): TerminalTab {
@@ -97,5 +98,38 @@ describe('resource session bindings', () => {
     )
 
     expect(count).toBe(1)
+  })
+
+  it('verifies orphans against fresh inventory so bound sessions survive bulk kill', () => {
+    // A stale popover list held pty-now-bound as an orphan; the fresh binding
+    // index knows it was attached since. Only pty-orphan may be killed (#8459).
+    const orphans = selectVerifiedOrphanSessions(
+      [
+        { id: 'pty-now-bound', cwd: '/workspace', title: 'reattached' },
+        { id: 'pty-orphan', cwd: '/tmp', title: 'orphan' }
+      ],
+      {
+        ptyIdsByTabId: { 'tab-live': ['pty-now-bound'] },
+        tabsByWorktree: { 'repo::/workspace': [makeTab('tab-live')] },
+        terminalLayoutsByTabId: {},
+        workspaceSessionReady: true
+      }
+    )
+
+    expect(orphans.map((s) => s.id)).toEqual(['pty-orphan'])
+  })
+
+  it('kills nothing before renderer state can distinguish bound from orphan', () => {
+    const orphans = selectVerifiedOrphanSessions(
+      [{ id: 'pty-unknown', cwd: '/tmp', title: 'unknown' }],
+      {
+        ptyIdsByTabId: {},
+        tabsByWorktree: {},
+        terminalLayoutsByTabId: {},
+        workspaceSessionReady: false
+      }
+    )
+
+    expect(orphans).toEqual([])
   })
 })

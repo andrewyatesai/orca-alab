@@ -16,6 +16,7 @@ import type { RuntimeRpcResponse } from '../../shared/runtime-rpc-envelope'
 import type { RemoteRuntimeSubscription } from '../../shared/remote-runtime-client'
 import type { Store } from '../persistence'
 import { clearActiveRuntimeEnvironmentFocusIfMatches } from '../runtime-environment-focus-self-heal'
+import { registerRuntimeHostPtyBindingChurnPruneStore } from '../runtime-host-pty-binding-churn-prune'
 import { closeRemoteRuntimeRequestConnection } from './runtime-environment-request-connections'
 import {
   callRuntimeEnvironment,
@@ -67,6 +68,9 @@ function listPublicRuntimeEnvironments(): PublicKnownRuntimeEnvironment[] {
 }
 
 export function registerRuntimeEnvironmentHandlers(store: Store): void {
+  // Why: transport routing detects runtimeId churn but cannot import the Store;
+  // hand it the persistence hook here so churn prunes stale PTY bindings (#9352).
+  registerRuntimeHostPtyBindingChurnPruneStore(store)
   // Why: keep direct re-registration safe even though register-core-handlers
   // normally guards this path; otherwise the binary send listener can stack.
   resetSharedControlSupport()

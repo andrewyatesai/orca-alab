@@ -3985,6 +3985,64 @@ describe('Store', () => {
     expect(reloaded.getWorkspaceSession().tabsByWorktree['r1::/wt'][0].ptyId).toBe('local@@pty-0')
   })
 
+  it('clearHostWorkspaceSessionPtyBindings clears stale handles but keeps the tabs', async () => {
+    const churned = '83a64365-660b-4723-890e-9e557eb45e40'
+    const kept = '11111111-1111-4111-8111-111111111111'
+    const store = await createStore()
+    const sessionWith = (envId: string): WorkspaceSessionState => ({
+      ...getDefaultWorkspaceSession(),
+      tabsByWorktree: {
+        'r1::/wt': [makeTerminalTab({ id: 'tab1', ptyId: `remote:${envId}@@term_a` })]
+      },
+      terminalLayoutsByTabId: {
+        tab1: {
+          root: null,
+          activeLeafId: null,
+          expandedLeafId: null,
+          ptyIdsByLeafId: { 'leaf-1': `remote:${envId}@@term_a` },
+          buffersByLeafId: { 'leaf-1': 'scrollback' }
+        }
+      },
+      remoteSessionIdsByTabId: { tab1: `remote:${envId}@@term_a` }
+    })
+    store.setWorkspaceSession(sessionWith(churned), toRuntimeExecutionHostId(churned))
+    store.setWorkspaceSession(sessionWith(kept), toRuntimeExecutionHostId(kept))
+
+    store.clearHostWorkspaceSessionPtyBindings(toRuntimeExecutionHostId(churned))
+    store.flush()
+
+    const reloaded = await createStore()
+    const churnedSession = reloaded.getWorkspaceSession(toRuntimeExecutionHostId(churned))
+    // Tab survives (the host republished list reconciles it) but every dead handle is gone.
+    expect(churnedSession.tabsByWorktree['r1::/wt']).toHaveLength(1)
+    expect(churnedSession.tabsByWorktree['r1::/wt'][0].ptyId).toBeNull()
+    expect(churnedSession.remoteSessionIdsByTabId?.tab1).toBeUndefined()
+    expect(churnedSession.terminalLayoutsByTabId.tab1.ptyIdsByLeafId).toBeUndefined()
+    // Scrollback content is not a PTY binding and must survive.
+    expect(churnedSession.terminalLayoutsByTabId.tab1.buffersByLeafId).toEqual({
+      'leaf-1': 'scrollback'
+    })
+    // An unrelated runtime host keeps its live bindings.
+    const keptSession = reloaded.getWorkspaceSession(toRuntimeExecutionHostId(kept))
+    expect(keptSession.tabsByWorktree['r1::/wt'][0].ptyId).toBe(`remote:${kept}@@term_a`)
+    expect(keptSession.remoteSessionIdsByTabId?.tab1).toBe(`remote:${kept}@@term_a`)
+  })
+
+  it('clearHostWorkspaceSessionPtyBindings is a no-op for local and for a missing partition', async () => {
+    const store = await createStore()
+    store.setWorkspaceSession({
+      ...getDefaultWorkspaceSession(),
+      tabsByWorktree: { 'r1::/wt': [makeTerminalTab({ id: 'tab1', ptyId: 'local@@pty-0' })] }
+    })
+
+    store.clearHostWorkspaceSessionPtyBindings('local')
+    store.clearHostWorkspaceSessionPtyBindings(toRuntimeExecutionHostId('never-existed'))
+    store.flush()
+
+    const reloaded = await createStore()
+    expect(reloaded.getWorkspaceSession().tabsByWorktree['r1::/wt'][0].ptyId).toBe('local@@pty-0')
+  })
+
   it('pruneOrphanedRuntimeHostWorkspaceSessions drops only runtime hosts absent from the saved set', async () => {
     const gone = '83a64365-660b-4723-890e-9e557eb45e40'
     const kept = '11111111-1111-4111-8111-111111111111'

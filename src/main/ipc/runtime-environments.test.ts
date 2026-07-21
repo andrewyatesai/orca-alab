@@ -86,6 +86,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     getSettings: () => { activeRuntimeEnvironmentId: string | null }
     updateSettings: ReturnType<typeof vi.fn>
     deleteHostWorkspaceSession: ReturnType<typeof vi.fn>
+    clearHostWorkspaceSessionPtyBindings: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
@@ -96,7 +97,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       updateSettings: vi.fn((updates: { activeRuntimeEnvironmentId: string | null }) => {
         activeRuntimeEnvironmentId = updates.activeRuntimeEnvironmentId
       }),
-      deleteHostWorkspaceSession: vi.fn()
+      deleteHostWorkspaceSession: vi.fn(),
+      clearHostWorkspaceSessionPtyBindings: vi.fn()
     }
     getPathMock.mockReset()
     getPathMock.mockReturnValue(userDataPath)
@@ -314,6 +316,42 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       id: added.environment.id,
       runtimeId: 'runtime-remote'
     })
+  })
+
+  it('prunes stale PTY bindings when the runtime id churns, but not on first contact', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+    const statusResponse = (runtimeId: string) => ({
+      id: 'rpc-status',
+      ok: true,
+      result: { runtimeId, graphStatus: 'ready' },
+      _meta: { runtimeId }
+    })
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    const added = await add(null, { name: 'desk', pairingCode: pairingCode() })
+    const getStatus = handler<{ selector: string; timeoutMs?: number }, { ok: boolean }>(
+      'runtimeEnvironments:getStatus'
+    )
+
+    // First contact (null → id) is a fresh pairing, not a restart — no prune.
+    sendRemoteRuntimeRequestMock.mockResolvedValue(statusResponse('runtime-gen-1'))
+    await getStatus(null, { selector: 'desk', timeoutMs: 50 })
+    expect(store.clearHostWorkspaceSessionPtyBindings).not.toHaveBeenCalled()
+
+    // Same runtime instance again — still no prune.
+    await getStatus(null, { selector: 'desk', timeoutMs: 50 })
+    expect(store.clearHostWorkspaceSessionPtyBindings).not.toHaveBeenCalled()
+
+    // Host restarted: churned runtimeId must drop the environment's dead handles.
+    sendRemoteRuntimeRequestMock.mockResolvedValue(statusResponse('runtime-gen-2'))
+    await getStatus(null, { selector: 'desk', timeoutMs: 50 })
+    expect(store.clearHostWorkspaceSessionPtyBindings).toHaveBeenCalledTimes(1)
+    expect(store.clearHostWorkspaceSessionPtyBindings).toHaveBeenCalledWith(
+      toRuntimeExecutionHostId(added.environment.id)
+    )
   })
 
   it('attaches shared-control diagnostics to saved remote runtime status', async () => {

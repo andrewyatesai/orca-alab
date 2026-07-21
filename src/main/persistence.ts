@@ -5742,6 +5742,50 @@ export class Store {
     this.scheduleSave()
   }
 
+  /** Clear every persisted PTY-handle binding in a non-'local' host's session
+   *  partition (tab ptyIds, remote session ids, layout leaf ptyIds), keeping the
+   *  tabs themselves. Why: a runtime host restart (runtimeId churn) invalidates
+   *  all of that environment's terminal handles; reattaching them fails with
+   *  "explicitly killed" and respawns terminals the user already closed (#9352). */
+  clearHostWorkspaceSessionPtyBindings(hostId?: string | null): void {
+    const resolved = this.resolveHostId(hostId)
+    if (resolved === LOCAL_EXECUTION_HOST_ID) {
+      return
+    }
+    const session = this.state.workspaceSessionsByHostId?.[resolved]
+    if (!session) {
+      return
+    }
+    let changed = false
+    const next = cloneWorkspaceSessionState(session)
+    for (const tabs of Object.values(next.tabsByWorktree ?? {})) {
+      for (const tab of tabs) {
+        if (tab.ptyId != null) {
+          tab.ptyId = null
+          changed = true
+        }
+      }
+    }
+    if (next.remoteSessionIdsByTabId && Object.keys(next.remoteSessionIdsByTabId).length > 0) {
+      delete next.remoteSessionIdsByTabId
+      changed = true
+    }
+    for (const layout of Object.values(next.terminalLayoutsByTabId ?? {})) {
+      if (layout.ptyIdsByLeafId && Object.keys(layout.ptyIdsByLeafId).length > 0) {
+        delete layout.ptyIdsByLeafId
+        changed = true
+      }
+    }
+    if (!changed) {
+      return
+    }
+    this.state.workspaceSessionsByHostId = {
+      ...this.state.workspaceSessionsByHostId,
+      [resolved]: next
+    }
+    this.scheduleSave()
+  }
+
   /** Drop every `runtime:<id>` host partition whose environment id is not in
    *  `knownEnvironmentIds`, returning the removed host ids for logging. Why:
    *  boot self-heal for installs orphaned before delete-on-remove shipped — a

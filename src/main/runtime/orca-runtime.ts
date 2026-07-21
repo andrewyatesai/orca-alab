@@ -232,6 +232,7 @@ import {
   resolveTuiAgentLaunchEnv
 } from '../../shared/tui-agent-launch-defaults'
 import { resolveLocalWindowsAgentStartupShell } from '../../shared/windows-terminal-shell'
+import type { AgentStartupShell } from '../../shared/tui-agent-startup-shell'
 import {
   getTuiAgentLaunchCommand,
   isTuiAgent,
@@ -15825,6 +15826,16 @@ export class OrcaRuntimeService {
     return handles
   }
 
+  // Why: local setup commands are typed into the configured Windows terminal
+  // shell, so cmd-vs-Git-Bash delivery must follow that setting (#6896).
+  private getLocalSetupTerminalShellFamily(): AgentStartupShell | undefined {
+    return resolveLocalWindowsAgentStartupShell({
+      platform: process.platform,
+      isRemote: false,
+      terminalWindowsShell: this.store?.getSettings?.().terminalWindowsShell ?? null
+    })
+  }
+
   private async provisionManagedWorktreeTerminals(args: {
     worktreeSelector: string
     worktreeId: string
@@ -15834,6 +15845,9 @@ export class OrcaRuntimeService {
     primaryTerminalHandle?: string | null
     hasStartupTerminal: boolean
     setupCommandPlatform: 'windows' | 'posix'
+    // Why: local Windows setup commands are typed into the configured terminal
+    // shell; Git Bash needs POSIX delivery instead of a cmd.exe wrapper (#6896).
+    setupTerminalShellFamily?: AgentStartupShell
     // Why: when the agent startup is sequenced to wait for setup
     // (waitForAgentStartup), the startup PTY runs a wrapper that already embeds
     // the setup command. Pass that wrapped command through so the Setup tab runs
@@ -15864,7 +15878,11 @@ export class OrcaRuntimeService {
       if (args.setup) {
         const setupCommand =
           args.wrappedSetupCommand ??
-          buildSetupRunnerCommand(args.setup.runnerScriptPath, args.setupCommandPlatform)
+          buildSetupRunnerCommand(
+            args.setup.runnerScriptPath,
+            args.setupCommandPlatform,
+            args.setupTerminalShellFamily
+          )
         const shouldSplitSetup =
           primaryTerminalHandle &&
           (setupLaunchMode === 'split-vertical' || setupLaunchMode === 'split-horizontal')
@@ -16797,7 +16815,8 @@ export class OrcaRuntimeService {
       const sequenced = createSequencedSetupAgentCommands({
         runnerScriptPath: setup.runnerScriptPath,
         startupCommand: effectiveStartup.command,
-        platform
+        platform,
+        terminalShellFamily: this.getLocalSetupTerminalShellFamily()
       })
       sequencedStartup = {
         ...effectiveStartup,
@@ -16872,6 +16891,7 @@ export class OrcaRuntimeService {
               ? 'windows'
               : 'posix'
             : 'posix',
+          setupTerminalShellFamily: this.getLocalSetupTerminalShellFamily(),
           // Why: carry the wait-for-agent wrapped setup command (#6298) so the
           // Setup tab runs the same script the sequenced agent waits on.
           ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {})
@@ -16925,6 +16945,7 @@ export class OrcaRuntimeService {
             ? 'windows'
             : 'posix'
           : 'posix',
+        setupTerminalShellFamily: this.getLocalSetupTerminalShellFamily(),
         ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {})
       })
       // Why: runtime owns setup spawning here, so the RPC result must omit setup

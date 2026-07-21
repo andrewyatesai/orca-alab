@@ -28,6 +28,33 @@ describe('buildSetupRunnerCommand', () => {
       buildSetupRunnerCommand('//server/share/repo/.git/orca/setup-runner.cmd', 'windows')
     ).toBe('cmd.exe /c "//server/share/repo/.git/orca/setup-runner.cmd"')
   })
+
+  it('delivers native Windows runners through POSIX quoting for Git Bash terminals (#6896)', () => {
+    expect(
+      buildSetupRunnerCommand('C:\\repo\\.git\\orca\\setup-runner.cmd', 'windows', 'posix')
+    ).toBe(
+      `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c 'C:\\repo\\.git\\orca\\setup-runner.cmd'`
+    )
+  })
+
+  it('keeps cmd.exe delivery for cmd and PowerShell terminals', () => {
+    expect(buildSetupRunnerCommand('C:\\repo\\.git\\orca\\setup-runner.cmd', 'windows', 'cmd')).toBe(
+      'cmd.exe /c "C:\\repo\\.git\\orca\\setup-runner.cmd"'
+    )
+    expect(
+      buildSetupRunnerCommand('C:\\repo\\.git\\orca\\setup-runner.cmd', 'windows', 'powershell')
+    ).toBe('cmd.exe /c "C:\\repo\\.git\\orca\\setup-runner.cmd"')
+  })
+
+  it('keeps bash delivery for WSL UNC runners regardless of terminal shell family', () => {
+    expect(
+      buildSetupRunnerCommand(
+        '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo\\.git\\orca\\setup-runner.sh',
+        'windows',
+        'posix'
+      )
+    ).toBe('bash /home/jin/repo/.git/orca/setup-runner.sh')
+  })
 })
 
 describe('getSetupRunnerCommandPlatformForPath', () => {

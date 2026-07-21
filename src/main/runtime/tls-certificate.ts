@@ -2,9 +2,8 @@
 // to prevent passive sniffing of device tokens on shared WiFi networks. The
 // cert is generated once on first run and reused across restarts. The mobile
 // app pins the certificate fingerprint received during QR pairing.
-import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, chmodSync } from 'node:fs'
+import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto'
+import { existsSync, readFileSync, chmodSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const TLS_CERT_FILENAME = 'orca-tls-cert.pem'
@@ -34,34 +33,9 @@ export function loadOrCreateTlsCertificate(userDataPath: string): TlsCertificate
   const keyPath_ = join(userDataPath, TLS_KEY_FILENAME)
   const certPath_ = join(userDataPath, TLS_CERT_FILENAME)
 
-  // Why: argv-based spawning avoids shell redirection/quoting differences for
-  // Windows temp paths while keeping OpenSSL as the certificate generator.
-  const openSslConfigPath = resolveOpenSslConfigPath()
-  execFileSync(
-    resolveOpenSslExecutable(),
-    [
-      'req',
-      '-new',
-      '-x509',
-      '-newkey',
-      'ec',
-      '-pkeyopt',
-      'ec_paramgen_curve:prime256v1',
-      '-nodes',
-      '-days',
-      '3650',
-      '-subj',
-      '/CN=Orca Runtime',
-      '-keyout',
-      keyPath_,
-      '-out',
-      certPath_
-    ],
-    {
-      env: openSslConfigPath ? { ...process.env, OPENSSL_CONF: openSslConfigPath } : process.env,
-      stdio: 'ignore'
-    }
-  )
+  const generated = generateSelfSignedCertificate()
+  writeFileSync(keyPath_, generated.key)
+  writeFileSync(certPath_, generated.cert)
 
   chmodSync(keyPath_, 0o600)
   chmodSync(certPath_, 0o600)
@@ -71,36 +45,112 @@ export function loadOrCreateTlsCertificate(userDataPath: string): TlsCertificate
   return { cert, key, fingerprint: computeFingerprint(cert)! }
 }
 
-function resolveOpenSslExecutable(): string {
-  if (process.platform !== 'win32') {
-    return 'openssl'
-  }
-
-  const windowsCandidates = [
-    'C:\\Program Files\\Git\\usr\\bin\\openssl.exe',
-    'C:\\Program Files\\Git\\mingw64\\bin\\openssl.exe',
-    'C:\\Program Files (x86)\\Git\\usr\\bin\\openssl.exe',
-    'C:\\Program Files (x86)\\Git\\mingw64\\bin\\openssl.exe'
-  ]
-  return windowsCandidates.find((candidate) => existsSync(candidate)) ?? 'openssl'
+function generateSelfSignedCertificate(): { cert: string; key: string } {
+  // Why: packaged Windows installs cannot assume openssl or POSIX shell
+  // redirection exists, so first-run pairing must generate PEMs in-process.
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048
+  })
+  const key = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+  const publicKeyInfo = publicKey.export({ type: 'spki', format: 'der' }) as Buffer
+  const algorithm = sequence(
+    objectIdentifier('1.2.840.113549.1.1.11'),
+    tagged(0x05, Buffer.alloc(0))
+  )
+  const subject = name('Orca Runtime')
+  const tbsCertificate = sequence(
+    integer(randomBytes(16)),
+    algorithm,
+    subject,
+    sequence(generalizedTime(new Date(Date.now() - 60_000)), generalizedTime(daysFromNow(3650))),
+    subject,
+    publicKeyInfo
+  )
+  const signature = sign('sha256', tbsCertificate, privateKey)
+  const cert = sequence(tbsCertificate, algorithm, bitString(signature))
+  return { cert: toPem('CERTIFICATE', cert), key }
 }
 
-function resolveOpenSslConfigPath(): string | null {
-  if (process.env.OPENSSL_CONF && existsSync(process.env.OPENSSL_CONF)) {
-    return null
-  }
+function daysFromNow(days: number): Date {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+}
 
-  if (process.platform !== 'win32') {
-    return null
-  }
+function toPem(label: string, der: Buffer): string {
+  const body =
+    der
+      .toString('base64')
+      .match(/.{1,64}/g)
+      ?.join('\n') ?? ''
+  return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----\n`
+}
 
-  const windowsConfigCandidates = [
-    'C:\\Program Files\\Git\\mingw64\\etc\\ssl\\openssl.cnf',
-    'C:\\Program Files\\Git\\usr\\ssl\\openssl.cnf',
-    'C:\\Program Files (x86)\\Git\\mingw64\\etc\\ssl\\openssl.cnf',
-    'C:\\Program Files (x86)\\Git\\usr\\ssl\\openssl.cnf'
-  ]
-  return windowsConfigCandidates.find((candidate) => existsSync(candidate)) ?? null
+function name(commonName: string): Buffer {
+  return sequence(
+    set(sequence(objectIdentifier('2.5.4.3'), tagged(0x0c, Buffer.from(commonName, 'utf8'))))
+  )
+}
+
+function generalizedTime(date: Date): Buffer {
+  const value = [
+    date.getUTCFullYear(),
+    `${date.getUTCMonth() + 1}`.padStart(2, '0'),
+    `${date.getUTCDate()}`.padStart(2, '0'),
+    `${date.getUTCHours()}`.padStart(2, '0'),
+    `${date.getUTCMinutes()}`.padStart(2, '0'),
+    `${date.getUTCSeconds()}`.padStart(2, '0'),
+    'Z'
+  ].join('')
+  return tagged(0x18, Buffer.from(value, 'ascii'))
+}
+
+function sequence(...items: Buffer[]): Buffer {
+  return tagged(0x30, Buffer.concat(items))
+}
+
+function set(...items: Buffer[]): Buffer {
+  return tagged(0x31, Buffer.concat(items))
+}
+
+function integer(value: Buffer): Buffer {
+  const firstNonZero = value.findIndex((byte) => byte !== 0)
+  const trimmed = firstNonZero === -1 ? Buffer.from([0]) : value.subarray(firstNonZero)
+  return tagged(0x02, trimmed[0]! & 0x80 ? Buffer.concat([Buffer.from([0]), trimmed]) : trimmed)
+}
+
+function bitString(value: Buffer): Buffer {
+  return tagged(0x03, Buffer.concat([Buffer.from([0]), value]))
+}
+
+function objectIdentifier(value: string): Buffer {
+  const parts = value.split('.').map((part) => Number(part))
+  const bytes = [parts[0]! * 40 + parts[1]!]
+  for (const part of parts.slice(2)) {
+    const encoded = [part & 0x7f]
+    let remaining = part >> 7
+    while (remaining > 0) {
+      encoded.unshift((remaining & 0x7f) | 0x80)
+      remaining >>= 7
+    }
+    bytes.push(...encoded)
+  }
+  return tagged(0x06, Buffer.from(bytes))
+}
+
+function tagged(tag: number, content: Buffer): Buffer {
+  return Buffer.concat([Buffer.from([tag]), lengthBytes(content.length), content])
+}
+
+function lengthBytes(length: number): Buffer {
+  if (length < 0x80) {
+    return Buffer.from([length])
+  }
+  const bytes: number[] = []
+  let remaining = length
+  while (remaining > 0) {
+    bytes.unshift(remaining & 0xff)
+    remaining >>= 8
+  }
+  return Buffer.from([0x80 | bytes.length, ...bytes])
 }
 
 function computeFingerprint(certPem: string): string | null {

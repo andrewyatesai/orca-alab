@@ -21,3 +21,13 @@ export type DiffSection = {
   // refetched git content does not replay through keepCurrent* model reuse.
   contentGeneration?: number
 }
+
+/** Anchor for the add-comment popover on a diff section: target line(s) plus
+ *  the editor-relative pixel position the popover renders at. */
+export type DiffSectionCommentPopoverAnchor = {
+  lineNumber: number
+  startLine?: number
+  top: number
+  left?: number
+  lineHeight: number
+}

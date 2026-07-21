@@ -12578,6 +12578,10 @@
         },
         "richMarkdownSourceOwningCutFeedback": {
           "selectLessContent": "보존된 HTML 인용을 잘라내려면 더 적은 콘텐츠를 선택하거나 코드 모드를 사용하세요."
+        },
+        "useDiffSectionHunkStaging": {
+          "c07665f012": "Failed to stage hunk",
+          "f26f45ed02": "Failed to unstage hunk"
         }
       },
       "diff": {

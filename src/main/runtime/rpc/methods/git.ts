@@ -13,6 +13,8 @@ import {
   GitCommitDiff,
   GitDiscoverCommitMessageModels,
   GitDiff,
+  GitDiffPatch,
+  GitApplyPatch,
   GitFilePath,
   GitForkSync,
   GitGenerateCommitMessage,
@@ -336,6 +338,23 @@ export const GIT_METHODS: RpcMethod[] = [
     params: GitFilePath,
     handler: async (params, { runtime }) =>
       runtime.unstageRuntimeGitPath(params.worktree, params.filePath)
+  }),
+  defineMethod({
+    name: 'git.diffPatch',
+    params: GitDiffPatch,
+    handler: async (params, { runtime }) =>
+      runtime.getRuntimeGitFileDiffPatch(params.worktree, params.filePath, params.staged)
+  }),
+  defineMethod({
+    name: 'git.applyPatch',
+    params: GitApplyPatch,
+    handler: async (params, { runtime }) =>
+      runtime.applyRuntimeGitIndexPatch(
+        params.worktree,
+        params.filePath,
+        params.patch,
+        params.reverse
+      )
   }),
   defineMethod({
     name: 'git.bulkUnstage',

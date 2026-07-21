@@ -20,6 +20,7 @@ import {
   type TerminalTitleTracker
 } from '../../shared/terminal-output-side-effects'
 import { createCommandCodeOutputStatusDetector } from '../../shared/command-code-output-status'
+import { createCodexErrorOutputStatusDetector } from '../../shared/codex-error-output-status'
 import type {
   TerminalSideEffectBatch,
   TerminalSideEffectFact
@@ -1192,6 +1193,9 @@ type RuntimePtyTitleTrackerEntry = {
   // TUI output. Null when no side-effect consumer exists (headless serve) —
   // the scrape produces facts only.
   commandCodeDetector: { observe: (data: string) => boolean } | null
+  // Why: Codex fatal stream errors finalize the TUI without the Stop hook
+  // (#7202); the scrape emits codex-stream-error facts for renderer repair.
+  codexErrorDetector: { observe: (data: string) => boolean } | null
 }
 
 // Why: the full OSC 9999 payload flows through emitTerminalAgentStatusEvents and
@@ -6314,6 +6318,7 @@ export class OrcaRuntimeService {
       // detector's bounded recent-text window; the detector strips remaining
       // control sequences itself, exactly like the renderer byte path.
       titleTrackerEntry.commandCodeDetector?.observe(agentStatusChunk.cleanData)
+      titleTrackerEntry.codexErrorDetector?.observe(agentStatusChunk.cleanData)
     } finally {
       titleTrackerEntry.applyingChunk = false
       try {
@@ -6780,6 +6785,13 @@ export class OrcaRuntimeService {
             },
             onDone: (prompt) => {
               this.recordTerminalSideEffectFact(ptyId, { kind: 'command-code-done', prompt })
+            }
+          })
+        : null,
+      codexErrorDetector: this.terminalSideEffectConsumerAvailable
+        ? createCodexErrorOutputStatusDetector({
+            onStreamError: (message) => {
+              this.recordTerminalSideEffectFact(ptyId, { kind: 'codex-stream-error', message })
             }
           })
         : null

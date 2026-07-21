@@ -5,6 +5,7 @@ import {
   resetAgentCompletionCoordinatorIdentitiesForTest
 } from './agent-completion-coordinator'
 import { resetAgentProcessInspectionQueueForTests } from './agent-process-inspection-queue'
+import type { AgentCompletionStatusRepairSignal } from './agent-completion-coordinator-types'
 import type { RuntimeTerminalProcessInspection } from '@/runtime/runtime-terminal-inspection'
 
 async function flushAsyncTicks(count = 4): Promise<void> {
@@ -209,6 +210,53 @@ describe('agent completion coordinator', () => {
       source: 'process-exit',
       quietedHookDone: false,
       terminalIdleConfirmed: true
+    })
+  })
+
+  it('passes synthesized status detail when the process-exit backstop completes a row', async () => {
+    let foregroundProcess: string | null = 'codex'
+    const dispatchCompletion = vi.fn()
+    const onCompletionStatusRepair = vi.fn(() => ({
+      state: 'done' as const,
+      prompt: 'Fix the spinner',
+      agentType: 'codex' as const,
+      lastAssistantMessage: 'Codex exited before sending Stop.'
+    }))
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
+      dispatchCompletion,
+      onCompletionStatusRepair,
+      isLive: () => true,
+      shouldPollProcessCadence: () => false
+    })
+
+    coordinator.startProcessTracking()
+    coordinator.observeTitle('Codex working')
+    await vi.advanceTimersByTimeAsync(3_000)
+    foregroundProcess = null
+    await vi.advanceTimersByTimeAsync(6_000)
+
+    expect(onCompletionStatusRepair).toHaveBeenCalledWith({
+      source: 'process-exit',
+      title: 'codex',
+      agent: {
+        agent: 'codex',
+        processName: 'codex'
+      }
+    })
+    expect(dispatchCompletion).toHaveBeenCalledWith('codex', {
+      source: 'process-exit',
+      quietedHookDone: false,
+      terminalIdleConfirmed: true,
+      agentStatus: {
+        state: 'done',
+        prompt: 'Fix the spinner',
+        agentType: 'codex',
+        lastAssistantMessage: 'Codex exited before sending Stop.'
+      }
     })
   })
 
@@ -424,6 +472,92 @@ describe('agent completion coordinator', () => {
 
     expect(dispatchCompletion).toHaveBeenCalledTimes(1)
     expect(dispatchCompletion).toHaveBeenCalledWith('codex done')
+  })
+
+  it('repairs a working status row from a title completion signal', () => {
+    const dispatchCompletion = vi.fn()
+    const onCompletionStatusRepair = vi.fn(() => ({
+      state: 'done' as const,
+      prompt: 'Fix title-only fatal states',
+      agentType: 'codex' as const,
+      lastAssistantMessage: 'Codex stopped before emitting Stop.'
+    }))
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(),
+      dispatchCompletion,
+      onCompletionStatusRepair,
+      isLive: () => true
+    })
+
+    coordinator.observeTitle('Codex working')
+    coordinator.observeTitle('Codex done')
+
+    expect(onCompletionStatusRepair).toHaveBeenCalledWith({
+      source: 'title',
+      title: 'Codex done',
+      agentType: 'codex'
+    })
+    expect(dispatchCompletion).toHaveBeenCalledWith('Codex done', {
+      source: 'title',
+      quietedHookDone: false,
+      agentStatus: {
+        state: 'done',
+        prompt: 'Fix title-only fatal states',
+        agentType: 'codex',
+        lastAssistantMessage: 'Codex stopped before emitting Stop.'
+      }
+    })
+  })
+
+  it('repairs process-exit status even when title completion already deduped notification', async () => {
+    let foregroundProcess: string | null = 'codex'
+    const dispatchCompletion = vi.fn()
+    const onCompletionStatusRepair = vi.fn((signal: AgentCompletionStatusRepairSignal) =>
+      signal.source === 'process-exit'
+        ? {
+            state: 'done' as const,
+            prompt: 'Repair after dedupe',
+            agentType: 'codex' as const
+          }
+        : null
+    )
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
+      dispatchCompletion,
+      onCompletionStatusRepair,
+      isLive: () => true
+    })
+
+    coordinator.startProcessTracking()
+    vi.advanceTimersByTime(2_000)
+    await flushAsyncTicks()
+    coordinator.observeTitle('⠋ codex')
+    coordinator.observeTitle('codex done')
+
+    foregroundProcess = null
+    vi.advanceTimersByTime(750)
+    await flushAsyncTicks()
+    vi.advanceTimersByTime(750)
+    await flushAsyncTicks()
+
+    expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    expect(dispatchCompletion).toHaveBeenCalledWith('codex done')
+    expect(onCompletionStatusRepair).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'process-exit',
+        title: 'codex',
+        agent: {
+          agent: 'codex',
+          processName: 'codex'
+        }
+      })
+    )
   })
 
   it('does not dispatch a cwd title after an explicit agent working title if the shell owns the pane', async () => {

@@ -8278,6 +8278,32 @@ describe('OrcaRuntimeService', () => {
       })
     })
 
+    it('emits a codex-stream-error fact for a fatal line but not retry notices', () => {
+      const { runtime, batches } = createSideEffectRuntime()
+      syncSinglePty(runtime)
+
+      runtime.onPtyData(
+        'pty-1',
+        'stream error: stream disconnected before completion: temporary network failure; retrying 1/5 in 217ms\r\n',
+        100
+      )
+      expect(batches.flatMap((batch) => batch.facts)).toEqual([])
+
+      runtime.onPtyData(
+        'pty-1',
+        '■ stream disconnected before completion: error sending request for url (http://openclaw:2455/backend-api/codex/responses)\r\n',
+        101
+      )
+
+      expect(batches.at(-1)?.facts).toEqual([
+        {
+          kind: 'codex-stream-error',
+          message:
+            'stream disconnected before completion: error sending request for url (http://openclaw:2455/backend-api/codex/responses)'
+        }
+      ])
+    })
+
     it('prefers the tracked title over a stale renderer lastTitle in the hydration seed', async () => {
       const { runtime } = createSideEffectRuntime()
       const serializeBuffer = vi.fn().mockResolvedValue({

@@ -1,4 +1,4 @@
-import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
+import type { AgentType, ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
 import type { GlobalSettings } from '../../../../shared/types'
 import type { RecognizedAgentProcess } from '../../../../shared/agent-process-recognition'
 import type { RuntimeTerminalProcessInspection } from '@/runtime/runtime-terminal-inspection'
@@ -18,6 +18,18 @@ export type AgentAttentionDispatchMeta = {
   source: 'hook'
   agentStatus: AgentCompletionStatusSnapshot
 }
+
+export type AgentCompletionStatusRepairSignal =
+  | {
+      source: 'title'
+      title: string
+      agentType?: AgentType
+    }
+  | {
+      source: 'process-exit'
+      title: string
+      agent: RecognizedAgentProcess
+    }
 
 export type AgentCompletionCoordinatorOptions = {
   paneKey: string
@@ -42,6 +54,12 @@ export type AgentCompletionCoordinatorOptions = {
   // cadence; cheap hosts (POSIX `ps`, SSH/remote-owned scans) keep full cadence.
   isProcessInspectionCostly?: () => boolean
   shouldSuppressHookCompletion?: (payload: AgentCompletionStatusSnapshot) => boolean
+  // Why: title/process completion can prove a turn ended when the agent missed
+  // its final hook (#7202); the pane repairs the stuck 'working' status row and
+  // returns the synthesized snapshot for the completion notification.
+  onCompletionStatusRepair?: (
+    signal: AgentCompletionStatusRepairSignal
+  ) => AgentCompletionStatusSnapshot | null | undefined
 }
 
 export type AgentCompletionCoordinator = {

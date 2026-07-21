@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { resolveWindowsGitBashShellPath } from '../main/git-bash'
+import { cloneInheritedSpawnEnv } from '../main/pty/inherited-spawn-env'
 import { WINDOWS_GIT_BASH_SHELL } from '../shared/windows-terminal-shell'
 import type { RelayDispatcher, RequestContext } from './dispatcher'
 import {
@@ -386,9 +387,13 @@ export class PtyHandler {
     ctx: { id: string; paneKey?: string; shell: string; command?: string },
     envToDelete: readonly string[] = []
   ): Record<string, string> {
+    // Why: claude child-session markers and Orca's NODE_ENV describe the relay
+    // process's own ancestry, not the pane's (#9155, upstream PR 9058); a
+    // renderer-supplied value merged below still wins.
+    const inheritedEnv = cloneInheritedSpawnEnv()
     const baseEnv = mergeGitConfigEnvProtocol(
       {
-        ...process.env,
+        ...inheritedEnv,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
         TERM_PROGRAM: 'Orca',

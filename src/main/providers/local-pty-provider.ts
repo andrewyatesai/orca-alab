@@ -37,6 +37,7 @@ import {
 import type { ShellReadySignal } from './local-pty-shell-ready'
 import { removeInheritedNoColor } from '../pty/terminal-color-env'
 import { removeAppImageRuntimeEnv } from '../pty/appimage-terminal-env'
+import { cloneInheritedSpawnEnv } from '../pty/inherited-spawn-env'
 import { isHostCodexHomeForWsl, isWslCodexHomeForHost } from '../pty/codex-home-wsl-env'
 import { addWslEnvKeys } from '../wsl-env'
 import {
@@ -627,7 +628,9 @@ export class LocalPtyProvider implements IPtyProvider {
     validateWorkingDirectory(validationCwd)
 
     const spawnEnv: Record<string, string> = {
-      ...mergeGitConfigEnvProtocol(process.env, args.env),
+      // Why: claude child-session markers and Orca's NODE_ENV must not leak
+      // into panes (#9155, PR 9058); an explicit args.env value still wins.
+      ...mergeGitConfigEnvProtocol(cloneInheritedSpawnEnv(), args.env),
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       TERM_PROGRAM: 'Orca',

@@ -636,6 +636,51 @@ describe('LocalPtyProvider', () => {
       expect(env.LD_LIBRARY_PATH).toBe('/opt/audio/lib')
     })
 
+    it('does not inherit claude child-session markers or NODE_ENV into PTY shells (#9155)', async () => {
+      const seeded: Record<string, string> = {
+        CLAUDECODE: '1',
+        CLAUDE_CODE_CHILD_SESSION: '1',
+        CLAUDE_CODE_SESSION_ID: '08a1a595-d1ec-4142-9680-0eec5fc15e17',
+        CLAUDE_CODE_EXECPATH: '/home/user/.local/bin/claude',
+        CLAUDE_CODE_ENTRYPOINT: 'cli',
+        NODE_ENV: 'development'
+      }
+      const saved: Record<string, string | undefined> = {}
+      for (const [key, value] of Object.entries(seeded)) {
+        saved[key] = process.env[key]
+        process.env[key] = value
+      }
+
+      try {
+        await provider.spawn({ cols: 80, rows: 24 })
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = value
+          }
+        }
+      }
+
+      const env = spawnMock.mock.calls.at(-1)?.[2].env
+      for (const key of Object.keys(seeded)) {
+        expect(env[key]).toBeUndefined()
+      }
+    })
+
+    it('keeps an explicitly requested claude session env and NODE_ENV', async () => {
+      await provider.spawn({
+        cols: 80,
+        rows: 24,
+        env: { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts', NODE_ENV: 'test' }
+      })
+
+      const env = spawnMock.mock.calls.at(-1)?.[2].env
+      expect(env.CLAUDE_CODE_ENTRYPOINT).toBe('sdk-ts')
+      expect(env.NODE_ENV).toBe('test')
+    })
+
     it('uses shell wrapper when MiMo home must survive shell startup', async () => {
       provider.configure({
         buildSpawnEnv: (_id, env) => {

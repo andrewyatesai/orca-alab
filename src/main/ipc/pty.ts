@@ -12,6 +12,7 @@ import {
   powerMonitor
 } from 'electron'
 export { getBashShellReadyRcfileContent } from '../providers/local-pty-shell-ready'
+import { INHERITED_ONLY_SPAWN_ENV_KEYS } from '../pty/inherited-spawn-env'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type { Store } from '../persistence'
 import type { GlobalSettings, TuiAgent } from '../../shared/types'
@@ -705,6 +706,14 @@ function getInheritedAgentHookEnvKeysToDelete(
   const env = spawnEnv ?? {}
   // Why: providers merge process.env after cleanup; delete stale hook keys without dropping fresh coordinates buildPtyHostEnv set.
   return AGENT_HOOK_RUNTIME_ENV_KEYS.filter((key) => env[key] === undefined)
+}
+
+function getInheritedOnlySpawnEnvKeysToDelete(
+  spawnEnv: Record<string, string> | undefined
+): string[] {
+  const env = spawnEnv ?? {}
+  // Why: #9155 — the Rust daemon merges its own forked env engine-side; envToDelete is the only glue-side lever to strip inherited claude markers/NODE_ENV there.
+  return INHERITED_ONLY_SPAWN_ENV_KEYS.filter((key) => env[key] === undefined)
 }
 
 // Why: a nested terminal can inherit prior OpenCode/Pi/OMP overlay env; restore the user's recorded source dir, else strip only Orca-owned values.
@@ -2779,7 +2788,12 @@ export function registerPtyHandlers(
       }
       spawnOptions.envToDelete = mergePtyEnvDeletions(
         mergePtyEnvDeletions(authEnvToDelete, args.envToDelete ?? []),
-        isDaemonHostSpawn ? getInheritedAgentHookEnvKeysToDelete(env) : []
+        isDaemonHostSpawn
+          ? [
+              ...getInheritedAgentHookEnvKeysToDelete(env),
+              ...getInheritedOnlySpawnEnvKeysToDelete(env)
+            ]
+          : []
       )
       if (skipCodexHomeEnv) {
         spawnOptions.envToDelete = mergePtyEnvDeletions(
@@ -3670,7 +3684,12 @@ export function registerPtyHandlers(
             mergePtyEnvDeletions(envToDelete, args.envToDelete ?? []),
             agentTeamsEnvToDelete ?? []
           ),
-          isDaemonHostSpawn ? getInheritedAgentHookEnvKeysToDelete(spawnEnv) : []
+          isDaemonHostSpawn
+            ? [
+                ...getInheritedAgentHookEnvKeysToDelete(spawnEnv),
+                ...getInheritedOnlySpawnEnvKeysToDelete(spawnEnv)
+              ]
+            : []
         ),
         skipCodexHomeEnv ? CODEX_HOME_ENV_KEYS : []
       )

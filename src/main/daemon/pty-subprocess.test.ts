@@ -312,6 +312,57 @@ describe('createPtySubprocess', () => {
     }
   })
 
+  it('does not leak inherited claude child-session markers or NODE_ENV into PTYs (#9155)', () => {
+    const proc = mockPtyProcess()
+    spawnMock.mockReturnValue(proc)
+    const seeded: Record<string, string> = {
+      CLAUDECODE: '1',
+      CLAUDE_CODE_CHILD_SESSION: '1',
+      CLAUDE_CODE_SESSION_ID: '08a1a595-d1ec-4142-9680-0eec5fc15e17',
+      CLAUDE_CODE_EXECPATH: '/home/user/.local/bin/claude',
+      CLAUDE_CODE_ENTRYPOINT: 'cli',
+      NODE_ENV: 'development'
+    }
+    const saved: Record<string, string | undefined> = {}
+    for (const [key, value] of Object.entries(seeded)) {
+      saved[key] = process.env[key]
+      process.env[key] = value
+    }
+
+    try {
+      createPtySubprocess({ sessionId: 'clean-claude-env', cols: 80, rows: 24, env: {} })
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
+      }
+    }
+
+    const spawnEnv = spawnMock.mock.calls.at(-1)?.[2]?.env as Record<string, string>
+    for (const key of Object.keys(seeded)) {
+      expect(spawnEnv[key]).toBeUndefined()
+    }
+  })
+
+  it('keeps an explicitly requested claude session env and NODE_ENV', () => {
+    const proc = mockPtyProcess()
+    spawnMock.mockReturnValue(proc)
+
+    createPtySubprocess({
+      sessionId: 'explicit-claude-env',
+      cols: 80,
+      rows: 24,
+      env: { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts', NODE_ENV: 'test' }
+    })
+
+    const spawnEnv = spawnMock.mock.calls.at(-1)?.[2]?.env as Record<string, string>
+    expect(spawnEnv.CLAUDE_CODE_ENTRYPOINT).toBe('sdk-ts')
+    expect(spawnEnv.NODE_ENV).toBe('test')
+  })
+
   it('guards a trusted daemon agent whose launch command is wrapped', () => {
     const proc = mockPtyProcess()
     spawnMock.mockReturnValue(proc)

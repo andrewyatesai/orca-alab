@@ -461,6 +461,8 @@ export type LocalPtyProviderOptions = {
   isHistoryEnabled?: () => boolean
   /** Why: COMSPEC is always cmd.exe, so this callback injects the user's persisted shell preference. Undefined when none set. */
   getWindowsShell?: () => string | undefined
+  /** macOS/Linux default-shell setting resolved to an executable path; undefined keeps $SHELL (#5097). */
+  getPosixShell?: () => string | undefined
   getWindowsPowerShellImplementation?: () => 'auto' | 'powershell.exe' | 'pwsh.exe' | undefined
   pwshAvailable?: () => boolean
   onSpawned?: (id: string) => void
@@ -659,7 +661,13 @@ export class LocalPtyProvider implements IPtyProvider {
         startupCommandDeliveredInShellArgs = resolved.startupCommandDeliveredInShellArgs === true
       }
     } else {
-      shellPath = args.env?.SHELL || process.env.SHELL || '/bin/zsh'
+      // Why: shellOverride carries a per-tab pick or the folded global default (#5097); like the win32 branch it wins over inherited SHELL.
+      shellPath =
+        args.shellOverride ||
+        this.opts.getPosixShell?.() ||
+        args.env?.SHELL ||
+        process.env.SHELL ||
+        '/bin/zsh'
       shellArgs = ['-l']
       effectiveCwd = cwd
       validationCwd = cwd

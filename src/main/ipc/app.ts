@@ -12,6 +12,8 @@ import { getDevInstanceIdentity } from '../startup/dev-instance-identity'
 import { isPwshAvailable } from '../pwsh'
 import { isWslAvailable, listWslDistros } from '../wsl'
 import { isGitBashAvailable } from '../git-bash'
+import { detectPosixTerminalShells } from '../posix-default-shell'
+import type { PosixTerminalShellDetection } from '../../shared/posix-terminal-shell'
 import { setUnreadDockBadgeCount } from '../dock/unread-badge'
 import { destroySystemTray } from '../tray/system-tray'
 import { authorizeExternalPath } from './filesystem-auth'
@@ -262,6 +264,9 @@ export function registerAppHandlers(store: Store, options: RegisterAppHandlersOp
   ipcMain.handle('wsl:listDistros', (): string[] => listWslDistros())
   ipcMain.handle('pwsh:isAvailable', (): boolean => isPwshAvailable())
   ipcMain.handle('gitBash:isAvailable', (): boolean => isGitBashAvailable())
+  ipcMain.handle('posixShells:detect', (): PosixTerminalShellDetection =>
+    detectPosixTerminalShells()
+  )
 
   // Why: renderer layout fingerprint tags ABC/CJK-Roman as 'us', breaking Option+letter (#1205); HIToolbox prefs override it.
   ipcMain.handle('app:getKeyboardInputSourceId', async (): Promise<string | null> => {

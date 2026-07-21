@@ -8712,6 +8712,12 @@
               "kwAterm": "aterm",
               "kwRenderer": "レンダラー"
             }
+          },
+          "posix": {
+            "search": {
+              "title": "Default Shell",
+              "description": "Choose the default shell for new terminal panes on macOS and Linux."
+            }
           }
         },
         "voice": {
@@ -9434,6 +9440,16 @@
         },
         "MobileRelayBetaNotice": {
           "notice": "Orca Relay is in beta."
+        },
+        "TerminalPosixShellSection": {
+          "rowDescriptionWithSystemShell": "Shell used when opening a new terminal pane. System uses your login shell ({{shell}}). Takes effect for new terminals.",
+          "rowDescription": "Shell used when opening a new terminal pane. System uses your login shell. Takes effect for new terminals.",
+          "title": "Shell",
+          "description": "Default shell for new local terminal panes. SSH terminals keep the remote login shell.",
+          "rowTitle": "Default Shell",
+          "searchDescription": "Choose the default shell for new terminal panes on macOS and Linux.",
+          "systemOption": "System",
+          "systemOptionAria": "System login shell"
         }
       },
       "right": {

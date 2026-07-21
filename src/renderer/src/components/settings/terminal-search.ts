@@ -21,6 +21,7 @@ import {
   getTerminalRenderingSearchEntries,
   getTerminalTypographySearchEntries
 } from './terminal-typography-search'
+import { getTerminalPosixShellSearchEntry } from './terminal-posix-shell-search'
 import {
   getTerminalRightClickToPasteSearchEntry,
   getTerminalWindowsPowershellImplementationSearchEntry,
@@ -114,7 +115,7 @@ export function getTerminalPaneSearchEntries(platform: {
           ...getTerminalWindowsShellSearchEntry(),
           ...getTerminalWindowsPowershellImplementationSearchEntry()
         ]
-      : []),
+      : [...getTerminalPosixShellSearchEntry()]),
     ...getTerminalRightClickToPasteSearchEntry(),
     ...getTerminalSetupScriptSearchEntries(),
     ...getManageSessionsSearchEntries(),

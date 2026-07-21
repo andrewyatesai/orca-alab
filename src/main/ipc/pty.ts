@@ -38,6 +38,10 @@ import {
   isWslShellName,
   resolveLocalWindowsTerminalRuntimeOptions
 } from '../../shared/local-windows-terminal-runtime'
+import {
+  resolveLocalPosixShellOverride,
+  resolvePosixShellSettingPath
+} from '../posix-default-shell'
 import { applyTerminalGitCredentialPromptGuard } from './terminal-git-credential-guard'
 import { openCodeHookService } from '../opencode/hook-service'
 import { mimoCodeHookService } from '../mimo/hook-service'
@@ -1391,6 +1395,8 @@ export function registerPtyHandlers(
     localProvider.configure({
       isHistoryEnabled: () => getSettings?.()?.terminalScopeHistoryByWorktree ?? true,
       getWindowsShell: () => getSettings?.()?.terminalWindowsShell,
+      getPosixShell: () =>
+        resolvePosixShellSettingPath(getSettings?.()?.terminalPosixShell) ?? undefined,
       getWindowsPowerShellImplementation: () =>
         getSettings
           ? (getSettings()?.terminalWindowsPowerShellImplementation ?? 'auto')
@@ -2662,7 +2668,13 @@ export function registerPtyHandlers(
               projectRuntime: resolveLocalProjectRuntimeForWorktreeId(store, args.worktreeId),
               fallbackHostShell: process.env.COMSPEC || 'powershell.exe'
             })
-          : { shellOverride: undefined, terminalWindowsWslDistro: null }
+          : {
+              // Why: runtime-created local POSIX terminals honor the default-shell setting (#5097); SSH keeps the remote login shell.
+              shellOverride: !args.connectionId
+                ? resolveLocalPosixShellOverride(undefined, getSettings?.()?.terminalPosixShell)
+                : undefined,
+              terminalWindowsWslDistro: null
+            }
       const daemonShellOverride = terminalRuntimeOptions.shellOverride
       const codexSelectionTarget = getCodexSelectionTargetForPty(
         daemonShellOverride,
@@ -2838,6 +2850,9 @@ export function registerPtyHandlers(
         spawnOptions.terminalWindowsPowerShellImplementation = getSettings
           ? (getSettings()?.terminalWindowsPowerShellImplementation ?? 'auto')
           : undefined
+      } else if (terminalRuntimeOptions.shellOverride !== undefined) {
+        // Why: the folded POSIX default-shell setting must reach daemon-hosted spawns too, not only LocalPtyProvider.
+        spawnOptions.shellOverride = terminalRuntimeOptions.shellOverride
       }
 
       const existingPaneSpawn = materializedPaneKey
@@ -3450,7 +3465,17 @@ export function registerPtyHandlers(
               projectRuntime: args.projectRuntime,
               fallbackHostShell: process.env.COMSPEC || 'powershell.exe'
             })
-          : { shellOverride: args.shellOverride, terminalWindowsWslDistro: null }
+          : {
+              // Why: fold the POSIX default-shell setting under a per-tab override (#5097); SSH keeps the remote login shell.
+              shellOverride:
+                process.platform !== 'win32' && !args.connectionId
+                  ? resolveLocalPosixShellOverride(
+                      args.shellOverride,
+                      getSettings?.()?.terminalPosixShell
+                    )
+                  : args.shellOverride,
+              terminalWindowsWslDistro: null
+            }
       const initialShellOverride = terminalRuntimeOptions.shellOverride
       const initialSelectionTarget = getCodexSelectionTargetForPty(
         initialShellOverride,

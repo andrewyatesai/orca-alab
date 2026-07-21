@@ -11,6 +11,7 @@ import type { ProjectExecutionRuntimeResolution } from '../shared/project-execut
 import type { StartupCommandDelivery } from '../shared/codex-startup-delivery'
 import type { SleepingAgentLaunchConfig } from '../shared/agent-session-resume'
 import type { MobileRelayStatus } from '../shared/mobile-relay-status'
+import type { PosixTerminalShellDetection } from '../shared/posix-terminal-shell'
 import type { MobilePairingConnectionMode } from '../shared/mobile-pairing-connection-mode'
 import type {
   BaseRefSearchResult,
@@ -500,6 +501,10 @@ const api = {
 
   gitBash: {
     isAvailable: (): Promise<boolean> => ipcRenderer.invoke('gitBash:isAvailable')
+  },
+
+  posixShells: {
+    detect: (): Promise<PosixTerminalShellDetection> => ipcRenderer.invoke('posixShells:detect')
   },
 
   repos: {

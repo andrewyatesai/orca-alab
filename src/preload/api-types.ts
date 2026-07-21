@@ -26,6 +26,7 @@ import type {
   WriteTerminalRenderDesyncEvidenceResult
 } from '../shared/terminal-render-desync-evidence'
 import type { MobileRelayStatus } from '../shared/mobile-relay-status'
+import type { PosixTerminalShellDetection } from '../shared/posix-terminal-shell'
 import type { MobilePairingConnectionMode } from '../shared/mobile-pairing-connection-mode'
 import type {
   CreateLocalOrcaProfileArgs,
@@ -3205,6 +3206,10 @@ export type PreloadApi = {
   }
   gitBash: {
     isAvailable: () => Promise<boolean>
+  }
+  posixShells: {
+    /** Installed macOS/Linux default-shell choices on the local terminal host. */
+    detect: () => Promise<PosixTerminalShellDetection>
   }
   agentStatus: {
     /** Listen for agent status updates forwarded from native hook receivers. */

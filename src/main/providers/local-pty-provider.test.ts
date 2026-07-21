@@ -410,6 +410,36 @@ describe('LocalPtyProvider', () => {
       )
     })
 
+    it('honors a POSIX shellOverride over the inherited SHELL', async () => {
+      await provider.spawn({ cols: 80, rows: 24, shellOverride: '/usr/bin/fish' })
+
+      const spawnCall = spawnMock.mock.calls.at(-1)!
+      expect(spawnCall[0]).toBe('/usr/bin/fish')
+      expect(spawnCall[2].env.SHELL).toBe('/usr/bin/fish')
+    })
+
+    it('uses the getPosixShell default when no override is requested', async () => {
+      provider.configure({ getPosixShell: () => '/usr/local/bin/fish' })
+
+      await provider.spawn({ cols: 80, rows: 24 })
+
+      expect(spawnMock.mock.calls.at(-1)![0]).toBe('/usr/local/bin/fish')
+    })
+
+    it('prefers an explicit shellOverride over the getPosixShell default', async () => {
+      provider.configure({ getPosixShell: () => '/usr/local/bin/fish' })
+
+      await provider.spawn({ cols: 80, rows: 24, shellOverride: '/bin/bash' })
+
+      expect(spawnMock.mock.calls.at(-1)![0]).toBe('/bin/bash')
+    })
+
+    it('keeps the SHELL default when neither shellOverride nor getPosixShell is set', async () => {
+      await provider.spawn({ cols: 80, rows: 24 })
+
+      expect(spawnMock.mock.calls.at(-1)![0]).toBe('/bin/zsh')
+    })
+
     it('allows an explicitly requested plain shell at POSIX root', async () => {
       await provider.spawn({ cols: 80, rows: 24, cwd: '/' })
 

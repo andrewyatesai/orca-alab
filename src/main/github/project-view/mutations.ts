@@ -16,6 +16,11 @@ import {
   assertPositiveInt,
   type GraphqlVars
 } from './internals'
+import {
+  projectsGhHostArgs,
+  projectsGhHostForProject,
+  resolveProjectsGhHost
+} from '../projects-gh-host'
 import type { GitHubAssignableUser, GitHubWorkItemDetails, PRComment } from '../../../shared/types'
 import type {
   AddIssueCommentBySlugArgs,
@@ -122,7 +127,9 @@ export async function updateProjectItemFieldValue(
     fieldId: args.fieldId,
     value: valVar.val
   }
-  const res = await runGraphql<unknown>(query, vars)
+  // Why: node-id mutations carry no owner; the project's host was stamped when
+  // its table loaded (#1715 multi-host routing).
+  const res = await runGraphql<unknown>(query, vars, undefined, projectsGhHostForProject(args.projectId))
   if (!res.ok) {
     return { ok: false, error: res.error }
   }
@@ -144,11 +151,16 @@ export async function clearProjectItemFieldValue(
       }) { projectV2Item { id } }
     }
   `
-  const res = await runGraphql<unknown>(query, {
-    projectId: args.projectId,
-    itemId: args.itemId,
-    fieldId: args.fieldId
-  })
+  const res = await runGraphql<unknown>(
+    query,
+    {
+      projectId: args.projectId,
+      itemId: args.itemId,
+      fieldId: args.fieldId
+    },
+    undefined,
+    projectsGhHostForProject(args.projectId)
+  )
   if (!res.ok) {
     return { ok: false, error: res.error }
   }
@@ -212,12 +224,16 @@ export async function updateIssueBySlug(
   // State uses gh issue close/reopen so duplicate closes can record a target.
   // Labels/assignees go through their dedicated endpoints.
   const base = `repos/${args.owner}/${args.repo}/issues/${args.number}`
+  const host = resolveProjectsGhHost(args.owner)
+  // Why: gh --repo accepts [HOST/]OWNER/REPO — prefix so GHES issues don't
+  // route to github.com in multi-host setups (#1715).
+  const repoSlug = host ? `${host}/${args.owner}/${args.repo}` : `${args.owner}/${args.repo}`
 
   if (state !== undefined) {
     const stateArgs =
       state === 'closed'
-        ? ['issue', 'close', String(args.number), '--repo', `${args.owner}/${args.repo}`]
-        : ['issue', 'reopen', String(args.number), '--repo', `${args.owner}/${args.repo}`]
+        ? ['issue', 'close', String(args.number), '--repo', repoSlug]
+        : ['issue', 'reopen', String(args.number), '--repo', repoSlug]
     if (state === 'closed') {
       if (stateReason === 'completed') {
         stateArgs.push('--reason', 'completed')
@@ -247,7 +263,7 @@ export async function updateIssueBySlug(
     if (body !== undefined) {
       patchArgs.push('--raw-field', `body=${body}`)
     }
-    const r = await runRest<unknown>(patchArgs)
+    const r = await runRest<unknown>(patchArgs, undefined, 'core', { host })
     if (!r.ok) {
       return { ok: false, error: r.error }
     }
@@ -263,7 +279,9 @@ export async function updateIssueBySlug(
   const addCount = addLabels?.length ?? 0
   if (removeCount > 1) {
     type RawLabelResp = { name?: string }[]
-    const fetched = await runRest<RawLabelResp>(['-X', 'GET', `${base}/labels`])
+    const fetched = await runRest<RawLabelResp>(['-X', 'GET', `${base}/labels`], undefined, 'core', {
+      host
+    })
     if (!fetched.ok) {
       return { ok: false, error: fetched.error }
     }
@@ -282,7 +300,8 @@ export async function updateIssueBySlug(
       // dedicated DELETE endpoint is the documented way to remove all
       // labels in a single call.
       const r = await runRest<unknown>(['-X', 'DELETE', `${base}/labels`], undefined, 'core', {
-        expectEmpty: true
+        expectEmpty: true,
+        host
       })
       if (!r.ok && r.error.type !== 'not_found') {
         return { ok: false, error: r.error }
@@ -292,7 +311,7 @@ export async function updateIssueBySlug(
       for (const name of currentNames) {
         putArgs.push('--raw-field', `labels[]=${name}`)
       }
-      const r = await runRest<unknown>(putArgs)
+      const r = await runRest<unknown>(putArgs, undefined, 'core', { host })
       if (!r.ok) {
         return { ok: false, error: r.error }
       }
@@ -303,7 +322,7 @@ export async function updateIssueBySlug(
       for (const l of addLabels ?? []) {
         restArgs.push('--raw-field', `labels[]=${l}`)
       }
-      const r = await runRest<unknown>(restArgs)
+      const r = await runRest<unknown>(restArgs, undefined, 'core', { host })
       if (!r.ok) {
         return { ok: false, error: r.error }
       }
@@ -313,7 +332,7 @@ export async function updateIssueBySlug(
         ['-X', 'DELETE', `${base}/labels/${encodeURIComponent(removeLabels![0])}`],
         undefined,
         'core',
-        { expectEmpty: true }
+        { expectEmpty: true, host }
       )
       if (!r.ok && r.error.type !== 'not_found') {
         return { ok: false, error: r.error }
@@ -328,7 +347,7 @@ export async function updateIssueBySlug(
     for (const u of addAssignees) {
       restArgs.push('--raw-field', `assignees[]=${u}`)
     }
-    const r = await runRest<unknown>(restArgs)
+    const r = await runRest<unknown>(restArgs, undefined, 'core', { host })
     if (!r.ok) {
       return { ok: false, error: r.error }
     }
@@ -338,7 +357,7 @@ export async function updateIssueBySlug(
     for (const u of removeAssignees) {
       restArgs.push('--raw-field', `assignees[]=${u}`)
     }
-    const r = await runRest<unknown>(restArgs)
+    const r = await runRest<unknown>(restArgs, undefined, 'core', { host })
     if (!r.ok) {
       return { ok: false, error: r.error }
     }
@@ -384,7 +403,9 @@ export async function updatePullRequestBySlug(
     // No fields to update — nothing to do.
     return { ok: true }
   }
-  const r = await runRest<unknown>(patchArgs)
+  const r = await runRest<unknown>(patchArgs, undefined, 'core', {
+    host: resolveProjectsGhHost(args.owner)
+  })
   if (!r.ok) {
     return { ok: false, error: r.error }
   }
@@ -425,13 +446,18 @@ export async function addIssueCommentBySlug(
   if (typeof args.body !== 'string' || !args.body.trim()) {
     return { ok: false, error: { type: 'validation_error', message: 'Comment body required.' } }
   }
-  const r = await runRest<RawIssueCommentResponse>([
-    '-X',
-    'POST',
-    `repos/${args.owner}/${args.repo}/issues/${args.number}/comments`,
-    '--raw-field',
-    `body=${args.body}`
-  ])
+  const r = await runRest<RawIssueCommentResponse>(
+    [
+      '-X',
+      'POST',
+      `repos/${args.owner}/${args.repo}/issues/${args.number}/comments`,
+      '--raw-field',
+      `body=${args.body}`
+    ],
+    undefined,
+    'core',
+    { host: resolveProjectsGhHost(args.owner) }
+  )
   if (!r.ok) {
     return { ok: false, error: r.error }
   }
@@ -452,13 +478,18 @@ export async function updateIssueCommentBySlug(
   if (typeof args.body !== 'string' || !args.body.trim()) {
     return { ok: false, error: { type: 'validation_error', message: 'Comment body required.' } }
   }
-  const r = await runRest<unknown>([
-    '-X',
-    'PATCH',
-    `repos/${args.owner}/${args.repo}/issues/comments/${args.commentId}`,
-    '--raw-field',
-    `body=${args.body}`
-  ])
+  const r = await runRest<unknown>(
+    [
+      '-X',
+      'PATCH',
+      `repos/${args.owner}/${args.repo}/issues/comments/${args.commentId}`,
+      '--raw-field',
+      `body=${args.body}`
+    ],
+    undefined,
+    'core',
+    { host: resolveProjectsGhHost(args.owner) }
+  )
   if (!r.ok) {
     return { ok: false, error: r.error }
   }
@@ -480,7 +511,7 @@ export async function deleteIssueCommentBySlug(
     ['-X', 'DELETE', `repos/${args.owner}/${args.repo}/issues/comments/${args.commentId}`],
     undefined,
     'core',
-    { expectEmpty: true }
+    { expectEmpty: true, host: resolveProjectsGhHost(args.owner) }
   )
   if (!r.ok) {
     return { ok: false, error: r.error }
@@ -507,7 +538,14 @@ export async function listLabelsBySlug(
   noteRateLimitSpend('core')
   try {
     const { stdout } = await ghExecFileAsync(
-      ['api', '--paginate', `repos/${args.owner}/${args.repo}/labels`, '--jq', '.[].name'],
+      [
+        'api',
+        ...projectsGhHostArgs(resolveProjectsGhHost(args.owner)),
+        '--paginate',
+        `repos/${args.owner}/${args.repo}/labels`,
+        '--jq',
+        '.[].name'
+      ],
       { encoding: 'utf-8' }
     )
     return {
@@ -545,6 +583,7 @@ export async function listAssignableUsersBySlug(
     const { stdout } = await ghExecFileAsync(
       [
         'api',
+        ...projectsGhHostArgs(resolveProjectsGhHost(args.owner)),
         '--paginate',
         `repos/${args.owner}/${args.repo}/assignees`,
         '--jq',
@@ -614,7 +653,7 @@ export async function listIssueTypesBySlug(
         } | null)[]
       } | null
     } | null
-  }>(query, { owner: args.owner, repo: args.repo })
+  }>(query, { owner: args.owner, repo: args.repo }, undefined, resolveProjectsGhHost(args.owner))
   if (!res.ok) {
     // Why: repos without issue types respond with a GraphQL error claiming the
     // `issueTypes` field is unknown. Map that to an empty list so the UI shows
@@ -659,7 +698,9 @@ export async function updateIssueTypeBySlug(
     `query($owner:String!, $repo:String!, $num:Int!) {
        repository(owner:$owner, name:$repo) { issue(number:$num) { id } }
      }`,
-    { owner: args.owner, repo: args.repo, num: args.number }
+    { owner: args.owner, repo: args.repo, num: args.number },
+    undefined,
+    resolveProjectsGhHost(args.owner)
   )
   if (!lookup.ok) {
     return { ok: false, error: lookup.error }
@@ -689,7 +730,7 @@ export async function updateIssueTypeBySlug(
   const vars: GraphqlVars = args.issueTypeId
     ? { issueId, issueTypeId: args.issueTypeId }
     : { issueId }
-  const res = await runGraphql<unknown>(query, vars)
+  const res = await runGraphql<unknown>(query, vars, undefined, resolveProjectsGhHost(args.owner))
   if (!res.ok) {
     return { ok: false, error: res.error }
   }
@@ -810,7 +851,12 @@ export async function getWorkItemDetailsBySlug(
           })
         | null
     } | null
-  }>(query, { owner: args.owner, repo: args.repo, num: args.number })
+  }>(
+    query,
+    { owner: args.owner, repo: args.repo, num: args.number },
+    undefined,
+    resolveProjectsGhHost(args.owner)
+  )
   if (!res.ok) {
     return { ok: false, error: res.error }
   }

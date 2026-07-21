@@ -1,127 +1,48 @@
 /* tslint:disable */
 /* eslint-disable */
-export const memory: WebAssembly.Memory
-export const __wbg_quickopenindex_free: (a: number, b: number) => void
-export const branchIsSafeToDeleteViaExecutor: (a: number, b: number, c: number) => number
-export const buildPullRequestFieldsPrompt: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number
-) => void
-export const computeLineStats: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number,
-  f: number,
-  g: number
-) => void
-export const countAdditionsInBuffer: (a: number, b: number) => number
-export const decodeGitCQuotedPath: (a: number, b: number, c: number) => void
-export const deriveGeneratedTabTitle: (a: number, b: number, c: number) => void
-export const detectPiAgentKindFromCommand: (a: number, b: number, c: number) => void
-export const formatSubmodulePushFailureDetail: (a: number, b: number, c: number) => void
-export const getLinearIssueWorkspaceName: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number
-) => void
-export const getLinkedWorkItemSuggestedName: (a: number, b: number, c: number) => void
-export const getLinkedWorkItemWorkspaceName: (a: number, b: number, c: number) => void
-export const getUpstreamStatusViaExecutor: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number,
-  f: number,
-  g: number
-) => number
-export const getWorkspaceIntentName: (a: number, b: number, c: number) => void
-export const gitFetchViaExecutor: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number,
-  f: number,
-  g: number
-) => number
-export const gitPullRebaseFromBaseViaExecutor: (a: number, b: number, c: number) => number
-export const gitPushViaExecutor: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number,
-  f: number,
-  g: number,
-  h: number
-) => number
-export const isNoUpstreamError: (a: number, b: number) => number
-export const normalizeGitErrorMessage: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number
-) => void
-export const orcaDispatch: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number,
-  f: number,
-  g: number
-) => void
-export const parseGeneratedPullRequestFields: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number
-) => void
-export const parseGitHistoryLog: (a: number, b: number, c: number) => void
-export const parseNumstat: (a: number, b: number, c: number) => void
-export const parseStatusPorcelain: (a: number, b: number, c: number, d: number) => void
-export const parseWorktreeList: (a: number, b: number, c: number, d: number) => void
-export const planAgentBinary: (a: number, b: number, c: number, d: number, e: number) => void
-export const planCommitMessageGeneration: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number
-) => void
-export const quickopenindex_exactMatches: (a: number, b: number, c: number, d: number) => void
-export const quickopenindex_fileCount: (a: number) => number
-export const quickopenindex_new: (a: number, b: number) => number
-export const quickopenindex_rank: (a: number, b: number, c: number, d: number, e: number) => void
-export const slugifyForWorkspaceName: (a: number, b: number, c: number) => void
-export const stripCredentialsFromMessage: (a: number, b: number, c: number) => void
-export const terminalQuickCommandOp: (a: number, b: number, c: number, d: number, e: number) => void
-export const tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void
-export const upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number
-export const validateGitPushTargetRules: (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  e: number,
-  f: number,
-  g: number
-) => void
-export const __wasm_bindgen_func_elem_1619: (a: number, b: number) => void
-export const __wasm_bindgen_func_elem_1708: (a: number, b: number, c: number, d: number) => void
-export const __wasm_bindgen_func_elem_1633: (a: number, b: number, c: number) => void
-export const __wbindgen_export: (a: number, b: number) => number
-export const __wbindgen_export2: (a: number, b: number, c: number, d: number) => number
-export const __wbindgen_export3: (a: number) => void
-export const __wbindgen_add_to_stack_pointer: (a: number) => number
-export const __wbindgen_export4: (a: number, b: number, c: number) => void
+export const memory: WebAssembly.Memory;
+export const __wbg_quickopenindex_free: (a: number, b: number) => void;
+export const branchIsSafeToDeleteViaExecutor: (a: number, b: number, c: number) => number;
+export const buildPullRequestFieldsPrompt: (a: number, b: number, c: number, d: number, e: number) => void;
+export const computeLineStats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+export const countAdditionsInBuffer: (a: number, b: number) => number;
+export const decodeGitCQuotedPath: (a: number, b: number, c: number) => void;
+export const deriveGeneratedTabTitle: (a: number, b: number, c: number) => void;
+export const detectPiAgentKindFromCommand: (a: number, b: number, c: number) => void;
+export const formatSubmodulePushFailureDetail: (a: number, b: number, c: number) => void;
+export const getLinearIssueWorkspaceName: (a: number, b: number, c: number, d: number, e: number) => void;
+export const getLinkedWorkItemSuggestedName: (a: number, b: number, c: number) => void;
+export const getLinkedWorkItemWorkspaceName: (a: number, b: number, c: number) => void;
+export const getUpstreamStatusViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+export const getWorkspaceIntentName: (a: number, b: number, c: number) => void;
+export const gitFetchViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+export const gitPullRebaseFromBaseViaExecutor: (a: number, b: number, c: number) => number;
+export const gitPushViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
+export const isNoUpstreamError: (a: number, b: number) => number;
+export const normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
+export const orcaDispatch: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+export const parseGeneratedPullRequestFields: (a: number, b: number, c: number, d: number, e: number) => void;
+export const parseGitHistoryLog: (a: number, b: number, c: number) => void;
+export const parseNumstat: (a: number, b: number, c: number) => void;
+export const parseStatusPorcelain: (a: number, b: number, c: number, d: number) => void;
+export const parseWorktreeList: (a: number, b: number, c: number, d: number) => void;
+export const planAgentBinary: (a: number, b: number, c: number, d: number, e: number) => void;
+export const planCommitMessageGeneration: (a: number, b: number, c: number, d: number, e: number) => void;
+export const quickopenindex_exactMatches: (a: number, b: number, c: number, d: number) => void;
+export const quickopenindex_fileCount: (a: number) => number;
+export const quickopenindex_new: (a: number, b: number) => number;
+export const quickopenindex_rank: (a: number, b: number, c: number, d: number, e: number) => void;
+export const slugifyForWorkspaceName: (a: number, b: number, c: number) => void;
+export const stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
+export const terminalQuickCommandOp: (a: number, b: number, c: number, d: number, e: number) => void;
+export const tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
+export const upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
+export const validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+export const __wasm_bindgen_func_elem_1634: (a: number, b: number) => void;
+export const __wasm_bindgen_func_elem_1700: (a: number, b: number, c: number, d: number) => void;
+export const __wasm_bindgen_func_elem_1636: (a: number, b: number, c: number) => void;
+export const __wbindgen_export: (a: number, b: number) => number;
+export const __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_export3: (a: number) => void;
+export const __wbindgen_add_to_stack_pointer: (a: number) => number;
+export const __wbindgen_export4: (a: number, b: number, c: number) => void;

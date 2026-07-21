@@ -36,10 +36,11 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
     }
 }
 
-/// The Rust `GitLabPipelineJob` only carries the four fields this mapping reads;
-/// id/duration in the vectors are ignored (the TS port reads them too).
+/// The Rust `GitLabPipelineJob` carries the fields this mapping reads;
+/// duration in the vectors is ignored (the TS port read it too).
 fn job_from_json(value: &Value) -> GitLabPipelineJob {
     GitLabPipelineJob {
+        id: value.get("id").and_then(Value::as_i64),
         name: str_field(value, "name"),
         stage: str_field(value, "stage"),
         status: str_field(value, "status"),
@@ -89,8 +90,9 @@ fn pr_check_to_value(check: &PrCheckDetail) -> Value {
         Value::String(check_status_id(check.status).to_string()),
     );
     // conclusion and url are required PRCheckDetail fields that carry null
-    // (not omitted) when unmapped/absent; checkRunId/workflowRunId are never
-    // set by this mapping, so they stay absent.
+    // (not omitted) when unmapped/absent. checkRunId carries the GitLab job id
+    // so the Checks panel can load job details (#7732); it stays absent (like
+    // the optional TS field) when the job record had no id.
     map.insert("conclusion".to_string(), conclusion_to_value(check.conclusion));
     map.insert(
         "url".to_string(),
@@ -99,5 +101,8 @@ fn pr_check_to_value(check: &PrCheckDetail) -> Value {
             None => Value::Null,
         },
     );
+    if let Some(job_id) = check.check_run_id {
+        map.insert("checkRunId".to_string(), Value::Number(job_id.into()));
+    }
     Value::Object(map)
 }

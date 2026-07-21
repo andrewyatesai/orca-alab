@@ -17,6 +17,11 @@ import {
   type GhGraphqlErrorShape,
   type GraphqlVars
 } from './project-view/internals'
+import {
+  projectsGhHostArgs,
+  rememberProjectsGhHostForProject,
+  resolveProjectsGhHost
+} from './projects-gh-host'
 import type {
   GetProjectViewTableArgs,
   GetProjectViewTableResult,
@@ -662,7 +667,9 @@ async function fetchProjectViewsPage(args: {
   }
   const res = await runGraphql<Record<string, { projectV2?: RawProjectConfig | null } | null>>(
     query,
-    vars
+    vars,
+    undefined,
+    resolveProjectsGhHost(args.owner)
   )
   if (!res.ok) {
     return res
@@ -685,7 +692,8 @@ async function fetchProjectViewsPage(args: {
 
 async function fetchViewFieldsContinuation(
   viewId: string,
-  after: string
+  after: string,
+  host: string | null
 ): Promise<
   { ok: true; fields: RawProjectV2Field[] } | { ok: false; error: GitHubProjectViewError }
 > {
@@ -715,7 +723,7 @@ async function fetchViewFieldsContinuation(
           nodes?: (RawProjectV2Field | null)[]
         }
       } | null
-    }>(query, { viewId, after: cursor })
+    }>(query, { viewId, after: cursor }, undefined, host)
     if (!res.ok) {
       return res
     }
@@ -855,7 +863,13 @@ async function fetchItemsPageWithRaw(args: {
     }
     ${FIELD_CONFIG_FRAGMENT}
   `
-  const argsArr: string[] = ['api', 'graphql', '-f', `query=${query}`]
+  const argsArr: string[] = [
+    'api',
+    'graphql',
+    ...projectsGhHostArgs(resolveProjectsGhHost(args.owner)),
+    '-f',
+    `query=${query}`
+  ]
   argsArr.push('-f', `owner=${args.owner}`)
   argsArr.push('-F', `num=${args.projectNumber}`)
   argsArr.push('-f', `q=${args.query}`)
@@ -1139,7 +1153,7 @@ async function fetchItemsCountOnly(args: {
   `
   const res = await runGraphql<
     Record<string, { projectV2?: { items?: { totalCount?: number } | null } | null } | null>
-  >(query, { owner: args.owner, num: args.projectNumber, q: args.query })
+  >(query, { owner: args.owner, num: args.projectNumber, q: args.query }, undefined, resolveProjectsGhHost(args.owner))
   if (!res.ok) {
     return null
   }
@@ -1225,7 +1239,11 @@ export async function getProjectViewTable(
   let extraFields: RawProjectV2Field[] = []
   const fieldsPi = selectedRaw.fields?.pageInfo
   if (fieldsPi?.hasNextPage === true && typeof fieldsPi.endCursor === 'string' && selectedRaw.id) {
-    const cont = await fetchViewFieldsContinuation(selectedRaw.id, fieldsPi.endCursor)
+    const cont = await fetchViewFieldsContinuation(
+      selectedRaw.id,
+      fieldsPi.endCursor,
+      resolveProjectsGhHost(args.owner)
+    )
     if (!cont.ok) {
       return { ok: false, error: cont.error }
     }
@@ -1289,6 +1307,9 @@ export async function getProjectViewTable(
     totalCount: items.totalCount,
     parentFieldDropped: items.parentFieldDropped
   }
+  // Why: node-id-only mutations (field updates) carry no owner; stamp the
+  // project's host so they follow the same gh host as the table they edit.
+  rememberProjectsGhHostForProject(project.id, resolveProjectsGhHost(args.owner))
   return { ok: true, data: table }
 }
 
@@ -1554,7 +1575,7 @@ async function resolveOwnerType(
     }
     const res = await runGraphql<
       Record<string, { projectV2?: { id?: string; title?: string } | null; login?: string } | null>
-    >(query, vars)
+    >(query, vars, undefined, resolveProjectsGhHost(owner))
     if (!res.ok) {
       return { ok: false, error: res.error }
     }
@@ -1648,7 +1669,7 @@ export async function resolveProjectRef(
   `
   const res = await runGraphql<
     Record<string, { projectV2?: { id?: string; title?: string } | null } | null>
-  >(query, { owner: parsed.owner, num: parsed.number })
+  >(query, { owner: parsed.owner, num: parsed.number }, undefined, resolveProjectsGhHost(parsed.owner))
   if (!res.ok) {
     return { ok: false, error: res.error }
   }

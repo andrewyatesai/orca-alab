@@ -10,8 +10,16 @@ export const PR_CHECK_LOG_TAIL_EARLIER_SEPARATOR = '… earlier errors …'
 const ERROR_LINE_PATTERN =
   /(?:##\[error\]|::error::|::error\b|\berror:|FAILED|exit code|ENOENT|EACCES|panic:|AssertionError)/i
 
+// Why: shared between main (GitHub job logs) and renderer (GitLab job traces),
+// so byte math uses TextEncoder rather than Node's Buffer.
+const utf8Encoder = new TextEncoder()
+
+function utf8ByteLength(text: string): number {
+  return utf8Encoder.encode(text).length
+}
+
 function applyLogTailByteCap(text: string): string {
-  if (Buffer.byteLength(text, 'utf8') <= PR_CHECK_LOG_TAIL_BYTES) {
+  if (utf8ByteLength(text) <= PR_CHECK_LOG_TAIL_BYTES) {
     return text
   }
   return sliceTrailingTextByUtf8Bytes(text, PR_CHECK_LOG_TAIL_BYTES)
@@ -21,7 +29,7 @@ function sliceTrailingTextByUtf8Bytes(text: string, byteLimit: number): string {
   let byteLength = 0
   const characters = Array.from(text)
   for (let index = characters.length - 1; index >= 0; index -= 1) {
-    const characterByteLength = Buffer.byteLength(characters[index] ?? '', 'utf8')
+    const characterByteLength = utf8ByteLength(characters[index] ?? '')
     if (byteLength + characterByteLength > byteLimit) {
       return characters.slice(index + 1).join('')
     }
@@ -32,14 +40,14 @@ function sliceTrailingTextByUtf8Bytes(text: string, byteLimit: number): string {
 
 function joinLogExcerptWithByteCap(prefixLines: string[], recentLines: string[]): string {
   const prefix = prefixLines.join('\n')
-  const prefixByteLength = Buffer.byteLength(prefix, 'utf8')
+  const prefixByteLength = utf8ByteLength(prefix)
   if (prefixByteLength >= PR_CHECK_LOG_TAIL_BYTES) {
     return sliceTrailingTextByUtf8Bytes(prefix, PR_CHECK_LOG_TAIL_BYTES)
   }
 
   const separator = prefix.length > 0 && recentLines.length > 0 ? '\n' : ''
   const recentBudget =
-    PR_CHECK_LOG_TAIL_BYTES - prefixByteLength - Buffer.byteLength(separator, 'utf8')
+    PR_CHECK_LOG_TAIL_BYTES - prefixByteLength - utf8ByteLength(separator)
   const recentTail = sliceTrailingTextByUtf8Bytes(recentLines.join('\n'), recentBudget)
   return `${prefix}${separator}${recentTail}`
 }

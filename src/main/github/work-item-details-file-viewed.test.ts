@@ -8,6 +8,7 @@ const {
   ghExecFileAsyncMock,
   getOwnerRepoMock,
   getIssueOwnerRepoMock,
+  getEnterpriseGitHubRepoSlugMock,
   getWorkItemMock,
   getPRChecksMock,
   getPRCommentsMock,
@@ -19,6 +20,7 @@ const {
   ghExecFileAsyncMock: vi.fn(),
   getOwnerRepoMock: vi.fn(),
   getIssueOwnerRepoMock: vi.fn(),
+  getEnterpriseGitHubRepoSlugMock: vi.fn(),
   getWorkItemMock: vi.fn(),
   getPRChecksMock: vi.fn(),
   getPRCommentsMock: vi.fn(),
@@ -47,6 +49,10 @@ vi.mock('./client', () => ({
   getPRComments: getPRCommentsMock
 }))
 
+vi.mock('./github-enterprise-repository', () => ({
+  getEnterpriseGitHubRepoSlug: getEnterpriseGitHubRepoSlugMock
+}))
+
 vi.mock('./rate-limit', () => ({
   rateLimitGuard: rateLimitGuardMock,
   noteRateLimitSpend: noteRateLimitSpendMock
@@ -59,6 +65,8 @@ describe('getWorkItemDetails PR file viewed state', () => {
     ghExecFileAsyncMock.mockReset()
     getOwnerRepoMock.mockReset()
     getIssueOwnerRepoMock.mockReset()
+    getEnterpriseGitHubRepoSlugMock.mockReset()
+    getEnterpriseGitHubRepoSlugMock.mockResolvedValue(null)
     getWorkItemMock.mockReset()
     getPRChecksMock.mockReset()
     getPRCommentsMock.mockReset()

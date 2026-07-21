@@ -28,6 +28,7 @@ import { initDaemonPtyProvider, disconnectDaemon, shutdownDaemon } from './daemo
 import { closeAllWatchers } from './ipc/filesystem-watcher'
 import { disposeWorktreeBaseDirectoryWatchers } from './ipc/worktree-base-directory-watcher'
 import { registerCoreHandlers } from './ipc/register-core-handlers'
+import { registerProjectsHostRemoteInventory } from './github/projects-gh-host'
 import { initObservability, shutdownObservability } from './observability'
 import { registerMobileHandlers } from './ipc/mobile'
 import { initTelemetry, shutdownTelemetry, trackAppOpenedOnce, track } from './telemetry/client'
@@ -1676,6 +1677,12 @@ app.whenReady().then(async () => {
   const activeOrcaProfile = ensureActiveOrcaProfile()
   store = new Store({ dataFile: activeOrcaProfile.dataFile })
   logStartupMilestone('store-loaded')
+  // Why: GitHub Projects gh calls pin --hostname from workspace remotes (#1715).
+  registerProjectsHostRemoteInventory(() =>
+    (store?.getRepos() ?? []).flatMap((repo) =>
+      repo.gitRemoteIdentity?.remoteUrl ? [{ remoteUrl: repo.gitRemoteIdentity.remoteUrl }] : []
+    )
+  )
   store.onSettingsChanged((updates, settings) => {
     if ('showMenuBarIcon' in updates) {
       // Why: Store is the mutation authority for all settings writes, so every macOS toggle updates the native item live.

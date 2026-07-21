@@ -48,6 +48,7 @@ vi.mock('./rate-limit', () => ({
 }))
 
 import { countWorkItems, getWorkItem, listWorkItems, _resetOwnerRepoCache } from './client'
+import { _resetGhCwdRepoNegativeCache } from './gh-cwd-repo-negative-cache'
 
 const PR_LIST_FIELDS =
   'number,title,state,url,labels,updatedAt,author,isDraft,headRefName,baseRefName,headRefOid,headRepositoryOwner,reviewRequests'
@@ -219,6 +220,91 @@ describe('GitHub issue source split', () => {
     expect(getOwnerRepoMock).toHaveBeenCalledWith('/home/jinwoo/orca', 'openclaw-2', {})
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(1, issueSearchArgs('stablyai/orca'), {})
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(2, prListArgs('fork/orca'), {})
+  })
+
+  it('does not run a repo-less issue search when the issue source is unresolved (recent)', async () => {
+    // #9202: gh api search/issues ignores cwd, so a repo-less issue query returns
+    // issues from all of GitHub. When the issue source can't be resolved (e.g. the
+    // default remote is not named origin), the issue side must stay empty instead
+    // of leaking foreign issues stamped with this project.
+    resolveIssueSourceMock.mockResolvedValueOnce({ source: null, fellBack: false })
+    getOwnerRepoMock.mockResolvedValueOnce({ owner: 'fork', repo: 'orca' })
+    ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: '[]' })
+
+    const result = await listWorkItems('/repo-root', 10)
+
+    // Only the PR list runs; the issue side never spawns a search/issues call.
+    expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(1)
+    const ranIssueSearch = ghExecFileAsyncMock.mock.calls.some((call) =>
+      (call[0] as string[]).some((arg) => arg.startsWith('search/issues?'))
+    )
+    expect(ranIssueSearch).toBe(false)
+    expect(result.items).toEqual([])
+    expect(result.sources.issues).toBeNull()
+  })
+
+  it('does not run a repo-less issue search when the issue source is unresolved (queried)', async () => {
+    // #9202: same guard for the explicit-query path.
+    resolveIssueSourceMock.mockResolvedValueOnce({ source: null, fellBack: false })
+    getOwnerRepoMock.mockResolvedValueOnce({ owner: 'fork', repo: 'orca' })
+    ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: '[]' })
+
+    const result = await listWorkItems('/repo-root', 10, 'is:open')
+
+    const ranIssueSearch = ghExecFileAsyncMock.mock.calls.some((call) =>
+      (call[0] as string[]).some((arg) => arg.startsWith('search/issues?'))
+    )
+    expect(ranIssueSearch).toBe(false)
+    expect(result.items).toEqual([])
+    expect(result.sources.issues).toBeNull()
+  })
+
+  it('never runs a global issue search for a git: project with only a self-hosted remote (recent)', async () => {
+    // #9553: a self-hosted (e.g. Gitea) origin yields no GitHub source on either
+    // side. The old fallback still spawned a repo-less search/issues, showing a
+    // firehose of foreign public issues stamped with the project's name.
+    _resetGhCwdRepoNegativeCache()
+    getIssueOwnerRepoMock.mockResolvedValue(null)
+    getOwnerRepoMock.mockResolvedValue(null)
+    ghExecFileAsyncMock.mockRejectedValue(
+      Object.assign(new Error('Command failed: gh pr list'), {
+        stderr:
+          'none of the git remotes configured for this repository point to a known GitHub host'
+      })
+    )
+
+    await expect(listWorkItems('/gitea-project', 10)).rejects.toThrow('gh pr list')
+
+    // Only the cwd-resolved PR list ran; no search/issues call ever spawned.
+    expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(1)
+    const ranIssueSearch = ghExecFileAsyncMock.mock.calls.some((call) =>
+      (call[0] as string[]).some((arg) => arg.startsWith('search/issues?'))
+    )
+    expect(ranIssueSearch).toBe(false)
+    _resetGhCwdRepoNegativeCache()
+  })
+
+  it('never runs a global issue search for a git: project with only a self-hosted remote (queried)', async () => {
+    // #9553: the explicit-query path returns empty instead of a global search.
+    _resetGhCwdRepoNegativeCache()
+    getIssueOwnerRepoMock.mockResolvedValue(null)
+    getOwnerRepoMock.mockResolvedValue(null)
+    ghExecFileAsyncMock.mockRejectedValue(
+      Object.assign(new Error('Command failed: gh pr list'), {
+        stderr:
+          'none of the git remotes configured for this repository point to a known GitHub host'
+      })
+    )
+
+    const result = await listWorkItems('/gitea-project', 10, 'is:issue is:open')
+
+    const ranIssueSearch = ghExecFileAsyncMock.mock.calls.some((call) =>
+      (call[0] as string[]).some((arg) => arg.startsWith('search/issues?'))
+    )
+    expect(ranIssueSearch).toBe(false)
+    expect(result.items).toEqual([])
+    expect(result.sources.issues).toBeNull()
+    _resetGhCwdRepoNegativeCache()
   })
 
   it('uses upstream for issue-only queries and origin for PR-only queries', async () => {
@@ -580,6 +666,58 @@ describe('GitHub issue source split', () => {
       expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(1, issueSearchArgs('solo/orca'), {
         cwd: '/repo-root'
       })
+    })
+
+    it("preference='auto' + upstream exists → PRs query upstream too", async () => {
+      // Why: fork-contribution PRs live on the upstream repo — the fork's own
+      // PR list is almost always empty. 'auto' must resolve PRs upstream-first
+      // like issues, or the PRs tab renders "No matching GitHub work" on forks.
+      resolveIssueSourceMock.mockResolvedValueOnce({
+        source: { owner: 'stablyai', repo: 'orca' },
+        fellBack: false
+      })
+      getOwnerRepoMock.mockResolvedValueOnce({ owner: 'fork', repo: 'orca' })
+      mockUpstreamCandidate({ owner: 'stablyai', repo: 'orca' })
+      ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: '[]' }).mockResolvedValueOnce({
+        stdout: '[]'
+      })
+
+      const result = await listWorkItems('/repo-root', 10, undefined, undefined, 'auto')
+
+      expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
+        2,
+        expect.arrayContaining(['--repo', 'stablyai/orca']),
+        { cwd: '/repo-root' }
+      )
+      expect(result.sources).toEqual({
+        issues: { owner: 'stablyai', repo: 'orca' },
+        prs: { owner: 'stablyai', repo: 'orca' },
+        originCandidate: { owner: 'fork', repo: 'orca' },
+        upstreamCandidate: { owner: 'stablyai', repo: 'orca' }
+      })
+    })
+
+    it('collapses the default count to one query when auto resolves both sides to upstream', async () => {
+      getIssueOwnerRepoMock.mockResolvedValueOnce({ owner: 'stablyai', repo: 'orca' })
+      getOwnerRepoMock.mockResolvedValueOnce({ owner: 'fork', repo: 'orca' })
+      mockUpstreamCandidate({ owner: 'stablyai', repo: 'orca' })
+      ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: '11\n' })
+
+      const count = await countWorkItems('/repo-root')
+
+      expect(count).toBe(11)
+      expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(1)
+      expect(ghExecFileAsyncMock).toHaveBeenCalledWith(
+        [
+          'api',
+          '--cache',
+          '120s',
+          `search/issues?q=${encodeURIComponent('repo:stablyai/orca is:open')}&per_page=1`,
+          '--jq',
+          '.total_count'
+        ],
+        { cwd: '/repo-root' }
+      )
     })
 
     it("preference='upstream' + upstream exists → queries upstream", async () => {

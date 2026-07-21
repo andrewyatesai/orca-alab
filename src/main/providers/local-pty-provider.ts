@@ -1074,9 +1074,8 @@ export class LocalPtyProvider implements IPtyProvider {
   ): Promise<void> {
     const physicalExit = ptyPhysicalExits.get(id)
     // Why: snapshot before signaling — once the shell dies, descendants reparent to pid 1 and a ppid walk can't find them.
-    const descendants = ptyAgentSessionIds.has(id)
-      ? await captureDescendantSnapshot(proc.pid)
-      : null
+    // Why every session, not only agents: plain terminals leak detached prompt helpers (oh-my-posh, #9530).
+    const descendants = await captureDescendantSnapshot(proc.pid)
     // Why: a natural exit can race the snapshot — never signal descendants or the root PID after this PTY loses ownership.
     if (ptyProcesses.get(id) === proc) {
       if (descendants) {

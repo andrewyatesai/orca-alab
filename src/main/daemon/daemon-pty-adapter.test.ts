@@ -23,6 +23,20 @@ const { getMacDaemonSystemResolverHealthMock } = vi.hoisted(() => ({
   getMacDaemonSystemResolverHealthMock: vi.fn(async () => 'unknown')
 }))
 
+const { captureDescendantSnapshotMock, terminateDescendantSnapshotMock } = vi.hoisted(() => ({
+  captureDescendantSnapshotMock: vi.fn(),
+  terminateDescendantSnapshotMock: vi.fn()
+}))
+
+vi.mock('../pty-descendant-termination', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../pty-descendant-termination')>()
+  return {
+    ...actual,
+    captureDescendantSnapshot: captureDescendantSnapshotMock,
+    terminateDescendantSnapshot: terminateDescendantSnapshotMock
+  }
+})
+
 const itOnPosix = process.platform === 'win32' ? it.skip : it
 
 vi.mock('./daemon-health', async (importOriginal) => {
@@ -105,6 +119,9 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
   let daemonLogEvents: string[]
 
   beforeEach(async () => {
+    captureDescendantSnapshotMock.mockReset()
+    captureDescendantSnapshotMock.mockResolvedValue(null)
+    terminateDescendantSnapshotMock.mockReset()
     subprocessDataOnSubscribe = undefined
     dir = createTestDir()
     socketPath = getDaemonSocketPath(dir)
@@ -552,6 +569,45 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       await expect(adapter.listProcesses()).resolves.not.toContainEqual(
         expect.objectContaining({ id })
       )
+    })
+
+    // Why: the daemon's kill only reaches the shell; detached prompt helpers
+    // (oh-my-posh) survived plain-terminal close for ~38h (#9530).
+    it('sweeps the descendants of a plain terminal on close (#9530)', async () => {
+      const snapshot = { rootPgid: 42, descendants: [], capturedAtMs: Date.now() }
+      captureDescendantSnapshotMock.mockResolvedValue(snapshot)
+
+      const { id, pid } = await adapter.spawn({ cols: 80, rows: 24 })
+      await adapter.shutdown(id, { immediate: false })
+
+      expect(captureDescendantSnapshotMock).toHaveBeenCalledWith(pid)
+      expect(terminateDescendantSnapshotMock).toHaveBeenCalledWith(snapshot)
+      // Capture must precede the root kill: a dead root's descendants reparent to pid 1.
+      expect(captureDescendantSnapshotMock.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(lastSubprocess.kill).mock.invocationCallOrder[0]
+      )
+    })
+
+    it('does not terminate descendants when the snapshot degrades to null', async () => {
+      const { id } = await adapter.spawn({ cols: 80, rows: 24 })
+      await adapter.shutdown(id, { immediate: false })
+
+      expect(captureDescendantSnapshotMock).toHaveBeenCalled()
+      expect(terminateDescendantSnapshotMock).not.toHaveBeenCalled()
+    })
+
+    it('skips the descendant sweep when the session already exited', async () => {
+      const { id } = await adapter.spawn({ cols: 80, rows: 24 })
+      const exits: { id: string; code: number }[] = []
+      adapter.onExit((payload) => exits.push(payload))
+      lastSubprocess._simulateExit(0)
+      await waitFor(() => exits.some((exit) => exit.id === id))
+
+      await adapter.shutdown(id, { immediate: false })
+
+      // Why: after exit the numeric pid may already be reused; sweeping it could signal an unrelated process.
+      expect(captureDescendantSnapshotMock).not.toHaveBeenCalled()
+      expect(terminateDescendantSnapshotMock).not.toHaveBeenCalled()
     })
 
     it('coalesces the lazy connection when a fresh adapter shuts down concurrent sessions', async () => {

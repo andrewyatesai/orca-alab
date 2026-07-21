@@ -1138,6 +1138,8 @@ describe('LocalPtyProvider', () => {
 
       const { id } = await provider.spawn({ cols: 80, rows: 24 })
       const shutdown = provider.shutdown(id, { immediate: true })
+      // Why: let the pre-kill descendant snapshot resolve so the intentional kill lands before exit.
+      await Promise.resolve()
       exitCb?.({ exitCode: -1 })
       await shutdown
 
@@ -1188,6 +1190,8 @@ describe('LocalPtyProvider', () => {
         const { id } = await provider.spawn({ cols: 80, rows: 24 })
 
         const graceful = provider.shutdown(id, { immediate: false })
+        // Why: the descendant snapshot resolves on a microtask before the root signal (#9530).
+        await Promise.resolve()
         expect(killSpy.mock.calls).toEqual([['SIGTERM']])
 
         expect(provider.killOrphanedPtys(1)).toEqual([{ id }])
@@ -1212,6 +1216,8 @@ describe('LocalPtyProvider', () => {
       const { id } = await provider.spawn({ cols: 80, rows: 24 })
 
       const graceful = provider.shutdown(id, { immediate: false })
+      // Why: the descendant snapshot resolves on a microtask before the root signal (#9530).
+      await Promise.resolve()
       const immediate = provider.shutdown(id, { immediate: true })
       expect(killSpy.mock.calls).toEqual([['SIGTERM'], ['SIGKILL']])
 
@@ -1228,6 +1234,8 @@ describe('LocalPtyProvider', () => {
         const { id } = await provider.spawn({ cols: 80, rows: 24 })
 
         const graceful = provider.shutdown(id, { immediate: false })
+        // Why: the descendant snapshot resolves on a microtask before the root signal (#9530).
+        await Promise.resolve()
         expect(killSpy.mock.calls).toEqual([['SIGTERM']])
 
         await vi.advanceTimersByTimeAsync(LOCAL_PTY_GRACEFUL_FORCE_TIMEOUT_MS)
@@ -1276,6 +1284,8 @@ describe('LocalPtyProvider', () => {
       const { id } = await provider.spawn({ cols: 80, rows: 24 })
 
       const graceful = provider.shutdown(id, { immediate: false })
+      // Why: the descendant snapshot resolves on a microtask before the root signal (#9530).
+      await Promise.resolve()
       const immediate = provider.shutdown(id, { immediate: true })
       expect(killSpy.mock.calls).toEqual([[]])
 
@@ -1367,6 +1377,22 @@ describe('LocalPtyProvider', () => {
       await shutdown
       await respawn
       expect(spawnMock).toHaveBeenCalledTimes(spawnCallsBefore + 2)
+    })
+
+    // Why: plain terminals leak detached prompt helpers too (oh-my-posh, #9530) — the sweep must not be agent-only.
+    it('sweeps descendants of a plain (non-agent) terminal on shutdown (#9530)', async () => {
+      const snapshot = { rootPgid: 7, descendants: [], capturedAtMs: Date.now() }
+      captureDescendantSnapshotMock.mockResolvedValue(snapshot)
+      const { id } = await provider.spawn({ cols: 80, rows: 24 })
+
+      const shutdown = provider.shutdown(id, { immediate: true })
+      // Why: the sweep only signals while this PTY still owns the root; let the snapshot land before exit.
+      await Promise.resolve()
+      exitCb?.({ exitCode: 137 })
+      await shutdown
+
+      expect(captureDescendantSnapshotMock).toHaveBeenCalledWith(mockProc.pid)
+      expect(terminateDescendantSnapshotMock).toHaveBeenCalledWith(snapshot)
     })
 
     it('coalesces duplicate shutdown while descendant capture is pending', async () => {

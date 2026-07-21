@@ -475,7 +475,8 @@ export default function DiffViewer({
               find: {
                 addExtraSpaceOnTop: false,
                 autoFindInSelection: 'never',
-                seedSearchStringFromSelection: 'never'
+                // Why: prefill Cmd+F from the selection (Monaco's default).
+                seedSearchStringFromSelection: 'always'
               }
             }}
           />

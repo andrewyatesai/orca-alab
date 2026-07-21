@@ -2808,6 +2808,16 @@ export type GlobalSettings = {
   skipDeleteAutomationConfirm: boolean
   /** Why: a Codex rate-limit reset spends a scarce credit on the live account; keep this skip separate from local confirmations. */
   skipCodexRateLimitResetConfirm: boolean
+  /** Why: when true, Orca auto-runs the standard delete-worktree flow as soon as
+   *  a worktree's linked PR/MR transitions to `merged`. Default false because the
+   *  deletion is destructive and users may want to keep the worktree around
+   *  after merge (e.g. to verify CI on main, cherry-pick to a release branch).
+   *  Enabling this setting is itself the user's standing confirmation, so the
+   *  auto-close path skips the usual delete-worktree dialog and goes straight
+   *  through `runWorktreeDeleteWithToast`. Non-forced: if the worktree has
+   *  uncommitted changes the toast surfaces a "Force Delete" recovery action
+   *  instead of wiping local work silently. */
+  autoCloseAfterMerge: boolean
   /** Default preset in the new-workspace GitHub task view. */
   defaultTaskViewPreset: TaskViewPresetId
   /** Persisted last-used task source so Tasks reopens to the same provider instead of defaulting to GitHub. */

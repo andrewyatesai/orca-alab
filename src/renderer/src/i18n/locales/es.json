@@ -7826,7 +7826,13 @@
             "d2d2d929c0": "Corrector ortográfico de Rich Markdown",
             "4497e2e2bb": "Muestra subrayados y sugerencias ortográficas del navegador al editar Rich Markdown.",
             "e61157e926": "Ajuste de línea en el editor",
-            "005be5c699": "Ajusta las líneas largas en editores de archivos en lugar de requerir desplazamiento horizontal."
+            "005be5c699": "Ajusta las líneas largas en editores de archivos en lugar de requerir desplazamiento horizontal.",
+            "1caacdda65": "Cierre automático tras la fusión",
+            "bdb7f0fd9b": "Elimina automáticamente un espacio de trabajo cuando su pull request o merge request se fusiona.",
+            "9df22f196a": "auto",
+            "65464c31b2": "fusionar",
+            "64e1e1cbe1": "pr",
+            "ecfb9f08f0": "limpieza"
           }
         },
         "git": {

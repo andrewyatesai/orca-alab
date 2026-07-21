@@ -123,6 +123,7 @@ function createSettings(overrides: Partial<GlobalSettings> = {}): GlobalSettings
     skipCloseTerminalWithRunningProcessConfirm: false,
     skipDeleteAutomationConfirm: false,
     skipCodexRateLimitResetConfirm: false,
+    autoCloseAfterMerge: false,
     defaultTaskViewPreset: 'all',
     defaultTaskSource: 'github',
     visibleTaskProviders: ['github', 'gitlab', 'linear', 'jira'],

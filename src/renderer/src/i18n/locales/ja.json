@@ -7848,7 +7848,13 @@
             "d2d2d929c0": "Rich Markdown Spellcheck",
             "4497e2e2bb": "Show browser spelling underlines and suggestions while editing rich Markdown.",
             "e61157e926": "エディターのワードラップ",
-            "005be5c699": "水平スクロールを使わずに、ファイルエディターで長い行を折り返します。"
+            "005be5c699": "水平スクロールを使わずに、ファイルエディターで長い行を折り返します。",
+            "1caacdda65": "マージ後に自動クローズ",
+            "bdb7f0fd9b": "プルリクエストまたはマージリクエストがマージされたら、ワークスペースを自動的に削除します。",
+            "9df22f196a": "自動",
+            "65464c31b2": "マージ",
+            "64e1e1cbe1": "pr",
+            "ecfb9f08f0": "クリーンアップ"
           }
         },
         "git": {

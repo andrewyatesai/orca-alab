@@ -55,6 +55,25 @@ export const getGeneralWorkspaceSearchEntries = createLocalizedCatalog(() => [
   },
   {
     title: translate(
+      'auto.components.settings.general.search.1caacdda65',
+      'Auto-Close After Merge'
+    ),
+    description: translate(
+      'auto.components.settings.general.search.bdb7f0fd9b',
+      'Automatically delete a workspace once its pull request or merge request is merged.'
+    ),
+    keywords: [
+      ...translateSearchKeyword('auto.components.settings.general.search.9df22f196a', 'auto'),
+      ...translateSearchKeyword('auto.components.settings.general.search.afa37a34e1', 'close'),
+      ...translateSearchKeyword('auto.components.settings.general.search.65464c31b2', 'merge'),
+      ...translateSearchKeyword('auto.components.settings.general.search.64e1e1cbe1', 'pr'),
+      ...translateSearchKeyword('auto.components.settings.general.search.df10666259', 'worktree'),
+      ...translateSearchKeyword('auto.components.settings.general.search.84c67d0108', 'delete'),
+      ...translateSearchKeyword('auto.components.settings.general.search.ecfb9f08f0', 'cleanup')
+    ]
+  },
+  {
+    title: translate(
       'auto.components.settings.general.search.d0a65b27fd',
       'Ask Before Deleting Automations'
     ),

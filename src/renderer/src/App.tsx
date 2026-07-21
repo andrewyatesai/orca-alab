@@ -90,6 +90,7 @@ import { ConfirmationDialogProvider } from './components/confirmation-dialog'
 import { LinkRoutingPreferenceDialogProvider } from './components/link-routing-preference-dialog'
 import RecentTabSwitcher from './components/tab-bar/RecentTabSwitcher'
 import { useGitStatusPolling } from './components/right-sidebar/useGitStatusPolling'
+import { attachAppAutoCloseAfterMergeController } from './components/sidebar/auto-close-after-merge-controller'
 import { useEditorExternalWatch } from './hooks/useEditorExternalWatch'
 import { useAutoAckViewedAgent } from './hooks/useAutoAckViewedAgent'
 import { useUnreadDockBadge } from './hooks/useUnreadDockBadge'
@@ -1129,6 +1130,11 @@ function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => registerUpdaterBeforeUnloadBypass(), [])
+
+  // Why: attach at App level (not inside RightSidebar) so merge-driven
+  // auto-close still fires when the sidebar is closed. The controller is a
+  // no-op whenever `settings.autoCloseAfterMerge` is false.
+  useEffect(() => attachAppAutoCloseAfterMergeController(), [])
 
   useEffect(() => {
     setRuntimeGraphSyncEnabled(workspaceSessionReady)

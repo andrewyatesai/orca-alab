@@ -89,6 +89,31 @@ export function GeneralWorkspaceSettingsSection({
         </SearchableSetting>
       </div>
 
+      <SearchableSetting
+        title={translate(
+          'auto.components.settings.general.search.1caacdda65',
+          'Auto-Close After Merge'
+        )}
+        description={translate(
+          'auto.components.settings.general.search.bdb7f0fd9b',
+          'Automatically delete a workspace once its pull request or merge request is merged.'
+        )}
+        keywords={['auto', 'close', 'merge', 'pr', 'worktree', 'delete', 'cleanup']}
+      >
+        <SettingsSwitchRow
+          label={translate(
+            'auto.components.settings.general.search.1caacdda65',
+            'Auto-Close After Merge'
+          )}
+          description={translate(
+            'auto.components.settings.general.search.bdb7f0fd9b',
+            'Automatically delete a workspace once its pull request or merge request is merged.'
+          )}
+          checked={settings.autoCloseAfterMerge}
+          onChange={() => updateSettings({ autoCloseAfterMerge: !settings.autoCloseAfterMerge })}
+        />
+      </SearchableSetting>
+
       <div id="general-skip-delete-automation-confirm" className="scroll-mt-6">
         <SearchableSetting
           title={translate(

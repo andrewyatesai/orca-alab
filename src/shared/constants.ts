@@ -337,6 +337,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     skipCloseTerminalWithRunningProcessConfirm: false,
     skipDeleteAutomationConfirm: false,
     skipCodexRateLimitResetConfirm: false,
+    autoCloseAfterMerge: false,
     defaultTaskViewPreset: 'all',
     defaultTaskSource: 'github',
     visibleTaskProviders: [...TASK_PROVIDERS],

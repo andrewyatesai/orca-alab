@@ -111,6 +111,7 @@ export function GeneralPane({
           keywords={tabOrderKeywords}
           updateSettings={updateSettings}
         />
+
         <SearchableSetting
           title={translate(
             'auto.components.settings.GeneralPane.5cb5475664',

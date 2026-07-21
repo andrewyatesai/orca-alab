@@ -1039,6 +1039,7 @@ function openMainWindow(): BrowserWindow {
       launchToken,
       providerSession,
       hookEventName,
+      hasExplicitPrompt,
       providerSessionOnly,
       promptInteractionKey,
       isReplay
@@ -1084,6 +1085,11 @@ function openMainWindow(): BrowserWindow {
         receivedAt,
         stateStartedAt,
         ...(rainPulse ? { rainPulse } : {}),
+        // Why: forward the turn-boundary signals so the renderer's completion
+        // coordinator can tell a real user turn from background plugin hook
+        // churn (e.g. Claude-Mem memory writes) and not re-notify (#6595).
+        ...(hookEventName ? { hookEventName } : {}),
+        ...(hasExplicitPrompt === true ? { hasExplicitPrompt: true } : {}),
         ...(providerSession ? { providerSession } : {}),
         ...(promptInteractionKey ? { promptInteractionKey } : {}),
         ...(orchestration ? { orchestration } : {})

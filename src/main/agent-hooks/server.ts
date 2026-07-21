@@ -9,6 +9,7 @@ import { track } from '../telemetry/client'
 import { getCohortAtEmit } from '../telemetry/cohort-classifier'
 import { AGENT_KIND_VALUES, type AgentKind } from '../../shared/telemetry-events'
 import { ORCA_HOOK_PROTOCOL_VERSION } from '../../shared/agent-hook-types'
+import { isToolProgressHookEvent } from '../../shared/agent-tool-progress-hooks'
 import {
   clearAllListenerCaches,
   clearPaneCacheState,
@@ -97,7 +98,6 @@ const LAST_STATUS_FILE_VERSION = 2
 
 // Why: trailing-edge debounce so a burst of hook events yields one disk write, not N; quit-time flushStatusPersistSync() guarantees the final flush.
 const STATUS_PERSIST_DEBOUNCE_MS = 250
-const TOOL_PROGRESS_HOOK_EVENTS = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure'])
 const AGENT_PROMPT_SENT_AGENT_KINDS = new Set<AgentKind>(AGENT_KIND_VALUES)
 
 // Why: bound file growth from PTYs that never re-attach; 7 days is the "still relevant?" horizon beyond which entries shouldn't resurrect on hydrate.
@@ -259,6 +259,10 @@ function toAgentStatusIpcPayload(entry: EnrichedAgentHookEventPayload): AgentSta
     connectionId: entry.connectionId,
     receivedAt: entry.receivedAt,
     stateStartedAt: entry.stateStartedAt,
+    // Why: snapshots should carry the same turn-boundary metadata as the live
+    // listener IPC path so restored rows don't lose hook identity.
+    ...(entry.hookEventName ? { hookEventName: entry.hookEventName } : {}),
+    ...(entry.hasExplicitPrompt === true ? { hasExplicitPrompt: true } : {}),
     ...(entry.providerSession ? { providerSession: entry.providerSession } : {}),
     ...(entry.providerSessionOnly ? { providerSessionOnly: true } : {}),
     ...(entry.promptInteractionKey ? { promptInteractionKey: entry.promptInteractionKey } : {}),
@@ -302,7 +306,7 @@ function isToolProgressWorkingAfterInterrupt(next: AgentHookEventPayload): boole
     return false
   }
   // Why: a same-prompt retry is another UserPromptSubmit, while late post-Ctrl+C progress arrives as tool lifecycle work.
-  return next.hookEventName !== undefined && TOOL_PROGRESS_HOOK_EVENTS.has(next.hookEventName)
+  return isToolProgressHookEvent(next.hookEventName)
 }
 
 function paneCacheKeyTabId(key: string): string | null {

@@ -259,4 +259,19 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
     })
     expect(execFileMock).not.toHaveBeenCalled()
   })
+
+  it('keeps wrapping when a spawn boundary never awaited the preflight', () => {
+    // Fork divergence from upstream: an unprepared boundary must fail closed to
+    // the login(1) wrap — never open to direct spawns (#8985's TCC prompt loop).
+    setPlatform('darwin')
+    expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l']).file).toBe('/usr/bin/login')
+    expect(execFileMock).not.toHaveBeenCalled()
+  })
+
+  it('skips the preflight entirely when disabled via env', async () => {
+    setPlatform('darwin')
+    process.env.ORCA_DISABLE_MACOS_LOGIN_SHELL = '1'
+    await prepareMacosTccLoginShell()
+    expect(execFileMock).not.toHaveBeenCalled()
+  })
 })

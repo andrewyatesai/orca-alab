@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { DaemonClient } from './client'
 import { getMacDaemonSystemResolverHealth } from './daemon-health'
 import { buildPosixDaemonShellLaunch } from './daemon-shell-launch-config'
+import { prepareMacosTccLoginShell } from '../providers/macos-tcc-login-shell'
 import { HistoryManager } from './history-manager'
 import { HistoryReader, type ColdRestoreInfo } from './history-reader'
 import { mintPtySessionId, parsePtySessionId } from './pty-session-id'
@@ -313,16 +314,22 @@ export class DaemonPtyAdapter implements IPtyProvider {
     // sleep/wake respawn. Public legacy keeps the plain opts passthrough; a
     // fork daemon at ANY rev (1018+) honors shellArgs, so a preserved
     // previous-rev fork daemon keeps the full interactive launch.
-    const posixLaunch =
-      this.protocolVersion >= FORK_DAEMON_PROTOCOL_NAMESPACE_START
-        ? buildPosixDaemonShellLaunch({
-            shellOverride: opts.shellOverride,
-            env: opts.env,
-            envToDelete: opts.envToDelete,
-            command: opts.command,
-            startupCommandDelivery: opts.startupCommandDelivery
-          })
-        : null
+    const isForkDaemonProtocol = this.protocolVersion >= FORK_DAEMON_PROTOCOL_NAMESPACE_START
+    if (isForkDaemonProtocol) {
+      // Why: #8985 — the TCC wrap inside buildPosixDaemonShellLaunch decides
+      // against the cached login(1) PAM preflight; resolve it at this spawn
+      // boundary too so daemon-backed terminals never spawn unprobed.
+      await prepareMacosTccLoginShell()
+    }
+    const posixLaunch = isForkDaemonProtocol
+      ? buildPosixDaemonShellLaunch({
+          shellOverride: opts.shellOverride,
+          env: opts.env,
+          envToDelete: opts.envToDelete,
+          command: opts.command,
+          startupCommandDelivery: opts.startupCommandDelivery
+        })
+      : null
 
     const createOrAttach = (historySeed: string | null) =>
       this.client.request<CreateOrAttachResult>('createOrAttach', {

@@ -147,6 +147,7 @@ export class FrameDecoder {
   // frame exactly once instead.
   private chunks: Buffer[] = []
   private bufferedLength = 0
+  private discardBytesRemaining = 0
   private onFrame: (frame: DecodedFrame) => void
   private onError: ((err: Error) => void) | null
 
@@ -156,9 +157,19 @@ export class FrameDecoder {
   }
 
   feed(chunk: Buffer | Uint8Array): void {
-    const buf = Buffer.isBuffer(chunk)
+    let buf = Buffer.isBuffer(chunk)
       ? chunk
       : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+    if (this.discardBytesRemaining > 0) {
+      const bytesToDiscard = Math.min(this.discardBytesRemaining, buf.length)
+      this.discardBytesRemaining -= bytesToDiscard
+      if (bytesToDiscard === buf.length) {
+        return
+      }
+      // Why: the retained suffix may be a tiny partial frame after a hostile
+      // oversized payload; copy it so the discarded prefix is not kept alive.
+      buf = Buffer.from(buf.subarray(bytesToDiscard))
+    }
     if (buf.length > 0) {
       this.chunks.push(buf)
       this.bufferedLength += buf.length
@@ -169,26 +180,25 @@ export class FrameDecoder {
       const length = header.readUInt32BE(9)
       const totalLength = HEADER_LENGTH + length
 
-      if (this.bufferedLength < totalLength) {
-        // Not fully received yet (also holds oversized frames until they can
-        // be skipped whole, keeping the decoder synchronized).
-        break
-      }
-
       if (length > MAX_MESSAGE_SIZE) {
         // Why: Throwing here would leave the buffer in a partially consumed
         // state — subsequent feed() calls would try to parse the leftover
         // payload bytes as a new header, corrupting every future frame.
-        // Instead we skip the entire oversized frame so the decoder stays
+        // Instead we discard the oversized frame as its bytes arrive — never
+        // buffering the (up to 4GB) payload — so the decoder stays
         // synchronized with the stream.
-        this.discardBytes(totalLength)
-        const err = new Error(`Frame payload too large: ${length} bytes — discarded`)
-        if (this.onError) {
-          this.onError(err)
-        } else {
-          process.stderr.write(`[relay] ${err.message}\n`)
-        }
+        const bufferedPayloadBytes = this.bufferedLength - HEADER_LENGTH
+        const bytesToDiscard = Math.min(bufferedPayloadBytes, length)
+        this.discardBytes(HEADER_LENGTH + bytesToDiscard)
+        this.discardBytesRemaining = length - bytesToDiscard
+        this.copyResidueOutOfDiscardedChunks()
+        this.reportOversizedFrame(length)
         continue
+      }
+
+      if (this.bufferedLength < totalLength) {
+        // Not fully received yet.
+        break
       }
 
       const framed = this.takeBytes(totalLength)
@@ -202,9 +212,27 @@ export class FrameDecoder {
     }
   }
 
+  // Why: after an oversized discard, leftover chunks may be subarray views
+  // into the hostile oversized allocation; copy so it can be GC'd.
+  private copyResidueOutOfDiscardedChunks(): void {
+    if (this.bufferedLength > 0) {
+      this.chunks = [Buffer.concat(this.chunks, this.bufferedLength)]
+    }
+  }
+
+  private reportOversizedFrame(length: number): void {
+    const err = new Error(`Frame payload too large: ${length} bytes — discarded`)
+    if (this.onError) {
+      this.onError(err)
+    } else {
+      process.stderr.write(`[relay] ${err.message}\n`)
+    }
+  }
+
   reset(): void {
     this.chunks = []
     this.bufferedLength = 0
+    this.discardBytesRemaining = 0
   }
 
   // Why: at the handshake → dispatcher transition, the next consumer must

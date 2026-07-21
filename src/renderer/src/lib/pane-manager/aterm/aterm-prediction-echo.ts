@@ -40,6 +40,11 @@ export type AtermPredictionEcho = {
   overlayCells: () => Uint32Array
   /** Apply the display mode (default `'adaptive'`). `'off'` disarms the deadline. */
   setMode: (mode: AtermPredictionEchoMode) => void
+  /** Worker path only: re-arm the ONE glitch timer from the engine's CURRENT deadline.
+   *  The predictor is off-thread, so the wiring calls this when the worker reflects a
+   *  fresh (post-heal) deadline in STATE — the read is never a permanently-past instant.
+   *  Inert in-process (the deadline is armed synchronously from the note + paint seams). */
+  refreshDeadline: () => void
   /** Coordinate space changed (pane swap) — drop guesses AND disarm the deadline. */
   reset: () => void
   /** Tear down: MUST clear the pending deadline timer (no stranded 100%-CPU wake). */
@@ -169,6 +174,12 @@ export function createAtermPredictionEcho(deps: {
     reset: () => {
       clearDeadline()
       engine?.predict_reset()
+    },
+    // The worker reflected a fresh post-heal deadline: re-arm from it. armDeadline clears
+    // the prior timer first and honors every disable gate (no engine / disposed / mode off),
+    // so a stale STATE arriving after a disable can't strand a timer.
+    refreshDeadline: () => {
+      armDeadline()
     },
     dispose: () => {
       clearDeadline()

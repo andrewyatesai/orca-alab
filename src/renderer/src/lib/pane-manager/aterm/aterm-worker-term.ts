@@ -16,6 +16,7 @@
 // theme + search + cursor path is live.
 
 import type { AtermTerminal } from './aterm_wasm.js'
+import { createWorkerPredictFacade } from './aterm-worker-predict-facade'
 import { createAtermWorkerQueryChannel } from './aterm-worker-query-channel'
 import { createAtermWorkerGridMirror } from './aterm-worker-grid-mirror'
 import { createWorkerSideChannelBuffers } from './aterm-worker-side-channels'
@@ -59,6 +60,11 @@ export type WorkerBackedTerm = {
    *  title lag a command behind (or are lost if the pane closes idle), because
    *  process() only posts and the worker replies in a later task. */
   onSideChannel: (handler: () => void) => void
+  /** Wiring subscribes so the predictive-echo controller re-arms its ONE glitch-expiry
+   *  timer whenever the worker reflects a fresh (post-heal) deadline in STATE. The engine
+   *  predictor is off-thread, so this reflected value is the only place a real future
+   *  deadline can come from — the controller's synchronous read alone would lag a frame. */
+  onPredictDeadline: (handler: (ms: number | undefined) => void) => void
   /** Loader resolves a pending async query (serialize/content) by its id. */
   resolveQuery: (id: number, value: string | number | boolean | null) => void
   /** Loader feeds the worker's debounced serialized-buffer cache here; the SYNC
@@ -109,6 +115,12 @@ export function createWorkerBackedTerm(deps: {
   // the match set, so results land a frame after a posted find/next/prev; the search UI
   // subscribes (onSearchStateChange) and re-reads the snapshot-backed count then.
   const searchChangeListeners = new Set<() => void>()
+  // Predictive-echo glitch deadline (ms) reflected from the worker's per-frame STATE:
+  // the controller's synchronous predict_next_deadline_ms() read returns this, and the
+  // listeners re-arm the controller's ONE timer when it changes (the worker owns the
+  // predictor, so a fresh post-heal deadline can only arrive with a STATE).
+  let latestPredictDeadlineMs: number | undefined
+  const predictDeadlineListeners = new Set<(ms: number | undefined) => void>()
   // Latest debounced serialized-buffer cache from the worker (for the sync shutdown read).
   let cachedSerialize = ''
   let cachedScrollback = ''
@@ -136,12 +148,20 @@ export function createWorkerBackedTerm(deps: {
     const selectionChanged = rangeKey(next.selectionRange) !== rangeKey(state.selectionRange)
     const searchChanged =
       next.searchCount !== state.searchCount || next.searchActiveIndex !== state.searchActiveIndex
+    // The glitch deadline changed (a ghost armed/ticked/expired): re-arm the controller's
+    // one timer. Includes → null (a confirmed/flushed guess disarms) so no stale timer
+    // outlives the heal. Unchanged (both null in the common no-ghost steady state) → no fire.
+    const nextDeadline = next.predictDeadlineMs ?? undefined
+    const predictDeadlineChanged = nextDeadline !== latestPredictDeadlineMs
     // The worker omits selectionText on frames where the selection is unchanged — carry
     // the prior value forward so the sync selection_text() read stays correct.
     if (next.selectionText === undefined) {
       next.selectionText = state.selectionText
     }
     state = next
+    // Update the reflected deadline BEFORE firing so a listener's synchronous
+    // predict_next_deadline_ms() read (via the controller's armDeadline) sees the fresh value.
+    latestPredictDeadlineMs = nextDeadline
     if (metricsChanged) {
       metricsListeners.forEach((fn) => fn())
     }
@@ -150,6 +170,9 @@ export function createWorkerBackedTerm(deps: {
     }
     if (searchChanged) {
       searchChangeListeners.forEach((fn) => fn())
+    }
+    if (predictDeadlineChanged) {
+      predictDeadlineListeners.forEach((fn) => fn(nextDeadline))
     }
     grid.applyDirtyRows(next.dirtyRows, next.rows)
   }
@@ -281,6 +304,9 @@ export function createWorkerBackedTerm(deps: {
     set_ligatures: (on: boolean) => post({ type: 'setLigatures', on }),
     set_scrollback_limit: (lines: number) => post({ type: 'setScrollbackLimit', lines }),
     set_default_cursor_style: (param: number) => post({ type: 'setDefaultCursorStyle', param }),
+    // Predictive echo (mosh-style): the engine predictor is off-thread, so each seam posts
+    // a command; the worker runs the SAME predictor + reflects the ghost/deadline in STATE.
+    ...createWorkerPredictFacade(post, () => latestPredictDeadlineMs),
     // The CSI ?997 push (if any) returns via the worker reply channel → inputSink, so
     // the sync facade method returns void (the worker drains take_response itself).
     set_color_scheme: (dark: boolean) => post({ type: 'setColorScheme', dark }),
@@ -400,6 +426,7 @@ export function createWorkerBackedTerm(deps: {
     onReply: (handler) => void replyListeners.add(handler),
     onMetricsChange: (handler) => void metricsListeners.add(handler),
     onSideChannel: (handler) => void sideChannelListeners.add(handler),
+    onPredictDeadline: (handler) => void predictDeadlineListeners.add(handler),
     resolveQuery: queryChannel.resolve,
     applySerializedCache: (full, scrollback) => {
       cachedSerialize = full
@@ -417,6 +444,7 @@ export function createWorkerBackedTerm(deps: {
       metricsListeners.clear()
       sideChannelListeners.clear()
       searchChangeListeners.clear()
+      predictDeadlineListeners.clear()
       grid.clear()
       cachedSerialize = ''
       cachedScrollback = ''

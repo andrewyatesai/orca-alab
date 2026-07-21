@@ -19,6 +19,7 @@
 import type { AtermThemeColors } from './aterm-theme-colors'
 import type { AtermWorkerRainCommand } from './aterm-worker-rain-protocol'
 import type { AtermWorkerSpillCommand } from './aterm-worker-spill-protocol'
+import type { AtermWorkerPredictCommand } from './aterm-worker-predict-protocol'
 import type {
   AtermFontClass,
   AtermWorkerFontClass,
@@ -78,10 +79,7 @@ export type AtermWorkerSetDefaultCursorStyle = { type: 'setDefaultCursorStyle'; 
 export type AtermWorkerSetMinimumContrast = { type: 'setMinimumContrast'; ratio: number }
 /** Double-click word separators (terminalWordSeparator); null restores the engine's
  *  default word logic. */
-export type AtermWorkerSetWordSeparators = {
-  type: 'setWordSeparators'
-  separators: string | null
-}
+export type AtermWorkerSetWordSeparators = { type: 'setWordSeparators'; separators: string | null }
 /** DEFAULT-background alpha (terminalBackgroundOpacity); 1 = opaque (engine default). */
 export type AtermWorkerSetBackgroundOpacity = { type: 'setBackgroundOpacity'; opacity: number }
 /** Cursor-fill alpha (terminalCursorOpacity); 1 = opaque (engine default). */
@@ -295,6 +293,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetPrimaryFont
   | AtermWorkerSetBoldFont
   | AtermWorkerMouseEncode
+  | AtermWorkerPredictCommand
   | AtermWorkerQuery
   | AtermWorkerFallback
   | AtermWorkerDispose
@@ -416,6 +415,17 @@ export type AtermWorkerState = {
   /** Changed visible rows since the last state (empty when content is unchanged or
    *  when this pane serves content reads via the query channel instead). */
   dirtyRows: AtermWorkerGridRow[]
+  /** Predictive-echo ghost cells for the main-thread overlay to paint dim+underlined
+   *  (`[row, col, codepoint]` triples in active-grid display coords), empty when
+   *  prediction is off / nothing pends / scrolled into history. Display-only: the
+   *  ghosts never touch the real grid (dirtyRows), so they stay password-safe. */
+  predictOverlay: Uint32Array
+  /** Ms until the oldest pending guess self-expires (the glitch flush), or null when
+   *  none pends. The controller arms ONE main-thread timer from this + repaints, so a
+   *  stale ghost is erased even with no further input/output. Read AFTER the worker's
+   *  expiry self-heal (predict_overlay), so it's never a permanently-past instant that
+   *  would pin the timer (the native stranded-deadline 100%-CPU invariant). */
+  predictDeadlineMs: number | null
 }
 
 /** Engine query replies (DA/DSR/CPR/colour/CSI 14t-16t) to forward to the PTY.

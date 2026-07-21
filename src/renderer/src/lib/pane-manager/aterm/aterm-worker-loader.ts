@@ -400,6 +400,7 @@ export async function loadAtermWorkerEngine(
       onReply: (handler) => backed!.onReply(handler),
       onMetricsChange: (handler) => backed!.onMetricsChange(handler),
       onSideChannel: (handler) => backed!.onSideChannel(handler),
+      onPredictDeadline: (handler) => backed!.onPredictDeadline(handler),
       settle: () => backed!.settle(),
       serializeAsync: (scrollbackRows) => backed!.serializeAsync(scrollbackRows),
       serializeScrollbackAsync: (maxRows) => backed!.serializeScrollbackAsync(maxRows),

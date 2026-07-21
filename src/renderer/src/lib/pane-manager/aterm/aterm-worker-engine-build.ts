@@ -130,6 +130,16 @@ export type WorkerEngine = Pick<
   | 'encode_mouse_release'
   | 'encode_mouse_motion'
   | 'encode_mouse_wheel'
+  // Predictive echo (mosh-style): both engines export the same predictor seam. The
+  // worker drives it from posted predict* commands and reflects overlay + deadline.
+  | 'set_predictive_echo'
+  | 'predict_char'
+  | 'predict_backspace'
+  | 'predict_line_submit'
+  | 'predict_reconcile'
+  | 'predict_overlay'
+  | 'predict_next_deadline_ms'
+  | 'predict_reset'
   | 'free'
 > & {
   /** Optional while Orca and aterm generated artifacts roll independently. */

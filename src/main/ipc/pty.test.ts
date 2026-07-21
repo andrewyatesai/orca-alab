@@ -10,6 +10,7 @@ import { CLIPBOARD_TEXT_MEASURE_YIELD_CODE_UNITS } from '../../shared/clipboard-
 import { redactPtyIdForDiagnostics } from '../../shared/pty-delivery-diagnostics'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../shared/constants'
 import type { TuiAgent } from '../../shared/types'
+import type * as PtyDescendantTerminationModule from '../pty-descendant-termination'
 
 const isWindowsHost = process.platform === 'win32'
 const posixOnlyIt = isWindowsHost ? it.skip : it
@@ -133,6 +134,13 @@ vi.mock('node-pty', () => ({
 vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   execFile: loginPreflightExecFileMock
+}))
+
+// Why: teardown snapshots every session (#9530) via ps/execFile, which the PAM mock above would starve forever.
+vi.mock('../pty-descendant-termination', async (importOriginal) => ({
+  ...(await importOriginal<typeof PtyDescendantTerminationModule>()),
+  captureDescendantSnapshot: vi.fn(async () => null),
+  terminateDescendantSnapshot: vi.fn()
 }))
 
 vi.mock('../opencode/hook-service', () => ({
@@ -11184,7 +11192,8 @@ describe('registerPtyHandlers', () => {
 
     const killPromise = handlers.get('pty:kill')!(null, { id: spawnResult.id }) as Promise<void>
 
-    expect(killSpy).toHaveBeenCalledTimes(1)
+    // Why: kill now follows an awaited descendant snapshot (#9530), so it lands a tick later.
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalledTimes(1))
     expect(onDataDisposable.dispose).not.toHaveBeenCalled()
     expect(onExitDisposable.dispose).not.toHaveBeenCalled()
 

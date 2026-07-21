@@ -17,6 +17,8 @@ import type { HistoryReader } from './history-reader'
 import type { SubprocessHandle } from './session'
 import type { DaemonFileLog } from './daemon-file-log'
 import type * as DaemonHealthModule from './daemon-health'
+import type * as PtyDescendantTerminationModule from '../pty-descendant-termination'
+import type * as MacosTccLoginShellModule from '../providers/macos-tcc-login-shell'
 import { getDaemonSocketPath } from './daemon-spawner'
 
 const { getMacDaemonSystemResolverHealthMock } = vi.hoisted(() => ({
@@ -29,7 +31,7 @@ const { captureDescendantSnapshotMock, terminateDescendantSnapshotMock } = vi.ho
 }))
 
 vi.mock('../pty-descendant-termination', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../pty-descendant-termination')>()
+  const actual = await importOriginal<typeof PtyDescendantTerminationModule>()
   return {
     ...actual,
     captureDescendantSnapshot: captureDescendantSnapshotMock,
@@ -39,7 +41,7 @@ vi.mock('../pty-descendant-termination', async (importOriginal) => {
 
 // Why: the adapter awaits the PAM preflight before building launch config; unit tests must not spawn a real login(1).
 vi.mock('../providers/macos-tcc-login-shell', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../providers/macos-tcc-login-shell')>()
+  const actual = await importOriginal<typeof MacosTccLoginShellModule>()
   return { ...actual, prepareMacosTccLoginShell: vi.fn(async () => {}) }
 })
 

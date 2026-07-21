@@ -117,4 +117,37 @@ describe('local node-pty patch payload source', () => {
     )
     expect(agent).toContain('consoleProcessList = [shellPid]')
   })
+
+  // Why (#9586): vanilla node-pty's forked agent throws "AttachConsole failed"
+  // after the shell exits, killing Windows SSH relay terminals. The fix only
+  // works if the patched agent actually reaches the Windows remote install.
+  it('ships the patched ConPTY console-list agent to Windows relay hosts', async () => {
+    const relayDir = mkdtempSync(join(tmpdir(), 'relay-npty-9586-'))
+    try {
+      const libDir = join(relayDir, NODE_PTY_PATCH_PAYLOAD_DIR, 'lib')
+      mkdirSync(libDir, { recursive: true })
+      const patchedAgent = readFileSync(
+        require.resolve('node-pty/lib/conpty_console_list_agent.js'),
+        'utf-8'
+      )
+      writeFileSync(join(libDir, 'conpty_console_list_agent.js'), patchedAgent)
+
+      const writes = new Map<string, string>()
+      await deliverPatchedNodePtyFiles({
+        localRelayDir: relayDir,
+        remoteDir: 'C:/Users/dev/.orca-remote/relay-0.1.0+abc',
+        hostPlatform: getRemoteHostPlatform('win32-x64'),
+        writeRemoteFile: async (remotePath, contents) => {
+          writes.set(remotePath, contents)
+        }
+      })
+
+      const delivered = writes.get(
+        'C:/Users/dev/.orca-remote/relay-0.1.0+abc/node_modules/node-pty/lib/conpty_console_list_agent.js'
+      )
+      expect(delivered).toContain('consoleProcessList = [shellPid]')
+    } finally {
+      rmSync(relayDir, { recursive: true, force: true })
+    }
+  })
 })

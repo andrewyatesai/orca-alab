@@ -55,7 +55,7 @@ export type TerminalModelQueryResponder = {
 
 // ConPTY swallows the ESC of an OSC reply written to conin and echoes the
 // printable remainder (`]11;rgb:...`) into the visible prompt (#6975).
-const CONPTY_LEAKY_OSC_COLOR_REPLY = /^\x1b\](?:10|11|12);/
+const CONPTY_LEAKY_OSC_COLOR_REPLY_PREFIXES = ['\x1b]10;', '\x1b]11;', '\x1b]12;']
 
 export function createTerminalModelQueryResponder(
   deps: TerminalModelQueryResponderDeps
@@ -82,7 +82,10 @@ export function createTerminalModelQueryResponder(
     // Why the filter: OSC 10/11/12 reports leak as prompt text on ConPTY; SET
     // tracking and CSI-shaped reports (?996n) are unaffected.
     emitReply: (reply) => {
-      if (conptyOscColorReplySuppression && CONPTY_LEAKY_OSC_COLOR_REPLY.test(reply)) {
+      if (
+        conptyOscColorReplySuppression &&
+        CONPTY_LEAKY_OSC_COLOR_REPLY_PREFIXES.some((prefix) => reply.startsWith(prefix))
+      ) {
         return
       }
       emit(reply)

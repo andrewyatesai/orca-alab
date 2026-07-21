@@ -131,13 +131,11 @@ export class HeadlessEmulator {
    *  onQueryReply, no view-attr responder, no ConPTY override) never carries
    *  one. Wired to read onQueryReply + engine state at reply time. */
   private ensureQueryResponder(): TerminalModelQueryResponder {
-    if (!this.queryResponder) {
-      this.queryResponder = createTerminalModelQueryResponder({
-        emitReply: (reply) => this.onQueryReply?.(reply),
-        getCursor: () => this.readCursor(),
-        getRows: () => this.rows
-      })
-    }
+    this.queryResponder ??= createTerminalModelQueryResponder({
+      emitReply: (reply) => this.onQueryReply?.(reply),
+      getCursor: () => this.readCursor(),
+      getRows: () => this.rows
+    })
     return this.queryResponder
   }
 
@@ -237,9 +235,7 @@ export class HeadlessEmulator {
     this.ensureQueryResponder().enableConptyDa1Override()
   }
 
-  /** ConPTY swallows the ESC of an OSC 10/11/12 reply written as PTY input and
-   *  echoes the printable remainder into the prompt (#6975); mute those
-   *  reports for native-Windows-ConPTY PTYs. Idempotent. */
+  /** ConPTY echoes OSC 10/11/12 replies written as PTY input into the prompt (#6975); mute them. Idempotent. */
   installConptyOscColorReplySuppression(): void {
     this.ensureQueryResponder().enableConptyOscColorReplySuppression()
   }

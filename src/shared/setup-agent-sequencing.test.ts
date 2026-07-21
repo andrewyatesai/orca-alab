@@ -202,8 +202,14 @@ describe('createSequencedSetupAgentCommands', () => {
     })
 
     expect(result.setupCommand).toContain('cmd.exe /d /s /v:on /c')
-    expect(result.setupCommand).toContain('cmd.exe /c ""C:\\repo\\.git\\orca\\setup-runner.cmd""')
+    expect(result.setupCommand).toContain('cmd.exe /c "C:\\repo\\.git\\orca\\setup-runner.cmd"')
     expect(result.setupCommand).toContain('echo !ORCA_SETUP_NONCE!:!ORCA_SETUP_STATUS!')
+    // Why: /s strips only the outer quotes; doubled inner quotes corrupt set "VAR=…" and the marker never matches (#8787).
+    expect(result.setupCommand).toContain('set "ORCA_SETUP_MARKER=')
+    expect(result.setupCommand).toContain('set "ORCA_SETUP_NONCE=nonce-win"')
+    expect(result.setupCommand).not.toContain('""ORCA_SETUP_MARKER')
+    expect(result.startupCommand).toContain('set "ORCA_SETUP_MARKER=')
+    expect(result.startupCommand).not.toContain('""ORCA_SETUP_MARKER')
     expect(result.startupCommand.match(/powershell\.exe/g)).toHaveLength(1)
     expect(result.startupCommand).toContain('powershell.exe -NoProfile -ExecutionPolicy Bypass')
     expect(result.startupCommand).toContain('AddSeconds(3)')

@@ -237,7 +237,9 @@ function buildWindowsStartupCommand(
 }
 
 function wrapCmd(parts: string[]): string {
-  return `cmd.exe /d /s /v:on /c ${quoteWindowsArg(parts.join(' & '))}`
+  // Why: /s strips only the outer quote pair, so inner quotes must stay literal —
+  // doubling them corrupts `set "VAR=…"`, the marker never matches, and the agent never starts (#8787).
+  return `cmd.exe /d /s /v:on /c "${parts.join(' & ')}"`
 }
 
 function quotePosixArg(value: string): string {

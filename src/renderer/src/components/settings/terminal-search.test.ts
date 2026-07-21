@@ -30,6 +30,23 @@ describe('getTerminalPaneSearchEntries', () => {
     expect(entries.some((entry) => entry.title === 'Right-click to paste')).toBe(true)
   })
 
+  it('includes the POSIX default shell setting only on POSIX terminal hosts', () => {
+    const posixEntries = getTerminalPaneSearchEntries({ isWindows: false, isMac: true })
+    const windowsEntries = getTerminalPaneSearchEntries({ isWindows: true, isMac: false })
+    const windowsHostEntries = getTerminalPaneSearchEntries({
+      isWindows: false,
+      isWindowsTerminalHost: true,
+      isMac: true
+    })
+
+    expect(posixEntries.some((entry) => entry.title === 'Default Shell')).toBe(true)
+    expect(matchesSettingsSearch('zsh', posixEntries)).toBe(true)
+    expect(matchesSettingsSearch('fish', posixEntries)).toBe(true)
+    // Why: the Windows host owns its own Default Shell entry; the POSIX keywords must not leak there.
+    expect(matchesSettingsSearch('fish', windowsEntries)).toBe(false)
+    expect(matchesSettingsSearch('fish', windowsHostEntries)).toBe(false)
+  })
+
   it('omits legacy WSL distribution terminal settings on Windows', () => {
     const entries = getTerminalPaneSearchEntries({ isWindows: true, isMac: false })
     expect(entries.some((entry) => entry.title === 'WSL Distribution')).toBe(false)

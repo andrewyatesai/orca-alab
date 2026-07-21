@@ -12,6 +12,7 @@ import {
   getTerminalRenderingSearchEntries,
   getTerminalSetupScriptSearchEntries
 } from './terminal-search'
+import { getTerminalPosixShellSearchEntry } from './terminal-posix-shell-search'
 import {
   getTerminalRightClickToPasteSearchEntry,
   getTerminalWindowsPowershellImplementationSearchEntry,
@@ -22,6 +23,7 @@ import { TerminalAdvancedSection } from './TerminalAdvancedSection'
 import { TerminalInteractionSection } from './TerminalInteractionSection'
 import { TerminalRenderingSection } from './TerminalRenderingSection'
 import { TerminalSetupScriptSection } from './TerminalSetupScriptSection'
+import { TerminalPosixShellSection } from './TerminalPosixShellSection'
 import { TerminalWindowsShellSection } from './TerminalWindowsShellSection'
 
 type TerminalPaneProps = {
@@ -69,6 +71,14 @@ export function TerminalPane({
         updateSettings={updateSettings}
         windowsShell={windowsShell}
         gitBashAvailable={gitBashAvailable}
+      />
+    ) : null,
+    !showWindowsHostSettings &&
+    matchesSettingsSearch(searchQuery, getTerminalPosixShellSearchEntry()) ? (
+      <TerminalPosixShellSection
+        key="posix-shell"
+        updateSettings={updateSettings}
+        posixShell={settings.terminalPosixShell ?? null}
       />
     ) : null,
     matchesSettingsSearch(searchQuery, getTerminalRenderingSearchEntries()) ? (

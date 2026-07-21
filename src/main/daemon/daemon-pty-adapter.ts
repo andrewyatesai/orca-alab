@@ -38,6 +38,11 @@ import { recognizeAgentProcessFromCommandLine } from '../../shared/agent-process
 import { shouldUseShellReadyStartupDelivery } from '../../shared/codex-startup-delivery'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 import { resolveSafePtyDefaultCwd } from '../providers/pty-default-cwd'
+import { prepareMacosTccLoginShell } from '../providers/macos-tcc-login-shell'
+import {
+  captureDescendantSnapshot,
+  terminateDescendantSnapshot
+} from '../pty-descendant-termination'
 
 type ColdRestorePayload = {
   scrollback: string
@@ -115,6 +120,8 @@ export class DaemonPtyAdapter implements IPtyProvider {
   private backgroundStreamListeners: ((payload: PtyBackgroundStreamEvent) => void)[] = []
   private removeEventListener: (() => void) | null = null
   private initialCwds = new Map<string, string>()
+  // Why: shutdown's descendant sweep must only ever signal a pid this adapter still believes owns the session (#9530).
+  private pidsBySessionId = new Map<string, number>()
   private wslDistrosBySessionId = new Map<string, string>()
   // Why: StrictMode/re-render remounts can call createOrAttach for a just-killed session; tombstones stop the daemon resurrecting it (Map evicts oldest-first, per terminal-host.ts).
   private killedSessionTombstones = new Map<string, number>()
@@ -318,7 +325,7 @@ export class DaemonPtyAdapter implements IPtyProvider {
     if (isForkDaemonProtocol) {
       // Why: #8985 — the TCC wrap inside buildPosixDaemonShellLaunch decides
       // against the cached login(1) PAM preflight; resolve it at this spawn
-      // boundary too so daemon-backed terminals never spawn unprobed.
+      // boundary too so daemon-backed terminals never spawn unprobed (#9404 keeps transient failures retryable).
       await prepareMacosTccLoginShell()
     }
     const posixLaunch = isForkDaemonProtocol
@@ -374,6 +381,7 @@ export class DaemonPtyAdapter implements IPtyProvider {
 
     // Why: surface the daemon's shell pid via PtySpawnResult so ipc/pty registers with the memory collector without a provider-specific accessor.
     let pid = typeof result.pid === 'number' && result.pid > 0 ? result.pid : null
+    this.trackSessionPid(sessionId, pid)
 
     // Why: check sticky cache first — StrictMode double-mounts call spawn twice; the second call (isNew=false) must still return cached cold restore data.
     const cachedRestore = this.coldRestoreCache.get(sessionId)
@@ -413,6 +421,7 @@ export class DaemonPtyAdapter implements IPtyProvider {
           this.wslDistrosBySessionId.delete(sessionId)
         }
         pid = typeof result.pid === 'number' && result.pid > 0 ? result.pid : null
+        this.trackSessionPid(sessionId, pid)
         this.initialCwds.set(sessionId, effectiveCwd)
       }
     } else if (!result.isNew && result.historySeeded === false) {
@@ -581,6 +590,14 @@ export class DaemonPtyAdapter implements IPtyProvider {
     this.client.notify('setSessionBackground', { sessionId: id, background: safeBackground })
   }
 
+  private trackSessionPid(sessionId: string, pid: number | null): void {
+    if (pid === null) {
+      this.pidsBySessionId.delete(sessionId)
+    } else {
+      this.pidsBySessionId.set(sessionId, pid)
+    }
+  }
+
   async shutdown(
     id: string,
     opts: { immediate?: boolean; keepHistory?: boolean; deadlineMs?: number }
@@ -626,6 +643,12 @@ export class DaemonPtyAdapter implements IPtyProvider {
       // which would make the slept session ineligible for wake cold-restore.
       this.historyManager?.releaseWriter(id)
     }
+    // Why: the daemon's kill only reaches the shell; detached prompt helpers
+    // (oh-my-posh, #9530) survive it. Snapshot BEFORE the root dies — after
+    // that, descendants reparent to pid 1 and a ppid walk can't find them.
+    const sweepRootPid = this.activeSessionIds.has(id) ? this.pidsBySessionId.get(id) : undefined
+    const descendants =
+      sweepRootPid === undefined ? null : await captureDescendantSnapshot(sweepRootPid)
     try {
       await this.client.request(
         'kill',
@@ -641,6 +664,11 @@ export class DaemonPtyAdapter implements IPtyProvider {
         throw err
       }
     }
+    // Why after the kill settles: a failed kill leaves a live pane whose prompt helpers must not be reaped out from under it.
+    if (descendants) {
+      terminateDescendantSnapshot(descendants)
+    }
+    this.pidsBySessionId.delete(id)
     this.activeSessionIds.delete(id)
     this.dirtySessionVersions.delete(id)
     if (!opts.keepHistory) {
@@ -1461,6 +1489,7 @@ export class DaemonPtyAdapter implements IPtyProvider {
         })
       } else if (event.event === 'exit') {
         this.activeSessionIds.delete(event.sessionId)
+        this.pidsBySessionId.delete(event.sessionId)
         this.dirtySessionVersions.delete(event.sessionId)
         // Why: a reused sessionId must not inherit the dead session's owed resume (stray resumePty) or backgrounded/thinned state.
         this.pausedProducerSessionIds.delete(event.sessionId)

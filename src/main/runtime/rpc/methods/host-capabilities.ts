@@ -2,6 +2,7 @@ import { defineMethod, type RpcMethod } from '../core'
 import { isPwshAvailable } from '../../../pwsh'
 import { isWslAvailable, listWslDistros } from '../../../wsl'
 import { isGitBashAvailable } from '../../../git-bash'
+import { detectPosixTerminalShells } from '../../../posix-default-shell'
 
 export const HOST_CAPABILITY_METHODS: RpcMethod[] = [
   defineMethod({
@@ -28,5 +29,10 @@ export const HOST_CAPABILITY_METHODS: RpcMethod[] = [
     name: 'host.gitBash.isAvailable',
     params: null,
     handler: async () => isGitBashAvailable()
+  }),
+  defineMethod({
+    name: 'host.posixShells.detect',
+    params: null,
+    handler: async () => detectPosixTerminalShells()
   })
 ]

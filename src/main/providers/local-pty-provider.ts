@@ -77,8 +77,6 @@ const PANE_IDENTITY_ENV_KEYS = [
 
 let ptyCounter = 0
 const ptyProcesses = new Map<string, pty.IPty>()
-// Why: only agent sessions get descendant tree-kill (tool children run in detached groups SIGHUP can't reach); plain terminals skip it so nohup-detached children survive.
-const ptyAgentSessionIds = new Set<string>()
 // Why: descendant capture is async, so reattach/duplicate shutdown must wait for the original owner, not return a dying PTY.
 type PtyShutdownOperation = {
   promise: Promise<void>
@@ -89,8 +87,10 @@ type PtyShutdownOperation = {
 const ptyShutdownOperations = new Map<string, PtyShutdownOperation>()
 type PendingLocalPtySpawn = {
   canceled: boolean
+  generation: number
 }
 const pendingLocalPtySpawns = new Map<string, Set<PendingLocalPtySpawn>>()
+const pendingStableLocalPtySpawnResults = new Map<string, Promise<PtySpawnResult>>()
 const ptyShellName = new Map<string, string>()
 const ptyAgentForegroundContextPaths = new Map<string, string[]>()
 // Why: remember the last recognized agent foreground so a degraded scan doesn't report the shell and look like an exit.
@@ -234,7 +234,6 @@ function clearPtyState(id: string): void {
   disposePtyListeners(id)
   disposePtyExitListener(id)
   ptyProcesses.delete(id)
-  ptyAgentSessionIds.delete(id)
   ptyShellName.delete(id)
   ptyAgentForegroundContextPaths.delete(id)
   ptyLastRecognizedForeground.delete(id)
@@ -320,8 +319,8 @@ function allocatePtyId(sessionId: string | undefined): string {
   return id
 }
 
-async function prepareLocalPtySpawn(id: string): Promise<void> {
-  const pendingSpawn: PendingLocalPtySpawn = { canceled: false }
+async function prepareLocalPtySpawn(id: string, generation: number): Promise<void> {
+  const pendingSpawn: PendingLocalPtySpawn = { canceled: false, generation }
   const pending = pendingLocalPtySpawns.get(id) ?? new Set()
   pending.add(pendingSpawn)
   pendingLocalPtySpawns.set(id, pending)
@@ -463,6 +462,8 @@ export type LocalPtyProviderOptions = {
   isHistoryEnabled?: () => boolean
   /** Why: COMSPEC is always cmd.exe, so this callback injects the user's persisted shell preference. Undefined when none set. */
   getWindowsShell?: () => string | undefined
+  /** macOS/Linux default-shell setting resolved to an executable path; undefined keeps $SHELL (#5097). */
+  getPosixShell?: () => string | undefined
   getWindowsPowerShellImplementation?: () => 'auto' | 'powershell.exe' | 'pwsh.exe' | undefined
   pwshAvailable?: () => boolean
   onSpawned?: (id: string) => void
@@ -494,11 +495,54 @@ export class LocalPtyProvider implements IPtyProvider {
    * Windows launches can pre-deliver startup commands in argv, so the stdin fallback only runs when needed.
    */
   async spawn(args: PtySpawnOptions): Promise<PtySpawnResult> {
+    const stableId = normalizeLocalCallerSessionId(args.sessionId)
+    if (!stableId) {
+      return this.spawnOnce(args)
+    }
+
+    const pending = pendingStableLocalPtySpawnResults.get(stableId)
+    if (pending) {
+      const result = await pending
+      const existing = ptyProcesses.get(stableId)
+      try {
+        existing?.resize(args.cols, args.rows)
+      } catch {
+        /* Existing PTY may reject resize during teardown; preserve reattach semantics. */
+      }
+      return {
+        id: stableId,
+        pid: existing?.pid ?? result.pid,
+        // Why: the fork reports launch-time WSL identity on reattach; the deduped follower must match.
+        ...(ptyWslDistroById.has(stableId)
+          ? { wslDistro: ptyWslDistroById.get(stableId) ?? null }
+          : {}),
+        isReattach: true
+      }
+    }
+
+    const spawnResult = this.spawnOnce(args)
+    pendingStableLocalPtySpawnResults.set(stableId, spawnResult)
+    try {
+      return await spawnResult
+    } finally {
+      if (pendingStableLocalPtySpawnResults.get(stableId) === spawnResult) {
+        pendingStableLocalPtySpawnResults.delete(stableId)
+      }
+    }
+  }
+
+  private async spawnOnce(args: PtySpawnOptions): Promise<PtySpawnResult> {
+    const spawnGeneration = loadGeneration
     const reattachId = normalizeLocalCallerSessionId(args.sessionId)
     if (reattachId) {
       const pendingShutdown = ptyShutdownOperations.get(reattachId)
       if (pendingShutdown) {
         await pendingShutdown.promise
+        // Why: orphan cleanup can run while this spawn waits for an older PTY
+        // owner; do not register the replacement under a stale page load.
+        if (spawnGeneration < loadGeneration) {
+          throw new Error(`PTY spawn canceled: ${reattachId}`)
+        }
       }
       const existing = ptyProcesses.get(reattachId)
       if (existing) {
@@ -618,7 +662,13 @@ export class LocalPtyProvider implements IPtyProvider {
         startupCommandDeliveredInShellArgs = resolved.startupCommandDeliveredInShellArgs === true
       }
     } else {
-      shellPath = args.env?.SHELL || process.env.SHELL || '/bin/zsh'
+      // Why: shellOverride carries a per-tab pick or the folded global default (#5097); like the win32 branch it wins over inherited SHELL.
+      shellPath =
+        args.shellOverride ||
+        this.opts.getPosixShell?.() ||
+        args.env?.SHELL ||
+        process.env.SHELL ||
+        '/bin/zsh'
       shellArgs = ['-l']
       effectiveCwd = cwd
       validationCwd = cwd
@@ -789,7 +839,7 @@ export class LocalPtyProvider implements IPtyProvider {
       logHistoryInjection(worktreeId, historyResult)
     }
 
-    await prepareLocalPtySpawn(id)
+    await prepareLocalPtySpawn(id, spawnGeneration)
     const spawnResult = spawnShellWithFallback({
       shellPath,
       shellArgs,
@@ -829,10 +879,6 @@ export class LocalPtyProvider implements IPtyProvider {
     if (spawnedWslDistro !== undefined) {
       ptyWslDistroById.set(id, spawnedWslDistro)
     }
-    // Why both: launchAgent is explicit intent that survives command rewrites; recognition catches bare agent command lines.
-    if (args.launchAgent || startupAgentRecognition) {
-      ptyAgentSessionIds.add(id)
-    }
     ptyShellName.set(id, getSpawnedShellName(shellPath))
     if (finalEnv.ORCA_TERMINAL_HANDLE) {
       ptyTerminalHandle.set(id, finalEnv.ORCA_TERMINAL_HANDLE)
@@ -841,7 +887,7 @@ export class LocalPtyProvider implements IPtyProvider {
       id,
       getAgentForegroundContextPaths({ cwd: args.cwd, worktreeId: args.worktreeId })
     )
-    ptyLoadGeneration.set(id, loadGeneration)
+    ptyLoadGeneration.set(id, spawnGeneration)
     this.opts.onSpawned?.(id)
 
     const emitIngressData = (emission: PtyIngressEmission): void => {
@@ -1077,9 +1123,8 @@ export class LocalPtyProvider implements IPtyProvider {
   ): Promise<void> {
     const physicalExit = ptyPhysicalExits.get(id)
     // Why: snapshot before signaling — once the shell dies, descendants reparent to pid 1 and a ppid walk can't find them.
-    const descendants = ptyAgentSessionIds.has(id)
-      ? await captureDescendantSnapshot(proc.pid)
-      : null
+    // Why every session, not only agents: plain terminals leak detached prompt helpers (oh-my-posh, #9530).
+    const descendants = await captureDescendantSnapshot(proc.pid)
     // Why: a natural exit can race the snapshot — never signal descendants or the root PID after this PTY loses ownership.
     if (ptyProcesses.get(id) === proc) {
       if (descendants) {
@@ -1336,10 +1381,24 @@ export class LocalPtyProvider implements IPtyProvider {
   /** Kill orphaned PTYs from previous page loads. */
   killOrphanedPtys(currentGeneration: number): { id: string }[] {
     const killed: { id: string }[] = []
+    const killedIds = new Set<string>()
+    for (const [id, pendingSpawns] of pendingLocalPtySpawns) {
+      for (const pendingSpawn of pendingSpawns) {
+        if (pendingSpawn.generation < currentGeneration) {
+          pendingSpawn.canceled = true
+          killedIds.add(id)
+        }
+      }
+    }
+    for (const id of killedIds) {
+      killed.push({ id })
+    }
     for (const [id, proc] of ptyProcesses) {
       if ((ptyLoadGeneration.get(id) ?? -1) < currentGeneration) {
         requestPtyTermination(id, proc)
-        killed.push({ id })
+        if (!killedIds.has(id)) {
+          killed.push({ id })
+        }
       }
     }
     return killed
@@ -1381,6 +1440,7 @@ export class LocalPtyProvider implements IPtyProvider {
 export function _resetLocalPtyProviderStateForTest(): void {
   cancelAllPendingLocalPtySpawns()
   pendingLocalPtySpawns.clear()
+  pendingStableLocalPtySpawnResults.clear()
   for (const id of ptyProcesses.keys()) {
     clearPtyState(id)
   }

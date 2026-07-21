@@ -7,6 +7,7 @@ import type {
   NativeChatAppendedMessages
 } from '../../../preload/api-types'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
+import type { PosixTerminalShellDetection } from '../../../shared/posix-terminal-shell'
 import type { AiVaultListArgs, AiVaultListResult } from '../../../shared/ai-vault-types'
 import { buildNativeChatUnsubscribe } from '../../../shared/native-chat-stream-unsubscribe'
 import type {
@@ -753,6 +754,10 @@ function createWebPreloadApi(): Partial<PreloadApi> {
     },
     gitBash: {
       isAvailable: () => callRuntimeResult<boolean>('host.gitBash.isAvailable').catch(() => false)
+    },
+    posixShells: {
+      // Why: no catch — callers treat a rejection as "availability unknown", which degrades better than an empty catalog.
+      detect: () => callRuntimeResult<PosixTerminalShellDetection>('host.posixShells.detect')
     },
     agentStatus: {
       onSet: () => noopUnsubscribe,

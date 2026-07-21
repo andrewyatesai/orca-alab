@@ -267,6 +267,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     terminalRightClickToPaste: getDefaultTerminalRightClickToPaste(),
     terminalRightClickToPasteDefaultedForPlatform: true,
     terminalWindowsShell: 'powershell.exe',
+    terminalPosixShell: null,
     terminalWindowsWslDistro: null,
     localAccountRuntime: 'host',
     localAccountWslDistro: null,

@@ -327,6 +327,69 @@ describe('LocalPtyProvider', () => {
       expect(spawnMock).toHaveBeenCalledOnce()
     })
 
+    it('dedupes concurrent creation of the same stable session id', async () => {
+      spawnMock.mockClear()
+      let finishPreparation!: () => void
+      prepareMacosTccLoginShellMock.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishPreparation = resolve
+          })
+      )
+
+      const first = provider.spawn({ cols: 80, rows: 24, sessionId: 'shared-session' })
+      const second = provider.spawn({ cols: 132, rows: 44, sessionId: 'shared-session' })
+      await vi.waitFor(() => expect(prepareMacosTccLoginShellMock).toHaveBeenCalledOnce())
+      expect(spawnMock).not.toHaveBeenCalled()
+
+      finishPreparation()
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        { id: 'shared-session', pid: 12345, wslDistro: null },
+        { id: 'shared-session', pid: 12345, wslDistro: null, isReattach: true }
+      ])
+      expect(spawnMock).toHaveBeenCalledOnce()
+      expect(mockProc.resize).toHaveBeenCalledWith(132, 44)
+    })
+
+    it('cancels a pending spawn owned by an older renderer generation', async () => {
+      spawnMock.mockClear()
+      let finishPreparation!: () => void
+      prepareMacosTccLoginShellMock.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishPreparation = resolve
+          })
+      )
+
+      const spawn = provider.spawn({ cols: 80, rows: 24, sessionId: 'reload-pending' })
+      const canceledSpawn = expect(spawn).rejects.toThrow('PTY spawn canceled: reload-pending')
+      await vi.waitFor(() => expect(prepareMacosTccLoginShellMock).toHaveBeenCalledOnce())
+
+      const generation = provider.advanceGeneration()
+      expect(provider.killOrphanedPtys(generation)).toEqual([{ id: 'reload-pending' }])
+      finishPreparation()
+      await canceledSpawn
+      expect(spawnMock).not.toHaveBeenCalled()
+    })
+
+    it('cancels a stale replacement waiting for the previous PTY to exit', async () => {
+      const first = await provider.spawn({ cols: 80, rows: 24, sessionId: 'reload-replacement' })
+      spawnMock.mockClear()
+      mockProc.kill = vi.fn()
+      const shutdown = provider.shutdown(first.id, { immediate: true })
+      const replacement = provider.spawn({ cols: 100, rows: 30, sessionId: first.id })
+      const canceledReplacement = expect(replacement).rejects.toThrow(
+        'PTY spawn canceled: reload-replacement'
+      )
+
+      const generation = provider.advanceGeneration()
+      expect(provider.killOrphanedPtys(generation)).toEqual([{ id: first.id }])
+      exitCb?.({ exitCode: 137 })
+      await shutdown
+      await canceledReplacement
+      expect(spawnMock).not.toHaveBeenCalled()
+    })
+
     it('calls node-pty spawn with correct args', async () => {
       await provider.spawn({ cols: 120, rows: 40, cwd: '/tmp' })
       expect(spawnMock).toHaveBeenCalledWith(
@@ -345,6 +408,36 @@ describe('LocalPtyProvider', () => {
       await expect(provider.spawn({ cols: 80, rows: 24, cwd: '/nonexistent' })).rejects.toThrow(
         'does not exist'
       )
+    })
+
+    it('honors a POSIX shellOverride over the inherited SHELL', async () => {
+      await provider.spawn({ cols: 80, rows: 24, shellOverride: '/usr/bin/fish' })
+
+      const spawnCall = spawnMock.mock.calls.at(-1)!
+      expect(spawnCall[0]).toBe('/usr/bin/fish')
+      expect(spawnCall[2].env.SHELL).toBe('/usr/bin/fish')
+    })
+
+    it('uses the getPosixShell default when no override is requested', async () => {
+      provider.configure({ getPosixShell: () => '/usr/local/bin/fish' })
+
+      await provider.spawn({ cols: 80, rows: 24 })
+
+      expect(spawnMock.mock.calls.at(-1)![0]).toBe('/usr/local/bin/fish')
+    })
+
+    it('prefers an explicit shellOverride over the getPosixShell default', async () => {
+      provider.configure({ getPosixShell: () => '/usr/local/bin/fish' })
+
+      await provider.spawn({ cols: 80, rows: 24, shellOverride: '/bin/bash' })
+
+      expect(spawnMock.mock.calls.at(-1)![0]).toBe('/bin/bash')
+    })
+
+    it('keeps the SHELL default when neither shellOverride nor getPosixShell is set', async () => {
+      await provider.spawn({ cols: 80, rows: 24 })
+
+      expect(spawnMock.mock.calls.at(-1)![0]).toBe('/bin/zsh')
     })
 
     it('allows an explicitly requested plain shell at POSIX root', async () => {
@@ -1183,6 +1276,8 @@ describe('LocalPtyProvider', () => {
 
       const { id } = await provider.spawn({ cols: 80, rows: 24 })
       const shutdown = provider.shutdown(id, { immediate: true })
+      // Why: let the pre-kill descendant snapshot resolve so the intentional kill lands before exit.
+      await Promise.resolve()
       exitCb?.({ exitCode: -1 })
       await shutdown
 
@@ -1233,6 +1328,8 @@ describe('LocalPtyProvider', () => {
         const { id } = await provider.spawn({ cols: 80, rows: 24 })
 
         const graceful = provider.shutdown(id, { immediate: false })
+        // Why: the descendant snapshot resolves on a microtask before the root signal (#9530).
+        await Promise.resolve()
         expect(killSpy.mock.calls).toEqual([['SIGTERM']])
 
         expect(provider.killOrphanedPtys(1)).toEqual([{ id }])
@@ -1257,6 +1354,8 @@ describe('LocalPtyProvider', () => {
       const { id } = await provider.spawn({ cols: 80, rows: 24 })
 
       const graceful = provider.shutdown(id, { immediate: false })
+      // Why: the descendant snapshot resolves on a microtask before the root signal (#9530).
+      await Promise.resolve()
       const immediate = provider.shutdown(id, { immediate: true })
       expect(killSpy.mock.calls).toEqual([['SIGTERM'], ['SIGKILL']])
 
@@ -1273,6 +1372,8 @@ describe('LocalPtyProvider', () => {
         const { id } = await provider.spawn({ cols: 80, rows: 24 })
 
         const graceful = provider.shutdown(id, { immediate: false })
+        // Why: the descendant snapshot resolves on a microtask before the root signal (#9530).
+        await Promise.resolve()
         expect(killSpy.mock.calls).toEqual([['SIGTERM']])
 
         await vi.advanceTimersByTimeAsync(LOCAL_PTY_GRACEFUL_FORCE_TIMEOUT_MS)
@@ -1321,6 +1422,8 @@ describe('LocalPtyProvider', () => {
       const { id } = await provider.spawn({ cols: 80, rows: 24 })
 
       const graceful = provider.shutdown(id, { immediate: false })
+      // Why: the descendant snapshot resolves on a microtask before the root signal (#9530).
+      await Promise.resolve()
       const immediate = provider.shutdown(id, { immediate: true })
       expect(killSpy.mock.calls).toEqual([[]])
 
@@ -1412,6 +1515,22 @@ describe('LocalPtyProvider', () => {
       await shutdown
       await respawn
       expect(spawnMock).toHaveBeenCalledTimes(spawnCallsBefore + 2)
+    })
+
+    // Why: plain terminals leak detached prompt helpers too (oh-my-posh, #9530) — the sweep must not be agent-only.
+    it('sweeps descendants of a plain (non-agent) terminal on shutdown (#9530)', async () => {
+      const snapshot = { rootPgid: 7, descendants: [], capturedAtMs: Date.now() }
+      captureDescendantSnapshotMock.mockResolvedValue(snapshot)
+      const { id } = await provider.spawn({ cols: 80, rows: 24 })
+
+      const shutdown = provider.shutdown(id, { immediate: true })
+      // Why: the sweep only signals while this PTY still owns the root; let the snapshot land before exit.
+      await Promise.resolve()
+      exitCb?.({ exitCode: 137 })
+      await shutdown
+
+      expect(captureDescendantSnapshotMock).toHaveBeenCalledWith(mockProc.pid)
+      expect(terminateDescendantSnapshotMock).toHaveBeenCalledWith(snapshot)
     })
 
     it('coalesces duplicate shutdown while descendant capture is pending', async () => {

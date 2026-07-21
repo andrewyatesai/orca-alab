@@ -27,6 +27,11 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 [target.'cfg(windows)'.dependencies]
 orca-winpipe = { path = "../orca-winpipe" }
 
+# SIGTERM/SIGHUP teardown (termination_signals): SigSet::thread_block/wait are
+# safe wrappers, so the logout reaper needs no unsafe handler install (#7936).
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.25", default-features = false, features = ["signal"] }
+
 [dev-dependencies]
 # Integration tests are their own crate; they build request Values + parse responses.
 serde_json = { version = "1", default-features = false, features = ["std"] }

@@ -394,7 +394,10 @@ export function createRemoteRuntimePtyTransport(
       return true
     } catch (error) {
       // Why: stale-handle errors must retire the mirror (recoverable via next snapshot), not dead-end in a red xterm banner (#7718).
-      handleRemoteTerminalError(error)
+      // Why (#8871): a late error for a rebound handle must not retire the successor.
+      if (connected && handle === targetHandle) {
+        handleRemoteTerminalError(error)
+      }
       return false
     }
   }
@@ -419,7 +422,10 @@ export function createRemoteRuntimePtyTransport(
       client: { id: clientId, type: 'desktop' },
       ...(desiredViewport ? { viewport: desiredViewport, claimViewport: true as const } : {})
     }).catch((error) => {
-      handleRemoteTerminalError(error)
+      // Why (#8871): a late error for a rebound handle must not retire the successor.
+      if (connected && handle === targetHandle) {
+        handleRemoteTerminalError(error)
+      }
     })
   })
 
@@ -1015,7 +1021,10 @@ export function createRemoteRuntimePtyTransport(
         client: { id: clientId, type: 'desktop' },
         ...(desiredViewport ? { viewport: desiredViewport, claimViewport: true as const } : {})
       }).catch((error) => {
-        handleRemoteTerminalError(error)
+        // Why (#8871): a late error for a rebound handle must not retire the successor.
+        if (connected && handle === targetHandle) {
+          handleRemoteTerminalError(error)
+        }
       })
       return true
     },

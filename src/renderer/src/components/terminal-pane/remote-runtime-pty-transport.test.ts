@@ -848,6 +848,114 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(transport.isConnected()).toBe(false)
   })
 
+  it('propagates pty-exit for stale non-mirror remote terminals', async () => {
+    const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+    const onPtyExit = vi.fn()
+    const transport = createRemoteRuntimePtyTransport('env-1', {
+      worktreeId: 'wt-1',
+      tabId: 'tab-1',
+      leafId: 'pane:1',
+      onPtyExit
+    })
+
+    transport.attach({
+      existingPtyId: 'remote:env-1@@terminal-stale',
+      cols: 80,
+      rows: 24,
+      callbacks: {}
+    })
+    await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
+    const { streamId } = latestSubscribePayload()
+
+    subscriptionCallbacks?.onResponse({
+      ok: true,
+      result: { type: 'error', streamId, message: 'terminal_handle_stale' }
+    })
+
+    expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-stale', 1)
+    expect(transport.getPtyId()).toBeNull()
+    expect(transport.isConnected()).toBe(false)
+  })
+
+  it('ignores a late gone error for a replaced handle instead of retiring the successor', async () => {
+    const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+    const onPtyExit = vi.fn()
+    const transport = createRemoteRuntimePtyTransport('env-1', {
+      worktreeId: 'wt-1',
+      tabId: 'web-terminal-tab-1',
+      leafId: 'pane:1',
+      onPtyExit
+    })
+
+    transport.attach({
+      existingPtyId: 'remote:env-1@@terminal-stale',
+      cols: 80,
+      rows: 24,
+      callbacks: {}
+    })
+    await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
+    const initialStreamId = latestSubscribePayload().streamId
+
+    let rejectSend: (error: unknown) => void = () => {}
+    const pendingSend = new Promise((_resolve, reject) => {
+      rejectSend = reject
+    })
+    runtimeCall.mockImplementation((args: { method: string }) => {
+      if (args.method === 'terminal.send') {
+        return pendingSend
+      }
+      if (args.method === 'session.tabs.list') {
+        return Promise.resolve({
+          ok: true,
+          result: {
+            worktree: 'wt-1',
+            publicationEpoch: 'epoch-1',
+            snapshotVersion: 2,
+            activeGroupId: null,
+            activeTabId: 'tab-1::pane:1',
+            activeTabType: 'terminal',
+            tabs: [
+              {
+                type: 'terminal',
+                id: 'tab-1::pane:1',
+                parentTabId: 'tab-1',
+                leafId: 'pane:1',
+                title: 'Claude Code',
+                isActive: true,
+                status: 'ready',
+                terminal: 'terminal-reconnected'
+              }
+            ]
+          }
+        })
+      }
+      return Promise.resolve({ ok: true, result: {} })
+    })
+
+    const sendInputAccepted = transport.sendInputAccepted
+    if (!sendInputAccepted) {
+      throw new Error('Expected acknowledged remote terminal input')
+    }
+    const send = sendInputAccepted('late input')
+
+    subscriptionCallbacks?.onResponse({
+      ok: true,
+      result: { type: 'error', streamId: initialStreamId, message: 'terminal_handle_stale' }
+    })
+    await vi.waitFor(() =>
+      expect(latestSubscribePayload()).toMatchObject({ terminal: 'terminal-reconnected' })
+    )
+
+    rejectSend(new Error('terminal_gone'))
+    await expect(send).resolves.toBe(false)
+    await Promise.resolve()
+
+    // Why (#8871): the gone error belonged to terminal-stale; it must not retire the rebound live handle.
+    expect(onPtyExit).not.toHaveBeenCalled()
+    expect(transport.getPtyId()).toBe('remote:env-1@@terminal-reconnected')
+    expect(transport.isConnected()).toBe(true)
+  })
+
   it('routes no_connected_pty on a host mirror to a disconnected state, not an exit', async () => {
     const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
     const onError = vi.fn()

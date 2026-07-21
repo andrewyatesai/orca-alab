@@ -35,6 +35,7 @@ import { scanWorkspaceSpaceDirectory } from './workspace-space-scan'
 import { buildRelayCommandEnv } from './relay-command-env'
 import { assertNoClobberRenameDestinationAvailable } from '../shared/filesystem-rename-collision'
 import { RelayFilesystemWatchRegistry } from './relay-filesystem-watch-registry'
+import { isBroadWatchRoot } from './relay-watcher-broad-root-guard'
 import type { RelayWatcherProcessPool } from './relay-watcher-process-pool'
 
 async function isDirectoryEntry(
@@ -121,13 +122,20 @@ export class FsHandler {
     this.dispatcher.onRequest('fs.search', (p) => this.search(p))
     this.dispatcher.onRequest('fs.listFiles', (p, c) => this.listFiles(p, c))
     this.dispatcher.onRequest('fs.workspaceSpaceScan', (p, c) => this.workspaceSpaceScan(p, c))
-    this.dispatcher.onRequest('fs.watch', (p, context) =>
-      this.watchRegistry.watch(
-        expandTilde(p.rootPath as string),
+    this.dispatcher.onRequest('fs.watch', async (p, context) => {
+      const rootPath = expandTilde(p.rootPath as string)
+      if (isBroadWatchRoot(rootPath)) {
+        // Why: log loudly — a broad-root watch request is a client-side bug worth
+        // tracing (which surface asked to watch the whole home directory?).
+        console.warn(`[relay] watch REFUSED (broad root): ${rootPath}`)
+        return
+      }
+      return this.watchRegistry.watch(
+        rootPath,
         context,
         typeof p.watchId === 'number' && Number.isSafeInteger(p.watchId) ? p.watchId : undefined
       )
-    )
+    })
     this.dispatcher.onRequest('fs.unwatchAndWait', (p, context) =>
       this.watchRegistry.unwatchAndWait(expandTilde(p.rootPath as string), context)
     )

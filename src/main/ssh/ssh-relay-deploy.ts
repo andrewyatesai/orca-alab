@@ -59,6 +59,7 @@ import {
   windowsActivePipeMarkerPath,
   windowsRelayFallbackSocketName
 } from './ssh-relay-endpoints'
+import { deliverPatchedNodePtyFiles } from './ssh-relay-node-pty-patch-delivery'
 import {
   DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS,
   MAX_SSH_RELAY_GRACE_PERIOD_SECONDS,
@@ -756,6 +757,7 @@ async function installNativeDeps(
   }
 
   await makeNodePtySpawnHelperExecutable(conn, remoteDir, hostPlatform, signal)
+  await overwriteRemoteNodePtyWithPatchedFiles(conn, remoteDir, platform, hostPlatform, signal)
 
   let probe = await probeInstalledNativeDeps(conn, remoteDir, hostPlatform, nodePath, signal)
   if (!probe.available) {
@@ -785,6 +787,40 @@ async function installNativeDeps(
   if (!probe.available) {
     console.warn(
       `[ssh-relay][NPTY-MISSING] native deps installed but require() failed at ${remoteDir} (${platform}). stdout=${probe.output.trim().slice(-200)} stderr=${probe.stderr.trim().slice(-500)}`
+    )
+  }
+}
+
+async function overwriteRemoteNodePtyWithPatchedFiles(
+  conn: SshConnection,
+  remoteDir: string,
+  platform: RelayPlatform,
+  hostPlatform: RemoteHostPlatform,
+  signal?: AbortSignal
+): Promise<void> {
+  try {
+    const localRelayDir = getLocalRelayPath(platform)
+    if (!localRelayDir) {
+      return
+    }
+    const delivered = await deliverPatchedNodePtyFiles({
+      localRelayDir,
+      remoteDir,
+      hostPlatform,
+      writeRemoteFile: (remotePath, contents) =>
+        writeRemoteFile(conn, hostPlatform, remotePath, contents, signal)
+    })
+    if (delivered > 0) {
+      console.log(`[ssh-relay] Delivered ${delivered} patched node-pty file(s) to ${remoteDir}`)
+    }
+  } catch (err) {
+    signal?.throwIfAborted()
+    // Why: failed delivery degrades to vanilla node-pty behavior (#8855/#9586)
+    // — worse terminals on that host, but never a blocked connection.
+    console.warn(
+      `[ssh-relay][NPTY-PATCH-DELIVERY-FAIL] Could not overwrite remote node-pty with patched files at ${remoteDir} (${platform}): ${
+        err instanceof Error ? err.message : String(err)
+      }`
     )
   }
 }

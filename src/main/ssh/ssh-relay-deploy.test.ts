@@ -10,7 +10,11 @@ vi.mock('electron', () => ({
 // string so readLocalFullVersion succeeds.
 vi.mock('fs', () => ({
   existsSync: vi.fn().mockReturnValue(true),
-  readFileSync: vi.fn().mockReturnValue('0.1.0+abcdef012345')
+  readFileSync: vi.fn().mockReturnValue('0.1.0+abcdef012345'),
+  // Why: the node-pty patch-delivery walk enumerates the local relay package;
+  // "no payload" keeps these deploy tests off the delivery path (covered in
+  // ssh-relay-deploy-node-pty-patch.test.ts).
+  readdirSync: vi.fn().mockReturnValue([])
 }))
 
 vi.mock('./relay-protocol', () => ({

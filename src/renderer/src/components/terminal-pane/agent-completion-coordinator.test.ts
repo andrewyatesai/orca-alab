@@ -1331,6 +1331,64 @@ describe('agent completion coordinator', () => {
     expect(dispatchCompletion).toHaveBeenCalledTimes(1)
   })
 
+  it('defers a Codex hook done while a tool child process is still running (#9333)', async () => {
+    // Regression for #9333: during a multi-step, tool-driven Codex turn the
+    // hook status goes working -> done -> working as Codex finishes each
+    // response. If the gap between the intermediate 'done' and the next tool
+    // exceeds the 1.5s quiet window, Orca fired a premature "Task complete".
+    // A 'done' while the agent still has a running child process is an
+    // intermediate turn boundary, not the end of the user request.
+    const ACTIVE_POLL_INTERVAL_MS = 750
+    let hasChildProcesses = true
+    const dispatchCompletion = vi.fn()
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(async () => processResult('codex', hasChildProcesses)),
+      dispatchCompletion,
+      isLive: () => true
+    })
+
+    coordinator.startProcessTracking()
+    vi.advanceTimersByTime(2_000)
+    await flushAsyncTicks()
+
+    coordinator.observeHookStatus({
+      state: 'working',
+      prompt: 'multi-step task',
+      agentType: 'codex'
+    })
+    coordinator.observeHookStatus({
+      state: 'done',
+      prompt: 'multi-step task',
+      agentType: 'codex'
+    })
+    expect(coordinator.hasPendingHookDoneCompletion()).toBe(true)
+
+    // Codex keeps executing a tool (child process alive) well past the quiet
+    // window; the intermediate 'done' must not fire a completion. Step in
+    // sub-window increments so a process-inspection poll keeps the child
+    // reading fresh across each re-armed quiet window.
+    for (let i = 0; i < 12; i++) {
+      vi.advanceTimersByTime(ACTIVE_POLL_INTERVAL_MS)
+      await flushAsyncTicks()
+    }
+    expect(dispatchCompletion).not.toHaveBeenCalled()
+
+    // The tool finishes and the turn is genuinely idle; now the completion fires.
+    hasChildProcesses = false
+    for (let i = 0; i < 4; i++) {
+      vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+      await flushAsyncTicks()
+    }
+    expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    expect(dispatchCompletion).toHaveBeenCalledWith(
+      'codex',
+      expect.objectContaining({ source: 'hook' })
+    )
+  })
+
   it('still fires a pending Pi done when process inspection sees the agent exit first', async () => {
     // Why: a process-exit probe landing inside the quiet window must not tear
     // down agent evidence, or the pending hook 'done' would be silently dropped.

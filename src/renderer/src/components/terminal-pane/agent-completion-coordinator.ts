@@ -49,6 +49,8 @@ const PENDING_TITLE_TTL_MS = Math.max(2_000, INSPECTION_TIMEOUT_MS + 500)
 const PENDING_TITLE_MAX_TTL_MS = Math.max(30_000, PENDING_TITLE_TTL_MS)
 const COMPLETION_REPLAY_GUARD_MS = 1_000
 const HOOK_DONE_QUIET_MS = 1_500
+// Why: a hook 'done' while the agent still owns a running child process is an intermediate turn boundary (Codex Stop between responses); only a child reading this fresh may defer the completion (#9333).
+const HOOK_DONE_ACTIVE_CHILD_FRESHNESS_MS = 2_500
 // Why: under "Approve for me" Codex resumes almost immediately, so debounce the OS attention notification so a self-resolving pause raises no false banner (#8387).
 const CODEX_ATTENTION_QUIET_MS = 1_500
 
@@ -111,6 +113,11 @@ export function createAgentCompletionCoordinator(
   // Why: cadence tier the armed poll timer was scheduled at, so a shift to a faster tier can re-arm promptly instead of waiting out the long delay.
   let pollTimerTier: PollCadenceTier | null = null
   let lastPaneActivityAt = 0
+  // Why: last child-process reading from process inspection, used to keep a
+  // pending hook 'done' from firing while the agent is still running a tool
+  // (#9333). Timestamped so only a fresh reading defers the completion.
+  let lastInspectionHadChildProcesses = false
+  let lastInspectionChildProcessesAt = 0
 
   function clearPollTimer(): void {
     if (pollTimer === null) {
@@ -136,6 +143,13 @@ export function createAgentCompletionCoordinator(
     }
     pendingHookDoneTitle = null
     pendingHookDonePayload = null
+  }
+
+  function recentInspectionShowsActiveChild(): boolean {
+    return (
+      lastInspectionHadChildProcesses &&
+      Date.now() - lastInspectionChildProcessesAt <= HOOK_DONE_ACTIVE_CHILD_FRESHNESS_MS
+    )
   }
 
   function clearPendingCodexAttention(): void {
@@ -361,6 +375,15 @@ export function createAgentCompletionCoordinator(
       pendingHookDoneTitle = null
       pendingHookDonePayload = null
       if (pendingTitle) {
+        if (pendingPayload && recentInspectionShowsActiveChild()) {
+          // Why: the agent still owns a running child process, so this 'done'
+          // is an intermediate turn boundary (e.g. Codex executing a tool
+          // between responses), not the end of the user request. Re-arm the
+          // quiet window instead of firing a premature completion; it settles
+          // once the agent is genuinely idle or resumed work cancels it (#9333).
+          scheduleHookDoneCompletion(pendingTitle, pendingPayload)
+          return
+        }
         const hookIdentity = pendingPayload ? hookCompletionIdentity(pendingPayload) : null
         dispatchCompletion('hook', pendingTitle, {
           quietedHookDone: true,
@@ -481,6 +504,8 @@ export function createAgentCompletionCoordinator(
       return false
     }
     consecutiveInspectionErrors = 0
+    lastInspectionHadChildProcesses = result.hasChildProcesses === true
+    lastInspectionChildProcessesAt = Date.now()
     const recognized = recognizeAgentProcess(result.foregroundProcess)
     if (recognized) {
       handleRecognizedProcess(recognized)

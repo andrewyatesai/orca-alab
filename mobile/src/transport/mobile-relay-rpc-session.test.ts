@@ -17,6 +17,7 @@ const fakes = vi.hoisted(() => ({
     onError(error: Error): void
   },
   sendText: vi.fn(() => true),
+  sendBinary: vi.fn(() => true),
   close: vi.fn()
 }))
 
@@ -26,6 +27,7 @@ vi.mock('./mobile-relay-e2ee-link', () => ({
       fakes.linkOptions = options
     }
     sendText = fakes.sendText
+    sendBinary = fakes.sendBinary
     close = fakes.close
   }
 }))
@@ -193,6 +195,39 @@ describe('mobile relay RPC session', () => {
     expect(onBinaryFrame).toHaveBeenCalledWith(
       expect.objectContaining({ seq: 9, format: 'jpeg', image: new Uint8Array([1, 2, 3]) })
     )
+  })
+
+  it('sends terminal keystrokes as binary Input frames once a stream is routable', async () => {
+    const { session } = await authenticateSession()
+    const payload = new TextEncoder().encode('ls')
+
+    // No routable stream yet: caller must fall back to the terminal.send RPC.
+    expect(session.sendTerminalBinaryInput('term-1', payload)).toBe(false)
+
+    session.subscribe('terminal.subscribe', { terminal: 'term-1' }, vi.fn())
+    await vi.waitFor(() => expect(fakes.sendText).toHaveBeenCalledOnce())
+    const terminalRequest = JSON.parse(fakes.sendText.mock.calls[0]![0] as string) as { id: string }
+    fakes.linkOptions!.onText(
+      JSON.stringify({
+        id: terminalRequest.id,
+        ok: true,
+        result: { streamId: 42 },
+        _meta: { runtimeId: 'runtime-1' }
+      })
+    )
+
+    expect(session.sendTerminalBinaryInput('other-terminal', payload)).toBe(false)
+    expect(session.sendTerminalBinaryInput('term-1', payload)).toBe(true)
+    // Why: the shared decoder rejects Input frames (outbound-only opcode), so
+    // assert on the raw wire layout the host decodes.
+    const frame = fakes.sendBinary.mock.calls[0]![0] as Uint8Array
+    const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
+    expect(view.getUint8(2)).toBe(TerminalStreamOpcode.Input)
+    expect(view.getUint32(4, true)).toBe(42)
+    expect(new TextDecoder().decode(frame.slice(16))).toBe('ls')
+
+    session.close()
+    expect(session.sendTerminalBinaryInput('term-1', payload)).toBe(false)
   })
 
   it('rejects pending RPC work when the physical link fails', async () => {

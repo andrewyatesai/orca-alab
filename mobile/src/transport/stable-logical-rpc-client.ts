@@ -107,6 +107,16 @@ export function createStableLogicalRpcClient(
       }
     },
 
+    sendTerminalBinaryInput(terminal, payload) {
+      // Why: routable stream ids live in the physical session, so after a
+      // migration the new session either routes the frame or reports false
+      // and the caller falls back to the terminal.send RPC.
+      if (closed || suspended) {
+        return false
+      }
+      return activeSession.sendTerminalBinaryInput(terminal, payload)
+    },
+
     updateTerminalSubscriptionViewport(terminal, viewport) {
       for (const record of subscriptions.values()) {
         if (

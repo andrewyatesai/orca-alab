@@ -14,6 +14,7 @@ class FakeSession implements RpcClient {
   readonly subscribe = vi.fn<RpcClient['subscribe']>()
   readonly updateTerminalSubscriptionViewport =
     vi.fn<RpcClient['updateTerminalSubscriptionViewport']>()
+  readonly sendTerminalBinaryInput = vi.fn<RpcClient['sendTerminalBinaryInput']>(() => true)
   readonly notifyForeground = vi.fn()
   readonly close = vi.fn()
   private state: ConnectionState
@@ -141,6 +142,23 @@ describe('stable logical RPC client', () => {
       undefined
     )
     await expect(client.sendRequest('status.get')).resolves.toEqual(success('next'))
+  })
+
+  it('routes binary terminal input to the active session and refuses while suspended', async () => {
+    const oldSession = new FakeSession('connected')
+    const nextSession = new FakeSession('connected')
+    const client = createStableLogicalRpcClient(oldSession, 'lan')
+    const payload = new TextEncoder().encode('x')
+
+    expect(client.sendTerminalBinaryInput('term-1', payload)).toBe(true)
+    expect(oldSession.sendTerminalBinaryInput).toHaveBeenCalledWith('term-1', payload)
+
+    client.suspendActiveSession()
+    expect(client.sendTerminalBinaryInput('term-1', payload)).toBe(false)
+
+    await client.migrateTo(nextSession, 'relay')
+    expect(client.sendTerminalBinaryInput('term-1', payload)).toBe(true)
+    expect(nextSession.sendTerminalBinaryInput).toHaveBeenCalledWith('term-1', payload)
   })
 
   it('closes a replacement that fails authentication and preserves the active session', async () => {

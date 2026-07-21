@@ -40,6 +40,7 @@ authority.
 | `for-each-ref-exclude`  | Exclude remote HEAD before the output limit       | Request extra refs, then filter remote HEAD in Orca                                     |
 | `merge-tree-write-tree` | Derive real-merge conflicts and no-op tree proofs | Omit the conflict summary and keep conservative branch cleanup behavior before Git 2.38 |
 | `merge-tree-merge-base` | Supply the already-resolved merge base            | Use the older two-commit `merge-tree --write-tree` form                                 |
+| parallel checkout       | `-c checkout.workers=0` on worktree add/checkout (2.32+) | No gate needed: Git before 2.32 ignores the unknown config key and keeps its serial checkout |
 
 ## Why Not `simple-git`
 

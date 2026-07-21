@@ -62,11 +62,14 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
         })
       : undefined
 
+  // Why: Git 2.32+ on the SSH host overlaps checkout writes across cores;
+  // older versions ignore the unknown config key (mirrors local addWorktree).
+  const parallelCheckout = ['-c', 'checkout.workers=0']
   const args = checkoutExistingBranch
-    ? ['worktree', 'add', targetDir, branchName]
-    : ['worktree', 'add', '--no-track', '-b', branchName, targetDir]
+    ? [...parallelCheckout, 'worktree', 'add', targetDir, branchName]
+    : [...parallelCheckout, 'worktree', 'add', '--no-track', '-b', branchName, targetDir]
   if (!checkoutExistingBranch && noCheckout) {
-    args.splice(3, 0, '--no-checkout')
+    args.splice(5, 0, '--no-checkout')
   }
   if (effectiveBase) {
     args.push(effectiveBase)

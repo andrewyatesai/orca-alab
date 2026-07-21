@@ -610,6 +610,7 @@ import {
   updateProjectItemFieldValue,
   updatePullRequestBySlug
 } from '../github/project-view'
+import { registerProjectsHostRemoteInventory } from '../github/projects-gh-host'
 import type {
   ClearProjectItemFieldArgs,
   GetProjectViewTableArgs,
@@ -2693,6 +2694,13 @@ export class OrcaRuntimeService {
     }
   ) {
     this.store = store
+    // Why: SSH-runtime Projects gh calls need the same --hostname derivation as
+    // the desktop main process (#1715) — the runtime host has its own repo set.
+    registerProjectsHostRemoteInventory(() =>
+      (this.store?.getRepos() ?? []).flatMap((repo) =>
+        repo.gitRemoteIdentity?.remoteUrl ? [{ remoteUrl: repo.gitRemoteIdentity.remoteUrl }] : []
+      )
+    )
     if (stats) {
       this.stats = stats
       this.agentDetector = new AgentDetector(stats)

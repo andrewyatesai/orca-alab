@@ -5,9 +5,13 @@
 import { acquire, release } from '../gh-utils'
 import { extractExecError, ghExecFileAsync } from '../../git/runner'
 import { rateLimitGuard, noteRateLimitSpend, type RateLimitBucketKind } from '../rate-limit'
+import { projectsGhHostArgs } from '../projects-gh-host'
+import { extractGraphqlErrors, type GhGraphqlErrorShape } from './graphql-error-shapes'
 import type { GitHubProjectViewError } from '../../../shared/github-project-types'
 
 export { acquire, release, extractExecError, ghExecFileAsync, rateLimitGuard, noteRateLimitSpend }
+export { errorsIndicateParentField, extractGraphqlErrors } from './graphql-error-shapes'
+export type { GhGraphqlErrorShape } from './graphql-error-shapes'
 export type { RateLimitBucketKind }
 
 // ─── Slug validation ──────────────────────────────────────────────────
@@ -89,56 +93,6 @@ export function validateSlugArgs(
 }
 
 // ─── Error classification ──────────────────────────────────────────────
-
-export type GhGraphqlErrorShape = {
-  type?: string
-  message?: string
-  path?: (string | number)[]
-  extensions?: { code?: string }
-}
-
-export function extractGraphqlErrors(stderr: string, stdout: string): GhGraphqlErrorShape[] {
-  // `gh api graphql` prints the response JSON to stdout even on GraphQL
-  // errors, and the stderr carries a summary. Try stdout first; if parsing
-  // fails, fall back to stderr.
-  const sources = [stdout, stderr]
-  for (const src of sources) {
-    if (!src) {
-      continue
-    }
-    try {
-      const parsed = JSON.parse(src) as { errors?: GhGraphqlErrorShape[] }
-      if (parsed.errors && parsed.errors.length > 0) {
-        return parsed.errors
-      }
-    } catch {
-      // not JSON — continue
-    }
-  }
-  return []
-}
-
-export function errorsIndicateParentField(errors: GhGraphqlErrorShape[], stderr: string): boolean {
-  const lower = stderr.toLowerCase()
-  // Preview-header shape: gh returns a 4xx with "preview" in the message.
-  if (lower.includes('preview') && lower.includes('parent')) {
-    return true
-  }
-  return errors.some((e) => {
-    const type = (e.type ?? '').toUpperCase()
-    if (type === 'FIELD_NOT_FOUND' || type === 'UNDEFINED_FIELD' || type === 'FIELD_ERRORS') {
-      const tail = e.path?.at(-1)
-      if (tail === 'parent') {
-        return true
-      }
-      // FIELD_ERRORS often omits `path`; match on message for the parent field.
-      if ((e.message ?? '').toLowerCase().includes('parent')) {
-        return true
-      }
-    }
-    return false
-  })
-}
 
 export function classifyProjectError(stderr: string, stdout: string): GitHubProjectViewError {
   const errors = extractGraphqlErrors(stderr, stdout)
@@ -265,7 +219,8 @@ export type GraphqlVars = Record<string, string | number | boolean>
 export async function runGraphql<T>(
   query: string,
   vars: GraphqlVars,
-  cwd?: string
+  cwd?: string,
+  host?: string | null
 ): Promise<
   | { ok: true; data: T }
   | { ok: false; error: GitHubProjectViewError; raw: { stderr: string; stdout: string } }
@@ -277,7 +232,7 @@ export async function runGraphql<T>(
   // Why: build argv as an array. `-f` for strings (including numbers passed
   // as strings), `-F` coerces to typed. We use `-f` uniformly and coerce in
   // the query via Int! casts, because `gh` can confuse empty strings.
-  const args: string[] = ['api', 'graphql', '-f', `query=${query}`]
+  const args: string[] = ['api', 'graphql', ...projectsGhHostArgs(host), '-f', `query=${query}`]
   for (const [k, v] of Object.entries(vars)) {
     if (typeof v === 'number' || typeof v === 'boolean') {
       args.push('-F', `${k}=${String(v)}`)
@@ -336,7 +291,7 @@ export async function runRest<T>(
   args: string[],
   cwd?: string,
   bucket: RateLimitBucketKind = 'core',
-  options?: { expectEmpty?: boolean }
+  options?: { expectEmpty?: boolean; host?: string | null }
 ): Promise<{ ok: true; data: T } | { ok: false; error: GitHubProjectViewError }> {
   const guard = rateLimitGuard(bucket)
   if (guard.blocked) {
@@ -345,7 +300,7 @@ export async function runRest<T>(
   await acquire()
   noteRateLimitSpend(bucket)
   try {
-    const { stdout, stderr } = await ghExecFileAsync(['api', ...args], {
+    const { stdout, stderr } = await ghExecFileAsync(['api', ...projectsGhHostArgs(options?.host), ...args], {
       encoding: 'utf-8',
       ...(cwd ? { cwd } : {})
     })

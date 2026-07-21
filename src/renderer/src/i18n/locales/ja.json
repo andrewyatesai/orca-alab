@@ -9494,6 +9494,18 @@
         },
         "PublishRemoteBranchSetting": {
           "cd5221266b": "git push -u origin HEAD"
+        },
+        "AgentPersonalizationSection": {
+          "b3163542c3": "Refresh agent detection to customize per-agent prompts.",
+          "9ac19080b8": "Leave blank to use the shared prompt.",
+          "1ed8549fcf": "Blank agent prompts use the shared prompt above.",
+          "8dc1e0edf9": "Example: Keep changes small, add tests for behavior changes, and call out security-sensitive assumptions.",
+          "0a28f09406": "Used when per-agent prompts are blank.",
+          "208b416a1a": "Shared prompt",
+          "a1beb3cce7": "Turn this off to customize prompts for individual detected agents.",
+          "cefb760cfa": "Use the same prompt for every agent",
+          "b42ab80fa9": "Prepended to agent task prompts and Orca orchestration dispatches. Stored locally and may appear in terminal launch surfaces; do not include secrets.",
+          "a74419da1e": "Custom Instructions"
         }
       },
       "right": {

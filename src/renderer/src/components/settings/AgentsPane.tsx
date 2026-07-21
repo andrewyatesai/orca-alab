@@ -12,6 +12,7 @@ import { Input } from '../ui/input'
 import { cn } from '@/lib/utils'
 import { AgentAwakeSetting } from './AgentAwakeSetting'
 import { AgentCacheTimerSection } from './AgentCacheTimerSection'
+import { AgentPersonalizationSection } from './AgentPersonalizationSection'
 import { AgentRuntimeSetting } from './AgentRuntimeSetting'
 import {
   AgentSessionSourceHomeInput,
@@ -887,6 +888,12 @@ export function AgentsPane({
       <AgentCacheTimerSection settings={settings} updateSettings={updateSettings} />
 
       <AgentPermissionsSetting mode={agentPermissionMode} onChange={saveAgentPermissionMode} />
+
+      <AgentPersonalizationSection
+        settings={settings}
+        updateSettings={updateSettings}
+        detectedAgents={detectedAgents}
+      />
 
       {/* Detected agents */}
       {detectedAgents.length > 0 && (

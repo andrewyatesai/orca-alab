@@ -23,6 +23,7 @@ import type {
   ResumableTuiAgent
 } from '../../../../shared/agent-session-resume'
 import { resolveCustomAgentBaseCommand } from '../../../../shared/custom-agent-profile'
+import { buildPersonalizedAgentPrompt } from '../../../../shared/agent-personalization'
 import type { CustomAgentProfile, TuiAgent } from '../../../../shared/types'
 
 function op<T>(fn: string, input: unknown): T | null {
@@ -73,9 +74,18 @@ export function buildAgentStartupPlan(args: {
   sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
   customProfile?: CustomAgentProfile | null
+  personalizationPrompt?: string | null
 }): AgentStartupPlan | null {
-  const { customProfile = null, ...rest } = args
-  const opArgs = withCustomProfileOverride(rest, customProfile)
+  const { customProfile = null, personalizationPrompt = null, ...rest } = args
+  // Why: upstream #1776 wraps the task prompt with custom instructions inside
+  // the builder; the Rust core only quotes/injects, so pre-wrap here.
+  const opArgs = withCustomProfileOverride(
+    {
+      ...rest,
+      prompt: buildPersonalizedAgentPrompt({ prompt: rest.prompt, personalizationPrompt })
+    },
+    customProfile
+  )
   const plan = op<AgentStartupPlan>('buildAgentStartupPlan', opArgs)
   // Hermes owns readiness/submission via `chat --query` + a startup-query env
   // var, not stdin-after-start. The Rust core resolves the base command +
@@ -140,9 +150,13 @@ export function buildAgentDraftLaunchPlan(args: {
   sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
   customProfile?: CustomAgentProfile | null
+  personalizationPrompt?: string | null
 }): AgentDraftLaunchPlan | null {
-  const { customProfile = null, ...rest } = args
-  const opArgs = withCustomProfileOverride(rest, customProfile)
+  const { customProfile = null, personalizationPrompt = null, ...rest } = args
+  const opArgs = withCustomProfileOverride(
+    { ...rest, draft: buildPersonalizedAgentPrompt({ prompt: rest.draft, personalizationPrompt }) },
+    customProfile
+  )
   const plan = op<AgentDraftLaunchPlan>('buildAgentDraftLaunchPlan', opArgs)
   return plan ? spliceSessionOptionsIntoPlan(plan, opArgs) : plan
 }

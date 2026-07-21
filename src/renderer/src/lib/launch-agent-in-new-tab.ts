@@ -25,6 +25,10 @@ import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-te
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { repoIsRemote } from '../../../shared/agent-launch-remote'
 import { seedCommandCodeSubmittedPromptStatus } from '@/lib/command-code-prompt-status-seed'
+import {
+  buildPersonalizedAgentPrompt,
+  resolveAgentPersonalizationPrompt
+} from '../../../shared/agent-personalization'
 import type { TuiAgent } from '../../../shared/types'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import { translate } from '@/i18n/i18n'
@@ -112,6 +116,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       ? agentArgs
       : resolveTuiAgentLaunchArgs(agent, store.settings?.agentDefaultArgs)
   const agentEnv = resolveTuiAgentLaunchEnv(agent, store.settings?.agentDefaultEnv)
+  const personalizationPrompt = resolveAgentPersonalizationPrompt(store.settings, agent)
   const startupPlanBase = {
     agent,
     cmdOverrides,
@@ -124,10 +129,16 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       store.settings?.nativeChatSessionOptions,
       agent
     ),
-    customProfile
+    customProfile,
+    personalizationPrompt
   }
   const trimmedPrompt = prompt?.trim() ?? ''
   const hasPrompt = trimmedPrompt.length > 0
+  // Why: pasted-first-turn prompts get the same custom-instructions wrapper the
+  // plan builders apply to argv prompts, so delivery mode can't drop them.
+  const personalizedPrompt = hasPrompt
+    ? buildPersonalizedAgentPrompt({ prompt: trimmedPrompt, personalizationPrompt })
+    : ''
   const isFollowupPath = TUI_AGENT_CONFIG[agent].promptInjectionMode === 'stdin-after-start'
   // argv/flag agents fold the prompt into the launch command; followup/generated launches deliver it via post-launch paste.
   let startupPlan: AgentStartupPlan | null = null
@@ -143,7 +154,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       prompt: '',
       allowEmptyPromptLaunch: true
     })
-    pasteDraftAfterLaunch = trimmedPrompt
+    pasteDraftAfterLaunch = personalizedPrompt
     submitPastedPrompt = true
     forcePasteAfterLaunch = true
   } else if (hasPrompt && promptDelivery === 'draft') {
@@ -172,7 +183,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
         prompt: '',
         allowEmptyPromptLaunch: true
       })
-      pasteDraftAfterLaunch = trimmedPrompt
+      pasteDraftAfterLaunch = personalizedPrompt
     }
   } else if (hasPrompt && isFollowupPath) {
     startupPlan = buildAgentStartupPlan({
@@ -180,7 +191,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       prompt: '',
       allowEmptyPromptLaunch: true
     })
-    pasteDraftAfterLaunch = trimmedPrompt
+    pasteDraftAfterLaunch = personalizedPrompt
   } else {
     startupPlan = buildAgentStartupPlan({
       ...startupPlanBase,

@@ -1438,6 +1438,9 @@ describe('orchestration RPC methods', () => {
     it('dry-run returns the preamble without mutating state', async () => {
       setup()
       const task = db.createTask({ spec: 'work' })
+      const prompt = vi
+        .spyOn(runtime, 'getPersonalizationPrompt')
+        .mockResolvedValue('Term-specific prompt')
 
       const result = (await call('orchestration.dispatch', {
         task: task.id,
@@ -1458,6 +1461,8 @@ describe('orchestration RPC methods', () => {
       expect(result.preamble).toContain('work')
       expect(result.preamble).toContain(task.id)
       expect(result.preamble).toContain('term_coord')
+      expect(result.preamble).toContain('Term-specific prompt')
+      expect(prompt).toHaveBeenCalledWith('term_a')
       // Task state must not change on dry-run.
       expect(db.getTask(task.id)?.status).toBe('ready')
       expect(db.getDispatchContext(task.id)).toBeUndefined()
@@ -1466,6 +1471,9 @@ describe('orchestration RPC methods', () => {
     it('returnPreamble includes preamble in the response', async () => {
       setup()
       const task = db.createTask({ spec: 'work' })
+      const prompt = vi
+        .spyOn(runtime, 'getPersonalizationPrompt')
+        .mockResolvedValue('Injected prompt')
 
       const result = (await call('orchestration.dispatch', {
         task: task.id,
@@ -1477,6 +1485,8 @@ describe('orchestration RPC methods', () => {
       expect(result.dispatch.id).toMatch(/^ctx_/)
       expect(result.preamble).toContain(task.id)
       expect(result.preamble).toContain('term_coord')
+      expect(result.preamble).toContain('Injected prompt')
+      expect(prompt).toHaveBeenCalledWith('term_a')
     })
   })
 
@@ -1506,6 +1516,9 @@ describe('orchestration RPC methods', () => {
       setup()
       const task = db.createTask({ spec: 'refactor auth' })
       db.createDispatchContext(task.id, 'term_a')
+      const prompt = vi
+        .spyOn(runtime, 'getPersonalizationPrompt')
+        .mockResolvedValue('Preview prompt')
 
       const result = (await call('orchestration.dispatchShow', {
         task: task.id,
@@ -1516,7 +1529,9 @@ describe('orchestration RPC methods', () => {
       expect(result.preamble).toContain('refactor auth')
       expect(result.preamble).toContain(task.id)
       expect(result.preamble).toContain('term_coord')
+      expect(result.preamble).toContain('Preview prompt')
       expect(result.dispatch?.task_id).toBe(task.id)
+      expect(prompt).toHaveBeenCalledWith('term_a')
     })
 
     it('--preamble works when no dispatch exists yet', async () => {

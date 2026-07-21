@@ -18,6 +18,10 @@ import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import { filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
+import {
+  buildPersonalizedAgentPrompt,
+  resolveAgentPersonalizationPrompt
+} from '../../../shared/agent-personalization'
 import { repoIsRemote } from '../../../shared/agent-launch-remote'
 import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
 import { resolveNativeChatSessionOptionDefaults } from '../../../shared/native-chat-session-option-defaults'
@@ -3160,6 +3164,23 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     [updateWorktreeMeta]
   )
 
+  const resolvePersonalizationPrompt = useCallback(
+    (agent: TuiAgent): string =>
+      resolveAgentPersonalizationPrompt(
+        {
+          personalizationPrompt: settings?.personalizationPrompt,
+          personalizationPromptMode: settings?.personalizationPromptMode,
+          agentPersonalizationPrompts: settings?.agentPersonalizationPrompts
+        },
+        agent
+      ),
+    [
+      settings?.agentPersonalizationPrompts,
+      settings?.personalizationPrompt,
+      settings?.personalizationPromptMode
+    ]
+  )
+
   const folderCreateDisabled =
     creating ||
     !selectedProjectGroup?.parentPath ||
@@ -3457,6 +3478,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         cmdOverrides: settings?.agentCmdOverrides ?? {},
         customProfile:
           (customAgentId && settings?.customAgents?.find((p) => p.id === customAgentId)) || null,
+        personalizationPrompt: resolvePersonalizationPrompt(tuiAgent),
         agentArgs: resolveTuiAgentLaunchArgs(tuiAgent, settings?.agentDefaultArgs),
         agentEnv: resolveTuiAgentLaunchEnv(tuiAgent, settings?.agentDefaultEnv),
         sessionOptions: resolveNativeChatSessionOptionDefaults(
@@ -3636,6 +3658,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     resolvePendingSmartGitHubSubmit,
     resolvedSetupDecision,
     resolvedInitialWorkspaceStatus,
+    resolvePersonalizationPrompt,
     selectedRepo,
     selectedRepoAgentLaunchPlatform,
     selectedRepoIsRemote,
@@ -3742,6 +3765,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
           requestedCustomProfile && requestedCustomProfile.baseAgent === agent
             ? requestedCustomProfile
             : null
+        const personalizationPrompt = agent === null ? '' : resolvePersonalizationPrompt(agent)
         const submitLinkedIssueNumber =
           smartGitHubResolution.kind === 'none'
             ? parsedLinkedIssueNumber
@@ -3890,6 +3914,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
                 draft: quickDraftPrompt,
                 cmdOverrides: settings?.agentCmdOverrides ?? {},
                 customProfile,
+                personalizationPrompt,
                 agentArgs: resolveTuiAgentLaunchArgs(agent, settings?.agentDefaultArgs),
                 agentEnv: resolveTuiAgentLaunchEnv(agent, settings?.agentDefaultEnv),
                 sessionOptions: resolveNativeChatSessionOptionDefaults(
@@ -3923,6 +3948,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
             prompt: quickPrompt,
             cmdOverrides: settings?.agentCmdOverrides ?? {},
             customProfile,
+            personalizationPrompt,
             agentArgs: resolveTuiAgentLaunchArgs(agent, settings?.agentDefaultArgs),
             agentEnv: resolveTuiAgentLaunchEnv(agent, settings?.agentDefaultEnv),
             sessionOptions: resolveNativeChatSessionOptionDefaults(
@@ -3935,7 +3961,10 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
             allowEmptyPromptLaunch: true
           })
           if (startupPlan && quickDraftPrompt) {
-            startupPlan.draftPrompt = quickDraftPrompt
+            startupPlan.draftPrompt = buildPersonalizedAgentPrompt({
+              prompt: quickDraftPrompt,
+              personalizationPrompt
+            })
           }
         }
 
@@ -4100,6 +4129,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       resolvePendingSmartGitHubSubmit,
       resolvedSetupDecision,
       resolvedInitialWorkspaceStatus,
+      resolvePersonalizationPrompt,
       selectedRepo,
       selectedRepoAgentLaunchPlatform,
       selectedRepoIsRemote,

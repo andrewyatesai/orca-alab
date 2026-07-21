@@ -4,6 +4,10 @@ import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import { resolveDefaultTuiAgentPreference } from '@/lib/custom-agent-resolve'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection'
+import {
+  buildPersonalizedAgentPrompt,
+  resolveAgentPersonalizationPrompt
+} from '../../../shared/agent-personalization'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { CLIENT_PLATFORM, getWorkspaceIntentName, getWorkspaceSeedName } from '@/lib/new-workspace'
 import {
@@ -297,6 +301,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
         settings,
         launchPlatform,
         customProfile: effectiveCustomProfile,
+        personalizationPrompt: resolveAgentPersonalizationPrompt(settings, effectiveAgent),
         // Why: SSH hosts run the plain `orca` shim, so the Linux-only `orca-ide`
         // rename must not be applied for remote launches.
         isRemote: typeof launchConnectionId === 'string'
@@ -345,7 +350,10 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   void pasteDirectWorkItemDraftWhenAgentReady({
     primaryTabId,
     startupPlan,
-    content: draftContent,
+    content: buildPersonalizedAgentPrompt({
+      prompt: draftContent,
+      personalizationPrompt: resolveAgentPersonalizationPrompt(settings, effectiveAgent)
+    }),
     submit: promptDelivery === 'submit-after-ready',
     forcePaste: promptDelivery === 'submit-after-ready'
   })

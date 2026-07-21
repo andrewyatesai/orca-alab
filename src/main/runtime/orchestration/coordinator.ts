@@ -30,6 +30,7 @@ export type CoordinatorRuntime = {
   getTerminalPaneKey?(handle: string): string | null
   // Why: Windows can host native and WSL workers at once, so the worker pane (not the coordinator) picks the packaged CLI name.
   getTerminalOrchestrationCliCommand?(handle: string): 'orca' | 'orca-ide'
+  getPersonalizationPrompt?: (terminalHandle?: string) => string | Promise<string>
 }
 
 // Why (§3.1): 20 lets normal monorepo day-velocity pass but trips the 168-commit harm from ORCHESTRATOR_FEEDBACK.md (chosen in msg_eff3a646110d).
@@ -432,6 +433,7 @@ export class Coordinator {
       ...(this.runtime.getTerminalOrchestrationCliCommand
         ? { cliCommand: this.runtime.getTerminalOrchestrationCliCommand(targetHandle) }
         : {}),
+      personalizationPrompt: await this.runtime.getPersonalizationPrompt?.(targetHandle),
       // Why (§3.2): pass baseDrift unconditionally — the preamble builder itself gates the drift section on behind > 0.
       ...(baseDrift ? { baseDrift } : {})
     })

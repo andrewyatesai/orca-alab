@@ -4769,6 +4769,24 @@ describe('Store', () => {
     expect(updated.branchPrefix).toBe('git-username')
   })
 
+  it('defaults agent personalization settings for existing profiles', async () => {
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      settings: {
+        theme: 'dark'
+      }
+    })
+
+    const store = await createStore()
+
+    expect(store.getSettings()).toMatchObject({
+      personalizationPrompt: '',
+      personalizationPromptMode: 'global',
+      agentPersonalizationPrompts: {}
+    })
+  })
+
   it('normalizes bot-author overrides on load and every settings write', async () => {
     writeDataFile({
       settings: {

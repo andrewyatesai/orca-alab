@@ -6,6 +6,7 @@ import {
   buildAgentStartupPlan,
   type AgentStartupPlan
 } from '@/lib/tui-agent-startup'
+import { buildPersonalizedAgentPrompt } from '../../../shared/agent-personalization'
 import type { AgentStartedTelemetry } from '@/lib/worktree-activation'
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
 import type { LaunchSource } from '../../../shared/telemetry-events'
@@ -40,6 +41,8 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
   /** When set, the launch command comes from this custom profile (command +
    * env shell prefix) instead of the catalog default for `agent`. */
   customProfile?: CustomAgentProfile | null
+  /** Custom instructions prepended to the draft/prompt (upstream #1776). */
+  personalizationPrompt?: string | null
 }): {
   startupPlan: AgentStartupPlan | null
   draftLaunchedNatively: boolean
@@ -70,7 +73,8 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
           agentArgs: effectiveAgentArgs,
           agentEnv: effectiveAgentEnv,
           sessionOptions,
-          customProfile: args.customProfile
+          customProfile: args.customProfile,
+          personalizationPrompt: args.personalizationPrompt
         })
 
   if (draftLaunchPlan) {
@@ -104,10 +108,14 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
     agentEnv: effectiveAgentEnv,
     sessionOptions,
     allowEmptyPromptLaunch: true,
-    customProfile: args.customProfile
+    customProfile: args.customProfile,
+    personalizationPrompt: args.personalizationPrompt
   })
   if (startupPlan && args.promptDelivery === 'draft') {
-    startupPlan.draftPrompt = args.draftContent
+    startupPlan.draftPrompt = buildPersonalizedAgentPrompt({
+      prompt: args.draftContent,
+      personalizationPrompt: args.personalizationPrompt
+    })
   }
   return {
     startupPlan,

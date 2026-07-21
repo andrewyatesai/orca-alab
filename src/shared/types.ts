@@ -2828,6 +2828,12 @@ export type GlobalSettings = {
   disabledTuiAgents: TuiAgent[]
   /** One-shot guard: start Claude Agent Teams hidden for existing profiles without overriding later opt-ins. */
   claudeAgentTeamsDefaultDisabledMigrated?: boolean
+  /** Global custom instructions prepended to agent task prompts. */
+  personalizationPrompt: string
+  /** Whether all agents use the global prompt or each agent can override it. */
+  personalizationPromptMode: 'global' | 'per-agent'
+  /** Per-agent custom instruction overrides used when personalizationPromptMode is per-agent. */
+  agentPersonalizationPrompts: Partial<Record<TuiAgent, string>>
   /** Why: worktree deletion is destructive (rm -rf of the working dir), so confirm by default. */
   skipDeleteWorktreeConfirm: boolean
   /** Why: closing a terminal with child processes kills foreground work; keep this skip separate from other confirmations. */

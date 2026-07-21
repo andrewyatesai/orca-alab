@@ -28,6 +28,7 @@ import {
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
 import { setOrcaDispatchBinding } from '../shared/orca-dispatch-seam'
 import type { GitRemoteOperation } from '../shared/git-remote-error'
+import { formatGitRemoteOperationTimeoutMessage } from '../shared/git-remote-error'
 import type { GitStatusEntry, GitPushTarget } from '../shared/types'
 import type { GitLineStats } from '../shared/git-uncommitted-line-stats'
 import type { GitHistoryItem } from '../shared/git-history-types'
@@ -62,6 +63,12 @@ export function bindRelayOrcaDispatch(): void {
  */
 export function normalizeGitErrorMessage(error: unknown, operation?: GitRemoteOperation): string {
   ensureGitWasm()
+  // Why: the runner's timeout text is a runner artifact, so it is matched at
+  // this boundary rather than inside the Rust core (see shared helper).
+  const timeoutMessage = formatGitRemoteOperationTimeoutMessage(error, operation)
+  if (timeoutMessage !== null) {
+    return timeoutMessage
+  }
   const message = error instanceof Error ? error.message : undefined
   return wasmNormalizeGitErrorMessage(message, operation)
 }

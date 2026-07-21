@@ -1,6 +1,9 @@
 /* eslint-disable max-lines -- Why: this suite covers the SSH git provider's one-RPC-per-method contract; splitting it would duplicate the shared mux fixture. */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { SshGitProvider } from './ssh-git-provider'
+import { GIT_REMOTE_OPERATION_RPC_TIMEOUT_MS } from '../../shared/git-remote-operation-timeout'
+
+const REMOTE_RPC_OPTIONS = { timeoutMs: GIT_REMOTE_OPERATION_RPC_TIMEOUT_MS }
 
 type MockMultiplexer = {
   request: ReturnType<typeof vi.fn>
@@ -767,32 +770,42 @@ describe('SshGitProvider', () => {
       remoteName: 'pr-fork-orca',
       branchName: 'contributor/fix'
     })
-    expect(mux.request).toHaveBeenCalledWith('git.push', {
-      worktreePath: '/home/user/repo',
-      publish: true,
-      pushTarget: {
-        remoteName: 'pr-fork-orca',
-        branchName: 'contributor/fix'
-      }
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.push',
+      {
+        worktreePath: '/home/user/repo',
+        publish: true,
+        pushTarget: {
+          remoteName: 'pr-fork-orca',
+          branchName: 'contributor/fix'
+        }
+      },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('pushBranch forwards force-with-lease mode', async () => {
     await provider.pushBranch('/home/user/repo', false, undefined, { forceWithLease: true })
 
-    expect(mux.request).toHaveBeenCalledWith('git.push', {
-      worktreePath: '/home/user/repo',
-      publish: false,
-      pushTarget: undefined,
-      forceWithLease: true
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.push',
+      {
+        worktreePath: '/home/user/repo',
+        publish: false,
+        pushTarget: undefined,
+        forceWithLease: true
+      },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('pullBranch sends git.pull request', async () => {
     await provider.pullBranch('/home/user/repo')
-    expect(mux.request).toHaveBeenCalledWith('git.pull', {
-      worktreePath: '/home/user/repo'
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.pull',
+      { worktreePath: '/home/user/repo' },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('pullBranch forwards an explicit push target', async () => {
@@ -800,17 +813,20 @@ describe('SshGitProvider', () => {
 
     await provider.pullBranch('/home/user/repo', pushTarget)
 
-    expect(mux.request).toHaveBeenCalledWith('git.pull', {
-      worktreePath: '/home/user/repo',
-      pushTarget
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.pull',
+      { worktreePath: '/home/user/repo', pushTarget },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('fastForwardBranch sends git.fastForward request', async () => {
     await provider.fastForwardBranch('/home/user/repo')
-    expect(mux.request).toHaveBeenCalledWith('git.fastForward', {
-      worktreePath: '/home/user/repo'
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fastForward',
+      { worktreePath: '/home/user/repo' },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('fastForwardBranch forwards an explicit push target', async () => {
@@ -818,26 +834,30 @@ describe('SshGitProvider', () => {
 
     await provider.fastForwardBranch('/home/user/repo', pushTarget)
 
-    expect(mux.request).toHaveBeenCalledWith('git.fastForward', {
-      worktreePath: '/home/user/repo',
-      pushTarget
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fastForward',
+      { worktreePath: '/home/user/repo', pushTarget },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('rebaseFromBase sends git.rebaseFromBase request', async () => {
     await provider.rebaseFromBase('/home/user/repo', 'upstream/main')
 
-    expect(mux.request).toHaveBeenCalledWith('git.rebaseFromBase', {
-      worktreePath: '/home/user/repo',
-      baseRef: 'upstream/main'
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.rebaseFromBase',
+      { worktreePath: '/home/user/repo', baseRef: 'upstream/main' },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('fetchRemote sends git.fetch request', async () => {
     await provider.fetchRemote('/home/user/repo')
-    expect(mux.request).toHaveBeenCalledWith('git.fetch', {
-      worktreePath: '/home/user/repo'
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fetch',
+      { worktreePath: '/home/user/repo' },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('fetchRemote forwards an explicit push target', async () => {
@@ -845,10 +865,11 @@ describe('SshGitProvider', () => {
 
     await provider.fetchRemote('/home/user/repo', pushTarget)
 
-    expect(mux.request).toHaveBeenCalledWith('git.fetch', {
-      worktreePath: '/home/user/repo',
-      pushTarget
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fetch',
+      { worktreePath: '/home/user/repo', pushTarget },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('syncForkDefaultBranch sends git.forkSync request', async () => {
@@ -865,10 +886,11 @@ describe('SshGitProvider', () => {
     const expectedUpstream = { owner: 'stablyai', repo: 'orca' }
     const result = await provider.syncForkDefaultBranch('/home/user/repo', expectedUpstream)
 
-    expect(mux.request).toHaveBeenCalledWith('git.forkSync', {
-      worktreePath: '/home/user/repo',
-      expectedUpstream
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.forkSync',
+      { worktreePath: '/home/user/repo', expectedUpstream },
+      REMOTE_RPC_OPTIONS
+    )
     expect(result).toEqual(syncResult)
   })
 
@@ -881,23 +903,27 @@ describe('SshGitProvider', () => {
       { skipAutoMaintenance: true }
     )
 
-    expect(mux.request).toHaveBeenCalledWith('git.fetchRemoteTrackingRef', {
-      worktreePath: '/home/user/repo',
-      remote: 'origin',
-      branch: 'main',
-      ref: 'refs/remotes/origin/main',
-      skipAutoMaintenance: true
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fetchRemoteTrackingRef',
+      {
+        worktreePath: '/home/user/repo',
+        remote: 'origin',
+        branch: 'main',
+        ref: 'refs/remotes/origin/main',
+        skipAutoMaintenance: true
+      },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('fetchGitLabMergeRequestHead sends git.fetchGitLabMergeRequestHead request', async () => {
     await provider.fetchGitLabMergeRequestHead('/home/user/repo', 'origin', 42)
 
-    expect(mux.request).toHaveBeenCalledWith('git.fetchGitLabMergeRequestHead', {
-      worktreePath: '/home/user/repo',
-      remote: 'origin',
-      mrIid: 42
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fetchGitLabMergeRequestHead',
+      { worktreePath: '/home/user/repo', remote: 'origin', mrIid: 42 },
+      REMOTE_RPC_OPTIONS
+    )
   })
 
   it('getBranchDiff sends git.branchDiff request', async () => {

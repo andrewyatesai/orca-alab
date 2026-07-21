@@ -1,4 +1,5 @@
 import type { GitRemoteOperation } from '../../shared/git-remote-error'
+import { formatGitRemoteOperationTimeoutMessage } from '../../shared/git-remote-error'
 import { requireRustGitBinding } from '../daemon/rust-git-addon'
 
 // The main process's git remote-error classification, driven by the Rust
@@ -9,6 +10,12 @@ import { requireRustGitBinding } from '../daemon/rust-git-addon'
 /** Normalise a git remote-operation error into a user-facing message. A
  *  non-Error throw yields the fixed fallback. */
 export function normalizeGitErrorMessage(error: unknown, operation?: GitRemoteOperation): string {
+  // Why: the runner's timeout text is a runner artifact, so it is matched at
+  // this boundary rather than inside the Rust core (see shared helper).
+  const timeoutMessage = formatGitRemoteOperationTimeoutMessage(error, operation)
+  if (timeoutMessage !== null) {
+    return timeoutMessage
+  }
   const message = error instanceof Error ? error.message : undefined
   return requireRustGitBinding().normalizeGitErrorMessage(message, operation)
 }

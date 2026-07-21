@@ -53,7 +53,8 @@ import {
   gitPullRebaseFromBase,
   gitFetch,
   getUpstreamStatus,
-  gitPush
+  gitPush,
+  type RelayRunGit
 } from './git-wasm'
 // Pull-retry control flow with no git-text parsing, so it stays shared TS while
 // git-wasm owns the error predicates/normaliser it wraps.
@@ -84,6 +85,8 @@ import { GitResponseStreamRegistry } from './git-response-stream'
 import { GIT_RESPONSE_STREAM_THRESHOLD } from './protocol'
 import { endSubprocessStdin } from '../shared/subprocess-stdin-write'
 import { clearGitStatusLineStatsCache } from '../shared/git-status-line-stats-cache'
+import { GIT_REMOTE_OPERATION_TIMEOUT_MS } from '../shared/git-remote-operation-timeout'
+import { runRelayGitRemoteCommand } from './relay-git-remote-command'
 
 const execFileAsync = promisify(execFile)
 const MAX_GIT_BUFFER = 10 * 1024 * 1024
@@ -214,16 +217,18 @@ export class GitHandler {
     this.dispatcher.onRequest('git.branchCompare', (p) => this.branchCompare(p))
     this.dispatcher.onRequest('git.commitCompare', (p) => this.commitCompare(p))
     this.dispatcher.onRequest('git.upstreamStatus', (p) => this.upstreamStatus(p))
-    this.dispatcher.onRequest('git.fetch', (p) => this.fetch(p))
+    this.dispatcher.onRequest('git.fetch', (p, context) => this.fetch(p, context))
     this.dispatcher.onRequest('git.forkSync', (p, context) => this.forkSync(p, context))
-    this.dispatcher.onRequest('git.fetchRemoteTrackingRef', (p) => this.fetchRemoteTrackingRef(p))
-    this.dispatcher.onRequest('git.fetchGitLabMergeRequestHead', (p) =>
-      this.fetchGitLabMergeRequestHead(p)
+    this.dispatcher.onRequest('git.fetchRemoteTrackingRef', (p, context) =>
+      this.fetchRemoteTrackingRef(p, context)
     )
-    this.dispatcher.onRequest('git.push', (p) => this.push(p))
-    this.dispatcher.onRequest('git.pull', (p) => this.pull(p))
-    this.dispatcher.onRequest('git.fastForward', (p) => this.fastForward(p))
-    this.dispatcher.onRequest('git.rebaseFromBase', (p) => this.rebaseFromBase(p))
+    this.dispatcher.onRequest('git.fetchGitLabMergeRequestHead', (p, context) =>
+      this.fetchGitLabMergeRequestHead(p, context)
+    )
+    this.dispatcher.onRequest('git.push', (p, context) => this.push(p, context))
+    this.dispatcher.onRequest('git.pull', (p, context) => this.pull(p, context))
+    this.dispatcher.onRequest('git.fastForward', (p, context) => this.fastForward(p, context))
+    this.dispatcher.onRequest('git.rebaseFromBase', (p, context) => this.rebaseFromBase(p, context))
     this.dispatcher.onRequest('git.branchDiff', (p, context) => this.branchDiff(p, context))
     this.dispatcher.onRequest('git.commitDiff', (p, context) => this.commitDiff(p, context))
     this.dispatcher.onRequest('git.listWorktrees', (p, context) => this.listWorktrees(p, context))
@@ -322,6 +327,31 @@ export class GitHandler {
     }
     const { stdout, stderr } = await execFileAsync('git', args, execOptions)
     return { stdout: String(stdout), stderr: String(stderr) }
+  }
+
+  private remoteGit(
+    args: string[],
+    cwd: string,
+    context?: { signal?: AbortSignal },
+    timeout = GIT_REMOTE_OPERATION_TIMEOUT_MS
+  ): Promise<{ stdout: string; stderr: string }> {
+    return runRelayGitRemoteCommand(args, {
+      cwd: expandTilde(cwd),
+      env: buildRelayUnattendedGitEnv(),
+      maxBuffer: MAX_GIT_BUFFER,
+      signal: context?.signal,
+      timeout
+    })
+  }
+
+  // Why: wasm remote-op drivers issue reads and the mutating transport through one callback;
+  // bound the whole operation like main's gitRemoteOperationOptionsForWorktree. Stdin-piped
+  // commands stay on this.git — the remote runner has no stdin, and no remote command pipes it.
+  private remoteOperationRunGit(worktreePath: string, context?: RequestContext): RelayRunGit {
+    return (args, stdin) =>
+      stdin !== null
+        ? this.git(args, worktreePath, { stdin })
+        : this.remoteGit(args, worktreePath, context)
   }
 
   private async gitBuffer(args: string[], cwd: string): Promise<Buffer> {
@@ -818,7 +848,7 @@ export class GitHandler {
     }
   }
 
-  private async fetch(params: Record<string, unknown>) {
+  private async fetch(params: Record<string, unknown>, context?: RequestContext) {
     this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     try {
@@ -830,7 +860,7 @@ export class GitHandler {
           assertGitPushTargetShape(params.pushTarget)
         }
         await gitFetch(
-          (args, stdin) => this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
+          this.remoteOperationRunGit(worktreePath, context),
           params.pushTarget as GitPushTarget | undefined
         )
       } catch (error) {
@@ -858,11 +888,7 @@ export class GitHandler {
       const timeout = setTimeout(() => controller.abort(), 60_000)
       try {
         return await syncForkDefaultBranch(
-          (args) =>
-            this.git(args, worktreePath, {
-              nonInteractive: true,
-              signal: controller.signal
-            }),
+          (args) => this.remoteGit(args, worktreePath, { signal: controller.signal }, 60_000),
           { expectedUpstream }
         )
       } catch (error) {
@@ -874,7 +900,7 @@ export class GitHandler {
     })
   }
 
-  private async fetchRemoteTrackingRef(params: Record<string, unknown>) {
+  private async fetchRemoteTrackingRef(params: Record<string, unknown>, context?: RequestContext) {
     this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const remote = params.remote
@@ -906,7 +932,7 @@ export class GitHandler {
         }
         await this.git(['check-ref-format', `refs/heads/${branch}`], worktreePath)
         await this.git(['check-ref-format', ref], worktreePath)
-        await this.git(
+        await this.remoteGit(
           [
             ...(skipAutoMaintenance ? GIT_FETCH_SKIP_AUTO_MAINTENANCE_CONFIG_ARGS : []),
             'fetch',
@@ -914,7 +940,8 @@ export class GitHandler {
             remote,
             `+refs/heads/${branch}:${ref}`
           ],
-          worktreePath
+          worktreePath,
+          context
         )
       } catch (error) {
         // Why: create-worktree needs a write-capable fetch that generic git.exec rejects; narrow RPC keeps the allowlist tight.
@@ -925,7 +952,10 @@ export class GitHandler {
     }
   }
 
-  private async fetchGitLabMergeRequestHead(params: Record<string, unknown>) {
+  private async fetchGitLabMergeRequestHead(
+    params: Record<string, unknown>,
+    context?: RequestContext
+  ) {
     this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const remote = params.remote
@@ -952,9 +982,10 @@ export class GitHandler {
           throw new Error(`Remote "${remote}" is not configured.`)
         }
         // Why: GitLab MR heads aren't refs/heads/*, so the remote-tracking fetch RPC can't represent fork MRs; keep this write path MR-only.
-        await this.git(
+        await this.remoteGit(
           ['fetch', '--no-tags', remote, `refs/merge-requests/${mergeRequestIid}/head`],
-          worktreePath
+          worktreePath,
+          context
         )
       } catch (error) {
         throw new Error(normalizeGitErrorMessage(error, 'fetch'))
@@ -964,7 +995,7 @@ export class GitHandler {
     }
   }
 
-  private async push(params: Record<string, unknown>) {
+  private async push(params: Record<string, unknown>, context?: RequestContext) {
     this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     // Why: mirror src/main/git/remote.ts — push to a configured upstream when present so SSH worktrees with non-origin targets aren't repointed.
@@ -978,7 +1009,7 @@ export class GitHandler {
           assertGitPushTargetShape(params.pushTarget)
         }
         await gitPush(
-          (args, stdin) => this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
+          this.remoteOperationRunGit(worktreePath, context),
           params.pushTarget as GitPushTarget | undefined,
           params.forceWithLease === true
         )
@@ -991,7 +1022,11 @@ export class GitHandler {
     }
   }
 
-  private async pullWithArgs(params: Record<string, unknown>, pullArgs: string[]) {
+  private async pullWithArgs(
+    params: Record<string, unknown>,
+    pullArgs: string[],
+    context?: RequestContext
+  ) {
     this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const runPull = async (effectiveArgs: string[]): Promise<void> => {
@@ -999,9 +1034,10 @@ export class GitHandler {
         assertGitPushTargetShape(params.pushTarget)
         const pushTarget = params.pushTarget as GitPushTarget
         await this.git(['check-ref-format', '--branch', pushTarget.branchName], worktreePath)
-        await this.git(
+        await this.remoteGit(
           ['pull', ...effectiveArgs, pushTarget.remoteName, pushTarget.branchName],
-          worktreePath
+          worktreePath,
+          context
         )
         return
       }
@@ -1011,13 +1047,14 @@ export class GitHandler {
       )
       if (upstream && !upstream.isConfiguredUpstream) {
         // Why: legacy Orca branches may track origin/main while pushes target origin/<branch>; pull the same effective branch the UI reports.
-        await this.git(
+        await this.remoteGit(
           ['pull', ...effectiveArgs, upstream.remoteName, upstream.branchName],
-          worktreePath
+          worktreePath,
+          context
         )
         return
       }
-      await this.git(['pull', ...effectiveArgs], worktreePath)
+      await this.remoteGit(['pull', ...effectiveArgs], worktreePath, context)
     }
 
     try {
@@ -1032,16 +1069,16 @@ export class GitHandler {
     }
   }
 
-  private async pull(params: Record<string, unknown>) {
+  private async pull(params: Record<string, unknown>, context?: RequestContext) {
     // Why: plain `git pull` honors the user's merge/rebase/ff policy; with none, Git's policy error is normalized with setup guidance.
-    await this.pullWithArgs(params, [])
+    await this.pullWithArgs(params, [], context)
   }
 
-  private async fastForward(params: Record<string, unknown>) {
-    await this.pullWithArgs(params, ['--ff-only'])
+  private async fastForward(params: Record<string, unknown>, context?: RequestContext) {
+    await this.pullWithArgs(params, ['--ff-only'], context)
   }
 
-  private async rebaseFromBase(params: Record<string, unknown>) {
+  private async rebaseFromBase(params: Record<string, unknown>, context?: RequestContext) {
     this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const baseRef = params.baseRef as string
@@ -1050,10 +1087,7 @@ export class GitHandler {
         // Rust drives the whole rebase-from-base — resolve the base's remote/branch
         // (read-only) AND run the mutating `pull --rebase` — in one call; git stays
         // in the relay (SSH-safe).
-        await gitPullRebaseFromBase(
-          (args, stdin) => this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
-          baseRef
-        )
+        await gitPullRebaseFromBase(this.remoteOperationRunGit(worktreePath, context), baseRef)
       } catch (error) {
         throw new Error(normalizeGitErrorMessage(error, 'pull'))
       }

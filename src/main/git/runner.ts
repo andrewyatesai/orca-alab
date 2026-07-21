@@ -247,6 +247,7 @@ type GitExecOptions = {
   stdin?: string
   env?: NodeJS.ProcessEnv
   signal?: AbortSignal
+  killProcessTree?: boolean
   wslDistro?: string
   useWslLoginShell?: boolean
   useConfiguredSshCommandForNetwork?: boolean
@@ -259,6 +260,7 @@ type CommandExecOptions = {
   timeout?: number
   env?: NodeJS.ProcessEnv
   signal?: AbortSignal
+  killProcessTree?: boolean
 }
 
 function isMissingCommandError(error: unknown): boolean {
@@ -287,12 +289,34 @@ function createAbortError(): Error {
   return error
 }
 
-const WINDOWS_TREE_KILL_WAIT_MS = 2_000
+const PROCESS_TREE_TERMINATION_WAIT_MS = 2_000
 
-function killSpawnedCommandTree(child: ChildProcess): Promise<void> {
+function killSpawnedCommandTree(child: ChildProcess, killPosixProcessGroup = false): Promise<void> {
   const pid = child.pid
-  if (!pid || process.platform !== 'win32') {
+  if (!pid) {
     child.kill()
+    return Promise.resolve()
+  }
+  if (process.platform !== 'win32') {
+    if (!killPosixProcessGroup) {
+      child.kill()
+      return Promise.resolve()
+    }
+    try {
+      process.kill(-pid, 'SIGTERM')
+    } catch {
+      child.kill()
+      return Promise.resolve()
+    }
+    const forceKillTimer = setTimeout(() => {
+      try {
+        process.kill(-pid, 'SIGKILL')
+      } catch {
+        /* process group already exited */
+      }
+    }, PROCESS_TREE_TERMINATION_WAIT_MS)
+    child.once('close', () => clearTimeout(forceKillTimer))
+    forceKillTimer.unref?.()
     return Promise.resolve()
   }
   return new Promise((resolve) => {
@@ -334,7 +358,7 @@ function killSpawnedCommandTree(child: ChildProcess): Promise<void> {
     timer = setTimeout(() => {
       killer.kill()
       finish(true)
-    }, WINDOWS_TREE_KILL_WAIT_MS)
+    }, PROCESS_TREE_TERMINATION_WAIT_MS)
     killer.unref()
   })
 }
@@ -342,6 +366,7 @@ function killSpawnedCommandTree(child: ChildProcess): Promise<void> {
 type ExecFileCaptureOptions = Omit<ExecFileOptions, 'timeout'> & {
   timeout?: number
   stdin?: string
+  killProcessTree?: boolean
 }
 
 function emptyExecFileOutput(options: ExecFileCaptureOptions): string | Buffer {
@@ -412,7 +437,7 @@ function execFileCapture(
         finish(abortError)
         return
       }
-      void killSpawnedCommandTree(child).then(() => {
+      void killSpawnedCommandTree(child, options.killProcessTree).then(() => {
         terminating = false
         finish(abortError)
       })
@@ -470,7 +495,7 @@ function execFileCapture(
           finish(timeoutError)
           return
         }
-        void killSpawnedCommandTree(child).then(() => {
+        void killSpawnedCommandTree(child, options.killProcessTree).then(() => {
           terminating = false
           finish(timeoutError)
         })
@@ -496,9 +521,12 @@ async function spawnCommandCapture(
     let stderr = ''
     let stdoutBytes = 0
     let stderrBytes = 0
+    const stdoutDecoder = new StringDecoder(options.encoding ?? 'utf-8')
+    const stderrDecoder = new StringDecoder(options.encoding ?? 'utf-8')
     const spawnStartedAt = performance.now()
     const child = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
+      detached: options.killProcessTree === true && process.platform !== 'win32',
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
@@ -506,7 +534,7 @@ async function spawnCommandCapture(
     recordSubprocessSpawn(spawnCmd, spawnArgs, performance.now() - spawnStartedAt)
     let timer: NodeJS.Timeout | null = null
     const onAbort = (): void => {
-      void killSpawnedCommandTree(child)
+      void killSpawnedCommandTree(child, options.killProcessTree)
       finish(createAbortError())
     }
     const cleanupListeners = (): void => {
@@ -525,6 +553,8 @@ async function spawnCommandCapture(
         return
       }
       settled = true
+      stdout += stdoutDecoder.end()
+      stderr += stderrDecoder.end()
       cleanupListeners()
       if (error) {
         reject(Object.assign(error, { stdout, stderr }))
@@ -534,7 +564,7 @@ async function spawnCommandCapture(
     }
     timer = options.timeout
       ? setTimeout(() => {
-          void killSpawnedCommandTree(child)
+          void killSpawnedCommandTree(child, options.killProcessTree)
           finish(new Error(`${command} timed out.`))
         }, options.timeout)
       : null
@@ -542,20 +572,20 @@ async function spawnCommandCapture(
     function onStdoutData(chunk: Buffer): void {
       stdoutBytes += chunk.byteLength
       if (options.maxBuffer && stdoutBytes > options.maxBuffer) {
-        void killSpawnedCommandTree(child)
+        void killSpawnedCommandTree(child, options.killProcessTree)
         finish(new Error(`${command} stdout exceeded maxBuffer.`))
         return
       }
-      stdout += chunk.toString(options.encoding ?? 'utf-8')
+      stdout += stdoutDecoder.write(chunk)
     }
     function onStderrData(chunk: Buffer): void {
       stderrBytes += chunk.byteLength
       if (options.maxBuffer && stderrBytes > options.maxBuffer) {
-        void killSpawnedCommandTree(child)
+        void killSpawnedCommandTree(child, options.killProcessTree)
         finish(new Error(`${command} stderr exceeded maxBuffer.`))
         return
       }
-      stderr += chunk.toString(options.encoding ?? 'utf-8')
+      stderr += stderrDecoder.write(chunk)
     }
     function onError(error: Error): void {
       finish(error)
@@ -833,16 +863,28 @@ export async function gitExecFileAsync(
         : { env: nonInteractiveGitEnv(options.env), mode: 'default' as const }
       let result: { stdout: string | Buffer; stderr: string | Buffer }
       try {
-        result = await execFileCapture(resolved.binary, resolved.args, {
-          cwd: resolved.cwd,
-          encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
-          maxBuffer: options.maxBuffer,
-          timeout: options.timeout,
-          stdin: options.stdin,
-          // Why: never let a git read-path call block on an interactive prompt (issue #5308) — fail fast.
-          env: policy.env,
-          signal: options.signal
-        })
+        result =
+          options.killProcessTree === true && process.platform !== 'win32'
+            ? await spawnCommandCapture(resolved.binary, resolved.args, {
+                cwd: resolved.cwd,
+                encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
+                maxBuffer: options.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER,
+                timeout: options.timeout,
+                env: policy.env,
+                signal: options.signal,
+                killProcessTree: true
+              })
+            : await execFileCapture(resolved.binary, resolved.args, {
+                cwd: resolved.cwd,
+                encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
+                maxBuffer: options.maxBuffer,
+                timeout: options.timeout,
+                stdin: options.stdin,
+                // Why: never let a git read-path call block on an interactive prompt (issue #5308) — fail fast.
+                env: policy.env,
+                signal: options.signal,
+                killProcessTree: options.killProcessTree
+              })
       } catch (error) {
         if (options.useConfiguredSshCommandForNetwork && error && typeof error === 'object') {
           Object.assign(error, { gitSshPolicyMode: policy.mode })

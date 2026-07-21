@@ -106,15 +106,27 @@ export function reconcileSerializedMarkdown({
     diffs = cleanupSemantic(diffs)
     diffs = cleanupEfficiency(diffs)
   }
-  const patches = makePatches(baseLf, diffs)
-  // Why: adjustIndiciesToUcs2 treats patch.start1 (character index) as a UTF-8
-  // byte offset. For multi-byte codepoints (中文, emoji, accented Latin) this
-  // causes advanceTo to overshoot and throw. allowExceedingIndices makes it
-  // return the nearest index instead — fuzzy match in apply() still locates the
-  // correct position, and branch 6's round-trip proof catches any misplacement.
-  const [reconciledLf, results] = applyPatches(patches, originalSourceLf, {
-    allowExceedingIndices: true
-  })
+  // Why: applyPatches reads patch.start* as UTF-8 byte offsets (Sanity's wire
+  // format) and converts them to UCS-2, but makePatches emits UCS-2 there — so
+  // non-ASCII docs misplace hunks or throw (#9158/#9492). Feed the UTF-8 twins
+  // so the internal conversion round-trips to the true indices;
+  // allowExceedingIndices absorbs residual source-vs-base drift (fuzzy match
+  // relocates, branch 6 verifies).
+  const patches = makePatches(baseLf, diffs).map((patch) => ({
+    ...patch,
+    start1: patch.utf8Start1,
+    start2: patch.utf8Start2
+  }))
+  let reconciledLf: string
+  let results: boolean[]
+  try {
+    ;[reconciledLf, results] = applyPatches(patches, originalSourceLf, {
+      allowExceedingIndices: true
+    })
+  } catch {
+    // A patch-apply crash must never drop the save → canonical fallback.
+    return restoreEol(editedLf, eol)
+  }
 
   // Branch 5: a hunk that failed to locate in the non-canonical source → the
   // fuzzy match is unreliable here, so fall back to canonical.

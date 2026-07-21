@@ -1266,7 +1266,18 @@ describe('GitHandler', () => {
 
       expect(gitBufferSpy).toHaveBeenCalledTimes(2)
       expect(remoteGitSpy).toHaveBeenCalledWith(
-        expect.arrayContaining(['fetch', 'origin']),
+        [
+          '-c',
+          'maintenance.auto=false',
+          '-c',
+          'maintenance.commit-graph.auto=0',
+          '-c',
+          'gc.auto=0',
+          'fetch',
+          '--no-tags',
+          'origin',
+          '+refs/heads/main:refs/remotes/origin/main'
+        ],
         tmpDir,
         expect.any(Object)
       )

@@ -189,6 +189,27 @@ export function getProjectHostSetupsForProject(
   return setups.filter((setup) => setup.projectId === projectId)
 }
 
+// Why: setup-on-host must link an imported folder to the selected project on
+// any provider — GitHub projects stamp `upstream`, while GitLab/Bitbucket
+// projects only carry a canonical git remote identity (#6712).
+export function getProjectIdentityRepoStamp(
+  project: Pick<Project, 'providerIdentity' | 'gitRemoteIdentity'> | undefined
+): Partial<Pick<Repo, 'upstream' | 'gitRemoteIdentity'>> | null {
+  if (project?.providerIdentity?.provider === 'github') {
+    return {
+      upstream: {
+        owner: project.providerIdentity.owner,
+        repo: project.providerIdentity.repo
+      }
+    }
+  }
+  const gitRemoteIdentity = project?.gitRemoteIdentity
+  if (gitRemoteIdentity?.canonicalKey?.trim()) {
+    return { gitRemoteIdentity }
+  }
+  return null
+}
+
 export function getProjectHostSetupForRepo(
   setups: readonly ProjectHostSetup[],
   repo: Repo

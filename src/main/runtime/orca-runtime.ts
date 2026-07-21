@@ -194,7 +194,8 @@ import {
 } from '../../shared/worktree-id'
 import {
   getProjectHostSetupForRepo,
-  getProjectHostSetupWorktreeMeta
+  getProjectHostSetupWorktreeMeta,
+  getProjectIdentityRepoStamp
 } from '../../shared/project-host-setup-projection'
 import { parsePtySessionId } from '../../shared/pty-session-id-format'
 import { clampLinearIssueListLimit } from '../../shared/linear-issue-read-limits'
@@ -12760,18 +12761,11 @@ export class OrcaRuntimeService {
     let setup = getProjectHostSetupForRepo(this.listProjectHostSetups(), repo)
     if (setup.projectId !== args.projectId) {
       const existingProject = this.listProjects().find((project) => project.id === args.projectId)
-      if (
-        !existingProject?.providerIdentity ||
-        existingProject.providerIdentity.provider !== 'github'
-      ) {
+      const identityStamp = getProjectIdentityRepoStamp(existingProject)
+      if (!identityStamp) {
         throw new Error('Imported folder does not match the selected project identity.')
       }
-      const updated = this.store.updateRepo(repo.id, {
-        upstream: {
-          owner: existingProject.providerIdentity.owner,
-          repo: existingProject.providerIdentity.repo
-        }
-      })
+      const updated = this.store.updateRepo(repo.id, identityStamp)
       if (!updated) {
         throw new Error(`Project setup repo disappeared before it could be linked: ${repo.id}`)
       }

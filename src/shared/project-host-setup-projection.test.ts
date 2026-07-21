@@ -3,6 +3,7 @@ import {
   projectHostSetupProjectionFromRepos,
   getProjectHostSetupsForProject,
   getProjectHostSetupWorktreeMeta,
+  getProjectIdentityRepoStamp,
   isGitHubBackedRepo
 } from './project-host-setup-projection'
 import type { Repo } from './types'
@@ -385,5 +386,34 @@ describe('isGitHubBackedRepo', () => {
 
   it('is false for a plain local repo with no provider signal', () => {
     expect(isGitHubBackedRepo(repo({ id: 'r', path: '/r', displayName: 'r' }))).toBe(false)
+  })
+})
+
+describe('getProjectIdentityRepoStamp', () => {
+  it('stamps upstream for GitHub-backed projects', () => {
+    expect(
+      getProjectIdentityRepoStamp({
+        providerIdentity: { provider: 'github', owner: 'stablyai', repo: 'orca' }
+      })
+    ).toEqual({ upstream: { owner: 'stablyai', repo: 'orca' } })
+  })
+
+  it('stamps the git remote identity for non-GitHub providers', () => {
+    const gitRemoteIdentity = {
+      canonicalKey: 'gitlab.com/acme/widgets',
+      remoteName: 'origin',
+      remoteUrl: 'https://gitlab.com/acme/widgets.git'
+    }
+    expect(getProjectIdentityRepoStamp({ gitRemoteIdentity })).toEqual({ gitRemoteIdentity })
+  })
+
+  it('returns null when the project has no linkable identity', () => {
+    expect(getProjectIdentityRepoStamp(undefined)).toBeNull()
+    expect(getProjectIdentityRepoStamp({})).toBeNull()
+    expect(
+      getProjectIdentityRepoStamp({
+        gitRemoteIdentity: { canonicalKey: '  ', remoteName: 'origin', remoteUrl: 'x' }
+      })
+    ).toBeNull()
   })
 })

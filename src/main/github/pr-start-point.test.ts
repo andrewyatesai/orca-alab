@@ -364,9 +364,10 @@ describe('resolveGitHubPrStartPoint', () => {
       resolveRemoteAlternatives: async () => ['origin', 'backup']
     })
 
-    expect(result.error).toBe(
-      'Failed to fetch feature/missing (or refs/pull/42/head) from any configured remote (yzc, origin, backup).'
-    )
+    expect(result).toEqual({
+      error:
+        'Failed to fetch feature/missing (or refs/pull/42/head) from any configured remote (yzc, origin, backup).'
+    })
     // Why: the refs/pull/<N>/head fallback must also probe alternatives before
     // returning an error — here every remote rejects the same way, so the
     // iteration visits each candidate before bubbling up the unified error.
@@ -400,7 +401,9 @@ describe('resolveGitHubPrStartPoint', () => {
       resolveRemoteAlternatives: async () => ['origin', 'backup']
     })
 
-    expect(result.error).toBe('Failed to fetch refs/pull/42/head: Permission denied (publickey)')
+    expect(result).toEqual({
+      error: 'Failed to fetch refs/pull/42/head: Permission denied (publickey)'
+    })
   })
 
   // Why: the cross-repo path must also surface a hard refs/pull error verbatim
@@ -426,6 +429,8 @@ describe('resolveGitHubPrStartPoint', () => {
       resolveRemoteAlternatives: async () => ['origin', 'backup']
     })
 
-    expect(result.error).toBe('Failed to fetch refs/pull/42/head: Permission denied (publickey)')
+    expect(result).toEqual({
+      error: 'Failed to fetch refs/pull/42/head: Permission denied (publickey)'
+    })
   })
 })

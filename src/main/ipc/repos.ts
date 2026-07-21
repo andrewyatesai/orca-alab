@@ -5,6 +5,11 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { z } from 'zod'
 import type { Store } from '../persistence'
+import { getWslHomeAsync } from '../wsl'
+import {
+  buildWslPickerDefaultPath,
+  getWslPickerDefaultDistro
+} from '../../shared/wsl-picker-default-path'
 import type {
   BaseRefSearchResult,
   Project,
@@ -2100,8 +2105,24 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
     notifySparsePresetsChanged(mainWindow, args.repoId)
   })
 
+  // Why: when WSL is the default project runtime, seed the folder dialog with
+  // the distro's $HOME so "add project" browses WSL folders instead of stranding
+  // the user on the Windows drive. Resolves to undefined (OS default) otherwise.
+  const resolvePickerDefaultPath = async (): Promise<string | undefined> => {
+    const distro = getWslPickerDefaultDistro(
+      store.getSettings().localWindowsRuntimeDefault,
+      process.platform
+    )
+    if (!distro) {
+      return undefined
+    }
+    return buildWslPickerDefaultPath(distro, await getWslHomeAsync(distro))
+  }
+
   ipcMain.handle('repos:pickFolder', async () => {
+    const defaultPath = await resolvePickerDefaultPath()
     const result = await dialog.showOpenDialog(mainWindow, {
+      ...(defaultPath ? { defaultPath } : {}),
       properties: ['openDirectory']
     })
     if (result.canceled || result.filePaths.length === 0) {
@@ -2111,7 +2132,9 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   })
 
   ipcMain.handle('repos:pickFolders', async () => {
+    const defaultPath = await resolvePickerDefaultPath()
     const result = await dialog.showOpenDialog(mainWindow, {
+      ...(defaultPath ? { defaultPath } : {}),
       properties: ['openDirectory', 'multiSelections']
     })
     if (result.canceled || result.filePaths.length === 0) {
@@ -2122,7 +2145,9 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
 
   // Why: generic folder picker, separate from pickFolder's add-project flow; a clone destination may not be a git repo yet.
   ipcMain.handle('repos:pickDirectory', async () => {
+    const defaultPath = await resolvePickerDefaultPath()
     const result = await dialog.showOpenDialog(mainWindow, {
+      ...(defaultPath ? { defaultPath } : {}),
       // Why: macOS materializes typed partial paths with directory creation on; clone/create make the final path on submit.
       properties: ['openDirectory']
     })

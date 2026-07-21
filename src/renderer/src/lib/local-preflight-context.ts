@@ -10,14 +10,14 @@ import type { Repo, Worktree } from '../../../shared/types'
 import { getProviderRuntimeContextKey } from './provider-runtime-context'
 import { getRendererAppPlatform } from './renderer-app-platform'
 import {
-  getCachedWindowsTerminalCapabilities,
-  hasCachedWindowsTerminalCapabilities
-} from './windows-terminal-capabilities'
-import {
   getProjectRuntimePreflightContext,
   getWslPreflightContext,
   type LocalPreflightContext
 } from './local-preflight-context-cache'
+import {
+  getCachedWindowsTerminalCapabilities,
+  hasCachedWindowsTerminalCapabilities
+} from './windows-terminal-capabilities'
 
 export { localPreflightContextKey } from './local-preflight-context-key'
 export type { LocalPreflightContext } from './local-preflight-context-cache'
@@ -111,6 +111,33 @@ export function getLocalRepoProjectExecutionRuntimeContext(
   })
 }
 
+// Why: Settings, onboarding, and Landing run the git/gh preflight before any
+// project is active. Without this, a Windows user whose default runtime is WSL
+// would see gh/git checked on the Windows host, not inside their distro.
+function getGlobalDefaultRuntimePreflightContext(
+  state: AppState,
+  appPlatform: NodeJS.Platform,
+  wslContext: LocalProjectRuntimeWslContext
+): NonNullable<LocalPreflightContext> | undefined {
+  if (
+    appPlatform !== 'win32' ||
+    state.activeRepoId ||
+    state.activeWorktreeId ||
+    !state.settings?.localWindowsRuntimeDefault
+  ) {
+    return undefined
+  }
+  return getProjectRuntimePreflightContext(
+    resolveProjectExecutionRuntime({
+      appPlatform: 'win32',
+      projectId: getLocalPreflightProjectId(state),
+      projectRuntimePreference: { kind: 'inherit-global' },
+      globalWindowsRuntimeDefault: state.settings.localWindowsRuntimeDefault,
+      ...wslContext
+    })
+  )
+}
+
 export function getLocalPreflightContext(
   state: AppState,
   appPlatform: NodeJS.Platform = getRendererAppPlatform(),
@@ -127,6 +154,10 @@ export function getLocalPreflightContext(
   )
   if (projectRuntime) {
     return getProjectRuntimePreflightContext(projectRuntime)
+  }
+  const globalDefault = getGlobalDefaultRuntimePreflightContext(state, appPlatform, wslContext)
+  if (globalDefault) {
+    return globalDefault
   }
   const wslDistro = getLocalPreflightWslDistro(state)
   return wslDistro ? getWslPreflightContext(wslDistro) : undefined
@@ -147,23 +178,11 @@ export function getLocalAgentPreflightContext(
     return getProjectRuntimePreflightContext(projectRuntime)
   }
 
-  if (
-    appPlatform === 'win32' &&
-    !state.activeRepoId &&
-    !state.activeWorktreeId &&
-    state.settings?.localWindowsRuntimeDefault
-  ) {
-    // Why: Settings -> Agents is global and can mount before any project is
-    // active; still respect the Windows/WSL runtime default for PATH detection.
-    return getProjectRuntimePreflightContext(
-      resolveProjectExecutionRuntime({
-        appPlatform: 'win32',
-        projectId: getLocalPreflightProjectId(state),
-        projectRuntimePreference: { kind: 'inherit-global' },
-        globalWindowsRuntimeDefault: state.settings.localWindowsRuntimeDefault,
-        ...wslContext
-      })
-    )
+  // Why: Settings -> Agents is global and can mount before any project is
+  // active; still respect the Windows/WSL runtime default for PATH detection.
+  const globalDefault = getGlobalDefaultRuntimePreflightContext(state, appPlatform, wslContext)
+  if (globalDefault) {
+    return globalDefault
   }
 
   const explicitAgentRuntime = appPlatform === 'win32' ? state.settings?.localAgentRuntime : null

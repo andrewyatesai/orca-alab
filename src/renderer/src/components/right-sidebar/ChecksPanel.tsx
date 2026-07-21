@@ -139,6 +139,7 @@ import { installWindowVisibilityInterval } from '@/lib/window-visibility-interva
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { gitLabPipelineJobsToPRChecks } from '@/lib/git-wasm/gitlab-pipeline-checks'
+import { gitLabJobTraceToCheckRunDetails } from './gitlab-check-job-details'
 import { fetchGitLabMRChecks } from './gitlab-mr-checks-cache'
 import { getWorktreeGitIdentityDisplay } from '@/lib/worktree-git-identity-display'
 import { SourceControlAgentActionDialog } from './SourceControlAgentActionDialog'
@@ -1944,6 +1945,16 @@ export default function ChecksPanel(): React.JSX.Element {
       if (!repo) {
         return Promise.resolve(null)
       }
+      // Why: GitLab rows carry the pipeline job id in checkRunId; details are
+      // the job trace, not a GitHub check-run lookup (#7732).
+      if (activeGitLabReview) {
+        if (!check.checkRunId) {
+          return Promise.resolve(null)
+        }
+        return window.api.gl
+          .jobTrace({ repoPath: repo.path, repoId: repo.id, jobId: check.checkRunId })
+          .then((result) => (result.ok ? gitLabJobTraceToCheckRunDetails(check, result.trace) : null))
+      }
       return fetchPRCheckDetails(
         repo.path,
         {
@@ -1956,7 +1967,7 @@ export default function ChecksPanel(): React.JSX.Element {
         { repoId: repo.id }
       )
     },
-    [fetchPRCheckDetails, pr?.prRepo, repo]
+    [activeGitLabReview, fetchPRCheckDetails, pr?.prRepo, repo]
   )
 
   useEffect(() => {

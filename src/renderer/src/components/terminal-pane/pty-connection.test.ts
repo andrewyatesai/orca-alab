@@ -80,6 +80,9 @@ const LEAF_2 = '22222222-2222-4222-8222-222222222222' as const
 const UUID_RE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const AGENT_TASK_COMPLETE_NOTIFICATION_GRACE_MS = 250
 const AGENT_TASK_COMPLETE_NOTIFICATION_MAX_WAIT_MS = 1_500
+// Fork note (#7202/#7818): title completions suppressed by fresh hook status
+// replay after this quiet window when the working row saw no hook activity.
+const SUPPRESSED_TITLE_COMPLETION_REPAIR_SETTLE_MS = 15_000
 
 function leafIdForPane(paneId: number): string {
   return paneId === 2 ? LEAF_2 : LEAF_1
@@ -884,7 +887,8 @@ describe('connectPanePty', () => {
           restoreTerminalFit: vi.fn().mockResolvedValue({ restored: true })
         },
         agentStatus: {
-          inferInterrupt: vi.fn().mockResolvedValue(false)
+          inferInterrupt: vi.fn().mockResolvedValue(false),
+          drop: vi.fn()
         }
       },
       addEventListener: vi.fn(),
@@ -2691,6 +2695,374 @@ describe('connectPanePty', () => {
     )
   })
 
+  it('marks a Codex stream-disconnect output as done instead of leaving the row working', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const transport = createMockTransport()
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-codex'
+    })
+    transportFactoryQueue.push(transport)
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps()
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      prompt: 'Fix the spinner',
+      agentType: 'codex',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      stateHistory: []
+    }
+
+    connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks()
+    expect(capturedDataCallback.current).not.toBeNull()
+
+    capturedDataCallback.current?.(
+      '■ stream disconnected before completion: error sending request for url (http://openclaw:2455/backend-api/codex/responses)\r\n'
+    )
+
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({
+      state: 'done',
+      prompt: 'Fix the spinner',
+      agentType: 'codex',
+      lastAssistantMessage: expect.stringContaining('stream disconnected before completion')
+    })
+    expect(mockStoreState.setAgentStatus).toHaveBeenLastCalledWith(
+      paneKey,
+      expect.objectContaining({
+        state: 'done',
+        prompt: 'Fix the spinner',
+        agentType: 'codex',
+        lastAssistantMessage: expect.stringContaining('stream disconnected before completion')
+      }),
+      'Codex ready'
+    )
+    expect(window.api.agentStatus.drop).toHaveBeenCalledWith(paneKey)
+  })
+
+  it('does not complete a non-Codex row from Codex stream-disconnect text', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const transport = createMockTransport()
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-claude'
+    })
+    transportFactoryQueue.push(transport)
+
+    const pane = createPane(1)
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      prompt: 'Keep working',
+      agentType: 'claude',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      stateHistory: []
+    }
+
+    connectPanePty(pane as never, createManager(1) as never, createDeps() as never)
+    await flushAsyncTicks()
+    expect(capturedDataCallback.current).not.toBeNull()
+
+    capturedDataCallback.current?.(
+      'stream disconnected before completion: error sending request for url (http://openclaw:2455/backend-api/codex/responses)\r\n'
+    )
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({
+      state: 'working',
+      prompt: 'Keep working',
+      agentType: 'claude'
+    })
+  })
+
+  it('does not complete a Codex row from transient stream-disconnect retry output', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const transport = createMockTransport()
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-codex'
+    })
+    transportFactoryQueue.push(transport)
+
+    const pane = createPane(1)
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      prompt: 'Keep generating',
+      agentType: 'codex',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      stateHistory: []
+    }
+
+    connectPanePty(pane as never, createManager(1) as never, createDeps() as never)
+    await flushAsyncTicks()
+    expect(capturedDataCallback.current).not.toBeNull()
+
+    capturedDataCallback.current?.(
+      'stream error: stream disconnected before completion: temporary network failure; retrying 1/5 in 217ms\r\n'
+    )
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({
+      state: 'working',
+      prompt: 'Keep generating',
+      agentType: 'codex'
+    })
+  })
+
+  it('does not complete a later Codex turn from a repainted stream-disconnect line', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const transport = createMockTransport()
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-codex'
+    })
+    transportFactoryQueue.push(transport)
+
+    const pane = createPane(1)
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      prompt: 'First turn',
+      agentType: 'codex',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      stateHistory: []
+    }
+
+    connectPanePty(pane as never, createManager(1) as never, createDeps() as never)
+    await flushAsyncTicks()
+    expect(capturedDataCallback.current).not.toBeNull()
+
+    const fatalLine =
+      '■ stream disconnected before completion: error sending request for url (http://openclaw:2455/backend-api/codex/responses)\r\n'
+    capturedDataCallback.current?.(fatalLine)
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({
+      state: 'done',
+      prompt: 'First turn',
+      agentType: 'codex'
+    })
+
+    mockStoreState.setAgentStatus.mockClear()
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      prompt: 'Second turn',
+      agentType: 'codex',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      stateHistory: []
+    }
+
+    capturedDataCallback.current?.(fatalLine)
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({
+      state: 'working',
+      prompt: 'Second turn',
+      agentType: 'codex'
+    })
+  })
+
+  it('does not complete a new turn when a remounted pane repaints the handled error line', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const firstDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const firstTransport = createMockTransport()
+    firstTransport.connect.mockImplementation(
+      async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+        firstDataCallback.current = callbacks.onData ?? null
+        return 'pty-codex'
+      }
+    )
+    transportFactoryQueue.push(firstTransport)
+
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      prompt: 'First turn',
+      agentType: 'codex',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      stateHistory: []
+    }
+
+    const firstBinding = connectPanePty(
+      createPane(1) as never,
+      createManager(1) as never,
+      createDeps() as never
+    )
+    await flushAsyncTicks()
+    expect(firstDataCallback.current).not.toBeNull()
+
+    const fatalLine =
+      '■ stream disconnected before completion: error sending request for url (http://openclaw:2455/backend-api/codex/responses)\r\n'
+    firstDataCallback.current?.(fatalLine)
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({ state: 'done' })
+    firstBinding.dispose()
+
+    mockStoreState.setAgentStatus.mockClear()
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      prompt: 'Second turn',
+      agentType: 'codex',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now() + 1,
+      stateHistory: []
+    }
+
+    const secondDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const secondTransport = createMockTransport()
+    secondTransport.connect.mockImplementation(
+      async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+        secondDataCallback.current = callbacks.onData ?? null
+        return 'pty-codex'
+      }
+    )
+    transportFactoryQueue.push(secondTransport)
+    connectPanePty(createPane(1) as never, createManager(1) as never, createDeps() as never)
+    await flushAsyncTicks()
+    expect(secondDataCallback.current).not.toBeNull()
+
+    secondDataCallback.current?.(fatalLine)
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({
+      state: 'working',
+      prompt: 'Second turn'
+    })
+  })
+
+  it('preserves tool detail when repairing a working row from a title completion', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-codex')
+    transportFactoryQueue.push(transport)
+
+    vi.useFakeTimers()
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      prompt: 'Run the migration',
+      agentType: 'codex',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      stateHistory: [],
+      toolName: 'Bash',
+      toolInput: 'pnpm run migrate'
+    }
+
+    connectPanePty(createPane(1) as never, createManager(1) as never, createDeps() as never)
+
+    const titleHandler = createdTransportOptions[0]?.onTitleChange as
+      | ((title: string, rawTitle: string) => void)
+      | undefined
+    if (!titleHandler) {
+      throw new Error('Expected onTitleChange to be registered')
+    }
+    titleHandler('Codex working', 'Codex working')
+    titleHandler('Codex done', 'Codex done')
+    // Fork note: the fresh working row holds the title completion (#7818);
+    // it replays after the hook-silence settle window, then repairs (#7202).
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(SUPPRESSED_TITLE_COMPLETION_REPAIR_SETTLE_MS)
+
+    expect(mockStoreState.setAgentStatus).toHaveBeenCalledWith(
+      paneKey,
+      expect.objectContaining({
+        state: 'done',
+        prompt: 'Run the migration',
+        agentType: 'codex',
+        toolName: 'Bash',
+        toolInput: 'pnpm run migrate'
+      }),
+      expect.anything()
+    )
+  })
+
+  it('does not replay a held title completion when hook activity lands during the settle window', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-codex')
+    transportFactoryQueue.push(transport)
+
+    vi.useFakeTimers()
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      prompt: 'Long tool run',
+      agentType: 'codex',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      stateHistory: []
+    }
+
+    connectPanePty(createPane(1) as never, createManager(1) as never, createDeps() as never)
+
+    const titleHandler = createdTransportOptions[0]?.onTitleChange as
+      | ((title: string, rawTitle: string) => void)
+      | undefined
+    if (!titleHandler) {
+      throw new Error('Expected onTitleChange to be registered')
+    }
+    titleHandler('Codex working', 'Codex working')
+    titleHandler('Codex done', 'Codex done')
+
+    // A hook update mid-window proves the turn is alive (#7818 authority).
+    vi.advanceTimersByTime(SUPPRESSED_TITLE_COMPLETION_REPAIR_SETTLE_MS / 2)
+    const heldRow = mockStoreState.agentStatusByPaneKey[paneKey]
+    if (!heldRow) {
+      throw new Error('Expected the working row to still exist')
+    }
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      ...heldRow,
+      updatedAt: Date.now(),
+      toolName: 'Bash'
+    }
+    vi.advanceTimersByTime(SUPPRESSED_TITLE_COMPLETION_REPAIR_SETTLE_MS)
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({
+      state: 'working',
+      prompt: 'Long tool run'
+    })
+  })
+
+  it('does not run stream-disconnect completion for idle panes with no working Codex row', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const transport = createMockTransport()
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-codex'
+    })
+    transportFactoryQueue.push(transport)
+
+    connectPanePty(createPane(1) as never, createManager(1) as never, createDeps() as never)
+    await flushAsyncTicks()
+    expect(capturedDataCallback.current).not.toBeNull()
+
+    capturedDataCallback.current?.(
+      '■ stream disconnected before completion: error sending request for url (http://openclaw:2455/backend-api/codex/responses)\r\n'
+    )
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+  })
   it('delivers terminal-paste startup commands through xterm before submitting', async () => {
     const pendingTimeouts: (() => void)[] = []
     const originalSetTimeout = globalThis.setTimeout
@@ -5026,6 +5398,98 @@ describe('connectPanePty', () => {
 
     expect(mockStoreState.dropAgentStatus).toHaveBeenCalledWith(paneKey)
     expect(mockStoreState.removeAgentStatus).not.toHaveBeenCalled()
+  })
+
+  async function driveLaunchFailureCommandFinished(args: {
+    row: { prompt: string; updatedAt: number; stateStartedAt: number }
+    exitLine: string
+  }): Promise<string> {
+    const { connectPanePty } = await import('./pty-connection')
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    // Why (test): the fresh agent row defers the drop behind a foreground
+    // confirmation; a shell reading settles it deterministically.
+    vi.mocked(window.api.pty.confirmForegroundProcess).mockResolvedValue('zsh')
+
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const transport = createMockTransport()
+    let currentPtyId: string | null = null
+    vi.mocked(transport.getPtyId).mockImplementation(() => currentPtyId)
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      currentPtyId = 'pty-local-1'
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-local-1'
+    })
+    transportFactoryQueue.push(transport)
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      paneKey,
+      state: 'working',
+      agentType: 'codex',
+      stateHistory: [],
+      ...args.row
+    }
+
+    connectPanePty(
+      createPane(1) as never,
+      createManager(1) as never,
+      createDeps({ isVisibleRef: { current: false } }) as never
+    )
+
+    capturedDataCallback.current?.(args.exitLine)
+    await flushAsyncTicks()
+    await vi.advanceTimersByTimeAsync(350)
+    await flushAsyncTicks()
+    return paneKey
+  }
+
+  it('marks a pre-recognition seeded row failed to launch on a 127 command exit', async () => {
+    const seededAt = Date.now()
+    const paneKey = await driveLaunchFailureCommandFinished({
+      row: { prompt: 'Fix the login flow', updatedAt: seededAt, stateStartedAt: seededAt },
+      exitLine: '\x1b]133;D;127\x07zsh: command not found: codex\r\n'
+    })
+
+    expect(mockStoreState.dropAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.setAgentStatus).toHaveBeenCalledWith(
+      paneKey,
+      {
+        state: 'done',
+        prompt: 'Fix the login flow',
+        agentType: 'codex',
+        launchFailed: true,
+        lastAssistantMessage:
+          'Codex failed to launch: command not found (exit 127). Install the CLI on this host and try again.'
+      },
+      undefined
+    )
+    expect(mockStoreState.clearAgentLaunchConfig).toHaveBeenCalledWith(paneKey)
+  })
+
+  it('drops instead of failing the row when 127 arrives long after the launch seed', async () => {
+    const seededAt = Date.now() - 5 * 60_000
+    const paneKey = await driveLaunchFailureCommandFinished({
+      row: { prompt: 'Old stuck turn', updatedAt: seededAt, stateStartedAt: seededAt },
+      exitLine: '\x1b]133;D;127\x07zsh: command not found: foo\r\n'
+    })
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.dropAgentStatus).toHaveBeenCalledWith(paneKey)
+  })
+
+  it('does not fail a hook-touched working row on a nonzero command exit', async () => {
+    const seededAt = Date.now() - 2_000
+    const paneKey = await driveLaunchFailureCommandFinished({
+      // Why (test): a later hook ping bumps updatedAt past stateStartedAt.
+      row: {
+        prompt: 'Live turn with hook updates',
+        updatedAt: seededAt + 1_000,
+        stateStartedAt: seededAt
+      },
+      exitLine: '\x1b]133;D;1\x07thebr ~/repo $ '
+    })
+
+    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
+    expect(mockStoreState.dropAgentStatus).toHaveBeenCalledWith(paneKey)
   })
 
   it('clears pre-hook launch config when an Orca-started command exits', async () => {
@@ -16077,6 +16541,143 @@ describe('connectPanePty', () => {
     })
   })
 
+  it('repairs a working Codex row from a title completion before notification dedupe', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-codex')
+    transportFactoryQueue.push(transport)
+
+    vi.useFakeTimers()
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      state: 'working',
+      prompt: 'Handle fatal Codex errors',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      agentType: 'codex',
+      paneKey,
+      terminalTitle: 'Codex working',
+      stateHistory: [],
+      lastAssistantMessage: 'Usage limit reached.'
+    }
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps()
+
+    connectPanePty(pane as never, manager as never, deps as never)
+
+    const titleHandler = createdTransportOptions[0]?.onTitleChange as
+      | ((title: string, rawTitle: string) => void)
+      | undefined
+    if (!titleHandler) {
+      throw new Error('Expected onTitleChange to be registered')
+    }
+
+    titleHandler('Codex working', 'Codex working')
+    titleHandler('Codex done', 'Codex done')
+    // Fork note: the fresh working row holds the title completion (#7818);
+    // it replays after the hook-silence settle window, then repairs (#7202).
+    vi.advanceTimersByTime(SUPPRESSED_TITLE_COMPLETION_REPAIR_SETTLE_MS)
+
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({
+      state: 'done',
+      prompt: 'Handle fatal Codex errors',
+      agentType: 'codex',
+      lastAssistantMessage: 'Usage limit reached.'
+    })
+    expect(window.api.agentStatus.drop).toHaveBeenCalledWith(paneKey)
+    vi.advanceTimersByTime(AGENT_TASK_COMPLETE_NOTIFICATION_GRACE_MS)
+
+    expect(deps.dispatchNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'agent-task-complete',
+        terminalTitle: 'Codex done',
+        paneKey,
+        agentStatusSnapshot: expect.objectContaining({
+          state: 'done',
+          prompt: 'Handle fatal Codex errors',
+          agentType: 'codex',
+          lastAssistantMessage: 'Usage limit reached.'
+        })
+      })
+    )
+  })
+
+  it('repairs a working Codex row from the real process-exit backstop path', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-codex')
+    transportFactoryQueue.push(transport)
+
+    vi.useFakeTimers()
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    let foregroundProcess: string | null = 'codex'
+    const api = (
+      globalThis as unknown as {
+        window: {
+          api: {
+            pty: {
+              getForegroundProcess: ReturnType<typeof vi.fn>
+              hasChildProcesses: ReturnType<typeof vi.fn>
+            }
+          }
+        }
+      }
+    ).window.api
+    api.pty.getForegroundProcess.mockImplementation(async () => foregroundProcess)
+    api.pty.hasChildProcesses.mockImplementation(async () => foregroundProcess !== null)
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      state: 'working',
+      prompt: 'Handle vanished Codex process',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      agentType: 'codex',
+      paneKey,
+      terminalTitle: 'Codex working',
+      stateHistory: [],
+      lastAssistantMessage: 'Connection failed.'
+    }
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps()
+
+    const binding = connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks()
+    // Why: connect wiring and the first cadence sample land after an
+    // environment-dependent number of async ticks. Drive a fixed span of full
+    // poll cadences — the getForegroundProcess call count is unreliable here
+    // because prior tests' coordinators leak real poll timers whose callbacks
+    // hit the live window.api mocks and satisfy a count gate for them.
+    for (let elapsed = 0; elapsed < 8_000; elapsed += 250) {
+      binding.syncProcessTracking()
+      await vi.advanceTimersByTimeAsync(250)
+      await flushAsyncTicks()
+    }
+    expect(api.pty.getForegroundProcess.mock.calls.length).toBeGreaterThan(0)
+
+    foregroundProcess = null
+    // Why: the exit backstop needs two idle inspection samples on a jittered
+    // cadence, and scheduleNextPoll early-returns are permanent until the next
+    // startProcessTracking call; re-arm each step and advance until the repair
+    // lands so environment-sensitive interleaving cannot strand the poll loop.
+    const repairedRowState = (): string | undefined =>
+      (mockStoreState.agentStatusByPaneKey[paneKey] as { state?: string } | undefined)?.state
+    for (let elapsed = 0; elapsed < 90_000 && repairedRowState() !== 'done'; elapsed += 500) {
+      binding.syncProcessTracking()
+      await vi.advanceTimersByTimeAsync(500)
+      // Why: each inspection resolves through a real microtask chain the fake
+      // clock cannot drive; settle it before deciding to advance again.
+      await flushAsyncTicks()
+    }
+
+    expect(api.pty.getForegroundProcess.mock.calls.length).toBeGreaterThan(2)
+    expect(mockStoreState.agentStatusByPaneKey[paneKey]).toMatchObject({
+      state: 'done',
+      prompt: 'Handle vanished Codex process',
+      agentType: 'codex',
+      lastAssistantMessage: 'Connection failed.'
+    })
+    expect(window.api.agentStatus.drop).toHaveBeenCalledWith(paneKey)
+  })
   it('does not dispatch generic spinner completions when process inspection finds no agent', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport('pty-shell')
@@ -17610,9 +18211,15 @@ describe('connectPanePty', () => {
         agentCompletionSource: 'process-exit'
       }
       if (hookUpdateBeforeDispatch === 'new-turn') {
-        expect(deps.dispatchNotification).not.toHaveBeenCalledWith(expectedNotification)
+        expect(deps.dispatchNotification).not.toHaveBeenCalledWith(
+          expect.objectContaining(expectedNotification)
+        )
       } else {
-        expect(deps.dispatchNotification).toHaveBeenCalledWith(expectedNotification)
+        // Why: the #7202 repair may attach a synthesized done snapshot to the
+        // confirmed-exit notification; match on the stable identifying fields.
+        expect(deps.dispatchNotification).toHaveBeenCalledWith(
+          expect.objectContaining(expectedNotification)
+        )
       }
       expect(pane.terminal.write).toHaveBeenCalledWith(
         `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}`,

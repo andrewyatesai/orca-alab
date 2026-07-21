@@ -1,6 +1,6 @@
 /* oxlint-disable max-lines */
 import { detectAgentStatusFromTitle, type AgentStatus } from '../../../../shared/agent-detection'
-import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
+import type { AgentType, ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
 import {
   isRecognizedAgentType,
   recognizeAgentProcess,
@@ -17,6 +17,7 @@ import type {
 } from './agent-completion-coordinator-types'
 import type { RuntimeTerminalProcessInspection } from '@/runtime/runtime-terminal-inspection'
 import { isPiCompatibleAgentType } from '../../../../shared/pi-agent-kind'
+import { isToolProgressHookEvent } from '../../../../shared/agent-tool-progress-hooks'
 import {
   titleHasExplicitAgentIdentity,
   titleIsInconclusiveNativeDroidTitle
@@ -49,6 +50,8 @@ const PENDING_TITLE_TTL_MS = Math.max(2_000, INSPECTION_TIMEOUT_MS + 500)
 const PENDING_TITLE_MAX_TTL_MS = Math.max(30_000, PENDING_TITLE_TTL_MS)
 const COMPLETION_REPLAY_GUARD_MS = 1_000
 const HOOK_DONE_QUIET_MS = 1_500
+// Why: a hook 'done' while the agent still owns a running child process is an intermediate turn boundary (Codex Stop between responses); only a child reading this fresh may defer the completion (#9333).
+const HOOK_DONE_ACTIVE_CHILD_FRESHNESS_MS = 2_500
 // Why: under "Approve for me" Codex resumes almost immediately, so debounce the OS attention notification so a self-resolving pause raises no false banner (#8387).
 const CODEX_ATTENTION_QUIET_MS = 1_500
 
@@ -69,6 +72,14 @@ function isAttentionHookState(state: ParsedAgentStatusPayload['state']): boolean
   return state === 'waiting' || state === 'blocked'
 }
 
+// Why: a 'working' frame only starts a genuine new turn when it carries an
+// explicit user prompt or a non-tool-progress hook event (e.g.
+// UserPromptSubmit / SessionStart). Background plugin churn arrives as
+// PreToolUse/PostToolUse with no explicit prompt and must not re-arm.
+function isBackgroundToolProgressWorkingFrame(payload: AgentCompletionStatusSnapshot): boolean {
+  return payload.hasExplicitPrompt !== true && isToolProgressHookEvent(payload.hookEventName)
+}
+
 export function createAgentCompletionCoordinator(
   options: AgentCompletionCoordinatorOptions
 ): AgentCompletionCoordinator {
@@ -87,6 +98,11 @@ export function createAgentCompletionCoordinator(
   let lastAttentionToken: string | null = null
   let lastForegroundAgent: RecognizedAgentProcess | null = null
   let requiresFreshWorking = false
+  // Why: the turn number for which we suppressed a background tool-progress
+  // 'working' frame (e.g. Claude-Mem). While set, the matching background
+  // 'done' must not re-arm via the done-only new-turn branch. Cleared by any
+  // genuine new turn. null when no background churn is being suppressed.
+  let suppressedBackgroundTurn: number | null = null
   let pollTimer: ReturnType<typeof setTimeout> | null = null
   let pendingTitleTimer: ReturnType<typeof setTimeout> | null = null
   let pendingHookDoneTimer: ReturnType<typeof setTimeout> | null = null
@@ -111,6 +127,11 @@ export function createAgentCompletionCoordinator(
   // Why: cadence tier the armed poll timer was scheduled at, so a shift to a faster tier can re-arm promptly instead of waiting out the long delay.
   let pollTimerTier: PollCadenceTier | null = null
   let lastPaneActivityAt = 0
+  // Why: last child-process reading from process inspection, used to keep a
+  // pending hook 'done' from firing while the agent is still running a tool
+  // (#9333). Timestamped so only a fresh reading defers the completion.
+  let lastInspectionHadChildProcesses = false
+  let lastInspectionChildProcessesAt = 0
 
   function clearPollTimer(): void {
     if (pollTimer === null) {
@@ -136,6 +157,13 @@ export function createAgentCompletionCoordinator(
     }
     pendingHookDoneTitle = null
     pendingHookDonePayload = null
+  }
+
+  function recentInspectionShowsActiveChild(): boolean {
+    return (
+      lastInspectionHadChildProcesses &&
+      Date.now() - lastInspectionChildProcessesAt <= HOOK_DONE_ACTIVE_CHILD_FRESHNESS_MS
+    )
   }
 
   function clearPendingCodexAttention(): void {
@@ -241,6 +269,14 @@ export function createAgentCompletionCoordinator(
     return null
   }
 
+  function resolveTitleCompletionAgentType(title: string): AgentType | undefined {
+    const titleAgentIdentity = titleCompletionAgentIdentity(title)
+    if (titleAgentIdentity) {
+      return titleAgentIdentity
+    }
+    return lastForegroundAgent?.agent
+  }
+
   function completionIdentityAlreadyNotified(
     completionIdentity: LastCompletionIdentity | null | undefined
   ): boolean {
@@ -261,6 +297,31 @@ export function createAgentCompletionCoordinator(
     )
   }
 
+  function repairCompletionStatus(
+    source: CompletionSource,
+    title: string,
+    optionsOverride: {
+      processExitAgent?: RecognizedAgentProcess
+    }
+  ): AgentCompletionStatusSnapshot | null | undefined {
+    if (source === 'process-exit' && optionsOverride.processExitAgent) {
+      return options.onCompletionStatusRepair?.({
+        source,
+        title,
+        agent: optionsOverride.processExitAgent
+      })
+    }
+    if (source !== 'title') {
+      return undefined
+    }
+    const agentType = resolveTitleCompletionAgentType(title)
+    return options.onCompletionStatusRepair?.({
+      source,
+      title,
+      ...(agentType ? { agentType } : {})
+    })
+  }
+
   function dispatchCompletion(
     source: CompletionSource,
     title: string,
@@ -269,8 +330,10 @@ export function createAgentCompletionCoordinator(
       terminalIdleConfirmed?: boolean
       agentStatus?: AgentCompletionStatusSnapshot
       completionIdentity?: LastCompletionIdentity | null
+      processExitAgent?: RecognizedAgentProcess
     } = {}
   ): void {
+    const repairedAgentStatus = repairCompletionStatus(source, title, optionsOverride)
     if (source !== 'hook' && pendingHookDoneTimer !== null) {
       return
     }
@@ -301,13 +364,19 @@ export function createAgentCompletionCoordinator(
     if (source === 'hook' && optionsOverride.agentStatus) {
       options.dispatchHookLifecycle?.(optionsOverride.agentStatus)
     }
-    if (optionsOverride.quietedHookDone === true || source === 'process-exit') {
+    const agentStatus = optionsOverride.agentStatus ?? repairedAgentStatus ?? undefined
+    // Why: repairedAgentStatus (not the hook's own payload) widens the meta branch — immediate hook completions keep their bare dispatch (#7202).
+    if (
+      optionsOverride.quietedHookDone === true ||
+      source === 'process-exit' ||
+      repairedAgentStatus
+    ) {
       // Why: confirmed process death is independent completion evidence; keep its provenance so stale hook rows can't veto it later.
       options.dispatchCompletion(title, {
         source,
         quietedHookDone: optionsOverride.quietedHookDone === true,
         ...(optionsOverride.terminalIdleConfirmed === true ? { terminalIdleConfirmed: true } : {}),
-        ...(optionsOverride.agentStatus ? { agentStatus: optionsOverride.agentStatus } : {})
+        ...(agentStatus ? { agentStatus } : {})
       })
     } else {
       options.dispatchCompletion(title)
@@ -361,6 +430,15 @@ export function createAgentCompletionCoordinator(
       pendingHookDoneTitle = null
       pendingHookDonePayload = null
       if (pendingTitle) {
+        if (pendingPayload && recentInspectionShowsActiveChild()) {
+          // Why: the agent still owns a running child process, so this 'done'
+          // is an intermediate turn boundary (e.g. Codex executing a tool
+          // between responses), not the end of the user request. Re-arm the
+          // quiet window instead of firing a premature completion; it settles
+          // once the agent is genuinely idle or resumed work cancels it (#9333).
+          scheduleHookDoneCompletion(pendingTitle, pendingPayload)
+          return
+        }
         const hookIdentity = pendingPayload ? hookCompletionIdentity(pendingPayload) : null
         dispatchCompletion('hook', pendingTitle, {
           quietedHookDone: true,
@@ -460,7 +538,8 @@ export function createAgentCompletionCoordinator(
               source: 'process-exit',
               identity: `${lastForegroundAgent.agent}:${lastForegroundAgent.processName}`,
               agentIdentity: lastForegroundAgent.agent
-            }
+            },
+            processExitAgent: lastForegroundAgent
           })
         }
       }
@@ -471,7 +550,18 @@ export function createAgentCompletionCoordinator(
   }
 
   function handleProcessInspectionResult(result: RuntimeTerminalProcessInspection): boolean {
+    if (result.unavailable === true) {
+      // Why: a stale/gone remote handle (transport drop, reconnect window) is
+      // unknown liveness, not evidence the agent exited (#9151). Preserve agent
+      // evidence and exit-arming state, and back off like a failed inspection
+      // until a successful sample or authoritative exit event arrives.
+      consecutiveInspectionErrors += 1
+      scheduleNextPoll()
+      return false
+    }
     consecutiveInspectionErrors = 0
+    lastInspectionHadChildProcesses = result.hasChildProcesses === true
+    lastInspectionChildProcessesAt = Date.now()
     const recognized = recognizeAgentProcess(result.foregroundProcess)
     if (recognized) {
       handleRecognizedProcess(recognized)
@@ -508,7 +598,8 @@ export function createAgentCompletionCoordinator(
             source: 'process-exit',
             identity: `${exited.agent}:${exited.processName}`,
             agentIdentity: exited.agent
-          }
+          },
+          processExitAgent: exited
         })
       }
       lastForegroundAgent = null
@@ -684,6 +775,14 @@ export function createAgentCompletionCoordinator(
     ) {
       return false
     }
+    if (suppressedBackgroundTurn === currentTurn && lastCompletedTurn === currentTurn) {
+      // Why: a background plugin's post-turn memory write (e.g. Claude-Mem)
+      // re-renders a working spinner and reverts; that flicker belongs to the
+      // already-notified turn. The 1s replay guard is far too short for
+      // multi-second writes, so key off turn identity; a genuine new turn
+      // clears suppressedBackgroundTurn via the hook working path first.
+      return false
+    }
     // Why: cancel debounced attention when a Codex resume surfaces as a working title (else false banner #8387); placed after the replay guard so a stale post-completion replay can't drop it.
     clearPendingCodexAttention()
     workingStatusObserved = true
@@ -783,11 +882,29 @@ export function createAgentCompletionCoordinator(
       establishAgentEvidence()
     }
     if (payload.state === 'working') {
+      // Why: after we already notified completion for this turn, a background
+      // plugin (e.g. Claude-Mem) can fire tool-progress hooks on the same pane
+      // with no explicit user prompt. Treating those as a new turn re-arms a
+      // duplicate completion notification on the next 'done'. Suppress the
+      // re-arm for that case only; real new turns (explicit prompt / a non-tool
+      // hook event) and sources that emit no hook event name still re-arm.
+      if (
+        isBackgroundToolProgressWorkingFrame(payload) &&
+        !workingStatusObserved &&
+        lastCompletionSource === 'hook' &&
+        lastCompletedTurn === currentTurn
+      ) {
+        suppressedBackgroundTurn = currentTurn
+        clearPendingHookDone()
+        dropPendingTitle()
+        return
+      }
       clearPendingHookDone()
       // Why: resumed work cancels the debounced attention so a self-resolving pause never notifies.
       clearPendingCodexAttention()
       workingStatusObserved = true
       requiresFreshWorking = false
+      suppressedBackgroundTurn = null
       lastCompletionIdentity = null
       lastAttentionToken = null
       currentTurn += 1
@@ -817,6 +934,19 @@ export function createAgentCompletionCoordinator(
         if (payload.state === 'done' && pendingHookDoneTimer !== null) {
           scheduleHookDoneCompletion(payload.agentType ?? options.paneKey, payload)
         }
+        return
+      }
+      if (
+        suppressedBackgroundTurn === currentTurn &&
+        payload.state === 'done' &&
+        payload.hasExplicitPrompt !== true &&
+        !workingStatusObserved &&
+        lastCompletedTurn === currentTurn
+      ) {
+        // Why: this 'done' terminates a background plugin turn (e.g. Claude-Mem's
+        // memory write) whose 'working' frame we suppressed above. Do NOT treat
+        // it as a new turn — that would re-fire the completion notification the
+        // user already saw for this turn.
         return
       }
       if (
@@ -885,6 +1015,7 @@ export function createAgentCompletionCoordinator(
     lastCompletionIdentity = null
     lastAttentionToken = null
     lastForegroundAgent = null
+    suppressedBackgroundTurn = null
     requiresFreshWorking = options.requireFreshWorking ?? false
     inspectionGeneration += 1
   }

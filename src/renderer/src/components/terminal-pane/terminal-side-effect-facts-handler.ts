@@ -82,6 +82,9 @@ export type TerminalSideEffectFactConsumerCallbacks = {
    *  done is settle-checked by the pane policy before completing the turn. */
   onCommandCodeWorking?: (prompt: string) => void
   onCommandCodeDone?: (prompt: string) => void
+  /** Codex fatal stream-error scrape (#7202): pane policy repairs a stuck
+   *  'working' row (Codex finalizes failed turns without the Stop hook). */
+  onCodexStreamError?: (message: string) => void
   /** DECSET 2031 subscribe observed by main's tracker. Registered only by
    *  hidden-delivery-gated consumers (their bytes never arrive); the theme
    *  reply is sent renderer-side — query authority stays with the view. */
@@ -134,6 +137,9 @@ function applyLiveFact(entry: ConsumerEntry, fact: TerminalSideEffectFact, seq: 
       return
     case 'command-code-done':
       entry.callbacks.onCommandCodeDone?.(fact.prompt)
+      return
+    case 'codex-stream-error':
+      entry.callbacks.onCodexStreamError?.(fact.message)
       return
     case '2031-subscribe':
       entry.callbacks.onMode2031Subscribe?.()

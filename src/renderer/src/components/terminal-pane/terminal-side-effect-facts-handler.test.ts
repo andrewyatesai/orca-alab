@@ -255,6 +255,37 @@ describe('registerTerminalSideEffectFactConsumer', () => {
     expect(events).toEqual([['title', 'restored']])
   })
 
+  it('routes codex-stream-error facts to the registered consumer but never replays them', () => {
+    // Why: a replayed fatal-line fact would re-complete whatever turn is live
+    // at (re)attach time — the repair is valid only against live bytes.
+    const events: unknown[][] = []
+    registerTerminalSideEffectFactConsumer({
+      ptyId: PTY_ID,
+      callbacks: {
+        onTitleChange: (normalizedTitle) => events.push(['title', normalizedTitle]),
+        onCodexStreamError: (message) => events.push(['codex-stream-error', message])
+      }
+    })
+
+    _dispatchTerminalSideEffectBatchForTest(
+      batch([{ kind: 'codex-stream-error', message: 'stream disconnected before completion: boom' }])
+    )
+    _dispatchTerminalSideEffectBatchForTest(
+      batch(
+        [
+          { kind: 'title', normalizedTitle: 'restored', rawTitle: 'restored' },
+          { kind: 'codex-stream-error', message: 'stream disconnected before completion: boom' }
+        ],
+        { replay: true, seq: 5 }
+      )
+    )
+
+    expect(events).toEqual([
+      ['codex-stream-error', 'stream disconnected before completion: boom'],
+      ['title', 'restored']
+    ])
+  })
+
   it('routes 2031-subscribe facts to the registered consumer but never replays them', () => {
     // Why: the fact lets hidden-delivery-gated views answer the color-scheme
     // query without byte access; a replayed subscribe would re-answer a query

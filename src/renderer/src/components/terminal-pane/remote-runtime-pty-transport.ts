@@ -44,6 +44,7 @@ const REMOTE_TERMINAL_VIEWPORT_FLUSH_MS = 33
 const HOST_SESSION_ATTACH_POLL_MS = 150
 const HOST_SESSION_REPLACEMENT_POLL_MAX_MS = 1_000
 const HOST_SESSION_ATTACH_TIMEOUT_MS = 15_000
+const STREAM_END_EXIT_CONFIRM_TIMEOUT_MS = 1_000
 
 function isRemoteTerminalStaleMessage(message: string): boolean {
   return message.includes('terminal_handle_stale')
@@ -55,6 +56,13 @@ function isRemoteTerminalGoneMessage(message: string): boolean {
     message.includes('terminal_gone') ||
     message.includes('no_connected_pty')
   )
+}
+
+function isRemoteHostDisconnectMessage(message: string): boolean {
+  // Why: no_connected_pty means the handle resolves but its PTY is not attached
+  // right now — for a paired host mirror that is a host disconnect, not an exit
+  // of the agent's terminal (#9151).
+  return message.includes('no_connected_pty')
 }
 
 /** PTY transport for a renderer pane backed by a terminal on a remote Orca runtime, over runtime RPC plus the multiplexed stream. */
@@ -535,6 +543,20 @@ export function createRemoteRuntimePtyTransport(
     )
   }
 
+  function isHostSessionMirror(): boolean {
+    return Boolean(tabId && isWebTerminalSurfaceTabId(tabId))
+  }
+
+  function noteRemoteTerminalDisconnected(): void {
+    // Why: the paired host is unreachable, not exited — keep the pane's PTY
+    // binding (and its agent evidence) so no exit/completion is inferred, and
+    // let a later session snapshot or reattach revive the mirror (#9151).
+    connected = false
+    clearPendingViewportClaim()
+    closeMultiplexedStream()
+    storedCallbacks.onDisconnect?.()
+  }
+
   function handleRemoteTerminalError(error: unknown): void {
     const message = runtimeTerminalErrorMessage(error)
     if (message === REMOTE_TERMINAL_SNAPSHOT_TOO_LARGE) {
@@ -551,12 +573,56 @@ export function createRemoteRuntimePtyTransport(
       }
       return
     }
+    if (isHostSessionMirror() && isRemoteHostDisconnectMessage(message)) {
+      noteRemoteTerminalDisconnected()
+      return
+    }
     if (isRemoteTerminalGoneMessage(message)) {
       // Why: an explicit terminal-gone response is lifecycle evidence, unlike a replaceable stale handle seen during reconnect.
       retireRemoteTerminalId()
       return
     }
     storedCallbacks.onError?.(message)
+  }
+
+  // Why: the multiplex protocol delivers genuine host exits and server-side
+  // stream cleanup/eviction as the same bare 'end' frame. Reporting an exit on
+  // an unconfirmed end misclassifies a remote disconnect as agent completion
+  // (#9151), so confirm with the runtime before tearing the pane down.
+  async function classifyRemoteStreamEnd(
+    endedHandle: string,
+    endedPtyId: string | null
+  ): Promise<void> {
+    let hostExitConfirmed = false
+    try {
+      await callRuntime('terminal.wait', {
+        terminal: endedHandle,
+        for: 'exit',
+        timeoutMs: STREAM_END_EXIT_CONFIRM_TIMEOUT_MS
+      })
+      hostExitConfirmed = true
+    } catch (error) {
+      hostExitConfirmed = runtimeTerminalErrorMessage(error).includes('terminal_exited')
+    }
+    if (!isCurrentRemoteTerminal(endedHandle, endedPtyId)) {
+      return
+    }
+    if (hostExitConfirmed) {
+      connected = false
+      handle = null
+      remotePtyId = null
+      clearPendingViewportClaim()
+      storedCallbacks.onExit?.(0)
+      storedCallbacks.onDisconnect?.()
+      if (endedPtyId) {
+        onPtyExit?.(endedPtyId)
+      }
+      return
+    }
+    // Why: an unconfirmed end recovers like a transport drop; the resubscribe
+    // path re-derives the handle and retires the mirror only when the host
+    // authoritatively withdrew the surface.
+    scheduleResubscribeAfterTransportClose()
   }
 
   // Why: after a transport drop the host may have re-minted this handle; re-derive from the snapshot so we don't mirror/type into whatever PTY now sits behind the stale one (#7718).
@@ -684,17 +750,12 @@ export function createRemoteRuntimePtyTransport(
             return
           }
           outputProcessor.clearAccumulatedState()
-          connected = false
-          handle = null
-          remotePtyId = null
           multiplexedStream = null
           multiplexedStreamHandle = null
           clearPendingViewportClaim()
-          storedCallbacks.onExit?.(0)
-          storedCallbacks.onDisconnect?.()
-          if (subscribedPtyId) {
-            onPtyExit?.(subscribedPtyId)
-          }
+          // Why: only a runtime-confirmed host exit may report onExit/onPtyExit;
+          // an ambiguous stream end routes to disconnect/resubscribe (#9151).
+          void classifyRemoteStreamEnd(subscribedHandle, subscribedPtyId)
         },
         onError: (message) => {
           if (isCurrentSubscription()) {

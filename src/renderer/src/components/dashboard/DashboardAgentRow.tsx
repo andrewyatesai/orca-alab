@@ -61,6 +61,9 @@ function lastEnteredDoneAt(agent: DashboardAgentRowData): number | null {
 }
 
 function stateDotTooltipLabel(agent: DashboardAgentRowData, dotState: AgentDotState): string {
+  if (agent.entry.launchFailed === true) {
+    return 'Failed to launch'
+  }
   if (agent.entry.interrupted === true) {
     return 'Interrupted by user'
   }
@@ -174,8 +177,13 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
           lineageChildCount === 1 ? 'agent' : 'agents'
         }`
       : formatAgentTypeLabel(agent.agentType)
-  // Why: interrupted is a terminal outcome, so surface it in the leading state dot.
-  const dotState: AgentDotState = isInterrupted ? 'interrupted' : asDotState(agent.state)
+  // Why: interrupted/launch-failed are terminal outcomes, so surface them in the leading state dot.
+  const dotState: AgentDotState =
+    agent.entry.launchFailed === true
+      ? 'failed'
+      : isInterrupted
+        ? 'interrupted'
+        : asDotState(agent.state)
   const dotTooltipLabel = stateDotTooltipLabel(agent, dotState)
 
   // Why: always show the chevron so the row's right edge doesn't flicker as content grows/shrinks.

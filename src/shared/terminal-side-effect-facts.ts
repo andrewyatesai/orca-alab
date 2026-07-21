@@ -27,6 +27,10 @@ export type TerminalSideEffectFact =
    *  against its live status row before completing the turn. */
   | { kind: 'command-code-working'; prompt: string }
   | { kind: 'command-code-done'; prompt: string }
+  /** Codex fatal stream-error line scrape (#7202): failed turns can finalize
+   *  the TUI without the managed Stop hook, leaving the row stuck 'working'.
+   *  Carries the normalized fatal message; renderer policy decides repair. */
+  | { kind: 'codex-stream-error'; message: string }
   /** DECSET 2031 color-scheme subscribe observed in the byte stream. Emitted
    *  so hidden-delivery-gated views (whose bytes never arrive) can still send
    *  the theme reply — the reply stays renderer-side because query authority

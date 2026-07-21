@@ -12,6 +12,7 @@ const SUMMARY_STATE_ORDER: AgentDotState[] = [
   'waiting',
   'blocked',
   'interrupted',
+  'failed',
   'working',
   'done',
   'idle'
@@ -30,6 +31,10 @@ function asDotState(state: AgentStatusState | 'idle'): AgentDotState {
 }
 
 export function getAgentDotState(agent: DashboardAgentRowData): AgentDotState {
+  // Why: a launch that never started must not read as a completed run (#7047).
+  if (agent.entry.launchFailed === true) {
+    return 'failed'
+  }
   return agent.entry.interrupted === true ? 'interrupted' : asDotState(agent.state)
 }
 

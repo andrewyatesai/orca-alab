@@ -316,6 +316,30 @@ describe('DashboardAgentRow', () => {
     expect(markup).not.toContain('lucide-circle-check')
   })
 
+  it('renders launch-failed done rows with a failed dot instead of a completion check', () => {
+    const markup = renderRow(
+      makeAgent(
+        { state: 'done', startedAt: 1_000 },
+        {
+          state: 'done',
+          prompt: 'Fix the login flow',
+          updatedAt: 2_000,
+          stateStartedAt: 2_000,
+          stateHistory: [],
+          launchFailed: true,
+          lastAssistantMessage:
+            'Codex failed to launch: command not found (exit 127). Install the CLI on this host and try again.'
+        }
+      )
+    )
+
+    // Why: a launch that never started must not read as a completed run (#7047).
+    expect(markup).toContain('aria-label="Failed to launch"')
+    expect(markup).toContain('bg-red-500')
+    expect(markup).toContain('command not found (exit 127)')
+    expect(markup).not.toContain('lucide-circle-check')
+  })
+
   it('reserves a real working tool line before tool metadata arrives', () => {
     const emptyToolMarkup = renderRow(makeAgent())
     const activeToolMarkup = renderRow(

@@ -119,6 +119,8 @@ export type AgentStatusEntry = {
   /** True when this `done` was reached via interrupt, not normal completion
    *  (agent-reported or Orca's guarded fallback). Undefined otherwise. */
   interrupted?: boolean
+  /** True when this `done` means the launched agent CLI never started (#7047). */
+  launchFailed?: boolean
   /** Orchestration dispatch context for panes spawned by another agent.
    *  Why: parent/child hierarchy is pane-level state, not worktree lineage — workers often share the coordinator's worktree. */
   orchestration?: AgentStatusOrchestrationContext
@@ -158,6 +160,9 @@ export type AgentStatusPayload = {
   interactivePrompt?: string
   lastAssistantMessage?: string
   interrupted?: boolean
+  /** True when this `done` means the agent CLI never started (immediate exit
+   *  126/127 before any recognition, #7047). Undefined otherwise. */
+  launchFailed?: boolean
   /** Live subagents/teammates of the reporting session. See AgentStatusEntry. */
   subagents?: AgentSubagentSnapshot[]
 }
@@ -186,6 +191,14 @@ export type AgentStatusIpcPayload = ParsedAgentStatusPayload & {
   receivedAt: number
   /** Timestamp (ms) when the current state first appeared for this pane. */
   stateStartedAt: number
+  /** Raw agent hook event name (e.g. UserPromptSubmit, PreToolUse, Stop).
+   *  Why: lets the renderer's completion coordinator tell a real user-initiated
+   *  turn from background plugin churn (e.g. Claude-Mem's post-turn memory
+   *  writes) so it doesn't re-arm a duplicate completion notification. */
+  hookEventName?: string
+  /** True when this hook event carried prompt text directly rather than reusing
+   *  the listener's cached prompt — the main-process new-turn signal. */
+  hasExplicitPrompt?: boolean
   orchestration?: AgentStatusOrchestrationContext
   providerSession?: AgentProviderSessionMetadata
   /** Resume identity update only; the status-shaped fields are transport placeholders. */
@@ -345,6 +358,7 @@ function normalizeAgentStatusObject(parsed: unknown): ParsedAgentStatusPayload |
     ),
     // Why: only meaningful on `done`; coerce to undefined elsewhere so it can't leak stale truth across transitions.
     interrupted: obj.interrupted === true && state === 'done' ? true : undefined,
+    launchFailed: obj.launchFailed === true && state === 'done' ? true : undefined,
     subagents: normalizeSubagentsField(obj.subagents)
   }
 }

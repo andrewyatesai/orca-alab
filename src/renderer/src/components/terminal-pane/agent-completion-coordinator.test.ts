@@ -5,6 +5,10 @@ import {
   resetAgentCompletionCoordinatorIdentitiesForTest
 } from './agent-completion-coordinator'
 import { resetAgentProcessInspectionQueueForTests } from './agent-process-inspection-queue'
+import type {
+  AgentCompletionCoordinatorOptions,
+  AgentCompletionStatusRepairSignal
+} from './agent-completion-coordinator-types'
 import type { RuntimeTerminalProcessInspection } from '@/runtime/runtime-terminal-inspection'
 
 async function flushAsyncTicks(count = 4): Promise<void> {
@@ -212,6 +216,53 @@ describe('agent completion coordinator', () => {
     })
   })
 
+  it('passes synthesized status detail when the process-exit backstop completes a row', async () => {
+    let foregroundProcess: string | null = 'codex'
+    const dispatchCompletion = vi.fn()
+    const onCompletionStatusRepair = vi.fn(() => ({
+      state: 'done' as const,
+      prompt: 'Fix the spinner',
+      agentType: 'codex' as const,
+      lastAssistantMessage: 'Codex exited before sending Stop.'
+    }))
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
+      dispatchCompletion,
+      onCompletionStatusRepair,
+      isLive: () => true,
+      shouldPollProcessCadence: () => false
+    })
+
+    coordinator.startProcessTracking()
+    coordinator.observeTitle('Codex working')
+    await vi.advanceTimersByTimeAsync(3_000)
+    foregroundProcess = null
+    await vi.advanceTimersByTimeAsync(6_000)
+
+    expect(onCompletionStatusRepair).toHaveBeenCalledWith({
+      source: 'process-exit',
+      title: 'codex',
+      agent: {
+        agent: 'codex',
+        processName: 'codex'
+      }
+    })
+    expect(dispatchCompletion).toHaveBeenCalledWith('codex', {
+      source: 'process-exit',
+      quietedHookDone: false,
+      terminalIdleConfirmed: true,
+      agentStatus: {
+        state: 'done',
+        prompt: 'Fix the spinner',
+        agentType: 'codex',
+        lastAssistantMessage: 'Codex exited before sending Stop.'
+      }
+    })
+  })
+
   it('clears process evidence after agent exit so later non-agent spinner titles do not notify', async () => {
     let foregroundProcess: string | null = 'codex'
     const dispatchCompletion = vi.fn()
@@ -243,6 +294,43 @@ describe('agent completion coordinator', () => {
     await flushAsyncTicks()
 
     expect(dispatchCompletion).not.toHaveBeenCalled()
+  })
+
+  it('does not confirm process-exit from unavailable remote inspections', async () => {
+    let result: RuntimeTerminalProcessInspection = processResult('codex')
+    const dispatchCompletion = vi.fn()
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(async () => result),
+      dispatchCompletion,
+      isLive: () => true
+    })
+
+    coordinator.startProcessTracking()
+    vi.advanceTimersByTime(2_000)
+    await flushAsyncTicks()
+
+    // Remote connection drops: the handle is stale/gone, not confirmed idle.
+    result = { foregroundProcess: null, hasChildProcesses: false, unavailable: true }
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(dispatchCompletion).not.toHaveBeenCalled()
+
+    // Recovery: a successful inspection still sees the agent running.
+    result = processResult('codex')
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(dispatchCompletion).not.toHaveBeenCalled()
+
+    // A real exit still confirms after two successful idle samples.
+    result = processResult(null)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    expect(dispatchCompletion).toHaveBeenCalledWith('codex', {
+      source: 'process-exit',
+      quietedHookDone: false,
+      terminalIdleConfirmed: true
+    })
   })
 
   it('does not dispatch process-exit while an agent terminal still has child processes', async () => {
@@ -387,6 +475,92 @@ describe('agent completion coordinator', () => {
 
     expect(dispatchCompletion).toHaveBeenCalledTimes(1)
     expect(dispatchCompletion).toHaveBeenCalledWith('codex done')
+  })
+
+  it('repairs a working status row from a title completion signal', () => {
+    const dispatchCompletion = vi.fn()
+    const onCompletionStatusRepair = vi.fn(() => ({
+      state: 'done' as const,
+      prompt: 'Fix title-only fatal states',
+      agentType: 'codex' as const,
+      lastAssistantMessage: 'Codex stopped before emitting Stop.'
+    }))
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(),
+      dispatchCompletion,
+      onCompletionStatusRepair,
+      isLive: () => true
+    })
+
+    coordinator.observeTitle('Codex working')
+    coordinator.observeTitle('Codex done')
+
+    expect(onCompletionStatusRepair).toHaveBeenCalledWith({
+      source: 'title',
+      title: 'Codex done',
+      agentType: 'codex'
+    })
+    expect(dispatchCompletion).toHaveBeenCalledWith('Codex done', {
+      source: 'title',
+      quietedHookDone: false,
+      agentStatus: {
+        state: 'done',
+        prompt: 'Fix title-only fatal states',
+        agentType: 'codex',
+        lastAssistantMessage: 'Codex stopped before emitting Stop.'
+      }
+    })
+  })
+
+  it('repairs process-exit status even when title completion already deduped notification', async () => {
+    let foregroundProcess: string | null = 'codex'
+    const dispatchCompletion = vi.fn()
+    const onCompletionStatusRepair = vi.fn((signal: AgentCompletionStatusRepairSignal) =>
+      signal.source === 'process-exit'
+        ? {
+            state: 'done' as const,
+            prompt: 'Repair after dedupe',
+            agentType: 'codex' as const
+          }
+        : null
+    )
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
+      dispatchCompletion,
+      onCompletionStatusRepair,
+      isLive: () => true
+    })
+
+    coordinator.startProcessTracking()
+    vi.advanceTimersByTime(2_000)
+    await flushAsyncTicks()
+    coordinator.observeTitle('⠋ codex')
+    coordinator.observeTitle('codex done')
+
+    foregroundProcess = null
+    vi.advanceTimersByTime(750)
+    await flushAsyncTicks()
+    vi.advanceTimersByTime(750)
+    await flushAsyncTicks()
+
+    expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    expect(dispatchCompletion).toHaveBeenCalledWith('codex done')
+    expect(onCompletionStatusRepair).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'process-exit',
+        title: 'codex',
+        agent: {
+          agent: 'codex',
+          processName: 'codex'
+        }
+      })
+    )
   })
 
   it('does not dispatch a cwd title after an explicit agent working title if the shell owns the pane', async () => {
@@ -1294,6 +1468,64 @@ describe('agent completion coordinator', () => {
     expect(dispatchCompletion).toHaveBeenCalledTimes(1)
   })
 
+  it('defers a Codex hook done while a tool child process is still running (#9333)', async () => {
+    // Regression for #9333: during a multi-step, tool-driven Codex turn the
+    // hook status goes working -> done -> working as Codex finishes each
+    // response. If the gap between the intermediate 'done' and the next tool
+    // exceeds the 1.5s quiet window, Orca fired a premature "Task complete".
+    // A 'done' while the agent still has a running child process is an
+    // intermediate turn boundary, not the end of the user request.
+    const ACTIVE_POLL_INTERVAL_MS = 750
+    let hasChildProcesses = true
+    const dispatchCompletion = vi.fn()
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(async () => processResult('codex', hasChildProcesses)),
+      dispatchCompletion,
+      isLive: () => true
+    })
+
+    coordinator.startProcessTracking()
+    vi.advanceTimersByTime(2_000)
+    await flushAsyncTicks()
+
+    coordinator.observeHookStatus({
+      state: 'working',
+      prompt: 'multi-step task',
+      agentType: 'codex'
+    })
+    coordinator.observeHookStatus({
+      state: 'done',
+      prompt: 'multi-step task',
+      agentType: 'codex'
+    })
+    expect(coordinator.hasPendingHookDoneCompletion()).toBe(true)
+
+    // Codex keeps executing a tool (child process alive) well past the quiet
+    // window; the intermediate 'done' must not fire a completion. Step in
+    // sub-window increments so a process-inspection poll keeps the child
+    // reading fresh across each re-armed quiet window.
+    for (let i = 0; i < 12; i++) {
+      vi.advanceTimersByTime(ACTIVE_POLL_INTERVAL_MS)
+      await flushAsyncTicks()
+    }
+    expect(dispatchCompletion).not.toHaveBeenCalled()
+
+    // The tool finishes and the turn is genuinely idle; now the completion fires.
+    hasChildProcesses = false
+    for (let i = 0; i < 4; i++) {
+      vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+      await flushAsyncTicks()
+    }
+    expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    expect(dispatchCompletion).toHaveBeenCalledWith(
+      'codex',
+      expect.objectContaining({ source: 'hook' })
+    )
+  })
+
   it('still fires a pending Pi done when process inspection sees the agent exit first', async () => {
     // Why: a process-exit probe landing inside the quiet window must not tear
     // down agent evidence, or the pending hook 'done' would be silently dropped.
@@ -1950,6 +2182,189 @@ describe('agent completion coordinator', () => {
     await flushAsyncTicks()
 
     expect(dispatchCompletion).toHaveBeenCalledWith('experimental-agent-observability')
+  })
+
+  describe('background plugin hook churn (Claude-Mem)', () => {
+    function createHookCoordinator(
+      dispatchCompletion: AgentCompletionCoordinatorOptions['dispatchCompletion']
+    ) {
+      return createAgentCompletionCoordinator({
+        paneKey: 'tab-1:leaf-1',
+        getPtyId: () => 'pty-1',
+        getSettings: () => null,
+        inspectProcess: vi.fn(),
+        dispatchCompletion,
+        isLive: () => true
+      })
+    }
+
+    it('notifies once for a UserPromptSubmit-driven turn', () => {
+      const dispatchCompletion = vi.fn()
+      const coordinator = createHookCoordinator(dispatchCompletion)
+
+      coordinator.observeHookStatus({
+        state: 'working',
+        prompt: 'do the thing',
+        agentType: 'claude',
+        hookEventName: 'UserPromptSubmit',
+        hasExplicitPrompt: true,
+        stateStartedAt: 1_700_000_000_000
+      })
+      coordinator.observeHookStatus({
+        state: 'done',
+        prompt: 'do the thing',
+        agentType: 'claude',
+        hookEventName: 'Stop',
+        stateStartedAt: 1_700_000_010_000
+      })
+      vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+
+      expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not re-notify when a background tool-progress turn runs after the user turn', () => {
+      const dispatchCompletion = vi.fn()
+      const coordinator = createHookCoordinator(dispatchCompletion)
+
+      coordinator.observeHookStatus({
+        state: 'working',
+        prompt: 'do the thing',
+        agentType: 'claude',
+        hookEventName: 'UserPromptSubmit',
+        hasExplicitPrompt: true,
+        stateStartedAt: 1_700_000_000_000
+      })
+      coordinator.observeHookStatus({
+        state: 'done',
+        prompt: 'do the thing',
+        agentType: 'claude',
+        hookEventName: 'Stop',
+        stateStartedAt: 1_700_000_010_000
+      })
+      vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+      expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+
+      // Why: Claude-Mem writes memory on the same pane after the turn — its hooks
+      // arrive as tool-progress 'working' with no explicit user prompt, then Stop.
+      vi.advanceTimersByTime(8_000)
+      coordinator.observeHookStatus({
+        state: 'working',
+        prompt: 'do the thing',
+        agentType: 'claude',
+        hookEventName: 'PostToolUse',
+        stateStartedAt: 1_700_000_020_000
+      })
+      coordinator.observeHookStatus({
+        state: 'done',
+        prompt: 'do the thing',
+        agentType: 'claude',
+        hookEventName: 'Stop',
+        stateStartedAt: 1_700_000_030_000
+      })
+      vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+
+      expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    })
+
+    it('still notifies for a genuinely new UserPromptSubmit turn after background churn', () => {
+      const dispatchCompletion = vi.fn()
+      const coordinator = createHookCoordinator(dispatchCompletion)
+
+      coordinator.observeHookStatus({
+        state: 'working',
+        prompt: 'first',
+        agentType: 'claude',
+        hookEventName: 'UserPromptSubmit',
+        hasExplicitPrompt: true,
+        stateStartedAt: 1_700_000_000_000
+      })
+      coordinator.observeHookStatus({
+        state: 'done',
+        prompt: 'first',
+        agentType: 'claude',
+        hookEventName: 'Stop',
+        stateStartedAt: 1_700_000_010_000
+      })
+      vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+      expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+
+      coordinator.observeHookStatus({
+        state: 'working',
+        prompt: 'first',
+        agentType: 'claude',
+        hookEventName: 'PostToolUse',
+        stateStartedAt: 1_700_000_020_000
+      })
+      coordinator.observeHookStatus({
+        state: 'done',
+        prompt: 'first',
+        agentType: 'claude',
+        hookEventName: 'Stop',
+        stateStartedAt: 1_700_000_030_000
+      })
+      vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+      expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+
+      coordinator.observeHookStatus({
+        state: 'working',
+        prompt: 'second',
+        agentType: 'claude',
+        hookEventName: 'UserPromptSubmit',
+        hasExplicitPrompt: true,
+        stateStartedAt: 1_700_000_040_000
+      })
+      coordinator.observeHookStatus({
+        state: 'done',
+        prompt: 'second',
+        agentType: 'claude',
+        hookEventName: 'Stop',
+        stateStartedAt: 1_700_000_050_000
+      })
+      vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+
+      expect(dispatchCompletion).toHaveBeenCalledTimes(2)
+    })
+
+    it('ignores title spinner flicker during a background memory write', () => {
+      const dispatchCompletion = vi.fn()
+      const coordinator = createHookCoordinator(dispatchCompletion)
+
+      coordinator.observeHookStatus({
+        state: 'working',
+        prompt: 'do the thing',
+        agentType: 'claude',
+        hookEventName: 'UserPromptSubmit',
+        hasExplicitPrompt: true,
+        stateStartedAt: 1_700_000_000_000
+      })
+      coordinator.observeHookStatus({
+        state: 'done',
+        prompt: 'do the thing',
+        agentType: 'claude',
+        hookEventName: 'Stop',
+        stateStartedAt: 1_700_000_010_000
+      })
+      vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+      expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+
+      // Background tool-progress hook marks the turn as background churn.
+      vi.advanceTimersByTime(8_000)
+      coordinator.observeHookStatus({
+        state: 'working',
+        prompt: 'do the thing',
+        agentType: 'claude',
+        hookEventName: 'PostToolUse',
+        stateStartedAt: 1_700_000_020_000
+      })
+
+      // Title flips to a working spinner then back to idle well past the 1s
+      // replay guard — this flicker must not arm a fresh completion.
+      vi.advanceTimersByTime(4_000)
+      coordinator.observeTitle('⠋ Claude')
+      coordinator.observeTitle('✳ Claude')
+
+      expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('does not mutate completion state when hook completion is suppressed', () => {

@@ -188,6 +188,7 @@ import {
 } from './codex-auto-approval-notification-suppression'
 import type {
   AgentCompletionDispatchMeta,
+  AgentCompletionStatusRepairSignal,
   AgentCompletionStatusSnapshot
 } from './agent-completion-coordinator-types'
 import {
@@ -203,6 +204,11 @@ import { getTerminalPasteSshRemotePlatform } from './terminal-paste-ssh-platform
 import { resolveTerminalPasteRuntime } from './terminal-paste-runtime'
 import { isKnownTuiAgentTerminalStartupCommand } from './terminal-startup-command-classifier'
 import { createCommandCodeOutputStatusDetector } from '../../../../shared/command-code-output-status'
+import { createCodexErrorOutputStatusDetector } from '../../../../shared/codex-error-output-status'
+import {
+  agentLaunchFailureMessage,
+  isAgentLaunchFailureExit
+} from '../../../../shared/agent-launch-failure'
 import type { PtyDataMeta } from './pty-dispatcher'
 import { getEagerPtyBufferHandle } from './pty-dispatcher'
 import { createTerminalGitHubPRLinkDetector } from '../../../../shared/terminal-github-pr-link-detector'
@@ -281,6 +287,15 @@ import {
 import { isRendererHiddenPtyDeliveryGateEnabled } from './terminal-hidden-delivery-gate'
 
 const pendingSpawnByPaneKey = new Map<string, Promise<string | null>>()
+// Why: TUI repaints can re-emit an already-handled fatal line after a pane
+// remount recreates the connection closure; remember the last synthesized
+// stream-error message per pane so a repaint cannot complete a newer turn.
+const lastCodexStreamErrorMessageByPaneKey = new Map<string, string>()
+// Why: a title completion suppressed by fresh hook status is normally a mid-
+// turn flap the hook's own events resolve within seconds; when the agent died
+// without its final hook (#7202) no such event ever comes, so after this quiet
+// window an untouched working row lets the held title complete and repair it.
+const SUPPRESSED_TITLE_COMPLETION_REPAIR_SETTLE_MS = 15_000
 const SSH_SESSION_EXPIRED_ERROR = 'SSH_SESSION_EXPIRED'
 const REMOTE_PTY_ID_PREFIX = 'remote:'
 const PTY_CONNECT_DIAG_LIMIT = 200
@@ -1435,8 +1450,44 @@ export function connectPanePty(
     title: string
     agentType: AgentType | undefined
   } | null = null
+  let suppressedTitleCompletionRepairTimer: ReturnType<typeof setTimeout> | null = null
+  const clearSuppressedTitleCompletionRepair = (): void => {
+    if (suppressedTitleCompletionRepairTimer !== null) {
+      clearTimeout(suppressedTitleCompletionRepairTimer)
+      suppressedTitleCompletionRepairTimer = null
+    }
+  }
+  // Why: fresh hook status outranks title flaps (#7818), but a Codex fatal
+  // error can end the turn without the final hook (#7202). Hold the suppressed
+  // title; if the working row sees zero hook activity for the settle window,
+  // the completion was genuine — replay it so the repair path can run.
+  const armSuppressedTitleCompletionRepair = (
+    suppressedRow: AgentStatusEntry,
+    replayTitleCompletion: () => void
+  ): void => {
+    clearSuppressedTitleCompletionRepair()
+    if (suppressedRow.state !== 'working') {
+      return
+    }
+    const baselineUpdatedAt = suppressedRow.updatedAt
+    suppressedTitleCompletionRepairTimer = setTimeout(() => {
+      suppressedTitleCompletionRepairTimer = null
+      const currentEntry = useAppStore.getState().agentStatusByPaneKey[cacheKey]
+      // Why: any hook update during the settle window proves the turn is
+      // alive; only the byte-identical stuck row may complete via title.
+      if (
+        !currentEntry ||
+        currentEntry.state !== 'working' ||
+        currentEntry.updatedAt !== baselineUpdatedAt
+      ) {
+        return
+      }
+      replayTitleCompletion()
+    }, SUPPRESSED_TITLE_COMPLETION_REPAIR_SETTLE_MS)
+  }
   const clearSuppressedTitleSideEffects = (): void => {
     pendingSuppressedTitleSideEffects = null
+    clearSuppressedTitleCompletionRepair()
   }
   const applyAgentCompletionSideEffects = (
     title: string,
@@ -1797,7 +1848,7 @@ export function connectPanePty(
   })
   const dropCommandFinishedStatusIfSameTurn = (
     entry: AgentStatusEntry | undefined,
-    options?: { allowInferredInterrupt?: boolean }
+    options?: { allowInferredInterrupt?: boolean; exitCode?: number | null }
   ): void => {
     const state = useAppStore.getState()
     if (!entry) {
@@ -1830,6 +1881,36 @@ export function connectPanePty(
           history.startedAt === entry.stateStartedAt
       ) === true
     if (!unchanged && !inferredFromEntry) {
+      return
+    }
+    // Why: a single-write working row (updatedAt === stateStartedAt) is the
+    // launch seed no hook ever touched; 126/127 near the seed proves the CLI
+    // is missing, so mark the row failed, not a misleading Done (#7047).
+    const exitCode = options?.exitCode ?? null
+    if (
+      unchanged &&
+      current.state === 'working' &&
+      current.updatedAt === current.stateStartedAt &&
+      current.agentType &&
+      current.agentType !== 'unknown' &&
+      exitCode !== null &&
+      isAgentLaunchFailureExit({
+        exitCode,
+        msSinceStatusSeed: Date.now() - current.stateStartedAt
+      })
+    ) {
+      state.setAgentStatus(
+        cacheKey,
+        {
+          state: 'done',
+          prompt: current.prompt,
+          agentType: current.agentType,
+          launchFailed: true,
+          lastAssistantMessage: agentLaunchFailureMessage(exitCode, current.agentType)
+        },
+        current.terminalTitle
+      )
+      state.clearAgentLaunchConfig(cacheKey)
       return
     }
     state.dropAgentStatus(cacheKey)
@@ -2069,18 +2150,22 @@ export function connectPanePty(
     const inferenceResult = flushPendingInterruptInference()
     const dropStatus = (): void => {
       if (inferenceResult === true) {
-        dropCommandFinishedStatusIfSameTurn(entry, { allowInferredInterrupt: true })
+        dropCommandFinishedStatusIfSameTurn(entry, {
+          allowInferredInterrupt: true,
+          exitCode: bestEffortExitCode
+        })
         return
       }
       if (inferenceResult instanceof Promise) {
         void inferenceResult.then((applied) => {
           dropCommandFinishedStatusIfSameTurn(entry, {
-            allowInferredInterrupt: applied === true
+            allowInferredInterrupt: applied === true,
+            exitCode: bestEffortExitCode
           })
         })
         return
       }
-      dropCommandFinishedStatusIfSameTurn(entry)
+      dropCommandFinishedStatusIfSameTurn(entry, { exitCode: bestEffortExitCode })
     }
     if (shouldDeferStatusDrop) {
       // Why: keep the concrete pane identity routable while the local process
@@ -2280,6 +2365,9 @@ export function connectPanePty(
         // renderer seeds also write), so main only emits scrape facts.
         onCommandCodeWorking: seedCommandCodeOutputWorkingStatus,
         onCommandCodeDone: scheduleCommandCodeOutputDoneStatus,
+        // Why: main's tracker scrapes the Codex fatal stream-error line under
+        // side-effect authority; the pane policy repairs the stuck row (#7202).
+        onCodexStreamError: completeCodexOutputStreamErrorStatus,
         // Why: gated hidden panes never see the subscribe bytes; the fact
         // replaces the byte scan (and the old post-latch subscribe drop).
         ...(hiddenDeliveryGateActive
@@ -2300,6 +2388,67 @@ export function connectPanePty(
     activePanePtyBinding = null
     activePanePtyBindingBoundAt = null
     delete pane.container.dataset.ptyId
+  }
+
+  const dropMainAgentStatusCacheAfterSyntheticCompletion = (): void => {
+    // Why: title/output/process repairs are renderer-synthesized; remove any
+    // stale main-hook working snapshot so reloads cannot resurrect it.
+    window.api?.agentStatus?.drop?.(cacheKey)
+  }
+
+  // Why: the repair rewrites the row to 'done' before the completion
+  // notification captures its schedule-time baseline; the newer-turn veto must
+  // compare against the pre-repair turn or a same-turn hook refresh would read
+  // as a new turn and swallow the notification. Consumed within the same task.
+  let agentStatusBaselineBeforeRepair: AgentStatusEntry | null = null
+
+  const completeWorkingStatusFromCompletionSignal = (
+    signal: AgentCompletionStatusRepairSignal
+  ): AgentCompletionStatusSnapshot | null => {
+    const currentState = useAppStore.getState()
+    const currentEntry = currentState.agentStatusByPaneKey[cacheKey]
+    if (!currentEntry || currentEntry.state !== 'working') {
+      return null
+    }
+    const signalAgent = signal.source === 'process-exit' ? signal.agent.agent : signal.agentType
+    const ownerAgent = getAuthoritativePaneAgent() ?? signalAgent ?? currentEntry.agentType
+    const agentType = resolveCompatibleAgentTypeForOwner(
+      currentEntry.agentType ?? signalAgent,
+      ownerAgent
+    )
+    const signalAgentType = signalAgent
+      ? resolveCompatibleAgentTypeForOwner(signalAgent, ownerAgent)
+      : undefined
+    if (!agentType || (signalAgentType && agentType !== signalAgentType)) {
+      return null
+    }
+    const statusPayload = {
+      state: 'done' as const,
+      prompt: currentEntry.prompt,
+      agentType,
+      ...(currentEntry.lastAssistantMessage
+        ? { lastAssistantMessage: currentEntry.lastAssistantMessage }
+        : {}),
+      // Why: keep tool detail so the repaired notification qualifies for the
+      // 250ms grace path instead of the 1500ms max-wait timer.
+      ...(currentEntry.toolName ? { toolName: currentEntry.toolName } : {}),
+      ...(currentEntry.toolInput ? { toolInput: currentEntry.toolInput } : {})
+    }
+    const currentTitle =
+      currentState.runtimePaneTitlesByTabId?.[deps.tabId]?.[pane.id] ?? currentEntry.terminalTitle
+    const statusTitle = resolveAgentStatusTerminalTitle(statusPayload, currentTitle)
+    agentStatusBaselineBeforeRepair = currentEntry
+    queueMicrotask(() => {
+      agentStatusBaselineBeforeRepair = null
+    })
+    // Why: title/process completion can prove a turn ended even when the agent
+    // missed its final hook; keep the explicit row in sync before dedupe gates.
+    currentState.setAgentStatus(cacheKey, statusPayload, statusTitle)
+    dropMainAgentStatusCacheAfterSyntheticCompletion()
+    // Why: omit stateStartedAt so a real Stop hook landing moments later
+    // compares by state (done vs done) in the superseded-snapshot check and
+    // the completion notification still fires.
+    return statusPayload
   }
 
   const agentCompletionCoordinator = createAgentCompletionCoordinator({
@@ -2340,14 +2489,17 @@ export function connectPanePty(
       if (meta?.terminalIdleConfirmed === true) {
         // Why: an agent can crash before its done hook; confirmed process death
         // must still restore cursor and native Windows Kitty keyboard modes.
-        const currentAgentStatus = useAppStore.getState().agentStatusByPaneKey[cacheKey]
+        // The pre-repair baseline keeps the fresh-working veto intact after the
+        // #7202 repair rewrites the row to done in this same task.
+        const currentAgentStatus =
+          agentStatusBaselineBeforeRepair ?? useAppStore.getState().agentStatusByPaneKey[cacheKey]
         if (!isFreshNonDoneAgentStatus(currentAgentStatus)) {
           setFocusReportSuppressionForAgentCompletion(title, meta.agentStatus?.agentType)
         }
         queueAgentIdleTerminalModeReset()
       }
       scheduleAgentTaskCompleteNotification(title, {
-        allowDoneDetailAfterGrace: meta?.quietedHookDone,
+        allowDoneDetailAfterGrace: meta?.quietedHookDone === true || Boolean(meta?.agentStatus),
         ...(meta?.source === 'process-exit' ? { agentCompletionSource: meta.source } : {}),
         ...(meta?.agentStatus ? { agentStatusSnapshot: meta.agentStatus } : {})
       })
@@ -2358,6 +2510,7 @@ export function connectPanePty(
       }),
     shouldPollProcessCadence: () =>
       isAgentTaskCompleteTrackingEnabled() && deps.isVisibleRef.current,
+    onCompletionStatusRepair: completeWorkingStatusFromCompletionSignal,
     isProcessInspectionCostly: () => {
       // Why: local Windows inspection forks a powershell.exe whole-process-table
       // CIM scan per poll (~10-40x heavier than POSIX `ps`); SSH/remote PTYs run
@@ -2692,6 +2845,12 @@ export function connectPanePty(
         // Why: display titles still update while hooks are active, but a stale
         // idle frame must not complete the coordinator turn before hook `done`.
         agentCompletionCoordinator.observeTitle(decision.rawTitle)
+      } else if (activeHookStatus) {
+        armSuppressedTitleCompletionRepair(activeHookStatus, () => {
+          if (syncAgentTaskCompleteTrackingEnabled()) {
+            agentCompletionCoordinator.observeTitle(decision.rawTitle)
+          }
+        })
       }
     }
     // Why: only the focused pane should drive the tab title — otherwise two
@@ -2845,6 +3004,13 @@ export function connectPanePty(
   ): void => {
     if (activePanePtyBinding && activePanePtyBinding !== ptyId) {
       reportPanePtyVisibility(activePanePtyBinding, false)
+    }
+    if (activePanePtyBinding !== ptyId) {
+      // Why: a rebound PTY starts a fresh byte stream; stale Codex fatal-line
+      // carry from the previous PTY must not complete the new session's turn.
+      codexStreamErrorObservedWorkingStartedAt = null
+      codexStreamErrorOutputFastPathConsumed = false
+      codexErrorOutputStatusDetector?.reset()
     }
     setPanePtyFitBinding(ptyId)
     activePanePtyBinding = ptyId
@@ -3033,7 +3199,10 @@ export function connectPanePty(
     clearPendingAgentTaskCompleteNotification()
     let graceElapsed = false
     const generationAtSchedule = agentTaskCompleteNotificationGeneration
-    const agentStatusAtSchedule = useAppStore.getState().agentStatusByPaneKey[cacheKey]
+    // Why: prefer the pre-repair row (same synchronous task) so the newer-turn
+    // veto compares turn identity against the turn that actually completed.
+    const agentStatusAtSchedule =
+      agentStatusBaselineBeforeRepair ?? useAppStore.getState().agentStatusByPaneKey[cacheKey]
     const hasNewerActiveHookStatus = (): boolean => {
       const currentStatus = useAppStore.getState().agentStatusByPaneKey[cacheKey]
       const scheduledAgentType = agentStatusAtSchedule?.agentType
@@ -3152,6 +3321,11 @@ export function connectPanePty(
       // still says the same agent turn is active (e.g. during tool output).
       if (activeHookStatus) {
         preserveSuppressedTitleSideEffects(title, activeHookStatus)
+        armSuppressedTitleCompletionRepair(activeHookStatus, () => {
+          if (syncAgentTaskCompleteTrackingEnabled()) {
+            agentCompletionCoordinator.observeClassifiedTitleCompletion(title)
+          }
+        })
       }
       return
     }
@@ -3371,6 +3545,61 @@ export function connectPanePty(
         onWorking: seedCommandCodeOutputWorkingStatus,
         onDone: scheduleCommandCodeOutputDoneStatus
       })
+  const completeCodexOutputStreamErrorStatus = (message: string): void => {
+    // Why: an overlay/resize repaint of an already-handled fatal line arrives
+    // as fresh live bytes; the same message must not complete a newer turn.
+    if (lastCodexStreamErrorMessageByPaneKey.get(cacheKey) === message) {
+      return
+    }
+    const currentState = useAppStore.getState()
+    const currentEntry = currentState.agentStatusByPaneKey[cacheKey]
+    if (!currentEntry || currentEntry.state !== 'working') {
+      return
+    }
+    const agentType = resolveCompatibleAgentTypeForOwner(
+      currentEntry.agentType ?? 'codex',
+      getAuthoritativePaneAgent()
+    )
+    if (agentType !== 'codex') {
+      return
+    }
+    const statusPayload = {
+      state: 'done' as const,
+      prompt: currentEntry.prompt,
+      agentType,
+      lastAssistantMessage: message
+    }
+    const currentTitle = currentState.runtimePaneTitlesByTabId?.[deps.tabId]?.[pane.id]
+    const statusTitle = resolveAgentStatusTerminalTitle(statusPayload, currentTitle)
+    // Why: Codex failed turns can finalize the TUI without emitting the managed
+    // Stop hook Orca normally uses to clear an explicit working row.
+    currentState.setAgentStatus(cacheKey, statusPayload, statusTitle)
+    lastCodexStreamErrorMessageByPaneKey.set(cacheKey, message)
+    dropMainAgentStatusCacheAfterSyntheticCompletion()
+  }
+  const getObservableCodexWorkingStartedAt = (): number | null => {
+    const currentEntry = useAppStore.getState().agentStatusByPaneKey[cacheKey]
+    if (!currentEntry || currentEntry.state !== 'working') {
+      return null
+    }
+    // Why: codex belongs to no title-identity group, so owner-compat
+    // resolution is the identity function; a plain type check avoids the
+    // per-chunk tab scan it would cost.
+    if ((currentEntry.agentType ?? getAuthoritativePaneAgent()) !== 'codex') {
+      return null
+    }
+    return currentEntry.stateStartedAt ?? 0
+  }
+  // Why (byte-parser mode only): with main authority the Codex fatal-line
+  // scrape runs in main's per-PTY tracker and arrives as codex-stream-error
+  // facts; running the byte detector too would double-drive the repair policy.
+  const codexErrorOutputStatusDetector = mainSideEffectAuthority
+    ? null
+    : createCodexErrorOutputStatusDetector({
+        onStreamError: completeCodexOutputStreamErrorStatus
+      })
+  let codexStreamErrorObservedWorkingStartedAt: number | null = null
+  let codexStreamErrorOutputFastPathConsumed = false
   const shouldDeliverStartupViaTerminalPaste = paneStartup?.delivery === 'terminal-paste'
   const hadExistingPaneTransportAtConnect = deps.paneTransportsRef.current.size > 0
   let lastTerminalInputAt = Number.NEGATIVE_INFINITY
@@ -7116,6 +7345,27 @@ export function connectPanePty(
           useAppStore.getState().observeTerminalGitHubPullRequestLink(deps.worktreeId, link)
         }
         commandLifecycle.handlePtyData(data)
+      }
+      if (codexErrorOutputStatusDetector && !codexStreamErrorOutputFastPathConsumed) {
+        const codexWorkingStartedAt = getObservableCodexWorkingStartedAt()
+        if (codexWorkingStartedAt === null) {
+          if (codexStreamErrorObservedWorkingStartedAt !== null) {
+            codexStreamErrorObservedWorkingStartedAt = null
+            codexErrorOutputStatusDetector.reset()
+          }
+        } else {
+          if (codexStreamErrorObservedWorkingStartedAt !== codexWorkingStartedAt) {
+            // Why: a new turn can start with zero PTY chunks between done and
+            // working; stale carry from the last turn must not complete it.
+            codexErrorOutputStatusDetector.reset()
+            codexStreamErrorObservedWorkingStartedAt = codexWorkingStartedAt
+          }
+          if (codexErrorOutputStatusDetector.observe(data)) {
+            codexStreamErrorObservedWorkingStartedAt = null
+            codexStreamErrorOutputFastPathConsumed = true
+            codexErrorOutputStatusDetector.reset()
+          }
+        }
       }
       commandCodeOutputStatusDetector?.observe(data)
       // Why: split panes have visible-but-inactive panes the user watches; throttle only when the pane or whole document is hidden.

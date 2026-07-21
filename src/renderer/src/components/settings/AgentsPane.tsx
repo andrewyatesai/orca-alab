@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- Why: the Agents pane keeps catalog rows, default
    selection, per-agent controls, and runtime location together so settings
    reconciliation stays visible in one file. */
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { Check, ChevronDown, ExternalLink, Info, RefreshCw, Terminal } from 'lucide-react'
 import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
 import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
@@ -159,6 +159,20 @@ export function createAgentAvailabilityUpdateQueue(): (
 }
 
 const enqueueAgentAvailabilityUpdate = createAgentAvailabilityUpdateQueue()
+
+export function shouldResetUnavailableWslAgentRuntime(args: {
+  localAgentRuntime: GlobalSettings['localAgentRuntime']
+  wslSupportedPlatform: boolean
+  wslAvailable: boolean
+  wslCapabilitiesLoading: boolean
+}): boolean {
+  if (args.localAgentRuntime !== 'wsl') {
+    return false
+  }
+  const wslUnavailable =
+    args.wslSupportedPlatform && !args.wslAvailable && !args.wslCapabilitiesLoading
+  return !args.wslSupportedPlatform || wslUnavailable
+}
 
 export function AgentAvailabilityControl({
   label,
@@ -680,6 +694,33 @@ export function AgentsPane({
   wslCapabilitiesLoading
 }: AgentsPaneProps): React.JSX.Element {
   const { detectedIds: detectedList, isRefreshing, refresh } = useDetectedAgents()
+  useEffect(() => {
+    if (
+      !shouldResetUnavailableWslAgentRuntime({
+        localAgentRuntime: settings.localAgentRuntime,
+        wslSupportedPlatform: wslSupportedPlatform ?? false,
+        wslAvailable: wslAvailable ?? false,
+        wslCapabilitiesLoading: wslCapabilitiesLoading ?? false
+      })
+    ) {
+      return
+    }
+    // Why: a stale WSL agent-location setting can be hidden when WSL support
+    // is unavailable or still unknown, leaving Windows users with host CLIs
+    // shown as "Not installed" and no visible control to recover.
+    void Promise.resolve(
+      updateSettings({ localAgentRuntime: 'host', localAgentWslDistro: null })
+    ).then(() => {
+      void refresh()
+    })
+  }, [
+    refresh,
+    settings.localAgentRuntime,
+    updateSettings,
+    wslAvailable,
+    wslCapabilitiesLoading,
+    wslSupportedPlatform
+  ])
   // Why: refresh re-spawns the user's login shell to re-capture PATH
   // (preflight:refreshAgents on the main side). This handles the
   // "installed a new CLI, Orca doesn't see it yet" case without a restart.

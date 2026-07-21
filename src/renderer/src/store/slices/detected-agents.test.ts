@@ -394,6 +394,46 @@ describe('createDetectedAgentsSlice WSL context', () => {
     expect(detectAgents).toHaveBeenCalledTimes(2)
   })
 
+  it('re-runs local detection after an empty result instead of pinning it', async () => {
+    // Why: shell PATH hydration can lag on cold start (stablyai/orca#9011);
+    // an empty local result must not be cached as the session snapshot.
+    detectAgents.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce(['claude'])
+    const store = createTestStore({
+      repos: [makeRepo({ id: 'repo-1', path: 'C:\\repo' })],
+      activeRepoId: 'repo-1',
+      activeWorktreeId: null
+    })
+    store.getState().clearLocalDetectedAgents()
+
+    await expect(store.getState().ensureDetectedAgents()).resolves.toEqual([])
+    expect(store.getState().detectedAgentIds).toEqual([])
+
+    await expect(store.getState().ensureDetectedAgents()).resolves.toEqual(['claude'])
+    expect(store.getState().detectedAgentIds).toEqual(['claude'])
+    expect(detectAgents).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not pin an empty refresh snapshot for ensureDetectedAgents', async () => {
+    refreshAgents.mockResolvedValueOnce({
+      agents: [],
+      addedPathSegments: [],
+      shellHydrationOk: true,
+      pathSource: 'shell_hydrate',
+      pathFailureReason: 'none'
+    })
+    const store = createTestStore({
+      repos: [makeRepo({ id: 'repo-1', path: 'C:\\repo' })],
+      activeRepoId: 'repo-1',
+      activeWorktreeId: null
+    })
+    store.getState().clearLocalDetectedAgents()
+
+    await expect(store.getState().refreshDetectedAgents()).resolves.toEqual([])
+
+    await expect(store.getState().ensureDetectedAgents()).resolves.toEqual(['claude'])
+    expect(detectAgents).toHaveBeenCalledTimes(1)
+  })
+
   it('ignores in-flight local detection results after a project runtime switch', async () => {
     let resolveDetection: (agents: string[]) => void = () => {}
     detectAgents.mockReturnValueOnce(

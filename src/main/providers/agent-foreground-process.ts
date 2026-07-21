@@ -4,6 +4,7 @@ import {
   getProcessTableSnapshot,
   type ProcessTableRow
 } from '../../shared/process-table-snapshot'
+import { isTmuxClientCommand, resolveTmuxActivePanePid } from '../../shared/tmux-active-pane'
 import {
   resolveWindowsAgentForegroundProcessWithAvailability,
   shouldInspectWindowsAgentForeground,
@@ -98,11 +99,44 @@ export async function resolveAgentForegroundProcessWithAvailability(
     }
     return {
       available: true,
-      processName: resolveAgentForegroundProcessFromPs(rows, shellPid) ?? fallbackProcess
+      processName:
+        resolveAgentForegroundProcessFromPs(rows, shellPid) ??
+        (await resolveTmuxHostedAgentProcess(rows, shellPid)) ??
+        fallbackProcess
     }
   } catch {
     return { available: !options.fresh, processName: fallbackProcess }
   }
+}
+
+/**
+ * Agents launched inside a user's tmux are children of the reparented tmux
+ * server, not of the pane shell, so the subtree walk above never reaches them.
+ * If the shell's subtree holds a tmux client, hop to that client's active pane
+ * pid and re-run the same walk from there. Best-effort: null on any tmux miss.
+ */
+async function resolveTmuxHostedAgentProcess(
+  rows: ProcessTableRow[],
+  shellPid: number
+): Promise<string | null> {
+  const client = collectDescendants(rows, shellPid).find((row) => isTmuxClientCommand(row.command))
+  if (!client) {
+    return null
+  }
+  const panePid = await resolveTmuxActivePanePid(client.pid, client.command)
+  if (!panePid) {
+    return null
+  }
+  // The agent is usually a child of the pane's shell, but can be the pane's own
+  // top process (e.g. `tmux new-session claude`), which the subtree walk skips.
+  const inSubtree = resolveAgentForegroundProcessFromPs(rows, panePid)
+  if (inSubtree) {
+    return inSubtree
+  }
+  const paneRow = rows.find((row) => row.pid === panePid)
+  return paneRow
+    ? (recognizeAgentProcessFromCommandLine(paneRow.command)?.processName ?? null)
+    : null
 }
 
 function resolveAgentForegroundProcessFromPs(

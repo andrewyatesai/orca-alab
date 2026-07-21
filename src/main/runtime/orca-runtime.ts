@@ -3541,19 +3541,20 @@ export class OrcaRuntimeService {
   async listMobileSessionTabs(worktreeSelector: string): Promise<RuntimeMobileSessionTabsResult> {
     const explicitWorktreeId = this.getValidatedExplicitWorktreeIdSelector(worktreeSelector)
     if (explicitWorktreeId) {
-      this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(explicitWorktreeId)
-      await this.refreshMobileSessionPtyRecords()
+      await this.prepareMobileSessionTabsForWorktree(explicitWorktreeId)
       return this.getMobileSessionTabsForWorktree(explicitWorktreeId)
     }
     const worktree = await this.resolveWorktreeSelector(worktreeSelector)
-    this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktree.id)
-    await this.refreshMobileSessionPtyRecords()
+    await this.prepareMobileSessionTabsForWorktree(worktree.id)
     return this.getMobileSessionTabsForWorktree(worktree.id)
   }
 
   async listAllMobileSessionTabs(): Promise<RuntimeMobileSessionTabsResult[]> {
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession()
-    await this.refreshMobileSessionPtyRecords()
+    const livePtyIds = await this.refreshMobileSessionPtyRecords()
+    for (const worktreeId of this.mobileSessionTabsByWorktree.keys()) {
+      this.reconcileDeadServeSessionTabs(worktreeId, livePtyIds)
+    }
     return [...this.mobileSessionTabsByWorktree.values()].map((snapshot) =>
       this.toMobileSessionTabsResult(snapshot)
     )
@@ -4583,12 +4584,99 @@ export class OrcaRuntimeService {
     }
   }
 
-  private async refreshMobileSessionPtyRecords(): Promise<void> {
+  private async refreshMobileSessionPtyRecords(): Promise<Set<string> | null> {
     if (!this.ptyController?.listProcesses) {
-      return
+      return null
     }
     const resolvedWorktrees = await this.listResolvedWorktrees()
-    await this.refreshPtyWorktreeRecordsFromController(resolvedWorktrees)
+    return this.refreshPtyWorktreeRecordsFromController(resolvedWorktrees)
+  }
+
+  private async prepareMobileSessionTabsForWorktree(
+    worktreeId: string,
+    options: { allowAttachedWindow?: boolean } = {}
+  ): Promise<void> {
+    this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId, options)
+    const livePtyIds = await this.refreshMobileSessionPtyRecords()
+    this.reconcileDeadServeSessionTabs(worktreeId, livePtyIds)
+  }
+
+  private reconcileDeadServeSessionTabs(
+    worktreeId: string,
+    livePtyIds: ReadonlySet<string> | null
+  ): void {
+    if (!livePtyIds || this.authoritativeWindowId === null || this.graphStatus !== 'ready') {
+      return
+    }
+    const snapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
+    if (!snapshot) {
+      return
+    }
+    const persistedParentIds = new Set(
+      (this.store?.getWorkspaceSession?.()?.tabsByWorktree[worktreeId] ?? []).map((tab) => tab.id)
+    )
+    const terminalTabsByParent = new Map<string, RuntimeMobileSessionTerminalTab[]>()
+    for (const tab of snapshot.tabs) {
+      if (tab.type !== 'terminal') {
+        continue
+      }
+      const siblings = terminalTabsByParent.get(tab.parentTabId)
+      if (siblings) {
+        siblings.push(tab)
+      } else {
+        terminalTabsByParent.set(tab.parentTabId, [tab])
+      }
+    }
+    const deadParentIds = new Set<string>()
+    for (const [parentTabId, tabs] of terminalTabsByParent) {
+      if (
+        this.tabs.has(parentTabId) ||
+        persistedParentIds.has(parentTabId) ||
+        tabs.some((tab) => tab.isPinned === true) ||
+        this.pendingMobileTerminalCreatesByKey.has(`${worktreeId}::${parentTabId}`)
+      ) {
+        continue
+      }
+      const ptyIds = new Set(
+        tabs.flatMap((tab) => [
+          ...(tab.ptyId ? [tab.ptyId] : []),
+          ...Object.values(tab.parentLayout?.ptyIdsByLeafId ?? {}).filter(
+            (ptyId): ptyId is string => typeof ptyId === 'string'
+          )
+        ])
+      )
+      if (
+        ptyIds.size > 0 &&
+        [...ptyIds].every((ptyId) => this.isServeOwnedPtyId(ptyId) && !livePtyIds.has(ptyId))
+      ) {
+        deadParentIds.add(parentTabId)
+      }
+    }
+    if (deadParentIds.size === 0) {
+      return
+    }
+    const tabs = snapshot.tabs.filter(
+      (tab) => tab.type !== 'terminal' || !deadParentIds.has(tab.parentTabId)
+    )
+    const active = tabs.find((tab) => tab.id === snapshot.activeTabId) ?? tabs[0] ?? null
+    const nextSnapshot: RuntimeMobileSessionTabsSnapshot = {
+      ...snapshot,
+      // Why: the desktop graph, durable session, and successful PTY listing all
+      // agree these serve-owned parents no longer exist.
+      publicationEpoch: `headless:pruned:${Date.now().toString(36)}`,
+      snapshotVersion: snapshot.snapshotVersion + 1,
+      activeTabId: active?.id ?? null,
+      activeTabType: active?.type ?? null,
+      tabGroups: this.buildHeadlessMobileSessionTabGroups(
+        worktreeId,
+        tabs,
+        active,
+        snapshot.tabGroups
+      ),
+      tabs
+    }
+    this.mobileSessionTabsByWorktree.set(worktreeId, nextSnapshot)
+    this.emitMobileSessionTabsSnapshot(nextSnapshot)
   }
 
   async activateMobileSessionTab(
@@ -4600,8 +4688,7 @@ export class OrcaRuntimeService {
     const explicitWorktreeId = this.getValidatedExplicitWorktreeIdSelector(worktreeSelector)
     const worktreeId =
       explicitWorktreeId ?? (await this.resolveWorktreeSelector(worktreeSelector)).id
-    this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
-    await this.refreshMobileSessionPtyRecords()
+    await this.prepareMobileSessionTabsForWorktree(worktreeId)
     const snapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
     const directTab = snapshot?.tabs.find((candidate) => candidate.id === tabId)
     const tab = leafId
@@ -4877,7 +4964,15 @@ export class OrcaRuntimeService {
     const worktreeId =
       explicitWorktreeId ?? (await this.resolveWorktreeSelector(worktreeSelector)).id
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
-    await this.refreshMobileSessionPtyRecords()
+    const tabBeforeReconciliation = this.mobileSessionTabsByWorktree
+      .get(worktreeId)
+      ?.tabs.find(
+        (candidate) =>
+          candidate.id === tabId ||
+          (candidate.type === 'terminal' && candidate.parentTabId === tabId) ||
+          (candidate.type === 'browser' && candidate.browserWorkspaceId === tabId)
+      )
+    await this.prepareMobileSessionTabsForWorktree(worktreeId)
     const snapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
     const tab =
       snapshot?.tabs.find((candidate) => candidate.id === tabId) ??
@@ -4888,6 +4983,9 @@ export class OrcaRuntimeService {
         (candidate) => candidate.type === 'browser' && candidate.browserWorkspaceId === tabId
       )
     if (!tab) {
+      if (tabBeforeReconciliation) {
+        return { closed: true }
+      }
       throw new Error('tab_not_found')
     }
     if (tab.type === 'terminal') {
@@ -12675,6 +12773,13 @@ export class OrcaRuntimeService {
       // Why: hooks retain launch-time attribution across automatic workspace
       // renames; the tab's current mirrored owner is authoritative when present.
       const tabId = src.tabId ?? parsePaneKey(src.paneKey)?.tabId
+      // Why: hydrated 'done' last-status rows are UI continuity, not live work.
+      // When nothing backs the pane anymore the terminal was closed — publishing
+      // the row keeps stale agents on mobile after terminals close (#6072).
+      // Non-done rows stay: a live agent must survive temporary PTY gaps.
+      if (src.state === 'done' && this.isDoneAgentRowWithoutBackingPane(src.paneKey, tabId)) {
+        continue
+      }
       const worktreeId =
         (tabId ? mirroredWorktreeIdByTabId.get(tabId) : undefined) ?? src.worktreeId
       if (!worktreeId) {
@@ -12735,6 +12840,35 @@ export class OrcaRuntimeService {
         }
       }
     }
+  }
+
+  // Why: a 'done' hook row without a backing pane in the renderer graph, the
+  // persisted session, or the PTY inventory is a closed terminal's leftover
+  // (typically a hydrated last-status row) — not a session the user can open.
+  private isDoneAgentRowWithoutBackingPane(paneKey: string, tabId: string | undefined): boolean {
+    const session = this.store?.getWorkspaceSession?.()
+    if (!session) {
+      // Why: without the durable session we cannot distinguish closed from
+      // not-yet-loaded; fail open so legitimate rows are never hidden.
+      return false
+    }
+    if (tabId) {
+      if (this.tabs.has(tabId)) {
+        return false
+      }
+      const persisted = Object.values(session.tabsByWorktree ?? {}).some((tabs) =>
+        tabs.some((tab) => tab.id === tabId)
+      )
+      if (persisted) {
+        return false
+      }
+    }
+    for (const pty of this.ptysById.values()) {
+      if (pty.paneKey === paneKey || (tabId !== undefined && pty.tabId === tabId)) {
+        return false
+      }
+    }
+    return true
   }
 
   listRepos(): Repo[] {
@@ -15522,10 +15656,9 @@ export class OrcaRuntimeService {
     } else {
       // Why: mobile/web selection needs fresh session surfaces without forcing
       // every attached desktop renderer to navigate to the phone's workspace.
-      this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktree.id, {
+      await this.prepareMobileSessionTabsForWorktree(worktree.id, {
         allowAttachedWindow: true
       })
-      await this.refreshMobileSessionPtyRecords()
       this.notifyMobileSessionTabsChanged(worktree.id)
       // Why: a phone open must also wake the worktree's slept agents (experimental
       // agent sleep). Only the host renderer holds the sleeping records + wake

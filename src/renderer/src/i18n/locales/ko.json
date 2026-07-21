@@ -3030,7 +3030,10 @@
             "b8f4a2c1d0e3": "고아 {{value0}}개",
             "c7e3b1a0d9f2": "고아 terminal {{value0}}개 종료",
             "d8f4c2b1e0a3": "고아 terminals {{value0}}개 종료",
-            "e9a5d3c2b1f0": "{{value0}}을(를) 종료할까요?"
+            "e9a5d3c2b1f0": "{{value0}}을(를) 종료할까요?",
+            "f2f69ce275": "고아 terminal을 종료할까요?",
+            "d313bc7de9": "고아 terminal 종료",
+            "481e629873": "이 창의 어떤 탭에도 연결되지 않은 terminal을 강제 종료합니다. Orca가 먼저 daemon의 실행 목록을 다시 확인하므로 새로 연결된 세션은 유지됩니다. 이 작업은 취소할 수 없습니다."
           },
           "SshStatusSegment": {
             "3ad70e0365": "원격 호스트 관리…",

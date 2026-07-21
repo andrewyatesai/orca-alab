@@ -68,6 +68,22 @@ export function buildResourceSessionBindingIndex(
   }
 }
 
+/**
+ * Bulk-kill safety gate (issue #8459): only sessions still present in a fresh
+ * daemon inventory AND still unbound may be killed. A stale popover list must
+ * never decide the kill set — sessions bound since the popover opened are live.
+ */
+export function selectVerifiedOrphanSessions(
+  freshSessions: readonly DaemonSession[],
+  inputs: ResourceSessionBindingInputs
+): DaemonSession[] {
+  if (!inputs.workspaceSessionReady) {
+    return []
+  }
+  const { boundPtyIds } = buildResourceSessionBindingIndex(inputs)
+  return freshSessions.filter((session) => !boundPtyIds.has(session.id))
+}
+
 export function countUnboundDaemonSessions(
   sessions: readonly DaemonSession[],
   inputs: ResourceSessionBindingInputs

@@ -272,6 +272,26 @@ describe('resolveCliCommands', () => {
     expect([...resolved.keys()]).toEqual(['claude'])
     expect(resolved.get('claude')).toBe(pathClaude)
   })
+
+  it('resolves Windows npm shims and native user-local agents when PATH misses them', () => {
+    const root = mkdtempSync(join(tmpdir(), 'orca-cli-commands-'))
+    const codexPath = join(root, 'AppData', 'Roaming', 'npm', 'codex.cmd')
+    const opencodePath = join(root, 'AppData', 'Roaming', 'npm', 'opencode.cmd')
+    const claudePath = join(root, '.local', 'bin', 'claude.exe')
+    makeExecutable(codexPath)
+    makeExecutable(opencodePath)
+    makeExecutable(claudePath)
+
+    const resolved = resolveCliCommands(['codex', 'opencode', 'claude'], {
+      platform: 'win32',
+      pathEnv: '',
+      homePath: root
+    })
+
+    expect(resolved.get('codex')).toBe(codexPath)
+    expect(resolved.get('opencode')).toBe(opencodePath)
+    expect(resolved.get('claude')).toBe(claudePath)
+  })
 })
 
 describe('getVersionManagerBinPaths', () => {

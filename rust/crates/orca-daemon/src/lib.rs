@@ -18,6 +18,8 @@ pub mod registry;
 pub mod resolver_health;
 pub mod rpc;
 pub mod shell_ready_barrier;
+#[cfg(unix)]
+pub mod termination_signals;
 pub mod token;
 pub mod utf8_stream_decoder;
 
@@ -71,6 +73,8 @@ pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
     );
     let registry = Arc::new(Registry::new());
     registry.set_socket_path(socket_path);
+    // Why: logout/shutdown SIGTERMs the detached daemon; without this, PTY children ignoring SIGHUP orphan (#7936).
+    termination_signals::install(registry.clone());
     for incoming in listener.incoming() {
         match incoming {
             Ok(stream) => {

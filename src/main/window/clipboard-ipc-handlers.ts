@@ -35,6 +35,7 @@ import {
   writeRemoteFileToClipboard
 } from './clipboard-remote-file-copy'
 import { saveClipboardImageBufferInRuntime } from './clipboard-runtime-image-upload'
+import { readWindowsClipboardImageFileAsPng } from './clipboard-windows-image-file'
 
 let trustedClipboardRendererWebContentsId: number | null = null
 
@@ -121,7 +122,13 @@ export function registerClipboardHandlers(store: Store): void {
       assertTrustedClipboardSender(event)
       const image = clipboard.readImage()
       if (image.isEmpty()) {
-        return null
+        const copiedFilePng = await readWindowsClipboardImageFileAsPng({
+          platform: process.platform,
+          readClipboardFormatBuffer: (format) => clipboard.readBuffer(format),
+          statFile: stat,
+          createImageFromPath: (filePath) => nativeImage.createFromPath(filePath)
+        })
+        return copiedFilePng ? saveClipboardImageBufferForTarget(copiedFilePng, args) : null
       }
       assertClipboardImageDimensionsWithinLimit(image.getSize())
       return saveClipboardImageBufferForTarget(image.toPNG(), args)

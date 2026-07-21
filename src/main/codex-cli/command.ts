@@ -129,11 +129,15 @@ function getNvmVersionDirectories(homePath: string): string[] {
     return []
   }
 
-  return readdirSync(nvmVersionsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort(compareVersionDesc)
-    .map((entry) => join(nvmVersionsDir, entry, 'bin'))
+  try {
+    return readdirSync(nvmVersionsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort(compareVersionDesc)
+      .map((entry) => join(nvmVersionsDir, entry, 'bin'))
+  } catch {
+    return []
+  }
 }
 
 function getVersionManagerDirectories(

@@ -575,6 +575,38 @@ describe('preflight', () => {
     expect(resolveCliCommandsMock).toHaveBeenCalledTimes(1)
   })
 
+  it('detects Windows agents from install dirs when where is unavailable', async () => {
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: 'win32'
+    })
+    execFileAsyncMock.mockImplementation(async (command) => {
+      if (command !== 'where') {
+        throw new Error(`unexpected command ${String(command)}`)
+      }
+      throw Object.assign(new Error('spawn where ENOENT'), { code: 'ENOENT' })
+    })
+    resolveCliCommandsMock.mockImplementation(
+      (commands: string[]) =>
+        new Map(
+          commands.map((cmd) => {
+            if (cmd === 'claude') {
+              return [cmd, 'C:\\Users\\test\\.local\\bin\\claude.exe']
+            }
+            if (cmd === 'codex') {
+              return [cmd, 'C:\\Users\\test\\AppData\\Roaming\\npm\\codex.cmd']
+            }
+            if (cmd === 'opencode') {
+              return [cmd, 'C:\\Users\\test\\AppData\\Roaming\\npm\\opencode.cmd']
+            }
+            return [cmd, cmd]
+          })
+        )
+    )
+
+    await expect(detectInstalledAgents()).resolves.toEqual(['claude', 'codex', 'opencode'])
+  })
+
   it('does not double-count an agent already found on PATH via the install-dir resolver', async () => {
     // Why: the fallback should not duplicate ids when PATH already finds a CLI.
     execFileAsyncMock.mockImplementation(async (command, args) => {

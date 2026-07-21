@@ -848,6 +848,119 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(transport.isConnected()).toBe(false)
   })
 
+  it('routes no_connected_pty on a host mirror to a disconnected state, not an exit', async () => {
+    const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+    const onError = vi.fn()
+    const onDisconnect = vi.fn()
+    const onExit = vi.fn()
+    const onPtyExit = vi.fn()
+    const transport = createRemoteRuntimePtyTransport('env-1', {
+      worktreeId: 'wt-1',
+      tabId: 'web-terminal-tab-1',
+      leafId: 'pane:1',
+      onPtyExit
+    })
+
+    transport.attach({
+      existingPtyId: 'remote:env-1@@terminal-1',
+      cols: 80,
+      rows: 24,
+      callbacks: { onError, onDisconnect, onExit }
+    })
+    await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
+    const { streamId } = latestSubscribePayload()
+
+    // Why: the paired host dropped off the runtime — its agent may still be
+    // working, so this must not read as a PTY exit (#9151).
+    subscriptionCallbacks?.onResponse({
+      ok: true,
+      result: { type: 'error', streamId, message: 'no_connected_pty' }
+    })
+    subscriptionCallbacks?.onResponse({
+      ok: true,
+      result: { type: 'end', streamId }
+    })
+    await Promise.resolve()
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(onExit).not.toHaveBeenCalled()
+    expect(onPtyExit).not.toHaveBeenCalled()
+    expect(onDisconnect).toHaveBeenCalledTimes(1)
+    expect(transport.isConnected()).toBe(false)
+    // Why: the PTY binding survives so the pane keeps its agent evidence and a
+    // later session snapshot or reattach can revive the mirror.
+    expect(transport.getPtyId()).toBe('remote:env-1@@terminal-1')
+  })
+
+  it('reports exit for a stream end only after the runtime confirms the host exited', async () => {
+    const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+    const onExit = vi.fn()
+    const onPtyExit = vi.fn()
+    const transport = createRemoteRuntimePtyTransport('env-1', {
+      worktreeId: 'wt-1',
+      tabId: 'tab-1',
+      leafId: 'pane:1',
+      onPtyExit
+    })
+
+    await transport.connect({ url: '', callbacks: { onExit } })
+    await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
+    const { streamId } = latestSubscribePayload()
+
+    subscriptionCallbacks?.onResponse({
+      ok: true,
+      result: { type: 'end', streamId }
+    })
+
+    await vi.waitFor(() => expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-1'))
+    expect(onExit).toHaveBeenCalledWith(0)
+    expect(runtimeCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'terminal.wait',
+        params: expect.objectContaining({ terminal: 'terminal-1', for: 'exit' })
+      })
+    )
+    expect(transport.getPtyId()).toBeNull()
+    expect(transport.isConnected()).toBe(false)
+  })
+
+  it('resubscribes instead of reporting exit when a stream end is not a confirmed host exit', async () => {
+    const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+    const onExit = vi.fn()
+    const onPtyExit = vi.fn()
+    runtimeCall.mockImplementation(async (args: { method: string }) =>
+      args.method === 'terminal.wait'
+        ? // Why: the terminal is still running — the stream end was a
+          // server-side cleanup/eviction, not a host exit (#9151).
+          { ok: false, error: { code: 'timeout', message: 'timeout' } }
+        : { ok: true, result: { terminal: { handle: 'terminal-1' } } }
+    )
+    const transport = createRemoteRuntimePtyTransport('env-1', {
+      worktreeId: 'wt-1',
+      tabId: 'tab-1',
+      leafId: 'pane:1',
+      onPtyExit
+    })
+
+    await transport.connect({ url: '', callbacks: { onExit } })
+    await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
+    const { streamId } = latestSubscribePayload()
+    const subscribeCallsBefore = runtimeSubscribe.mock.calls.length
+
+    subscriptionCallbacks?.onResponse({
+      ok: true,
+      result: { type: 'end', streamId }
+    })
+
+    await vi.waitFor(() =>
+      expect(runtimeSubscribe.mock.calls.length).toBeGreaterThan(subscribeCallsBefore)
+    )
+    expect(onExit).not.toHaveBeenCalled()
+    expect(onPtyExit).not.toHaveBeenCalled()
+    expect(transport.getPtyId()).toBe('remote:env-1@@terminal-1')
+    expect(transport.isConnected()).toBe(true)
+  })
+
   it('ignores stale stream end after reattaching a newer remote terminal', async () => {
     const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
     const onPtyExit = vi.fn()
@@ -892,7 +1005,9 @@ describe('createRemoteRuntimePtyTransport', () => {
       result: { type: 'end', streamId: newStreamId }
     })
 
-    expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-new')
+    // Why: exit is reported only after the runtime confirms the host terminal
+    // exited (terminal.wait), so the report lands asynchronously (#9151).
+    await vi.waitFor(() => expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-new'))
     expect(transport.getPtyId()).toBeNull()
     expect(transport.isConnected()).toBe(false)
   })

@@ -2,6 +2,10 @@ const { chmodSync, existsSync, readdirSync } = require('node:fs')
 const { execFileSync } = require('node:child_process')
 const { join, resolve } = require('node:path')
 const electronBuilderNativeRebuild = require('./scripts/electron-builder-native-rebuild.cjs')
+// Why: the main bundle, packaged CLI, SSH paths, and speech worker all execute
+// from package directories where pnpm's symlink farm is absent. Each platform
+// target copies the exact runtime dependency closure to Resources/node_modules
+// so bare require() calls do not fall through to a developer checkout.
 const {
   createPackagedRuntimeNodeModuleResources,
   prunePackagedRuntimeNodeModules,
@@ -48,12 +52,6 @@ const relayExtraResource = {
   from: 'out/relay',
   to: 'relay'
 }
-// Why: the main bundle, packaged CLI, SSH paths, and speech worker all execute
-// from package directories where pnpm's symlink farm is absent. Copy the exact
-// runtime dependency closure to Resources/node_modules so bare require() calls
-// do not fall through to a developer checkout's node_modules.
-const packagedRuntimeNodeModuleResources = createPackagedRuntimeNodeModuleResources()
-
 // Why: the daemon's terminal addon loader resolves the native engine from
 // process.resourcesPath/orca_node.node in packaged apps (see
 // rust-terminal-addon.ts and daemon-init.ts), so ship the prebuilt .node to the
@@ -100,7 +98,6 @@ const commonExtraResources = [
   relayExtraResource,
   terminalAddonResource,
   ...thirdPartyLicenseResources,
-  ...packagedRuntimeNodeModuleResources,
   skillFreshnessResources
 ]
 const macSpeechNativeResource = {
@@ -265,6 +262,7 @@ module.exports = {
     },
     extraResources: [
       ...commonExtraResources,
+      ...createPackagedRuntimeNodeModuleResources('win32'),
       winSpeechNativeResource,
       rustDaemonResourceWin,
       {
@@ -335,6 +333,7 @@ module.exports = {
     notarize: isMacRelease,
     extraResources: [
       ...commonExtraResources,
+      ...createPackagedRuntimeNodeModuleResources('darwin'),
       macSpeechNativeResource,
       rustDaemonResource,
       {
@@ -399,6 +398,7 @@ module.exports = {
     },
     extraResources: [
       ...commonExtraResources,
+      ...createPackagedRuntimeNodeModuleResources('linux'),
       linuxSpeechNativeResource,
       rustDaemonResource,
       {

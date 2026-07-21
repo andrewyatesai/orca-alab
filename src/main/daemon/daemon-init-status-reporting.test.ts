@@ -132,6 +132,8 @@ vi.mock('./daemon-pty-adapter', () => ({
     readonly shutdown = vi.fn(async () => {})
     readonly dispose = vi.fn()
     readonly disconnectOnly = vi.fn(async () => {})
+    // Why: upstream #9277 makes daemon-init establish a lifecycle lease on the permanent adapter pair.
+    readonly establishLifecycleLease = vi.fn(async () => {})
     readonly onData = vi.fn(() => () => {})
     readonly onExit = vi.fn(() => () => {})
     readonly onReplay = vi.fn(() => () => {})

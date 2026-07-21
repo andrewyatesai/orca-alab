@@ -21,6 +21,8 @@ export type StreamQueueEntry = {
   /** Original PTY characters represented by data. Salvaged query copies are
    * delivered bytes but represent zero new positions in the source stream. */
   sequenceChars?: number
+  seq?: number
+  transformed?: boolean
   control?: DaemonEvent
 }
 
@@ -179,4 +181,38 @@ export function dropOldestQueuedForSession(
       (batch.queuedCharsBySession.get(sessionId) ?? 0) + salvaged.length
     )
   }
+}
+
+// Why here, not the batcher: the cap/keep-tail policy and its shared-budget
+// scaling are this module's contract; the batcher only reports enqueues.
+export function applyBackgroundSessionDropCaps(
+  batch: PendingStreamDataBatch,
+  sessionId: string,
+  isSessionDroppable: (sessionId: string) => boolean,
+  salvageDroppedData: (dropped: string) => string
+): void {
+  let droppableQueued = 0
+  for (const [queuedSessionId, queued] of batch.queuedCharsBySession) {
+    if (queued > 0 && isSessionDroppable(queuedSessionId)) {
+      droppableQueued++
+    }
+  }
+  const dropCap = backgroundSessionDropCapChars(droppableQueued)
+  const keepTail = backgroundSessionKeepTailChars(droppableQueued)
+  if ((batch.queuedCharsBySession.get(sessionId) ?? 0) > dropCap) {
+    dropOldestQueuedForSession(batch, sessionId, keepTail, salvageDroppedData)
+  }
+  if (droppableQueued > (batch.lastDroppableSessionCount ?? 0)) {
+    // Shared budget tightened: re-trim sessions that already finished producing — they never re-enter this path on their own.
+    for (const [queuedSessionId, queued] of Array.from(batch.queuedCharsBySession)) {
+      if (
+        queued > dropCap &&
+        queuedSessionId !== sessionId &&
+        isSessionDroppable(queuedSessionId)
+      ) {
+        dropOldestQueuedForSession(batch, queuedSessionId, keepTail, salvageDroppedData)
+      }
+    }
+  }
+  batch.lastDroppableSessionCount = droppableQueued
 }

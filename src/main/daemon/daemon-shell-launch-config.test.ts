@@ -6,10 +6,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { buildPosixDaemonShellLaunch } from './daemon-shell-launch-config'
+import {
+  prepareMacosTccLoginShell,
+  resetMacosLoginShellPreflightForTests
+} from '../providers/macos-tcc-login-shell'
 
-const { getUserDataPathMock } = vi.hoisted(() => ({
-  getUserDataPathMock: vi.fn<() => string>()
+const { getUserDataPathMock, execFileMock } = vi.hoisted(() => ({
+  getUserDataPathMock: vi.fn<() => string>(),
+  execFileMock: vi.fn()
 }))
+
+// Why: upstream gates the login(1) wrap behind a PAM preflight subprocess; stub
+// it so the dedicated TCC test below can prime the wrap deterministically.
+vi.mock('node:child_process', () => ({ execFile: execFileMock }))
 
 vi.mock('electron', () => ({
   app: {
@@ -37,6 +46,7 @@ posixDescribe('buildPosixDaemonShellLaunch (POSIX)', () => {
   })
 
   afterEach(() => {
+    resetMacosLoginShellPreflightForTests()
     rmSync(userDataDir, { recursive: true, force: true })
     if (savedDisable === undefined) {
       delete process.env.ORCA_DISABLE_MACOS_LOGIN_SHELL
@@ -144,8 +154,16 @@ posixDescribe('buildPosixDaemonShellLaunch (POSIX)', () => {
   })
 
   const darwinIt = process.platform === 'darwin' ? it : it.skip
-  darwinIt('wraps the spawn in login(1) for TCC attribution on macOS', () => {
+  darwinIt('wraps the spawn in login(1) for TCC attribution on macOS', async () => {
     delete process.env.ORCA_DISABLE_MACOS_LOGIN_SHELL
+    // Prime the PAM preflight cache (upstream gate): the wrap only engages after
+    // prepareMacosTccLoginShell observed a clean login(1) probe.
+    execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      callback(null, 'ORCA_LOGIN_PREFLIGHT_OK', '')
+      return { stdin: { end: vi.fn() } }
+    })
+    resetMacosLoginShellPreflightForTests()
+    await prepareMacosTccLoginShell()
     const launch = buildPosixDaemonShellLaunch({
       shellOverride: '/bin/zsh',
       env: {}

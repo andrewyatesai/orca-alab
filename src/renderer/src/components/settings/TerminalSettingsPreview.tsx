@@ -13,20 +13,13 @@ import { SettingsSwitch } from './SettingsFormControls'
 import type { GlobalSettings } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
 
-// Why: pin cols/rows so PREVIEW_BUFFER never wraps. Sized so the longest
-// line (the def total signature, 32 chars) plus a few cols of margin fits
-// the aterm canvas in the xl right-column at the default 14px font with
-// the divider + stub pane carved off the right side. Larger fonts will
-// extend past the box's right edge — the box clips, which is preferable to
-// wrapping mid-content.
+// Why: pinned so PREVIEW_BUFFER never wraps; 36 cols fits the 32-char longest line + margin on the aterm canvas in the
+// xl right-column at the default 14px font (larger fonts clip past the box edge, which beats wrapping mid-content).
 const PREVIEW_COLS = 36
 const PREVIEW_ROWS = 15
 
-// Why: the old TerminalThemePreview rendered two side-by-side panes so the
-// user could see the divider + inactive opacity in context. Keep that
-// affordance with a real aterm canvas on the left and a small color-only stub
-// on the right. 40px is wide enough to read the inactive opacity dim against
-// the active terminal, narrow enough not to crowd content.
+// Why: real aterm canvas on the left, color-only stub pane on the right; 40px is wide enough to read the inactive-pane
+// opacity dim, narrow enough not to crowd content.
 const STUB_PANE_PX = 40
 
 type PreviewMode = 'dark' | 'light'
@@ -50,14 +43,9 @@ type TerminalSettingsPreviewProps = {
    *  fallbacks), so a font-family hover can't be previewed. Kept on the API for
    *  the picker wiring and so font SIZE hover still works via `settings`. */
   previewFontFamily?: string | null
-  /** Force the preview into this mode regardless of app settings. Used by
-   *  the Dark/Light theme sections so each pins its own theme. When set,
-   *  the in-header theme toggle is hidden. */
+  /** Force the preview into this mode regardless of app settings; hides the in-header theme toggle when set. */
   modeOverride?: PreviewMode
-  /** When true, render a Moon/Sun toggle in the card header so the user
-   *  can flip the preview between dark and light themes without changing
-   *  the app theme. Initial mode follows the active app theme. Ignored
-   *  when `modeOverride` is set. */
+  /** Render a Moon/Sun header toggle to flip the preview theme without changing the app theme. Ignored when `modeOverride` is set. */
   showThemeToggle?: boolean
 }
 
@@ -86,29 +74,19 @@ export function TerminalSettingsPreview({
   const skipInitialFontRef = useRef(false)
   const skipInitialThemeRef = useRef(false)
 
-  // Why: lazy-init from the active app theme so the toggle starts in the
-  // user's current mode. After init the toggle is independent — flipping
-  // it doesn't change app settings, and changing the app theme later
-  // doesn't reset the toggle.
+  // Why: lazy-init from the active app theme; after mount the toggle is independent of later app-theme changes.
   const [togglePreviewMode, setTogglePreviewMode] = useState<PreviewMode>(() =>
     resolveAppMode(settings, systemPrefersDark)
   )
   const [previewPaneDividerVisible, setPreviewPaneDividerVisible] = useState(false)
 
-  // Why: precedence — modeOverride pins the mode; otherwise the in-header
-  // toggle drives it; otherwise follow whatever the app is set to right
-  // now (recomputed each render so plain previews track app theme changes).
+  // Why: recomputed each render so plain previews (no override/toggle) track live app-theme changes.
   const effectiveMode: PreviewMode =
     modeOverride ??
     (showThemeToggle ? togglePreviewMode : resolveAppMode(settings, systemPrefersDark))
 
-  // Why: reuse the live-pane resolver so divider color, theme palette, and
-  // the dark/light variant rules (e.g. `useSeparateLightTheme`) stay in
-  // lockstep with what real terminal panes render.
-  // Why: list each property resolveEffectiveTerminalAppearance reads instead
-  // of the whole settings object so unrelated changes (font, cursor) don't
-  // re-derive the appearance. The lint can't see that settings flows through
-  // the helper to those specific properties.
+  // Why: reuse the live-pane resolver so divider color, theme palette, and dark/light variant rules stay in lockstep.
+  // Why: list resolveEffectiveTerminalAppearance's inputs explicitly so unrelated changes (font, cursor) don't re-derive.
   const appearance = useMemo(
     () =>
       resolveEffectiveTerminalAppearance({ ...settings, theme: effectiveMode }, systemPrefersDark),
@@ -125,8 +103,7 @@ export function TerminalSettingsPreview({
     ]
   )
 
-  // Why: same — list the composeActiveTerminalTheme inputs explicitly so font
-  // and cursor option changes don't trigger a buffer rewrite.
+  // Why: list composeActiveTerminalTheme inputs explicitly so font/cursor changes don't trigger a buffer rewrite.
   const composedTheme = useMemo(
     () => composeActiveTerminalTheme(appearance.theme, settings),
     // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -184,8 +161,7 @@ export function TerminalSettingsPreview({
       engineRef.current?.dispose()
       engineRef.current = null
     }
-    // Why empty deps: mount effect intentionally runs once. Subsequent setting
-    // changes flow through the dedicated font/theme effects below.
+    // Why empty deps: mount effect runs once; later setting changes flow through the dedicated font/theme effects below.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -285,9 +261,7 @@ export function TerminalSettingsPreview({
         </div>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        {/* Why: flex layout with the aterm canvas on the left and a stub pane on
-            the right keeps inactive-pane opacity visible. The divider stays
-            preview-only and opt-in so the default preview remains clean. */}
+        {/* Why: stub pane on the right keeps inactive-pane opacity visible; divider is opt-in to keep the default preview clean. */}
         <div className="flex h-[300px] flex-col overflow-hidden rounded-md border border-border/50">
           <div className="flex min-h-0 flex-1 overflow-hidden" aria-hidden="true">
             <div

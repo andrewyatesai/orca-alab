@@ -1,4 +1,3 @@
-import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 import type {
   ConfirmForegroundProcessRequest,
   GetForegroundProcessRequest
@@ -17,56 +16,23 @@ import type { TuiAgent } from '../../shared/types'
 // guard-host min, previous-version list) live in daemon-protocol-versions.ts —
 // re-exported so this stays the one wire-shape entry point.
 export * from './daemon-protocol-versions'
+// Upstream-new v24 gates only (clean disconnect, startup ingress). The
+// overlapping names (PROTOCOL_VERSION, guard-host min, previous-version list)
+// must keep coming from the fork's daemon-protocol-versions.ts above.
+export {
+  CLEAN_DISCONNECT_PROTOCOL_VERSION,
+  PTY_STARTUP_INGRESS_PROTOCOL_VERSION,
+  supportsPtyStartupIngress
+} from './daemon-protocol-version'
+import type { PtyStartupIngressIntent } from '../../shared/pty-startup-ingress'
+export type { TerminalModes } from './terminal-modes'
+import type { TerminalSnapshot } from './terminal-snapshot'
+export type { TerminalSnapshot } from './terminal-snapshot'
 
 // ─── Session State Machine ──────────────────────────────────────────
 export type SessionState = 'created' | 'spawning' | 'running' | 'exiting' | 'exited'
 
 export type ShellReadyState = 'pending' | 'ready' | 'timed_out' | 'unsupported'
-
-// ─── Terminal Snapshot ──────────────────────────────────────────────
-export type TerminalSnapshot = {
-  snapshotAnsi: string
-  /** Trailing incomplete escape sequence the emulator ingested but xterm's
-   *  parser is still holding (a PTY read ended mid-escape). Restorers must
-   *  write this LAST — after their own post-replay resets, immediately before
-   *  post-snapshot live chunks — so the continuation bytes complete it
-   *  exactly as live (Bug E / #7329, notes/garble-fuzz-divergences.md). Its
-   *  bytes are already counted by the snapshot seq. */
-  pendingEscapeTailAnsi?: string
-  /** Normal buffer captured separately while snapshotAnsi holds an active
-   *  alternate buffer. Empty for normal-screen snapshots. */
-  scrollbackAnsi: string
-  oscLinks?: TerminalOscLinkRange[]
-  rehydrateSequences: string
-  cwd: string | null
-  modes: TerminalModes
-  cols: number
-  rows: number
-  scrollbackLines: number
-  lastTitle?: string
-  /** Absolute UTF-16 character count ingested by this live daemon session.
-   *  Optional because persisted snapshots and older v19 daemons lack it. */
-  outputSequence?: number
-}
-
-export type TerminalModes = {
-  bracketedPaste: boolean
-  mouseTracking: boolean
-  mouseTrackingMode?: 'none' | 'x10' | 'vt200' | 'drag' | 'any'
-  sgrMouseMode?: boolean
-  sgrMousePixelsMode?: boolean
-  applicationCursor: boolean
-  alternateScreen: boolean
-  /** Kitty keyboard protocol flags (CSI = u pushes) for emulator re-seed
-   *  parity ONLY. Consumed by the daemon warm-reattach path: the spawn
-   *  result threads them into seedHeadlessTerminal, which re-applies them to
-   *  the fresh runtime emulator (HeadlessEmulator.applyKittyKeyboardFlags)
-   *  so hidden `CSI ? u` answers the real flags instead of ?0u.
-   *  rehydrateSequences must never push these into a renderer xterm —
-   *  POST_REPLAY_REATTACH_RESET's deliberate kitty reset stays authoritative
-   *  (terminal-query-authority.md §kitty). */
-  kittyKeyboardFlags?: number
-}
 
 // The on-disk checkpoint.json shape lives in daemon-checkpoint-file.ts (it
 // depends only on TerminalModes here) — re-exported so existing importers of
@@ -76,6 +42,11 @@ export type { TerminalCheckpointFile } from './daemon-checkpoint-file'
 // ─── NDJSON Protocol Messages ───────────────────────────────────────
 
 // Hello handshake (first message on each socket)
+// The fork keeps Hello inline: its v1020 streamFormat field must stay on the
+// wire shape, and daemon-hello-protocol.ts (upstream's extraction) lacks it.
+import type { DaemonEndpointIdentity } from './daemon-hello-protocol'
+export type { DaemonEndpointIdentity } from './daemon-hello-protocol'
+
 export type HelloMessage = {
   type: 'hello'
   version: number
@@ -96,6 +67,9 @@ export type HelloResponse = {
   // binary stream plane. Its presence is what flips the client's stream parser,
   // so a plain hello_ok always means NDJSON on both ends.
   streamFormat?: string
+  // v24 (upstream clean disconnect): identity proof so the client can verify
+  // which daemon PID record it owns before retiring or adopting it.
+  daemonIdentity?: DaemonEndpointIdentity
 }
 
 // ─── RPC Requests (Client → Daemon, on control socket) ─────────────
@@ -137,7 +111,14 @@ export type CreateOrAttachRequest = {
     shellReadyTimeoutMs?: number
     /** Recovered ANSI applied before the new subprocess can emit startup output. */
     historySeed?: string
+    startupIngress?: PtyStartupIngressIntent
   }
+}
+
+export type CloseStartupQueryAuthorityRequest = {
+  id: string
+  type: 'closeStartupQueryAuthority'
+  payload: { sessionId: string }
 }
 
 export type CancelCreateOrAttachRequest = {
@@ -220,6 +201,11 @@ export type SignalRequest = {
 export type ListSessionsRequest = {
   id: string
   type: 'listSessions'
+}
+
+export type ShutdownIfIdleRequest = {
+  id: string
+  type: 'shutdownIfIdle'
 }
 
 export type DetachRequest = {
@@ -346,6 +332,7 @@ export type DaemonRequest =
   | KillRequest
   | SignalRequest
   | ListSessionsRequest
+  | ShutdownIfIdleRequest
   | DetachRequest
   | SubscriberSessionRequest
   | GetCwdRequest
@@ -359,6 +346,7 @@ export type DaemonRequest =
   | GetSnapshotRequest
   | GetSizeRequest
   | TakePendingOutputRequest
+  | CloseStartupQueryAuthorityRequest
 
 // ─── RPC Responses (Daemon → Client, on control socket) ────────────
 
@@ -376,20 +364,17 @@ export type RpcResponseError = {
 
 export type RpcResponse<T = unknown> = RpcResponseOk<T> | RpcResponseError
 
-export type CreateOrAttachResult = {
-  isNew: boolean
-  snapshot: TerminalSnapshot | null
-  pid: number | null
-  shellState: ShellReadyState
-  historySeeded?: boolean
-  launchAgent?: TuiAgent
-}
+export type { DaemonCreateOrAttachResult as CreateOrAttachResult } from './daemon-create-or-attach-result'
 export type GetSnapshotResult = {
   snapshot: TerminalSnapshot | null
 }
 
 export type ListSessionsResult = {
   sessions: SessionInfo[]
+}
+
+export type ShutdownIfIdleResult = {
+  retiring: boolean
 }
 
 export type SystemResolverHealth = 'healthy' | 'unhealthy' | 'unknown'

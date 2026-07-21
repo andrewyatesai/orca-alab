@@ -14,6 +14,14 @@ import type {
   TerminalQuickCommandScope
 } from '../../../../shared/types'
 
+// Why: upstream's mutation API is pure TS and not yet in the Rust op dispatcher;
+// re-export the shared twins so renderer callers keep one import surface.
+export {
+  applyTerminalQuickCommandMutation,
+  parseNormalizedTerminalQuickCommands,
+  type TerminalQuickCommandMutation
+} from '../../../../shared/terminal-quick-commands'
+
 function op<T>(fn: string, input: unknown, fallback: T): T {
   if (!isGitWasmReady()) {
     return fallback

@@ -1,13 +1,13 @@
 /**
- * Phase 5 slice 2 (docs/reference/terminal-query-authority.md §View-attribute
- * bridge): renderer→main `pty:terminalViewAttributes` publication. Sources the
- * reply-relevant slots from orca's resolved terminal theme (the aterm ITheme
- * that terminal-appearance composes) and resolves them the way a visible pane
- * does (defaults, cursor blend, 256-entry palette) — aterm mirrors the historic
+ * Phase 5 slice 2 (View-attribute bridge): renderer→main
+ * `pty:terminalViewAttributes` publication. Sources the reply-relevant slots
+ * from orca's resolved terminal theme (the aterm ITheme that
+ * terminal-appearance composes) and resolves them the way a visible pane does
+ * (defaults, cursor blend, 256-entry palette) — aterm mirrors the historic
  * xterm ThemeService resolution — so main's hidden-PTY responder replies
  * byte-identically to a visible aterm pane. Deduped module-globally:
- * applyTerminalAppearance runs per pane manager and on every font/opacity tweak,
- * but the attributes are app-global, so identical snapshots publish once.
+ * applyTerminalAppearance runs per pane manager and on every font/opacity
+ * tweak, but the attributes are app-global, so identical snapshots publish once.
  */
 import type { ITheme } from '../../lib/pane-manager/aterm/terminal-types'
 import type { GlobalSettings } from '../../../../shared/types'

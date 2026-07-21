@@ -17,6 +17,11 @@ import type {
   CoordinatorRun
 } from './types'
 import { buildOrchestrationTaskDisplayMetadata } from '../../../shared/orchestration-task-display'
+import {
+  messageListFromJson,
+  messageRowFromJson,
+  optionalMessageRowFromJson
+} from './db-message-timestamp'
 
 export type {
   MessageType,
@@ -47,10 +52,12 @@ function generateId(prefix: string): string {
 // migrations, every query — was deleted; Rust is the sole implementation. The
 // shim keeps only the JS-side nondeterminism the Rust store must NOT own so the
 // bytes stay identical to the deleted TS store: generated ids, the two
-// `new Date().toISOString()` completion stamps, and the UTF-16-aware display
-// derivation. Everything else marshals through JSON (the store serializes each
-// row to its TS Row shape). Row-returning getters map the store's `null`
-// (absent row) back to `undefined` to preserve the old return contract.
+// `new Date().toISOString()` completion stamps, the UTF-16-aware display
+// derivation, and the RFC3339 exposure of message timestamps (see
+// db-message-timestamp.ts). Everything else marshals through JSON
+// (the store serializes each row to its TS Row shape). Row-returning getters map
+// the store's `null` (absent row) back to `undefined` to preserve the old
+// return contract.
 export class OrchestrationDb {
   private store: RustOrchestrationStoreHandle
 
@@ -88,7 +95,7 @@ export class OrchestrationDb {
   }): MessageRow {
     // senderPaneKey is the remint-stable pane identity persisted with the row so
     // worker_done/heartbeat lifecycle authority survives handle remints (v6 col).
-    return OrchestrationDb.row<MessageRow>(
+    return messageRowFromJson(
       this.store.insertMessage(
         generateId('msg'),
         msg.from,
@@ -105,7 +112,7 @@ export class OrchestrationDb {
   }
 
   getUnreadMessages(toHandle: string, types?: MessageType[]): MessageRow[] {
-    return OrchestrationDb.list<MessageRow>(
+    return messageListFromJson(
       this.store.getUnreadMessages(toHandle, types && types.length > 0 ? types : undefined)
     )
   }
@@ -115,13 +122,13 @@ export class OrchestrationDb {
   // read back as an actionable completion/liveness signal. The marker
   // construction is deterministic, so it lives in the Rust store, not here.
   convertLifecycleMessageToRejection(messageId: string, reason: string): MessageRow | undefined {
-    return OrchestrationDb.optRow<MessageRow>(
+    return optionalMessageRowFromJson(
       this.store.convertLifecycleMessageToRejection(messageId, reason)
     )
   }
 
   getUndeliveredUnreadMessages(toHandle: string, types?: MessageType[]): MessageRow[] {
-    return OrchestrationDb.list<MessageRow>(
+    return messageListFromJson(
       this.store.getUndeliveredUnreadMessages(
         toHandle,
         types && types.length > 0 ? types : undefined
@@ -130,11 +137,11 @@ export class OrchestrationDb {
   }
 
   getAllMessages(toHandle: string, limit = 20): MessageRow[] {
-    return OrchestrationDb.list<MessageRow>(this.store.getAllMessages(toHandle, limit))
+    return messageListFromJson(this.store.getAllMessages(toHandle, limit))
   }
 
   getMessageById(id: string): MessageRow | undefined {
-    return OrchestrationDb.optRow<MessageRow>(this.store.getMessageById(id))
+    return optionalMessageRowFromJson(this.store.getMessageById(id))
   }
 
   markAsRead(ids: string[]): void {
@@ -162,11 +169,11 @@ export class OrchestrationDb {
   }
 
   getInbox(limit = 20): MessageRow[] {
-    return OrchestrationDb.list<MessageRow>(this.store.getInbox(limit))
+    return messageListFromJson(this.store.getInbox(limit))
   }
 
   getAllMessagesForHandle(toHandle: string, limit = 100, types?: MessageType[]): MessageRow[] {
-    return OrchestrationDb.list<MessageRow>(
+    return messageListFromJson(
       this.store.getAllMessagesForHandle(
         toHandle,
         limit,
@@ -176,9 +183,7 @@ export class OrchestrationDb {
   }
 
   getThreadMessagesFor(threadId: string, toHandle: string, afterSequence?: number): MessageRow[] {
-    return OrchestrationDb.list<MessageRow>(
-      this.store.getThreadMessagesFor(threadId, toHandle, afterSequence)
-    )
+    return messageListFromJson(this.store.getThreadMessagesFor(threadId, toHandle, afterSequence))
   }
 
   // ── Tasks ──

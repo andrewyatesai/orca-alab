@@ -35,6 +35,7 @@ import {
   Wrench
 } from 'lucide-react'
 import { OrcaLogoSettingsIcon } from '@/components/settings/orca-logo-settings-icon'
+import { LinearIcon } from '@/components/icons/LinearIcon'
 import type { Repo } from '../../../shared/types'
 import { getRepoKindLabel } from '../../../shared/repo-kind'
 import { useAppStore } from '@/store'
@@ -57,6 +58,7 @@ import { getQuickCommandsPaneSearchEntries } from '@/components/settings/quick-c
 import { getBrowserPaneCombinedSearchEntries } from '@/components/settings/browser-pane-search'
 import { getNotificationsPaneSearchEntries } from '@/components/settings/notifications-search'
 import { getOrchestrationPaneSearchEntries } from '@/components/settings/orchestration-search'
+import { getLinearAgentSkillPaneSearchEntries } from '@/components/settings/linear-agent-skill-search'
 import {
   getRuntimeEnvironmentsSearchEntry,
   getWebRuntimeEnvironmentsSearchEntry
@@ -80,6 +82,7 @@ import {
   useWindowsTerminalCapabilities
 } from '@/lib/windows-terminal-capabilities'
 import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
+import { useLinearProviderConnected } from '@/hooks/useLinearProviderConnected'
 import { translate } from '@/i18n/i18n'
 
 export { isWebClientLocation } from '@/lib/web-client-location'
@@ -115,6 +118,7 @@ export function buildSettingsNavigationMetadata({
   isWindowsTerminalHost = isWindows,
   isWebClient,
   isDev = import.meta.env.DEV,
+  isLinearConnected = false,
   repos
 }: {
   isMac: boolean
@@ -122,6 +126,7 @@ export function buildSettingsNavigationMetadata({
   isWindowsTerminalHost?: boolean
   isWebClient: boolean
   isDev?: boolean
+  isLinearConnected?: boolean
   repos: readonly Repo[]
 }): SettingsNavSection[] {
   const showDesktopOnlySettings = !isWebClient
@@ -181,6 +186,23 @@ export function buildSettingsNavigationMetadata({
       searchEntries: getOrchestrationPaneSearchEntries(),
       group: 'capabilities'
     },
+    // Why: only surfaced once Linear is connected — a capability that needs a
+    // linked provider before the agent skill has anything to act on.
+    ...(isLinearConnected
+      ? [
+          {
+            id: 'linear',
+            title: translate('auto.hooks.useSettingsNavigationMetadata.linearTitle', 'Linear'),
+            description: translate(
+              'auto.hooks.useSettingsNavigationMetadata.linearDescription',
+              'Give agents the skill to read and update your linked Linear tickets.'
+            ),
+            icon: LinearIcon,
+            searchEntries: getLinearAgentSkillPaneSearchEntries(),
+            group: 'capabilities'
+          }
+        ]
+      : []),
     ...(showDesktopOnlySettings
       ? [
           {
@@ -600,6 +622,7 @@ export function useSettingsNavigationMetadata(): SettingsNavSection[] {
   const isMac = isMacUserAgent()
   const isWindows = isWindowsUserAgent()
   const isWebClient = isWebClientLocation()
+  const isLinearConnected = useLinearProviderConnected()
   const windowsTerminalCapabilityOwnerKey = getWindowsTerminalCapabilityOwnerKey(
     settings?.activeRuntimeEnvironmentId
   )
@@ -623,9 +646,10 @@ export function useSettingsNavigationMetadata(): SettingsNavSection[] {
         isWindowsTerminalHost,
         isWebClient,
         isDev: import.meta.env.DEV,
+        isLinearConnected,
         repos
       }),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- activeLocale is read implicitly by the translate() calls inside buildSettingsNavigationMetadata; without it the memo keeps the previous language's sections.
-    [isMac, isWindows, isWindowsTerminalHost, isWebClient, repos, activeLocale]
+    [isMac, isWindows, isWindowsTerminalHost, isWebClient, isLinearConnected, repos, activeLocale]
   )
 }

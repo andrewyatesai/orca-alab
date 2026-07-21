@@ -52,6 +52,7 @@ function createEligibility(
     canCreate: true,
     blockedReason: null,
     nextAction: null,
+    reviewLookupOutcome: 'not_found',
     defaultBaseRef: 'refs/remotes/origin/main',
     title: 'Review title',
     body: 'Review body',

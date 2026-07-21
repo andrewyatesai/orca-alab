@@ -13,8 +13,7 @@ export type TerminalShortcutEvent = {
 
 export type MacOptionAsAlt = 'true' | 'false' | 'left' | 'right'
 
-// Why: macOS composition replaces event.key for punctuation, so we map
-// event.code to the unmodified character for Esc+ sequences.
+// Why: macOS composition rewrites event.key for punctuation, so map event.code to the unmodified char for Esc+ sequences.
 const PUNCTUATION_CODE_MAP: Record<string, string> = {
   Period: '.',
   Comma: ',',
@@ -58,8 +57,7 @@ export type TerminalShortcutAction =
     }
   | { type: 'switchInputSource' }
 
-/** The un-shifted ASCII character for a physical key code (letters, digits,
- *  and the punctuation map above), or undefined for unmapped codes. */
+/** Un-shifted ASCII character for a physical key code (letters, digits, punctuation map), or undefined. */
 function resolveUnshiftedCharacterForCode(code: string | undefined): string | undefined {
   if (!code) {
     return undefined
@@ -74,9 +72,8 @@ function resolveUnshiftedCharacterForCode(code: string | undefined): string | un
 }
 
 /**
- * Resolves terminal keyboard events before the engine receives them.
- * Keeps configurable Orca shortcuts and terminal byte fallbacks in one
- * platform-aware policy so renderer handlers do not duplicate key checks.
+ * Resolves terminal keyboard events before the engine receives them, centralizing
+ * Orca shortcuts and terminal byte fallbacks in one platform-aware policy.
  */
 export function resolveTerminalShortcutAction(
   event: TerminalShortcutEvent,
@@ -85,35 +82,22 @@ export function resolveTerminalShortcutAction(
   optionKeyLocation: number = 0,
   isWindows: boolean = false,
   keybindings?: KeybindingOverrides,
-  // Why: lazily reports whether the active pane is a local native Windows
-  // ConPTY (PowerShell/cmd via PSReadLine). Only consulted for the Ctrl+Arrow
-  // word-nav rule below, so the execution-host lookup it performs stays off the
-  // hot path for every other keystroke.
+  // Why: lazy so execution-host lookup (local native Windows ConPTY) runs only on Ctrl+Arrow, not every keystroke.
   isLocalWindowsConptyPane?: () => boolean,
-  // Why: the readline-compat sendInput rewrites below exist for LEGACY-mode
-  // apps; once the active pane's app negotiates an enhanced key protocol (kitty
-  // OR xterm modifyOtherKeys) it wants the real encoded chord, so the caller
-  // reports the pane's state here to stand the rewrites down and let the engine
-  // encoder speak. The fork feeds the aterm engine's negotiated signal
-  // (atermAppKeyProtocolNegotiated(keyboardModeBits())) — which includes
-  // modifyOtherKeys, not just kitty CSI > u — so modifyOtherKeys panes gate too.
+  // Why: stands the legacy readline-compat rewrites down once the pane's app negotiates an enhanced key protocol.
+  // The fork feeds the aterm engine's negotiated signal (atermAppKeyProtocolNegotiated(keyboardModeBits())) — which
+  // includes modifyOtherKeys, not just kitty CSI > u — so modifyOtherKeys panes gate too.
   isKittyKeyboardActivePane?: () => boolean,
-  // Why: kitty/Option chords carry the key's unshifted codepoint in the active
-  // layout; the physical-code table above is US QWERTY and reports the wrong
-  // key on Dvorak/Colemak/AZERTY-class layouts. This resolves through
-  // Chromium's KeyboardLayoutMap when it is available.
+  // Why: the physical-code table above is US QWERTY; resolve via Chromium's KeyboardLayoutMap for Dvorak/Colemak/AZERTY layouts.
   layoutBaseCharacterForCode?: (code: string) => string | undefined,
-  // Why: lazily resolves the active pane's Windows encoding. Only consulted for
-  // Shift+Enter so agent-state lookup stays off every other keystroke.
+  // Why: lazy so agent-state lookup for the pane's Windows encoding runs only on Shift+Enter, not every keystroke.
   getWindowsShiftEnterEncoding?: () => WindowsShiftEnterEncoding,
-  // Why: keybindings follow the client OS, but terminal byte protocols follow
-  // the PTY host. They differ for macOS clients attached to Windows runtimes.
+  // Why: keybindings follow the client OS, but byte protocols follow the PTY host — they differ for macOS clients on Windows runtimes.
   isWindowsTerminalHost: () => boolean = () => isWindows
 ): TerminalShortcutAction | null {
   const platform: NodeJS.Platform = isMac ? 'darwin' : isWindows ? 'win32' : 'linux'
 
-  // Why: native-only chords must be captured even on repeat without blocking
-  // the OS default that performs the input-source switch.
+  // Why: capture this chord even on repeat without blocking the OS default input-source switch.
   if (keybindingMatchesAction('terminal.switchInputSource', event, platform, keybindings)) {
     return { type: 'switchInputSource' }
   }
@@ -186,12 +170,9 @@ export function resolveTerminalShortcutAction(
     event.shiftKey &&
     event.key === 'Enter'
   ) {
-    // Resolve Shift+Enter to explicit bytes so a composer newline works across
-    // hosts. CSI-u (\x1b[13;2u) only when it is safe application input — an
-    // active KKP negotiation OR a trusted Windows agent (e.g. Droid) that wants
-    // CSI-u without renderer-visible KKP (host ≠ client, so the aterm engine
-    // can't know); otherwise the universal Alt+Enter byte (\x1b\r). Short-circuit
-    // on windowsHost keeps the encoding lookup off non-Windows keystrokes.
+    // Why: CSI-u (\x1b[13;2u) is application input, not universal — send it only on active KKP negotiation OR a trusted
+    // Windows agent (e.g. Droid) that wants CSI-u without renderer-visible KKP (host ≠ client, so the aterm engine can't
+    // know); otherwise the universal Alt+Enter byte (\x1b\r). Short-circuit on windowsHost keeps the lookup off non-Windows keystrokes.
     const windowsHost = isWindowsTerminalHost()
     const hasTrustedWindowsCsiU = windowsHost && getWindowsShiftEnterEncoding?.() === 'csi-u'
     const canSendCsiU = hasTrustedWindowsCsiU || kittyKeyboardActive()
@@ -206,12 +187,9 @@ export function resolveTerminalShortcutAction(
     event.key === 'Enter' &&
     !kittyKeyboardActive()
   ) {
-    // Why: legacy encoding collapses Ctrl+Enter to a bare CR, so TUIs that
-    // expect modified Enter chords treat it as plain Enter. Forward the kitty
-    // CSI-u sequence (modifier code 5 = Ctrl) so cue/queue behavior reaches the
-    // TUI; with kitty/modifyOtherKeys negotiated the engine encoder already
-    // emits the app's chosen form, so this stands down. A Windows fallback is
-    // not added because no Windows TUI is known to drop this CSI-u form.
+    // Why: legacy encoding collapses Ctrl+Enter to a bare CR, so forward kitty CSI-u (modifier 5 = Ctrl) so the chord
+    // reaches TUIs; with kitty/modifyOtherKeys negotiated the engine encoder already emits the app's chosen form, so
+    // this stands down. No Windows fallback yet (#2418).
     return { type: 'sendInput', data: '\x1b[13;5u' }
   }
 
@@ -244,10 +222,7 @@ export function resolveTerminalShortcutAction(
         ? { type: 'encodeKey', key: 'Delete', mods: { super: true }, fallback: '\x0b' }
         : { type: 'sendInput', data: '\x0b' }
     }
-    // Why: Cmd+←/→ on macOS conventionally moves to start/end of line in
-    // terminals (iTerm2, Ghostty). The engine has no default mapping for
-    // Cmd+Arrow, so we translate to readline's Ctrl+A (\x01) / Ctrl+E (\x05),
-    // which work universally across bash/zsh/fish and most TUI editors.
+    // Why: the engine has no Cmd+Arrow mapping; translate Cmd+←/→ to readline Ctrl+A/Ctrl+E for line start/end (iTerm2/Ghostty).
     if (event.key === 'ArrowLeft') {
       return kittyKeyboardActive()
         ? { type: 'encodeKey', key: 'ArrowLeft', mods: { super: true }, fallback: '\x01' }
@@ -258,9 +233,8 @@ export function resolveTerminalShortcutAction(
         ? { type: 'encodeKey', key: 'ArrowRight', mods: { super: true }, fallback: '\x05' }
         : { type: 'sendInput', data: '\x05' }
     }
-    // Why: macOS terminal users expect Cmd+↑/↓ to jump through scrollback
-    // without writing escape bytes into the shell. Host action — legitimate
-    // even for kitty apps, so deliberately NOT protocol-gated.
+    // Why: macOS users expect Cmd+↑/↓ to scroll scrollback, not write escape bytes to the shell.
+    // Host action — legitimate even for kitty apps, so deliberately NOT protocol-gated.
     if (event.key === 'ArrowUp') {
       return { type: 'scrollViewport', position: 'top' }
     }
@@ -290,13 +264,8 @@ export function resolveTerminalShortcutAction(
     (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
     !kittyKeyboardActive()
   ) {
-    // Why: the legacy encoding for option/alt+arrow is \e[1;3D / \e[1;3C, which
-    // default readline (bash, zsh) does not bind to backward-word /
-    // forward-word — so word navigation silently doesn't work without a custom
-    // inputrc. Translate to \eb / \ef (readline's default word-nav bindings) so
-    // option+←/→ on macOS and alt+←/→ on Linux/Windows behave like they do in
-    // iTerm2's "Esc+" option-key mode. Platform-agnostic: both produce altKey.
-    // Protocol-gated: a negotiated app wants the real modified-arrow report.
+    // Why: readline doesn't bind the legacy \e[1;3D/C for alt+←/→, so translate to \eb/\ef for word-nav (iTerm2 "Esc+"
+    // behavior; platform-agnostic since both produce altKey). Protocol-gated: a negotiated app wants the real modified-arrow report.
     return { type: 'sendInput', data: event.key === 'ArrowLeft' ? '\x1bb' : '\x1bf' }
   }
 
@@ -309,25 +278,14 @@ export function resolveTerminalShortcutAction(
     (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
     !kittyKeyboardActive()
   ) {
-    // Why: local Windows ConPTY shells (PowerShell/cmd via PSReadLine) already
-    // bind Ctrl+←/→ to word-nav, and they treat \eb/\ef (Alt+b/f) as
-    // Escape→RevertLine followed by a self-inserted "b"/"f" — so the translation
-    // below prints a stray letter instead of moving the cursor. Stand down and
-    // let the engine encoder emit its native \e[1;5D / \e[1;5C there.
-    // Remote/WSL panes on a Windows client run readline and still need the
-    // translation, so this is gated on a genuine local native ConPTY, not
-    // merely on the client being Windows.
+    // Why: local Windows ConPTY (PSReadLine) binds Ctrl+←/→ itself and treats \eb/\ef as Escape→RevertLine plus a stray
+    // b/f — stand down and let the engine encoder emit its native \e[1;5D/C. Remote/WSL panes run readline and still
+    // need the translation, so this gates on a genuine local native ConPTY, not merely a Windows client.
     if (isLocalWindowsConptyPane?.()) {
       return null
     }
-    // Why: default readline (bash, zsh) does not bind the legacy \e[1;5D /
-    // \e[1;5C encoding for Ctrl+←/→, so Linux and remote/WSL shells need the
-    // translation to \eb / \ef (same bytes as our Alt+Arrow rule) for word-nav
-    // to work without a custom inputrc. Protocol-gated like the Alt+Arrow rule
-    // above.
-    //
-    // Mac-gated: Ctrl+Arrow on macOS is reserved for Mission Control / Spaces
-    // navigation at the OS level and should never reach the app.
+    // Why: readline ignores the legacy \e[1;5D/C, so translate Ctrl+←/→ to \eb/\ef for word-nav; protocol-gated like the
+    // Alt+Arrow rule. !isMac since macOS reserves Ctrl+Arrow for Mission Control / Spaces.
     return { type: 'sendInput', data: event.key === 'ArrowLeft' ? '\x1bb' : '\x1bf' }
   }
 

@@ -1,9 +1,4 @@
-/* eslint-disable max-lines -- Why: this file covers the entire restart flow
-   of daemon-init — construction, the 7-step sequence from
-   docs/reference/daemon-staleness-ux.md §Phase 1, and the concurrency coalescer. A
-   single describe block with shared mocks keeps setup in one place; splitting
-   across files would duplicate the vi.hoisted boundary mocks with no cleaner
-   ownership seam. */
+/* eslint-disable max-lines -- Why: covers daemon-init's full restart flow (7-step sequence per docs/reference/daemon-staleness-ux.md §Phase 1 + coalescer); one describe block keeps shared mocks in one place. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from './types'
@@ -12,11 +7,7 @@ import { WEDGED_DAEMON_GRACE_RETRIES } from './daemon-init'
 const FAKE_USER_DATA_PATH = '/fake/userData'
 const FAKE_RUNTIME_DIR = join(FAKE_USER_DATA_PATH, 'daemon')
 
-// Why: the restart flow touches many boundary modules (electron app paths, fs
-// for dir creation, net for socket probe, DaemonClient over that socket, the
-// spawner's launcher, ipc/pty listener binders). We only care here about the
-// observable sequencing and identity invariants of runRestartDaemon, so every
-// non-daemon-init dependency is replaced by a minimal stub that records calls.
+// Why: we only care about runRestartDaemon's observable sequencing/identity invariants, so every non-daemon-init dependency is a minimal stub.
 const {
   getPathMock,
   getAppPathMock,
@@ -38,11 +29,17 @@ const {
   getProcessStartedAtMsMock,
   queryWindowsProcessIdentityMock,
   parseDaemonPidFileMock,
+  unlinkOwnedDaemonPidFileMock,
   daemonClientMock,
   spawnerInstances,
   ensureRunningOverrides,
+  adoptionLeaseReleases,
+  lifecycleLeaseErrors,
+  disconnectOnlyErrors,
+  routerSubscriptionError,
   adapterInstances,
   defaultListSessionsSessions,
+  listProcessesControl,
   getLocalPtyProviderMock,
   localFallbackProvider,
   setLocalPtyProviderMock,
@@ -55,9 +52,7 @@ const {
 
   const probeSocketExistsMock = vi.fn((_path?: string) => false)
   const writeFileSyncMock = vi.fn()
-  // Why: readFileSync throws by default so legacyDaemonProcessMayBeAlive's
-  // catch treats every legacy pid file as unreadable — matching the pre-fix
-  // cleanup behavior every existing test was written against.
+  // Why: readFileSync throws by default so legacyDaemonProcessMayBeAlive treats every legacy pid file as unreadable (pre-fix cleanup behavior).
   const readFileSyncMock = vi.fn((..._args: unknown[]): string => {
     throw new Error('ENOENT')
   })
@@ -71,12 +66,7 @@ const {
   // identity marker is a single stable value across packaged and dev tests.
   const FAKE_RUST_DAEMON_BIN = '/fake/app/rust/target/release/orca-daemon'
   const netConnectMock = vi.fn(() => {
-    // Why: the real probeSocket() in daemon-init connects to the socket and
-    // resolves true on 'connect', false on 'error'. Our launcher never runs
-    // in these tests (healthCheckDaemon short-circuits), but probeSocket is
-    // also invoked by cleanupDaemonForProtocol — stub the socket object so
-    // the 'error' path fires synchronously and cleanupDaemonForProtocol's
-    // alive=false branch runs without side effects.
+    // Why: stub the socket so probeSocket's 'error' path fires and cleanupDaemonForProtocol's alive=false branch runs without side effects.
     const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
     return {
       on(event: string, cb: () => void) {
@@ -108,6 +98,7 @@ const {
   const parseDaemonPidFileMock = vi.fn(
     (): { pid: number; startedAtMs: number | null } | null => null
   )
+  const unlinkOwnedDaemonPidFileMock = vi.fn(() => true)
 
   const daemonClientMock = vi.fn().mockImplementation(function MockDaemonClient() {
     return {
@@ -117,20 +108,24 @@ const {
     }
   })
 
-  // Why: every DaemonSpawner constructed under test pushes into this array so
-  // assertions can check "was the *same* spawner reused across restart?".
+  // Why: every DaemonSpawner pushes here so assertions can check the *same* spawner was reused across restart.
   const spawnerInstances: MockSpawner[] = []
   const ensureRunningOverrides: (() => Promise<{
     socketPath: string
     tokenPath: string
     mode?: 'degraded-new-pty-fallback'
   }>)[] = []
-  // Same for DaemonPtyAdapter. The test asserts the replacement adapter is a
-  // fresh instance whose respawn closure targets the *original* spawner.
+  const adoptionLeaseReleases: ReturnType<typeof vi.fn>[] = []
+  const lifecycleLeaseErrors: Error[] = []
+  const disconnectOnlyErrors: Error[] = []
+  const routerSubscriptionError: { current: Error | null } = { current: null }
+  // Same for DaemonPtyAdapter — tests assert the replacement adapter is fresh but its respawn closure targets the *original* spawner.
   const adapterInstances: MockAdapter[] = []
-  // Why: adapters are constructed inside initDaemonPtyProvider, so tests that
-  // need listSessions to report live sessions set this before calling init.
+  // Why: adapters are built inside initDaemonPtyProvider, so tests set this before init to make listSessions report live sessions.
   const defaultListSessionsSessions: { sessionId: string }[] = []
+  const listProcessesControl: {
+    current: null | (() => Promise<{ sessionId: string }[]>)
+  } = { current: null }
 
   const localFallbackProvider = {
     routesFreshSpawnsToLocalProvider: undefined,
@@ -184,11 +179,17 @@ const {
     getProcessStartedAtMsMock,
     queryWindowsProcessIdentityMock,
     parseDaemonPidFileMock,
+    unlinkOwnedDaemonPidFileMock,
     daemonClientMock,
     spawnerInstances,
     ensureRunningOverrides,
+    adoptionLeaseReleases,
+    lifecycleLeaseErrors,
+    disconnectOnlyErrors,
+    routerSubscriptionError,
     adapterInstances,
     defaultListSessionsSessions,
+    listProcessesControl,
     getLocalPtyProviderMock,
     localFallbackProvider,
     setLocalPtyProviderMock,
@@ -218,15 +219,13 @@ type MockAdapter = {
   fanoutSyntheticExits: ReturnType<typeof vi.fn>
   listProcesses: ReturnType<typeof vi.fn>
   listSessions: ReturnType<typeof vi.fn>
+  establishLifecycleLease: ReturnType<typeof vi.fn>
   shutdown: ReturnType<typeof vi.fn>
   dispose: ReturnType<typeof vi.fn>
   disconnectOnly: ReturnType<typeof vi.fn>
   onData: ReturnType<typeof vi.fn>
   onExit: ReturnType<typeof vi.fn>
-  // Why: MockAdapter is fed through `new DaemonPtyRouter({ current, legacy })`
-  // during the "legacy preservation" test. The real router calls onData/onExit
-  // on each adapter; our stub returns a no-op unsubscribe so the router can
-  // subscribe without exploding.
+  // Why: the router calls onData/onExit on each adapter; the stub returns a no-op unsubscribe so router subscription doesn't explode.
   callOrder: string[]
 }
 
@@ -280,19 +279,23 @@ vi.mock('./daemon-spawner', () => ({
     readonly shutdown: ReturnType<typeof vi.fn>
     readonly getHandle: ReturnType<typeof vi.fn>
     private socketCounter: number
-    private handle: { mode?: 'degraded-new-pty-fallback'; shutdown: () => Promise<void> } | null
+    private handle: {
+      mode?: 'degraded-new-pty-fallback'
+      releaseAdoptionLease?: () => void
+      shutdown: () => Promise<void>
+    } | null
     constructor(opts: { runtimeDir: string; launcher: unknown }) {
       this.launcher = opts.launcher
       this.socketCounter = 0
       this.handle = null
-      // Why: each ensureRunning bumps a counter into the returned socketPath
-      // so the test can verify the *replacement* adapter is constructed with
-      // info from the second ensureRunning call, not stale info from the first.
+      // Why: each ensureRunning bumps a counter into socketPath so tests can tell the replacement adapter used the second call, not the first.
       this.ensureRunning = vi.fn(async () => {
         const override = ensureRunningOverrides.shift()
         if (override) {
           const result = await override()
-          this.handle = { shutdown: vi.fn(async () => {}) }
+          const releaseAdoptionLease = vi.fn()
+          adoptionLeaseReleases.push(releaseAdoptionLease)
+          this.handle = { releaseAdoptionLease, shutdown: vi.fn(async () => {}) }
           if (result.mode) {
             this.handle.mode = result.mode
           }
@@ -302,7 +305,9 @@ vi.mock('./daemon-spawner', () => ({
           }
         }
         this.socketCounter += 1
-        this.handle = { shutdown: vi.fn(async () => {}) }
+        const releaseAdoptionLease = vi.fn()
+        adoptionLeaseReleases.push(releaseAdoptionLease)
+        this.handle = { releaseAdoptionLease, shutdown: vi.fn(async () => {}) }
         return {
           socketPath: `/fake/socket-${this.socketCounter}`,
           tokenPath: `/fake/token-${this.socketCounter}`
@@ -320,7 +325,8 @@ vi.mock('./daemon-spawner', () => ({
     `/fake/daemon/daemon-v${version ?? PROTOCOL_VERSION}.token`,
   getDaemonPidPath: (_dir: string, version?: number) =>
     `/fake/daemon/daemon-v${version ?? PROTOCOL_VERSION}.pid`,
-  serializeDaemonPidFile: (obj: unknown) => JSON.stringify(obj)
+  serializeDaemonPidFile: (obj: unknown) => JSON.stringify(obj),
+  unlinkOwnedDaemonPidFile: unlinkOwnedDaemonPidFileMock
 }))
 
 vi.mock('./daemon-pty-adapter', () => ({
@@ -331,6 +337,7 @@ vi.mock('./daemon-pty-adapter', () => ({
     readonly fanoutSyntheticExits: ReturnType<typeof vi.fn>
     readonly listProcesses: ReturnType<typeof vi.fn>
     readonly listSessions: ReturnType<typeof vi.fn>
+    readonly establishLifecycleLease: ReturnType<typeof vi.fn>
     readonly shutdown: ReturnType<typeof vi.fn>
     readonly dispose: ReturnType<typeof vi.fn>
     readonly disconnectOnly: ReturnType<typeof vi.fn>
@@ -345,12 +352,32 @@ vi.mock('./daemon-pty-adapter', () => ({
       this.fanoutSyntheticExits = vi.fn(() => {
         this.callOrder.push('fanoutSyntheticExits')
       })
-      this.listProcesses = vi.fn(async () => [])
+      this.listProcesses = vi.fn(async () =>
+        listProcessesControl.current ? listProcessesControl.current() : []
+      )
       this.listSessions = vi.fn(async () => [...defaultListSessionsSessions])
+      const lifecycleLeaseError = lifecycleLeaseErrors.shift()
+      this.establishLifecycleLease = vi.fn(async () => {
+        if (lifecycleLeaseError) {
+          throw lifecycleLeaseError
+        }
+      })
       this.shutdown = vi.fn(async () => {})
       this.dispose = vi.fn()
-      this.disconnectOnly = vi.fn(async () => {})
-      this.onData = vi.fn(() => () => {})
+      const disconnectOnlyError = disconnectOnlyErrors.shift()
+      this.disconnectOnly = vi.fn(async () => {
+        if (disconnectOnlyError) {
+          throw disconnectOnlyError
+        }
+      })
+      this.onData = vi.fn(() => {
+        if (routerSubscriptionError.current) {
+          const error = routerSubscriptionError.current
+          routerSubscriptionError.current = null
+          throw error
+        }
+        return () => {}
+      })
       this.onExit = vi.fn(() => () => {})
       adapterInstances.push(this as unknown as MockAdapter)
     }
@@ -416,8 +443,13 @@ async function importFresh() {
   spawnMock.mockImplementation(() => makeFakeSpawnChild())
   spawnerInstances.length = 0
   ensureRunningOverrides.length = 0
+  adoptionLeaseReleases.length = 0
+  lifecycleLeaseErrors.length = 0
+  disconnectOnlyErrors.length = 0
+  routerSubscriptionError.current = null
   adapterInstances.length = 0
   defaultListSessionsSessions.length = 0
+  listProcessesControl.current = null
   getLocalPtyProviderMock.mockClear()
   localFallbackProvider.spawn.mockClear()
   localFallbackProvider.write.mockClear()
@@ -441,7 +473,14 @@ async function importFresh() {
   forkMock.mockReset()
   isPackagedMock.mockReset()
   isPackagedMock.mockReturnValue(false)
-  daemonClientMock.mockClear()
+  daemonClientMock.mockReset()
+  daemonClientMock.mockImplementation(function MockDaemonClient() {
+    return {
+      ensureConnected: vi.fn(async () => {}),
+      request: vi.fn(async () => ({ sessions: [] })),
+      disconnect: vi.fn()
+    }
+  })
   probeSocketExistsMock.mockClear()
   writeFileSyncMock.mockClear()
   readFileSyncMock.mockReset()
@@ -451,15 +490,24 @@ async function importFresh() {
   unlinkSyncMock.mockClear()
   parseDaemonPidFileMock.mockReset()
   parseDaemonPidFileMock.mockReturnValue(null)
+  unlinkOwnedDaemonPidFileMock.mockReset()
+  unlinkOwnedDaemonPidFileMock.mockReturnValue(true)
   getProcessStartedAtMsMock.mockReset()
   getProcessStartedAtMsMock.mockReturnValue(1_000_000)
   queryWindowsProcessIdentityMock.mockReset()
   queryWindowsProcessIdentityMock.mockResolvedValue(null)
-  // Why: importing daemon-init *after* resetModules means the module-level
-  // `spawner`/`adapter`/`restartInFlight` start fresh for every test, which is
-  // the only way to reliably exercise the "first-time init" path and the
-  // coalescer independently.
+  // Why: import after resetModules so module-level spawner/adapter/restartInFlight start fresh — needed to test first-init and the coalescer.
   return import('./daemon-init')
+}
+
+function mockConnectedAdoptionClientOnce(): void {
+  daemonClientMock.mockImplementationOnce(function MockAdoptionClient() {
+    return {
+      ensureConnected: vi.fn(async () => {}),
+      request: vi.fn(),
+      disconnect: vi.fn()
+    }
+  })
 }
 
 describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
@@ -499,12 +547,55 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(rebindLocalProviderListenersMock.mock.invocationCallOrder[0]).toBeGreaterThan(
       setLocalPtyProviderMock.mock.invocationCallOrder[0]
     )
+    expect(adapterInstances[0].establishLifecycleLease).toHaveBeenCalledOnce()
+    expect(adapterInstances[0].establishLifecycleLease.mock.invocationCallOrder[0]).toBeLessThan(
+      setLocalPtyProviderMock.mock.invocationCallOrder[0]
+    )
+    expect(adoptionLeaseReleases[0]).toHaveBeenCalledOnce()
+    expect(adapterInstances[0].establishLifecycleLease.mock.invocationCallOrder[0]).toBeLessThan(
+      adoptionLeaseReleases[0].mock.invocationCallOrder[0]
+    )
+  })
+
+  it('uses daemon-owned idle retirement when a fresh launch fails permanent adoption', async () => {
+    const mod = await importFresh()
+    ensureRunningOverrides.push(async () => ({
+      socketPath: '/fake/launched-socket',
+      tokenPath: '/fake/launched-token'
+    }))
+    lifecycleLeaseErrors.push(new Error('lease identity mismatch'))
+
+    await expect(mod.initDaemonPtyProvider()).rejects.toThrow('lease identity mismatch')
+
+    expect(adoptionLeaseReleases[0]).toHaveBeenCalledOnce()
+    expect(adapterInstances[0].disconnectOnly).toHaveBeenCalledOnce()
+    expect(adapterInstances[0].dispose).not.toHaveBeenCalled()
+    expect(spawnerInstances[0].shutdown).not.toHaveBeenCalled()
+    expect(adapterInstances[0].establishLifecycleLease.mock.invocationCallOrder[0]).toBeLessThan(
+      adoptionLeaseReleases[0].mock.invocationCallOrder[0]
+    )
+    expect(setLocalPtyProviderMock).not.toHaveBeenCalled()
+  })
+
+  it('does not kill a preserved daemon when startup lease acquisition fails', async () => {
+    const mod = await importFresh()
+    ensureRunningOverrides.push(async () => ({
+      socketPath: '/fake/preserved-socket',
+      tokenPath: '/fake/preserved-token'
+    }))
+    lifecycleLeaseErrors.push(new Error('preserved lease failed'))
+
+    await expect(mod.initDaemonPtyProvider()).rejects.toThrow('preserved lease failed')
+
+    expect(adoptionLeaseReleases[0]).toHaveBeenCalledOnce()
+    expect(adapterInstances[0].disconnectOnly).toHaveBeenCalledOnce()
+    expect(spawnerInstances[0].shutdown).not.toHaveBeenCalled()
+    expect(setLocalPtyProviderMock).not.toHaveBeenCalled()
   })
 
   it('prunes seeded Claude live-PTY ids against daemon sessions after init', async () => {
     const mod = await importFresh()
-    // Why: live-pty-gate is intentionally unmocked — import from the same fresh
-    // module registry so the module-level gate state matches daemon-init's.
+    // Why: live-pty-gate is intentionally unmocked — import from the same fresh registry so gate state matches daemon-init's.
     const gate = await import('../claude-accounts/live-pty-gate')
     defaultListSessionsSessions.push({ sessionId: 'claude-alive' })
     gate.seedLiveClaudePtysFromPersistence(['claude-alive', 'claude-dead'])
@@ -514,8 +605,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       expect(gate.hasLiveClaudePtys()).toBe(true)
 
       gate.markClaudePtyExited('claude-alive')
-      // Why: proves 'claude-dead' was released by the daemon reconcile — the
-      // surviving session was the only id still holding the gate.
+      // Why: proves 'claude-dead' was released by the daemon reconcile — the surviving session held the gate alone.
       expect(gate.hasLiveClaudePtys()).toBe(false)
     } finally {
       gate.markClaudePtyExited('claude-alive')
@@ -544,10 +634,98 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     resolveEnsureRunning({ socketPath: '/fake/socket-late', tokenPath: '/fake/token-late' })
     await started
 
-    expect(adapterInstances).toHaveLength(0)
+    expect(adapterInstances).toHaveLength(1)
+    expect(adapterInstances[0].disconnectOnly).toHaveBeenCalledOnce()
+    expect(adapterInstances[0].establishLifecycleLease).not.toHaveBeenCalled()
     expect(setLocalPtyProviderMock).not.toHaveBeenCalled()
     expect(rebindLocalProviderListenersMock).not.toHaveBeenCalled()
     expect(mod.getDaemonProvider()).toBeNull()
+  })
+
+  it('disconnects uninstalled adapter leases when startup aborts during legacy discovery', async () => {
+    const mod = await importFresh()
+    probeSocketExistsMock.mockImplementation((p?: string) => p?.endsWith('daemon-v9.sock') ?? false)
+    netConnectMock.mockImplementation(() => {
+      const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
+      return {
+        on(event: string, cb: () => void) {
+          handlers[event]?.push(cb)
+          if (event === 'connect') {
+            queueMicrotask(() => cb())
+          }
+          return this
+        },
+        removeListener(event: string, cb: () => void) {
+          handlers[event] = handlers[event]?.filter((handler) => handler !== cb) ?? []
+          return this
+        },
+        destroy() {}
+      }
+    })
+    let resolveDiscovery!: (sessions: { sessionId: string }[]) => void
+    const discovery = new Promise<{ sessionId: string }[]>((resolve) => {
+      resolveDiscovery = resolve
+    })
+    listProcessesControl.current = () => discovery
+    const abortController = new AbortController()
+
+    const started = mod.initDaemonPtyProvider(abortController.signal)
+    await vi.waitFor(() => {
+      expect(adapterInstances.some((instance) => instance.protocolVersion === 9)).toBe(true)
+      expect(
+        adapterInstances.some((instance) => instance.listProcesses.mock.calls.length > 0)
+      ).toBe(true)
+    })
+    abortController.abort()
+    resolveDiscovery([])
+    await started
+
+    expect(adapterInstances).toHaveLength(2)
+    expect(adapterInstances[0].disconnectOnly).toHaveBeenCalledOnce()
+    expect(adapterInstances[1].disconnectOnly).toHaveBeenCalledOnce()
+    expect(setLocalPtyProviderMock).not.toHaveBeenCalled()
+    expect(mod.getDaemonProvider()).toBeNull()
+  })
+
+  it('retains every adapter cleanup failure when legacy router setup aborts', async () => {
+    const mod = await importFresh()
+    probeSocketExistsMock.mockImplementation(
+      (path?: string) => path?.endsWith('daemon-v9.sock') ?? false
+    )
+    netConnectMock.mockImplementation(() => {
+      const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
+      return {
+        on(event: string, callback: () => void) {
+          handlers[event]?.push(callback)
+          if (event === 'connect') {
+            queueMicrotask(() => callback())
+          }
+          return this
+        },
+        removeListener(event: string, callback: () => void) {
+          handlers[event] = handlers[event]?.filter((handler) => handler !== callback) ?? []
+          return this
+        },
+        destroy() {}
+      }
+    })
+    const discoveryError = new Error('router subscription failed')
+    const currentCleanupError = new Error('current cleanup failed')
+    const legacyCleanupError = new Error('legacy cleanup failed')
+    routerSubscriptionError.current = discoveryError
+    disconnectOnlyErrors.push(currentCleanupError, legacyCleanupError)
+
+    const error = await mod.initDaemonPtyProvider().catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(AggregateError)
+    const topLevelErrors = (error as AggregateError).errors
+    expect(topLevelErrors[0]).toBe(discoveryError)
+    expect(topLevelErrors[1]).toBeInstanceOf(AggregateError)
+    expect((topLevelErrors[1] as AggregateError).errors).toEqual([
+      legacyCleanupError,
+      currentCleanupError
+    ])
+    expect(adapterInstances[0].disconnectOnly).toHaveBeenCalledOnce()
+    expect(adapterInstances[1].disconnectOnly).toHaveBeenCalledOnce()
   })
 
   it('routes fresh PTYs to the local fallback when a preserved daemon cannot spawn new PTYs', async () => {
@@ -577,11 +755,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     const mod = await importFresh()
     await mod.initDaemonPtyProvider()
 
-    // Why: seed the original adapter with active sessions so
-    // fanoutSyntheticExits has something to do. The real adapter snapshots
-    // activeSessionIds then clears it; the mock emulates that so a regression
-    // that measures killedCount *after* fanout (when the set is empty) would
-    // surface as `killedCount === 0` here.
+    // Why: seed active sessions and mock the snapshot-then-clear so a regression measuring killedCount *after* fanout surfaces as 0.
     const originalAdapter = adapterInstances[0]
     let activeIds = ['sess-a', 'sess-b', 'sess-c']
     originalAdapter.getActiveSessionIds.mockImplementation(() => [...activeIds])
@@ -597,14 +771,31 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
 
     const result = await mod.restartDaemon()
 
-    // killedCount must be 3 — proves the count was taken *before* the fanout
-    // cleared the set. A bug that swapped these two lines in source would
-    // report 0 here.
+    // killedCount must be 3 — proves the count was taken *before* fanout cleared the set (a swapped-order bug reports 0).
     expect(result.killedCount).toBe(3)
     expect(originalAdapter.fanoutSyntheticExits).toHaveBeenCalledWith(-1)
-    // The load-bearing ordering invariant: the synthetic exits must reach
-    // the renderer *before* listeners are torn down. Step 1 before Step 2.
+    // Ordering invariant: synthetic exits must reach the renderer *before* listeners are torn down (Step 1 before 2).
     expect(order).toEqual(['fanout', 'unbind'])
+  })
+
+  it('uses daemon-owned idle retirement after a failed manual-restart adoption', async () => {
+    const mod = await importFresh()
+    await mod.initDaemonPtyProvider()
+    const originalProvider = mod.getDaemonProvider()
+    ensureRunningOverrides.push(async () => ({
+      socketPath: '/fake/restart-failure-socket',
+      tokenPath: '/fake/restart-failure-token'
+    }))
+    lifecycleLeaseErrors.push(new Error('restart lease failed'))
+
+    await expect(mod.restartDaemon()).rejects.toThrow('restart lease failed')
+
+    expect(adoptionLeaseReleases[1]).toHaveBeenCalledOnce()
+    expect(adapterInstances[1].disconnectOnly).toHaveBeenCalledOnce()
+    expect(spawnerInstances[0].shutdown).not.toHaveBeenCalled()
+    expect(mod.getDaemonProvider()).toBe(originalProvider)
+    expect(unbindLocalProviderListenersMock).toHaveBeenCalledOnce()
+    expect(rebindLocalProviderListenersMock).toHaveBeenCalledTimes(2)
   })
 
   it('fans exits for preserved degraded current-daemon sessions during restart', async () => {
@@ -678,9 +869,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(replacementAdapter.options.socketPath).toBe('/fake/socket-2')
     expect(replacementAdapter.options.tokenPath).toBe('/fake/token-2')
 
-    // Invoking the replacement adapter's respawn closure must drive the
-    // *same* original spawner (matches the crash-respawn closure baked into
-    // the first adapter — see daemon-init.ts step 5 comment).
+    // The replacement adapter's respawn closure must drive the *same* original spawner (see daemon-init.ts step 5).
     originalSpawner.resetHandle.mockClear()
     originalSpawner.ensureRunning.mockClear()
     await replacementAdapter.options.respawn?.()
@@ -708,8 +897,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(setLocalPtyProviderMock.mock.calls[1][0]).toBe(replacementAdapter)
     expect(mod.getDaemonProvider()).toBe(replacementAdapter)
 
-    // Step 7: rebind must run *after* Step 6. The last rebind call index
-    // must be greater than the last setLocalPtyProvider call index.
+    // Step 7: rebind must run *after* Step 6 (the provider swap).
     const rebindOrder = rebindLocalProviderListenersMock.mock.invocationCallOrder.at(-1) ?? -1
     const swapOrder = setLocalPtyProviderMock.mock.invocationCallOrder.at(-1) ?? -1
     expect(rebindOrder).toBeGreaterThan(swapOrder)
@@ -718,19 +906,12 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   it('preserves legacy adapter instances by identity, drains outgoing router via disposeRouterOnly, and re-discovers legacy sessions on the new router', async () => {
     const mod = await importFresh()
 
-    // Why: initDaemonPtyProvider only constructs legacy adapters when
-    // probeSocket returns true for a legacy socket path. The real flow runs
-    // createLegacyDaemonAdapters which calls probeSocket per previous version.
-    // Simplest seam for this test: directly construct a router with a legacy
-    // adapter and install it via replaceDaemonProvider, bypassing
-    // createLegacyDaemonAdapters' socket-probe machinery.
+    // Why: bypass createLegacyDaemonAdapters' socket-probe machinery — directly construct a router with a legacy adapter and install it.
     await mod.initDaemonPtyProvider()
 
     const { DaemonPtyRouter } = await import('./daemon-pty-router')
     const { DaemonPtyAdapter } = await import('./daemon-pty-adapter')
     const currentAtConstruction = adapterInstances[0]
-    // Construct a legacy adapter using the mocked constructor (pushes into
-    // adapterInstances) — index 1.
     const legacyAdapter = new DaemonPtyAdapter({
       socketPath: '/fake/legacy.sock',
       tokenPath: '/fake/legacy.token',
@@ -740,9 +921,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       current: currentAtConstruction as unknown as InstanceType<typeof DaemonPtyAdapter>,
       legacy: [legacyAdapter as unknown as InstanceType<typeof DaemonPtyAdapter>]
     })
-    // Why: spy on the *outgoing* router's disposeRouterOnly so we can prove it
-    // was invoked (not just that legacy adapters survived — a no-op
-    // disposeRouterOnly would leak listeners but still leave adapters alive).
+    // Why: spy on the outgoing router's disposeRouterOnly — adapter survival alone wouldn't catch a no-op that leaks listeners.
     const disposeRouterOnlySpy = vi.spyOn(routerWithLegacy, 'disposeRouterOnly')
     const oldRouterDispose = vi.spyOn(routerWithLegacy, 'dispose')
     mod.replaceDaemonProvider(routerWithLegacy)
@@ -754,22 +933,18 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     const newRouter = provider as InstanceType<typeof DaemonPtyRouter>
     expect(newRouter).not.toBe(routerWithLegacy)
 
-    // Legacy adapter instance is preserved by identity — not reconstructed,
-    // not defensively copied, not disposed.
+    // Legacy adapter is preserved by identity — not reconstructed, copied, or disposed.
     const legacies = newRouter.getLegacyAdapters()
     expect(legacies).toHaveLength(1)
     expect(legacies[0]).toBe(legacyAdapter)
     expect(legacyAdapter.dispose).not.toHaveBeenCalled()
-    // The outgoing router was drained via disposeRouterOnly (router-only
-    // teardown), so legacy adapters' underlying connections are untouched.
+    // Router drained via disposeRouterOnly (router-only teardown), so legacy adapters' connections are untouched.
     expect(legacyAdapter.disconnectOnly).not.toHaveBeenCalled()
-    // The outgoing router's subscriptions were drained but the adapters
-    // behind it were NOT disposed — that's the whole point of disposeRouterOnly.
+    // disposeRouterOnly drained subscriptions but did NOT dispose the adapters behind it.
     expect(disposeRouterOnlySpy).toHaveBeenCalledTimes(1)
     expect(oldRouterDispose).not.toHaveBeenCalled()
 
-    // The replacement router must re-run discovery so spawns targeting a
-    // surviving legacy sessionId still route to the legacy adapter.
+    // The replacement router re-runs discovery so spawns for a surviving legacy sessionId still route to the legacy adapter.
     expect(legacyAdapter.listProcesses).toHaveBeenCalled()
   })
 
@@ -805,8 +980,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     const mod = await importFresh()
     await mod.initDaemonPtyProvider()
 
-    // initDaemonPtyProvider sets up a bare adapter when createLegacyDaemonAdapters
-    // finds nothing — confirm that shape persists across restart.
+    // initDaemonPtyProvider yields a bare adapter when no legacy adapters exist — confirm that shape persists across restart.
     const { DaemonPtyAdapter } = await import('./daemon-pty-adapter')
     const { DaemonPtyRouter } = await import('./daemon-pty-router')
     expect(mod.getDaemonProvider()).toBeInstanceOf(DaemonPtyAdapter)
@@ -824,15 +998,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     const originalSpawner = spawnerInstances[0]
     const originalAdapter = adapterInstances[0]
 
-    // Build an ordered trace by stamping each step as it fires. Cleanup is
-    // the tricky one — it's the `cleanupDaemonForProtocol` call, observable
-    // via the probeSocket→healthCheckDaemon→killStaleDaemon branch. We use
-    // healthCheckDaemon as the cleanup-start marker because it's the first
-    // call inside createOutOfProcessLauncher → and also fires inside
-    // cleanupDaemonForProtocol's alive branch… actually in the default
-    // (probeSocket=false) path cleanup is a no-op beyond pid-unlink. The
-    // load-bearing observable is `resetHandle` — it fires *after* cleanup
-    // returns. So we instrument the spawner instead.
+    // Build an ordered trace by stamping each step; cleanup has no observable in the default probeSocket=false path, so instrument resetHandle instead.
     const trace: string[] = []
     originalAdapter.fanoutSyntheticExits.mockImplementation(() => trace.push('fanout'))
     unbindLocalProviderListenersMock.mockImplementation(() => trace.push('unbind'))
@@ -851,11 +1017,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     await mod.restartDaemon()
     void originalEnsureRunning // keep ref so tslint doesn't complain
 
-    // The full 7-step sequence in order. Step 3 (cleanupDaemonForProtocol)
-    // has no unique observable in the dead-socket branch, so it's implicitly
-    // ordered by the fact that resetHandle runs after unbind; if cleanup
-    // ever moved *after* resetHandle, we'd see `resetHandle` precede its
-    // expected position.
+    // Full 7-step order; Step 3 (cleanup) has no observable in the dead-socket branch, so it's pinned implicitly by resetHandle running after unbind.
     expect(trace).toEqual([
       'fanout',
       'unbind',
@@ -865,21 +1027,17 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       'rebind'
     ])
 
-    // A fresh adapter must have been constructed *between* ensureRunning
-    // and replaceProvider (Step 5 before Step 6). adapterInstances[1] is
-    // the replacement — its socketPath comes from the Step-4 ensureRunning
-    // result, so its existence proves the ordering.
+    // A fresh adapter built between ensureRunning and replaceProvider (Step 5 before 6); its Step-4 socketPath proves the ordering.
     expect(adapterInstances).toHaveLength(2)
     expect(adapterInstances[1].options.socketPath).toBe('/fake/socket-2')
+    expect(adapterInstances[1].establishLifecycleLease).toHaveBeenCalledOnce()
+    expect(adapterInstances[1].establishLifecycleLease.mock.invocationCallOrder[0]).toBeLessThan(
+      setLocalPtyProviderMock.mock.invocationCallOrder.at(-1) as number
+    )
   })
 
   it('exercises the alive-daemon cleanup path: issues shutdown RPC via DaemonClient before spawning a replacement', async () => {
-    // Why: the default mock has probeSocket returning false, so Step 3's
-    // DaemonClient-based shutdown path is normally skipped. This test flips
-    // the socket to "alive" so cleanupDaemonForProtocol takes the
-    // client.ensureConnected → listSessions → shutdown RPC branch. Without
-    // this, the design doc's Risks section ("verify under both 'shutdown
-    // RPC succeeded' and 'fell back to killStaleDaemon' paths") is uncovered.
+    // Why: default probeSocket=false skips Step 3's shutdown RPC; flip the socket "alive" to cover the shutdown-RPC-succeeded branch.
 
     const requestMock = vi.fn(async (method: string) => {
       if (method === 'listSessions') {
@@ -890,9 +1048,8 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     })
     const ensureConnectedMock = vi.fn(async () => {})
     const disconnectMock = vi.fn()
-    // Why: DaemonClient is invoked via `new DaemonClient(...)`, so the mock
-    // factory must return a constructor-compatible function. Capture the
-    // existing impl so later tests aren't affected.
+    const mod = await importFresh()
+    await mod.initDaemonPtyProvider()
     daemonClientMock.mockImplementationOnce(function MockDaemonClientForShutdown() {
       return {
         ensureConnected: ensureConnectedMock,
@@ -901,11 +1058,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       }
     })
 
-    const mod = await importFresh()
-    await mod.initDaemonPtyProvider()
-
-    // Make probeSocket return true for the current-version path by toggling
-    // both the fs.existsSync proxy AND net.connect resolving "alive".
+    // Make probeSocket return true: needs both the fs.existsSync proxy AND net.connect resolving "alive".
     probeSocketExistsMock.mockReturnValue(true)
     netConnectMock.mockImplementationOnce(() => {
       const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
@@ -982,13 +1135,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
 
     const originalSpawner = spawnerInstances[0]
 
-    // Why: without an explicit gate, `Promise.all([restartDaemon(),
-    // restartDaemon()])` evaluates arguments left-to-right *synchronously* —
-    // the first call's promise could resolve before the second invocation
-    // begins if all internal awaits resolved in a single microtask, which
-    // would leave the coalescer untested. The deferred gate holds the first
-    // restart inside `ensureRunning` until we release it, guaranteeing the
-    // second call enters while the first is genuinely mid-flight.
+    // Why: the deferred gate holds the first restart inside ensureRunning so the second call provably enters while the first is mid-flight.
     let markEnsureRunningEntered: (() => void) | undefined
     const ensureRunningEntered = new Promise<void>((resolve) => {
       markEnsureRunningEntered = resolve
@@ -1007,33 +1154,21 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     await ensureRunningEntered
     const call2 = mod.restartDaemon()
 
-    // Why: `async function restartDaemon` wraps each return in a fresh
-    // Promise, so `call1 === call2` does *not* hold even when the coalescer
-    // is working. The load-bearing proof is behavioral: while call1 is
-    // blocked on the ensureRunning barrier, call2 must NOT fork a parallel
-    // run of the 7-step sequence. If the coalescer fails, a second
-    // `runRestartDaemon` starts, which means a second `resetHandle` fires
-    // before we release the barrier. Check that counter at this exact
-    // moment — a non-coalescing implementation would already be at 2.
+    // Why: restartDaemon wraps each return in a fresh Promise, so call1===call2 can't prove coalescing; instead assert resetHandle stayed at 1 mid-flight.
     expect(originalSpawner.resetHandle).toHaveBeenCalledTimes(1)
     expect(adapterInstances).toHaveLength(1)
 
     releaseEnsureRunning?.()
     const [r1, r2] = await Promise.all([call1, call2])
-    // Both resolved values must be structurally identical (same result
-    // object bubbled up through the shared runRestartDaemon promise).
+    // Both resolved values are structurally identical — same result bubbled up through the shared runRestartDaemon promise.
     expect(r1).toEqual(r2)
 
-    // resetHandle fires once per restart; ensureRunning fires once during
-    // init + once during restart. A second, un-coalesced restart would push
-    // these counters to 2 and 3 respectively.
+    // resetHandle=1/restart, ensureRunning=1 init+1 restart; an un-coalesced second restart would push these to 2 and 3.
     expect(originalSpawner.resetHandle).toHaveBeenCalledTimes(1)
     expect(originalSpawner.ensureRunning).toHaveBeenCalledTimes(2)
     expect(adapterInstances).toHaveLength(2)
 
-    // After the in-flight promise settles, a fresh restart is allowed to run
-    // — proves `.finally(() => restartInFlight = null)` actually cleared the
-    // slot. A stale restartInFlight would skip the work entirely.
+    // After the in-flight promise settles, a fresh restart runs — proves .finally cleared restartInFlight (a stale slot would skip work).
     await mod.restartDaemon()
     expect(originalSpawner.resetHandle).toHaveBeenCalledTimes(2)
     expect(adapterInstances).toHaveLength(3)
@@ -1076,6 +1211,79 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     )
   })
 
+  it('holds a full adoption pair before a healthy launcher resolves', async () => {
+    const mod = await importFresh()
+    await mod.initDaemonPtyProvider()
+    const events: string[] = []
+    const disconnect = vi.fn()
+    daemonClientMock.mockImplementationOnce(function MockAdoptionClient() {
+      return {
+        ensureConnected: vi.fn(async () => {
+          events.push('full-pair')
+        }),
+        request: vi.fn(),
+        disconnect
+      }
+    })
+    checkDaemonHealthMock.mockImplementationOnce(async () => {
+      events.push('health')
+      return 'healthy'
+    })
+    const launcher = spawnerInstances[0].launcher as (
+      socketPath: string,
+      tokenPath: string
+    ) => Promise<{
+      releaseAdoptionLease?(): void
+      shutdown(): Promise<void>
+    }>
+
+    const handle = await launcher('/fake/socket', '/fake/token')
+
+    expect(events[0]).toBe('full-pair')
+    expect(events.indexOf('full-pair')).toBeLessThan(events.indexOf('health'))
+    expect(disconnect).not.toHaveBeenCalled()
+    handle.releaseAdoptionLease?.()
+    expect(disconnect).toHaveBeenCalledOnce()
+  })
+
+  it('disconnects every temporary client when healthy adoption fails', async () => {
+    const mod = await importFresh()
+    await mod.initDaemonPtyProvider()
+    const initialDisconnect = vi.fn()
+    const replacementDisconnect = vi.fn()
+    daemonClientMock
+      .mockImplementationOnce(function MockInitialAdoptionClient() {
+        return {
+          ensureConnected: vi.fn(async () => {
+            throw new Error('initial adoption failed')
+          }),
+          request: vi.fn(),
+          disconnect: initialDisconnect
+        }
+      })
+      .mockImplementationOnce(function MockReplacementAdoptionClient() {
+        return {
+          ensureConnected: vi.fn(async () => {
+            throw new Error('replacement adoption failed')
+          }),
+          request: vi.fn(),
+          disconnect: replacementDisconnect
+        }
+      })
+    const launcher = spawnerInstances[0].launcher as (
+      socketPath: string,
+      tokenPath: string
+    ) => Promise<{ shutdown(): Promise<void> }>
+
+    await expect(launcher('/fake/socket', '/fake/token')).rejects.toThrow(
+      'replacement adoption failed'
+    )
+
+    expect(initialDisconnect).toHaveBeenCalledOnce()
+    expect(replacementDisconnect).toHaveBeenCalledOnce()
+    expect(forkMock).not.toHaveBeenCalled()
+  })
+
   it('preserves a daemon launched from another app path when it owns live sessions', async () => {
     const mod = await importFresh()
     await mod.initDaemonPtyProvider()
@@ -1092,6 +1300,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       return {}
     })
     const disconnectMock = vi.fn()
+    mockConnectedAdoptionClientOnce()
     daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
       return {
         ensureConnected: vi.fn(async () => {}),
@@ -1131,6 +1340,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       return {}
     })
     const disconnectMock = vi.fn()
+    mockConnectedAdoptionClientOnce()
     daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
       return {
         ensureConnected: vi.fn(async () => {}),
@@ -1195,6 +1405,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       return {}
     })
     const disconnectMock = vi.fn()
+    mockConnectedAdoptionClientOnce()
     daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
       return {
         ensureConnected: vi.fn(async () => {}),
@@ -1230,6 +1441,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       return {}
     })
     const disconnectMock = vi.fn()
+    mockConnectedAdoptionClientOnce()
     daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
       return {
         ensureConnected: vi.fn(async () => {}),
@@ -1265,6 +1477,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       return {}
     })
     const disconnectMock = vi.fn()
+    mockConnectedAdoptionClientOnce()
     daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
       return {
         ensureConnected: vi.fn(async () => {}),
@@ -1299,6 +1512,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       }
       return {}
     })
+    mockConnectedAdoptionClientOnce()
     daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
       return {
         ensureConnected: vi.fn(async () => {}),
@@ -1351,8 +1565,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(spawnMock).toHaveBeenCalled()
   })
 
-  // Why: a net.connect stub whose 'connect' fires — makes probeSocket() report
-  // the wedged daemon's pipe as alive on every grace re-check.
+  // Why: net.connect stub whose 'connect' fires, so probeSocket() reports the pipe alive on every grace re-check.
   function stubAliveSocketConnect() {
     const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
     return {
@@ -1392,15 +1605,11 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   }
 
   it('adopts a transiently wedged daemon that drains and reports live sessions within the grace window', async () => {
-    // Why: the Windows update-relaunch case — post-install disk/AV load wedges
-    // the daemon past the first hello budget, but it drains within seconds and
-    // still owns live sessions. The launcher must give it a bounded grace and
-    // ADOPT it rather than killing its live sessions.
+    // Why: Windows update-relaunch — post-install load wedges the daemon briefly; it still owns live sessions, so grace-adopt not kill.
     const mod = await importFresh()
     await mod.initDaemonPtyProvider()
 
-    // First probe times out (still draining); the retry within the grace
-    // window succeeds and reports a live session.
+    // First probe times out (still draining); the retry within grace succeeds with a live session.
     daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
       return {
         ensureConnected: vi.fn(async () => {
@@ -1449,11 +1658,15 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
         disconnect: vi.fn()
       }
     }
-    // Every probe across the whole grace window times out (permanent wedge).
+    // Permanent wedge: every probe times out, then the freshly spawned daemon accepts the temporary adoption lease.
+    let daemonClientConstructionCount = 0
     daemonClientMock.mockImplementation(function MockDaemonClient() {
+      daemonClientConstructionCount++
       return {
         ensureConnected: vi.fn(async () => {
-          throw new Error('Hello response timed out')
+          if (daemonClientConstructionCount <= 2 + WEDGED_DAEMON_GRACE_RETRIES) {
+            throw new Error('Hello response timed out')
+          }
         }),
         request: vi.fn(),
         disconnect: vi.fn()
@@ -1480,30 +1693,22 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
         '/fake/token'
       )
       expect(spawnMock).toHaveBeenCalled()
-      // The launcher probes the full grace budget before giving up: 1 initial
-      // probe + WEDGED_DAEMON_GRACE_RETRIES retries.
-      expect(daemonClientMock).toHaveBeenCalledTimes(1 + WEDGED_DAEMON_GRACE_RETRIES)
+      // Full grace budget: initial adoption pair + 1 initial probe +
+      // WEDGED_DAEMON_GRACE_RETRIES retries + the fresh daemon's adoption lease.
+      expect(daemonClientMock).toHaveBeenCalledTimes(3 + WEDGED_DAEMON_GRACE_RETRIES)
     } finally {
-      // Restore the answering default so the persistent throwing impl above
-      // does not leak into later tests (clearAllMocks clears calls, not impls).
+      // Restore the answering default: clearAllMocks clears calls not impls, so the throwing impl would leak into later tests.
       daemonClientMock.mockImplementation(answeringDefault)
     }
   })
 
   it('grace budget is generous enough to ride out a ~60s transient wedge', () => {
-    // Why: pins the magnitude. Each probe waits out the client's 5s hello
-    // timeout, so 1 + 11 probes ≈ 60s of drain grace. Shrinking this narrows
-    // the window in which a transiently wedged daemon's live sessions are
-    // preserved instead of replaced — don't cut it without field telemetry.
+    // Why: each probe waits the client's 5s hello timeout, so 1 + 11 probes ≈ 60s of drain grace; don't cut without telemetry.
     expect(WEDGED_DAEMON_GRACE_RETRIES).toBeGreaterThanOrEqual(11)
   })
 
   it('preserves a daemon that stays wedged until the LAST allowed grace retry', async () => {
-    // Why: exercises the full grace loop end-to-end. The daemon throws on every
-    // probe except the final allowed one (1 + WEDGED_DAEMON_GRACE_RETRIES), on
-    // which it drains and reports a live session — so it must be preserved, not
-    // replaced. Cutting the retry budget below the drain point would replace a
-    // still-live daemon, which this test catches.
+    // Why: daemon drains only on the last allowed probe (1 + WEDGED_DAEMON_GRACE_RETRIES) — must be preserved, not replaced.
     const mod = await importFresh()
     await mod.initDaemonPtyProvider()
 
@@ -1584,16 +1789,12 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       '/fake/token'
     )
     expect(spawnMock).toHaveBeenCalled()
-    // Pins the 'rejected' fast-path: a daemon that actively refuses the
-    // handshake is never worth a grace window, so it is probed exactly once
-    // (no retries) before replacement.
-    expect(daemonClientMock).toHaveBeenCalledTimes(1)
+    // 'rejected' gets no grace window (probed once): count = initial adoption + rejected probe + fresh daemon lease.
+    expect(daemonClientMock).toHaveBeenCalledTimes(3)
   })
 
   it('adopts a healthy daemon whose pid-file identity cannot be verified (null startedAtMs metadata)', async () => {
-    // Why: the regression contract — a pid file with startedAtMs null (all
-    // pre-fix Windows pid files) resolves launch identity to 'unknown'. With
-    // a live daemon answering on the pipe, that must ADOPT, never replace.
+    // Why: startedAtMs null (all pre-fix Windows pid files) → identity 'unknown'; a live daemon must ADOPT, not replace.
     const mod = await importFresh()
     await mod.initDaemonPtyProvider()
 
@@ -1619,7 +1820,9 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     await mod.initDaemonPtyProvider()
 
     // First probe times out (daemon busy); the grace retry drains and reports a
-    // live session — so the daemon must be PRESERVED, not replaced.
+    // live session — so the daemon must be PRESERVED, not replaced. The leading
+    // connected client is the launcher's initial adoption pair.
+    mockConnectedAdoptionClientOnce()
     daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
       return {
         ensureConnected: vi.fn(async () => {
@@ -1743,8 +1946,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   })
 
   it('keeps legacy daemon pid/token files when the probe fails but the pid-file process is alive', async () => {
-    // Why: deleting a live-but-wedged legacy daemon's token file makes its
-    // sessions permanently unadoptable — no future launch could authenticate.
+    // Why: deleting a live legacy daemon's token file makes its sessions permanently unadoptable.
     const mod = await importFresh()
     readFileSyncMock.mockReturnValue('{"pid":123}')
     // process.pid is guaranteed alive, so the liveness probe succeeds.
@@ -1761,8 +1963,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   it('cleans up legacy daemon pid/token files when the probe fails and the process is gone', async () => {
     const mod = await importFresh()
     readFileSyncMock.mockReturnValue('{"pid":123}')
-    // Why: spy on process.kill so the liveness probe deterministically reports
-    // "no such process" without depending on an unallocated real pid.
+    // Why: spy process.kill to force a deterministic ESRCH instead of relying on an unallocated real pid.
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
       throw new Error('ESRCH')
     })
@@ -1879,6 +2080,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       return {}
     })
     const disconnectMock = vi.fn()
+    mockConnectedAdoptionClientOnce()
     daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
       return {
         ensureConnected: vi.fn(async () => {}),

@@ -71,6 +71,12 @@ describe('DaemonClient', () => {
     // Write the stream hello_ok AND this event in ONE socket.write so they coalesce
     // into a single client read — reproduces the busy-session reconnect packet.
     streamHelloCoalescedEvent?: DaemonEvent
+    omitHelloIdentity?: boolean
+    helloIdentity?: (role: 'control' | 'stream') => {
+      pid: number
+      startedAtMs: number
+      launchNonce: string
+    }
   }): Promise<void> {
     return new Promise((resolve) => {
       server = createServer((socket) => {
@@ -106,15 +112,26 @@ describe('DaemonClient', () => {
                 socket.write(encodeNdjson({ type: 'hello', ok: false, error: 'Version mismatch' }))
                 return
               }
+              const helloOk = {
+                type: 'hello',
+                ok: true,
+                ...(!opts?.omitHelloIdentity
+                  ? {
+                      daemonIdentity: opts?.helloIdentity
+                        ? opts.helloIdentity(hello.role)
+                        : { pid: 123, startedAtMs: 456, launchNonce: 'default-launch' }
+                    }
+                  : {})
+              }
               if (hello.role === 'stream' && opts?.streamHelloCoalescedEvent) {
                 socket.write(
                   Buffer.concat([
-                    Buffer.from(encodeNdjson({ type: 'hello', ok: true })),
+                    Buffer.from(encodeNdjson(helloOk)),
                     Buffer.from(encodeNdjson(opts.streamHelloCoalescedEvent))
                   ])
                 )
               } else {
-                socket.write(encodeNdjson({ type: 'hello', ok: true }))
+                socket.write(encodeNdjson(helloOk))
               }
               if (hello.role === 'stream') {
                 opts?.onStreamHello?.(hello)
@@ -146,6 +163,59 @@ describe('DaemonClient', () => {
       expect(client.isConnected()).toBe(true)
       // Both control and stream sockets should have sent hello
       await waitFor(() => hellos.length > 0)
+    })
+
+    it('captures one matching endpoint identity from both authenticated sockets', async () => {
+      const identity = { pid: 123, startedAtMs: 456, launchNonce: 'launch-a' }
+      await startMockDaemon({ helloIdentity: () => identity })
+
+      client = new DaemonClient({ socketPath, tokenPath })
+      await client.ensureConnected()
+
+      expect(client.getDaemonIdentity()).toEqual(identity)
+    })
+
+    it('rejects a v24 daemon that omits endpoint identity', async () => {
+      await startMockDaemon({ omitHelloIdentity: true })
+      // Pin the public v24 protocol: the fork's default (1000+ namespace) is
+      // exempt from the identity requirement because the Rust daemon doesn't
+      // publish an endpoint identity yet.
+      client = new DaemonClient({ socketPath, tokenPath, protocolVersion: 24 })
+
+      await expect(client.ensureConnected()).rejects.toThrow('Invalid daemon identity')
+    })
+
+    it('allows the fork Rust daemon (1000+ namespace) to omit endpoint identity', async () => {
+      await startMockDaemon({ omitHelloIdentity: true })
+      client = new DaemonClient({ socketPath, tokenPath })
+
+      await expect(client.ensureConnected()).resolves.toBeUndefined()
+      expect(client.getDaemonIdentity()).toBeNull()
+    })
+
+    it('allows a legacy v23 daemon to omit endpoint identity', async () => {
+      await startMockDaemon({ omitHelloIdentity: true })
+      client = new DaemonClient({ socketPath, tokenPath, protocolVersion: 23 })
+
+      await expect(client.ensureConnected()).resolves.toBeUndefined()
+      expect(client.getDaemonIdentity()).toBeNull()
+    })
+
+    it('rejects when control and stream sockets report different daemon identities', async () => {
+      await startMockDaemon({
+        helloIdentity: (role) => ({
+          pid: role === 'control' ? 123 : 124,
+          startedAtMs: 456,
+          launchNonce: 'launch-a'
+        })
+      })
+
+      client = new DaemonClient({ socketPath, tokenPath })
+
+      await expect(client.ensureConnected()).rejects.toThrow(
+        'Daemon identity changed during connection'
+      )
+      expect(client.getDaemonIdentity()).toBeNull()
     })
 
     it('removes socket startup listeners after connecting', async () => {
@@ -201,6 +271,35 @@ describe('DaemonClient', () => {
       }
     })
 
+    it('bounds a waiter on an existing connection attempt and prevents socket resurrection', async () => {
+      let resolveHello: () => void = () => {}
+      const helloReceived = new Promise<void>((resolve) => {
+        resolveHello = resolve
+      })
+      await startMockDaemon({
+        suppressHelloResponse: true,
+        onHello: resolveHello
+      })
+      client = new DaemonClient({ socketPath, tokenPath })
+      const ownerAttempt = client.ensureConnected().catch((error: Error) => error)
+      await helloReceived
+
+      await expect(client.ensureConnectedWithin(25)).rejects.toThrow(
+        'Connection attempt wait timed out'
+      )
+      client.disconnect()
+      await expect(ownerAttempt).resolves.toBeInstanceOf(Error)
+      await new Promise((resolve) => setTimeout(resolve, 25))
+
+      const disconnected = client as unknown as {
+        controlSocket: Socket | null
+        streamSocket: Socket | null
+      }
+      expect(client.isConnected()).toBe(false)
+      expect(disconnected.controlSocket).toBeNull()
+      expect(disconnected.streamSocket).toBeNull()
+    })
+
     it('removes hello startup listeners after timeout', async () => {
       vi.useFakeTimers()
 
@@ -212,11 +311,16 @@ describe('DaemonClient', () => {
       socket.destroy = destroy as unknown as Socket['destroy']
       const sendHello = (
         client as unknown as {
-          sendHello(socket: Socket, token: string, role: 'control' | 'stream'): Promise<void>
+          sendHello(
+            socket: Socket,
+            token: string,
+            role: 'control' | 'stream',
+            timeoutMs: number
+          ): Promise<void>
         }
       ).sendHello.bind(client)
 
-      const promise = sendHello(socket, 'test-token-123', 'control')
+      const promise = sendHello(socket, 'test-token-123', 'control', 5000)
       const rejection = expect(promise).rejects.toThrow('Hello response timed out')
       await vi.advanceTimersByTimeAsync(5000)
 

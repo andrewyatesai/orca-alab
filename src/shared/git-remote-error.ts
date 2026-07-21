@@ -10,14 +10,10 @@
 
 const DIVERGENT_PULL_RECONCILIATION_PATTERN =
   /Need to specify how to reconcile divergent branches|divergent branches and need to specify how to reconcile them/i
-// Why: any of these already pin a reconciliation strategy, so the merge
-// fallback must not override an explicit caller/user choice (e.g. --ff-only).
+// Why: these args already pin a reconcile strategy; the merge fallback must not override an explicit choice like --ff-only.
 const RECONCILIATION_PULL_ARG_PATTERN =
   /^(--rebase|--no-rebase|--ff-only|--ff|--no-ff|--merge|-r)(=|$)/
-// Why: merge is Git's historical pre-2.27 default. Falling back to it lets
-// divergent pulls reconcile on fresh hosts that never configured pull.rebase
-// or pull.ff, instead of failing outright. `--no-rebase` predates the 2.25
-// baseline, so it is safe across all supported Git binaries.
+// Why: --no-rebase (historical merge default) predates the 2.25 baseline, so this fallback is safe on every supported Git.
 export const MERGE_RECONCILIATION_PULL_ARGS = ['--no-rebase']
 
 // Credential-URL scrub patterns. The CANONICAL normalizer lives in the Rust
@@ -52,19 +48,13 @@ export function isDivergentPullReconciliationError(error: unknown): boolean {
   return DIVERGENT_PULL_RECONCILIATION_PATTERN.test(error.message)
 }
 
-// Whether the pull already specifies how to reconcile (rebase/merge/ff-only),
-// in which case the caller's choice must win over the merge fallback.
+// Why: if the pull already specifies a reconcile strategy, the caller's choice must win over the merge fallback.
 export function pullArgsSpecifyReconciliation(pullArgs: string[]): boolean {
   return pullArgs.some((arg) => RECONCILIATION_PULL_ARG_PATTERN.test(arg))
 }
 
-// Why: on hosts with no pull.rebase/pull.ff policy, Git 2.27+ refuses to
-// reconcile divergent branches. Retry as a merge (Git's historical default) so
-// pulls succeed out of the box; callers that already forced a strategy — or
-// users who configured rebase — never reach this fallback.
-// Not routed through GitCapabilityCache: this is per-repo config/branch state,
-// not a stable host capability, and only fires on an actual divergence error,
-// so there is nothing host-scoped to cache.
+// Why: on hosts with no pull.rebase/pull.ff policy, Git 2.27+ refuses divergent pulls; retry as merge (Git's historical default).
+// Not GitCapabilityCache-routed: this is per-repo config/branch state, not a stable host capability.
 export async function runPullWithDivergenceFallback(
   pullArgs: string[],
   runPull: (effectiveArgs: string[]) => Promise<void>

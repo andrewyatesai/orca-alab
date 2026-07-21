@@ -7,9 +7,12 @@ type RegisteredPaneManager = {
   fitAllPanes?: () => void
   refreshAllPanes?: () => void
   getRenderingDiagnostics?: () => PaneRenderingDiagnostics[]
+  getPanes?: () => { id: number; terminal: unknown }[]
 }
 
-type TabPaneManager = RegisteredPaneManager & {
+// Omit: the base getPanes (desync-sentinel shape) would otherwise win overload
+// resolution in the intersection, breaking pane.leafId reads on the tab shape.
+type TabPaneManager = Omit<RegisteredPaneManager, 'getPanes'> & {
   getPanes: () => {
     leafId: string
     /** The .pane element; window-level overlays (spill geometry) measure it. */
@@ -21,6 +24,8 @@ type TabPaneManager = RegisteredPaneManager & {
 }
 
 const liveManagers = new Set<RegisteredPaneManager>()
+const managerIds = new WeakMap<RegisteredPaneManager, number>()
+let nextManagerId = 1
 // React can briefly overlap the old and replacement TerminalPane lifecycle for
 // one durable tab. Retain both identities until their own cleanup runs so a
 // hook pulse cannot disappear into whichever mount happened to register last.
@@ -41,6 +46,9 @@ export function setTabPaneManagerLifecycleObserver(
 }
 
 export function registerLivePaneManager(manager: RegisteredPaneManager): void {
+  if (!managerIds.has(manager)) {
+    managerIds.set(manager, nextManagerId++)
+  }
   liveManagers.add(manager)
 }
 
@@ -168,6 +176,34 @@ export function getAllPaneRenderingDiagnostics(): PaneRenderingDiagnostics[] {
     }
   }
   return all
+}
+
+/**
+ * Iterates every live pane for the render-desync sentinel. Weakly-held manager
+ * ids stay stable when an earlier manager unregisters without retaining it.
+ */
+export function forEachLivePaneForDesyncSentinel(
+  visit: (paneKey: string, pane: { id: number; terminal: unknown }) => void
+): void {
+  for (const manager of liveManagers) {
+    const managerId = managerIds.get(manager)
+    if (managerId == null) {
+      continue
+    }
+    let panes: { id: number; terminal: unknown }[] = []
+    try {
+      panes = manager.getPanes?.() ?? []
+    } catch {
+      continue
+    }
+    for (const pane of panes) {
+      try {
+        visit(`m${managerId}:p${pane.id}`, pane)
+      } catch {
+        // Why: one pane's failure must not stop sentinel coverage of the rest.
+      }
+    }
+  }
 }
 
 export function refitAndRefreshAllTerminalPanes(): void {

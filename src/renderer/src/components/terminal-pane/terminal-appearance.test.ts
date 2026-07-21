@@ -61,8 +61,7 @@ describe('maybePushMode2031Flip', () => {
   })
 
   it('suppresses repeat pushes when the resolved mode has not changed', () => {
-    // This is the spam-gate: applyTerminalAppearance re-runs on every font /
-    // opacity / cursor tweak, and we must not emit CSI 997 on each one.
+    // Spam-gate: applyTerminalAppearance re-runs on every font/opacity/cursor tweak; don't emit CSI 997 each time.
     const transport = fakeTransport()
     const subs = new Map([[1, true]])
     const last = new Map<number, 'dark' | 'light'>()
@@ -149,12 +148,8 @@ describe('maybePushMode2031Flip', () => {
 // covered above without an xterm parser.
 
 describe('applyTerminalAppearance theme assignment', () => {
-  // The composed theme is value-gated before assignment: re-theming an open
-  // pane calls atermController.updateTheme, which rebuilds the engine palette
-  // and would discard a TUI's OSC 4/10/11/12 SET mutations. Attribute-neutral
-  // applies (font size, padding, zoom) compose a fresh-but-value-identical
-  // theme; skipping the write when the value is unchanged keeps those TUI
-  // color mutations alive on visible panes.
+  // Value-gated assignment: re-theming calls atermController.updateTheme, which rebuilds the engine palette and would
+  // discard a TUI's OSC 4/10/11/12 mutations; skipping value-identical composes keeps those mutations alive.
   function makePane(id: number): ManagedPane {
     return { id, terminal: { options: {}, cols: 80, rows: 24 } } as unknown as ManagedPane
   }
@@ -190,8 +185,7 @@ describe('applyTerminalAppearance theme assignment', () => {
 
     apply(pane, { ...settings, terminalFontSize: settings.terminalFontSize + 2 })
 
-    // Identity-stable theme means the pane is never re-themed, so a TUI's
-    // modifyColors mutation survives the font tweak.
+    // Identity-stable theme means the pane is never re-themed, so a TUI's modifyColors mutation survives the font tweak.
     expect(pane.terminal.options.theme).toBe(firstTheme)
     expect(pane.terminal.options.fontSize).toBe(settings.terminalFontSize + 2)
   })
@@ -211,9 +205,7 @@ describe('applyTerminalAppearance theme assignment', () => {
 })
 
 describe('publishTerminalViewAttributesAtAppStart', () => {
-  // Phase 6 prerequisite (terminal-query-authority.md): hidden-at-launch
-  // PTYs can query OSC 10/11 before any terminal pane mounts; the app-start
-  // publication must go out with no pane manager involved at all.
+  // Hidden-at-launch PTYs query OSC 10/11 before any pane mounts; publish with no pane manager (terminal-query-authority.md).
   it('publishes composed attributes without any pane mount and dedupes repeats', () => {
     _resetTerminalViewAttributesPublisherForTest()
     const sent: TerminalViewAttributes[] = []
@@ -243,8 +235,7 @@ describe('publishTerminalViewAttributesAtAppStart', () => {
       publishTerminalViewAttributesAtAppStart(settings, true)
       expect(publishMock).toHaveBeenCalledTimes(1)
 
-      // The first pane mount composes the identical app-global snapshot, so
-      // the publisher dedupe keeps it a single push.
+      // Identical app-global snapshot, so the publisher dedupe keeps it a single push.
       const manager = {
         getPanes: () => [],
         setPaneLigaturesEnabled: vi.fn(),

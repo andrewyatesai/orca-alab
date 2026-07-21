@@ -143,4 +143,6 @@ describe('buildDefaultTerminalOptions', () => {
 // openTerminal delegates to openAtermPane, so there is no xterm
 // loadAddon / activateOrcaTerminalUnicodeProvider / registerCharacterJoiner path
 // to assert; RTL/Arabic shaping is handled natively by aterm-bidi in the engine,
-// so there is no renderer-side character-joiner to cover.
+// so there is no renderer-side character-joiner to cover. Upstream's
+// streamed-output linkifier hover-reset wiring test (#9320) is also out: the
+// aterm facade exposes no onWriteParsed seam to install it against.

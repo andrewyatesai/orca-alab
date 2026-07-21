@@ -17,6 +17,8 @@ import {
   LINEAGE_NESTED_ROW_SURFACE_INSET,
   WORKTREE_CARD_SURFACE_MARGIN
 } from './worktree-list-indentation'
+import { ALL_GROUP_KEY } from './worktree-list-groups'
+import { getVisibleWorktreeIds } from './visible-worktrees'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -231,7 +233,12 @@ function makeFolderWorkspacePathStatusState(): Record<string, unknown> {
 }
 
 function setLineageState(
-  options: { deletingChild?: boolean; includeGrandchild?: boolean } = {}
+  options: {
+    collapseAll?: boolean
+    deletingChild?: boolean
+    includeGrandchild?: boolean
+    pinChild?: boolean
+  } = {}
 ): void {
   const repo = makeRepo()
   const parent = makeWorktree({
@@ -248,6 +255,7 @@ function setLineageState(
     branch: 'child-branch',
     sortOrder: 10,
     overrides: {
+      isPinned: options.pinChild ?? false,
       linkedGitLabMR: 42,
       comment: 'Child handoff note'
     }
@@ -275,7 +283,7 @@ function setLineageState(
     agentStatusEpoch: 0,
     browserTabsByWorktree: {},
     clearPendingRevealWorktreeId: vi.fn(),
-    collapsedGroups: new Set<string>(),
+    collapsedGroups: new Set<string>(options.collapseAll ? [ALL_GROUP_KEY] : []),
     deleteStateByWorktreeId: options.deletingChild
       ? { [child.id]: { isDeleting: true, error: null, canForceDelete: false } }
       : {},
@@ -409,6 +417,37 @@ describe('WorktreeList real child WorktreeCard integration', () => {
     expect(childOption?.textContent).toContain('MR #42')
     expect(childOption?.textContent).toContain('Child GitLab MR')
     expect(childOption?.textContent).toContain('Child handoff note')
+  })
+
+  it('keeps workspace number order after the sidebar list unmounts', async () => {
+    setLineageState({ pinChild: true })
+    await renderWorktreeList()
+    const mountedOrder = getVisibleWorktreeIds()
+
+    expect(mountedOrder).toEqual(['child', 'parent'])
+
+    const root = mountedRoots.pop()
+    expect(root).toBeDefined()
+    await act(async () => {
+      root!.unmount()
+    })
+
+    expect(getVisibleWorktreeIds()).toEqual(mountedOrder)
+  })
+
+  it('keeps collapsed workspaces out of the number order after unmount', async () => {
+    setLineageState({ collapseAll: true })
+    await renderWorktreeList()
+
+    expect(getVisibleWorktreeIds()).toEqual([])
+
+    const root = mountedRoots.pop()
+    expect(root).toBeDefined()
+    await act(async () => {
+      root!.unmount()
+    })
+
+    expect(getVisibleWorktreeIds()).toEqual([])
   })
 
   it('keeps expanded child cards in the parent title column', async () => {

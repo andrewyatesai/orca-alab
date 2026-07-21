@@ -17,6 +17,119 @@
   },
   "gates": [
     {
+      "id": "terminal.predictive-echo-felt-latency",
+      "title": "Mosh-style predictive echo stays wired and bounds felt keystroke latency",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "terminal-runtime",
+      "layer": "renderer-worker-facade-contract",
+      "surfaces": [
+        "terminal keystroke echo",
+        "predictive-echo controller",
+        "off-main worker term facade",
+        "SSH typing latency"
+      ],
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "providers": [
+        "local",
+        "ssh"
+      ],
+      "coveredPlatforms": [
+        "macos"
+      ],
+      "coveredProviders": [
+        "local",
+        "ssh"
+      ],
+      "coverageNotes": "The keystroke->echo felt-latency model (ty/TLA+) and the renderer-side wired-seam contract (vitest) are platform-independent; the ty gate runs where the local ~/trust stage2 build exists and SKIPs elsewhere. macOS local evidence covers both the armed/inert model runs and the worker-facade probe. Linux/Windows live typing-latency runs remain gaps.",
+      "motivatingLinks": [
+        "Internal regression: predictive-echo silent capability death — the worker facade stopped exposing predict_*, the controller probe saw engine=null, and mosh-style echo degraded to an inert no-op with no signal (SSH typing lag).",
+        "tools/specs/EchoLiveness.tla — the Trust echo-liveness felt-latency model"
+      ],
+      "invariant": "On the default off-main worker render strategy the predictive-echo seam must stay CONNECTED: the worker term facade implements the full predict_* surface and createAtermPredictionEcho's capability probe resolves engine!==null, so a typed key becomes visible within the local-predict bound (GHOST_MAX) independent of the PTY/SSH round-trip (RTT_MAX) whenever the predictor is armed. Dropping predict_* from the facade — the exact silent-death shape — must fail a gate rather than degrade felt latency to the full round-trip.",
+      "oracle": "A ty/TLA+ temporal model (EchoLiveness.tla) proves BoundedFeltLatency ([](typed /\\ clock>=GHOST_MAX => Visible)) plus Liveness (typed ~> Visible) HOLD when armed (ARMED=TRUE) and, as a negative control, that BoundedFeltLatency is VIOLATED when the predictor is inert (ARMED=FALSE) while Liveness still holds; the check fails if the positive run breaks or the negative control passes, and SKIPs when ty is absent. A renderer vitest builds the default worker-backed term, asserts the full predict_* shape, proves the controller probe passes (setMode + note* post the matching worker commands), and proves the same probe goes inert when predict_* is stripped.",
+      "commands": [
+        "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/lib/pane-manager/aterm/aterm-predictive-echo-wired.test.ts",
+        "node tools/specs/check-echo-liveness.mjs"
+      ],
+      "testFiles": [
+        "src/renderer/src/lib/pane-manager/aterm/aterm-predictive-echo-wired.test.ts",
+        "tools/specs/check-echo-liveness.mjs"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/renderer/src/lib/pane-manager/aterm/aterm-predictive-echo-wired.test.ts",
+          "assertions": [
+            "the default render strategy resolves to the off-main worker path (the facade under test)",
+            "the worker term facade implements the full predict_* shape (set_predictive_echo, predict_char, predict_backspace, predict_line_submit, predict_reconcile, predict_overlay, predict_next_deadline_ms, predict_reset)",
+            "createAtermPredictionEcho's capability probe passes against the worker facade (engine!==null): setMode + noteChar/noteBackspace/noteSubmit/reset post the matching worker commands",
+            "stripping predict_* makes the probe fail and every seam an inert no-op (the exact silent-death shape), so a facade that drops predict_* fails this test"
+          ]
+        },
+        {
+          "file": "tools/specs/check-echo-liveness.mjs",
+          "assertions": [
+            "positive cfg (ARMED=TRUE): TypeOK, Liveness, and BoundedFeltLatency ([](typed /\\ clock>=GHOST_MAX => Visible)) all hold",
+            "negative-control cfg (ARMED=FALSE, the inert predictor): BoundedFeltLatency is violated (visibility waits the real echo up to RTT_MAX) while Liveness still holds",
+            "the gate fails if the positive run does not hold OR the negative control passes (model rot); SKIPs when ty is absent"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-07-21",
+          "runner": "local",
+          "platform": "macos",
+          "command": "node tools/specs/check-echo-liveness.mjs",
+          "result": "passed",
+          "durationSeconds": 0.1,
+          "summary": "ty exhaustively verified the armed spec (12 states: TypeOK, Liveness, BoundedFeltLatency hold) and the inert negative control failed BoundedFeltLatency with the 3-state Type->Tick(clock=1)->still-invisible counterexample, so the model still detects the inert-predictor typing-lag class."
+        },
+        {
+          "date": "2026-07-21",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/lib/pane-manager/aterm/aterm-predictive-echo-wired.test.ts",
+          "result": "passed",
+          "durationSeconds": 0.4,
+          "summary": "4 tests passed: default worker path, full predict_* shape, controller probe passes on the worker facade (all seams post), and the stripped-facade discriminator proves the probe goes inert when predict_* is removed."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 10,
+        "scope": "one focused renderer vitest file plus the tractable ty echo-liveness model (GHOST_MAX=1, RTT_MAX=3)"
+      },
+      "flakeHistory": {
+        "status": "unknown",
+        "evidence": "New deterministic gate: the ty model is exhaustive/finite and the vitest is synchronous with no timers. One local macOS run each; needs CI soak before promotion."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Red/green is built into every run: the ty negative-control cfg (ARMED=FALSE) fails BoundedFeltLatency and the positive cfg (ARMED=TRUE) holds; the vitest stripped-facade discriminator makes the capability probe fail and the controller inert while the intact facade posts every seam. Saved CI red/green artifacts are still needed before blocking promotion.",
+        "status": "partial"
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "The ty model is bounded (12 reachable states armed, a 3-state inert counterexample; sub-100ms exhaustive check) and the vitest builds the worker facade synchronously with no fake timers or wasm. The controller arms at most one glitch-expiry timer and clears it on every disable path (the stranded-deadline 100%-CPU invariant), which the sibling aterm-prediction-worker deadline tests cover."
+      },
+      "promotionCriteria": [
+        "Run both artifacts in soak for at least 100 consecutive passes or 14 days across required CI platforms.",
+        "Add a live SSH typing-latency measurement that ties the modeled GHOST_MAX/RTT_MAX bound to a real felt-latency budget.",
+        "Attach saved CI red/green artifacts for the ARMED=FALSE negative control and the stripped-facade discriminator."
+      ],
+      "knownGaps": [
+        "The ty gate SKIPs (exit 0) when the local ~/trust stage2 ty binary is absent, so a host without the Trust build gets the vitest contract but not the temporal proof.",
+        "The model abstracts one in-flight keystroke and integer ticks; it proves the felt-latency ordering, not wall-clock milliseconds.",
+        "Linux and Windows live typing-latency runs are not collected; only macOS local evidence exists.",
+        "The wired-seam contract pins the default worker facade; it does not re-prove the in-process CPU/GPU fallback predict path, which the sibling prediction tests cover."
+      ],
+      "demotionRule": "Keep experimental or demote if either artifact flakes without a product or harness bug, if the ty negative control stops failing (model rot), if the worker facade can drop predict_* without failing the wired contract, or if the controller probe can resolve engine=null on the default path without a gate catching it."
+    },
+    {
       "id": "git-worktree.refresh-event-semantics",
       "title": "Index-only Git metadata cannot trigger structural worktree refresh fanout",
       "maturity": "experimental",

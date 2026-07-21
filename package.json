@@ -129,7 +129,8 @@
     "spec:flow-control": "node tools/specs/check-pty-flow-control.mjs",
     "spec:exit-delivery": "node tools/specs/check-pty-exit-delivery.mjs",
     "spec:keep-tail": "node tools/specs/check-keep-tail-drop.mjs",
-    "spec:protocols": "node tools/specs/check-pty-flow-control.mjs && node tools/specs/check-pty-exit-delivery.mjs && node tools/specs/check-keep-tail-drop.mjs",
+    "spec:echo-liveness": "node tools/specs/check-echo-liveness.mjs",
+    "spec:protocols": "node tools/specs/check-pty-flow-control.mjs && node tools/specs/check-pty-exit-delivery.mjs && node tools/specs/check-keep-tail-drop.mjs && node tools/specs/check-echo-liveness.mjs",
     "fork:killcheck": "node tools/orc-electron/run-killcheck.mjs"
   },
   "dependencies": {

@@ -6,7 +6,7 @@ import type { RelayDispatcher } from './dispatcher'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { subscribeWithInProcessWatcher } from '../main/ipc/parcel-watcher-in-process-fallback'
 
 const { mockSubscribe } = vi.hoisted(() => ({
@@ -162,6 +162,22 @@ describe('FsHandler', () => {
 
   it('tempDir returns the relay host temp directory', async () => {
     await expect(dispatcher.callRequest('fs.tempDir')).resolves.toBe(tmpdir())
+  })
+
+  it('fs.watch refuses broad roots (home, /, ancestors of home) without subscribing', async () => {
+    // Why: a home-rooted recursive watch makes the watcher crawl the whole
+    // account tree (container storage, model dirs) and starves the relay.
+    await expect(
+      dispatcher.callRequest('fs.watch', { rootPath: homedir() })
+    ).resolves.toBeUndefined()
+    await expect(dispatcher.callRequest('fs.watch', { rootPath: '~' })).resolves.toBeUndefined()
+    await expect(dispatcher.callRequest('fs.watch', { rootPath: '/' })).resolves.toBeUndefined()
+    expect(mockSubscribe).not.toHaveBeenCalled()
+    // No watch state registered — unwatch for those roots is a no-op, not a crash.
+    dispatcher.callNotification('fs.unwatch', { rootPath: homedir() })
+    await expect(
+      dispatcher.callRequest('fs.unwatchAndWait', { rootPath: homedir() })
+    ).resolves.toBeUndefined()
   })
 
   it('readDir returns sorted entries with directories first', async () => {

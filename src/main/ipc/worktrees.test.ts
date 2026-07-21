@@ -540,6 +540,22 @@ describe('registerWorktreeHandlers', () => {
     expect(handlers['worktrees:getBranchRenameFailureOutput']).toBeDefined()
   })
 
+  it('persistSortOrder only reorders existing worktrees and never mints meta for a stale id', () => {
+    const liveId = 'repo-1::/workspace/repo'
+    const staleId = 'removed-repo::/workspace/gone'
+    // Only the live worktree has meta; the stale id (e.g. a removed repo the
+    // renderer still lists) has none and must be skipped, not created.
+    store.getWorktreeMeta.mockImplementation((id: string) =>
+      id === liveId ? ({ instanceId: 'x' } as never) : undefined
+    )
+
+    handlers['worktrees:persistSortOrder'](null, { orderedIds: [liveId, staleId] })
+
+    const orderedTargets = store.setWorktreeMeta.mock.calls.map((call) => call[0])
+    expect(orderedTargets).toContain(liveId)
+    expect(orderedTargets).not.toContain(staleId)
+  })
+
   it('prefetches the local default create base through the runtime refresh cache', async () => {
     const repo = {
       id: 'repo-1',

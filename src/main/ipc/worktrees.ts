@@ -2050,6 +2050,10 @@ export function registerWorktreeHandlers(
     }
     const now = Date.now()
     for (let i = 0; i < args.orderedIds.length; i++) {
+      // Why: setWorktreeMeta has no existence check, so a stale renderer id would mint an orphan workspace.
+      if (!store.getWorktreeMeta(args.orderedIds[i])) {
+        continue
+      }
       // Descending timestamps: first item gets highest sortOrder so b - a sorts first-wins on cold start.
       store.setWorktreeMeta(args.orderedIds[i], { sortOrder: now - i * 1000 })
     }

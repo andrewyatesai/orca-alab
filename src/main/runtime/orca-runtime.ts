@@ -17849,6 +17849,12 @@ export class OrcaRuntimeService {
     const now = Date.now()
     let updated = 0
     for (let i = 0; i < orderedIds.length; i++) {
+      // Why: a sort-order snapshot must only reorder existing worktrees, never
+      // mint new meta — a stale id would otherwise resurrect an orphan workspace
+      // (setWorktreeMeta has no repo-existence check).
+      if (!this.store.getWorktreeMeta(orderedIds[i])) {
+        continue
+      }
       this.store.setWorktreeMeta(orderedIds[i], { sortOrder: now - i * 1000 })
       updated++
     }

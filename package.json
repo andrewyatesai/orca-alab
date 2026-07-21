@@ -41,7 +41,7 @@
     "typecheck:tsc": "tsc --noEmit -p config/tsconfig.node.json --composite false && tsc --noEmit -p config/tsconfig.cli.json --composite false && tsc --noEmit -p config/tsconfig.web.json --composite false",
     "ensure:electron-runtime": "node config/scripts/ensure-native-runtime.mjs --runtime=electron",
     "start": "pnpm run ensure:electron-runtime && electron-vite preview",
-    "dev": "pnpm run build:terminal-addon && pnpm run ensure:electron-runtime && node config/scripts/run-electron-vite-dev.mjs",
+    "dev": "pnpm run build:terminal-addon && pnpm run build:rust-daemon && pnpm run ensure:electron-runtime && node config/scripts/run-electron-vite-dev.mjs",
     "dev-stable-name": "pnpm run ensure:electron-runtime && node config/scripts/run-electron-vite-dev.mjs --stable-name",
     "dev:web": "vite --config vite.web.config.ts --host 127.0.0.1",
     "build:relay": "node config/scripts/build-relay.mjs",

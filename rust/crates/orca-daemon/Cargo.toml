@@ -30,6 +30,9 @@ orca-winpipe = { path = "../orca-winpipe" }
 [dev-dependencies]
 # Integration tests are their own crate; they build request Values + parse responses.
 serde_json = { version = "1", default-features = false, features = ["std"] }
+# pump_bench example only: the inlined O_NONBLOCK gather it compares against the
+# blocking pump (fcntl/read/poll). See docs/rust-migration/daemon-pty-drain-investigation.md.
+nix = { version = "0.25", default-features = false, features = ["fs", "poll", "signal", "process"] }
 
 [lints.rust]
 unsafe_code = "forbid"

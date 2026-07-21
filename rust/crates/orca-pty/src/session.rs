@@ -76,6 +76,14 @@ impl PtySession {
         self.master.try_clone_reader().map_err(to_io)
     }
 
+    /// The master's raw fd (unix), for diagnostics/benches that need to `poll` or
+    /// `fcntl` the master directly (e.g. the pump-drain investigation bench).
+    /// `None` when portable-pty cannot expose it (Windows conpty).
+    #[cfg(unix)]
+    pub fn master_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+        self.master.as_raw_fd()
+    }
+
     /// Write input to the PTY (node-pty's `write`).
     pub fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
         self.writer.write_all(data)?;

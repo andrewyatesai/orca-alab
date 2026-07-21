@@ -24,6 +24,21 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// a child that ignores the graceful SIGHUP gets SIGKILL'd after this delay.
 const KILL_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Bench instrument (`ORCA_PUMP_FRAME_KIB`, default 0 = off): coalesce the pump's
+/// per-read `route_output` into ONE socket frame per N KiB. The engine feed +
+/// checkpoint records stay per-read (unchanged); only the client-facing stream
+/// frame rate drops. Motivation: end-to-end flood is socket-fan-out-bound (~152
+/// vs the read+engine loop's ~337 MB/s), and production emits ~1 frame per ~1 KiB
+/// read — this measures whether fewer/bigger frames lift the full path. Read once.
+/// NOTE: with N>0, live output is delayed up to one batch (fine for a flood; a
+/// shipping version would also time-bound the flush for interactive latency).
+fn frame_batch_kib() -> usize {
+    static FRAME_KIB: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *FRAME_KIB.get_or_init(|| {
+        std::env::var("ORCA_PUMP_FRAME_KIB").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+    })
+}
+
 fn field_str<'a>(payload: &'a Value, key: &str) -> &'a str {
     payload.get(key).and_then(Value::as_str).unwrap_or("")
 }
@@ -764,6 +779,10 @@ fn pump_output(
     // instead of becoming U+FFFD, which would desync the stream/records from the
     // (correct) engine grid.
     let mut decoder = Utf8StreamDecoder::new();
+    // Bench instrument: 0 = route per read (default, byte-identical); N>0 =
+    // coalesce routed frames to ~N KiB. See frame_batch_kib().
+    let frame_kib = frame_batch_kib();
+    let mut route_acc = String::new();
     loop {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
@@ -810,7 +829,17 @@ fn pump_output(
                     }
                     // Stream the same boundary-safe copy live to the attached client
                     // (dropped if detached — the reattach snapshot restores it).
-                    registry.route_output(&session_id, text);
+                    // frame_kib==0: route per read (unchanged). N>0: coalesce to
+                    // ~N KiB per socket frame (bench instrument).
+                    if frame_kib == 0 {
+                        registry.route_output(&session_id, text);
+                    } else {
+                        route_acc.push_str(text);
+                        if route_acc.len() >= frame_kib * 1024 {
+                            registry.route_output(&session_id, &route_acc);
+                            route_acc.clear();
+                        }
+                    }
                 }
                 if let Some(timer) = timer {
                     spawn_gate_timer(
@@ -822,6 +851,10 @@ fn pump_output(
                 }
             }
         }
+    }
+    // Flush any coalesced tail before the terminal events so no output is lost.
+    if !route_acc.is_empty() {
+        registry.route_output(&session_id, &route_acc);
     }
     // A child that exits mid-scan releases the held partial-marker bytes so the
     // final records/stream carry everything it wrote — session.ts

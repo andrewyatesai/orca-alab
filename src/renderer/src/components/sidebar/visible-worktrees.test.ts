@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   computeClearFilterActions,
   computeVisibleWorktreeIds,
+  getVisibleWorktreeIds,
   isDefaultBranchWorkspace,
+  pruneVisibleWorktreeOrder,
+  releaseVisibleWorktreeOrder,
+  setVisibleWorktreeIds,
   sidebarHasActiveFilters
 } from './visible-worktrees'
 import type { Repo, TerminalTab, Worktree, WorktreeLineage } from '../../../../shared/types'
@@ -575,6 +579,49 @@ describe('computeVisibleWorktreeIds', () => {
     )
 
     expect(result).toEqual([parent.id, child.id])
+  })
+})
+
+describe('pruneVisibleWorktreeOrder', () => {
+  it('serves the published order directly while the rendered list is mounted', () => {
+    setVisibleWorktreeIds(['rendered-b', 'rendered-a'])
+    try {
+      expect(getVisibleWorktreeIds()).toEqual(['rendered-b', 'rendered-a'])
+    } finally {
+      releaseVisibleWorktreeOrder()
+    }
+  })
+
+  it('preserves the rendered grouped order when the fallback order differs', () => {
+    expect(
+      pruneVisibleWorktreeOrder(
+        ['pinned', 'repo-b-first', 'repo-a-first'],
+        ['repo-a-first', 'pinned', 'repo-b-first']
+      )
+    ).toEqual(['pinned', 'repo-b-first', 'repo-a-first'])
+  })
+
+  it('drops unavailable ids and duplicates without adding unrendered ids', () => {
+    expect(
+      pruneVisibleWorktreeOrder(
+        ['removed', 'existing-b', 'existing-b', 'existing-a'],
+        ['existing-a', 'existing-b', 'new-worktree']
+      )
+    ).toEqual(['existing-b', 'existing-a'])
+  })
+
+  it('retains folder workspace ids that are absent from the worktree fallback', () => {
+    expect(
+      pruneVisibleWorktreeOrder(
+        ['folder:project', 'worktree-a'],
+        ['worktree-a'],
+        new Set(['folder:project'])
+      )
+    ).toEqual(['folder:project', 'worktree-a'])
+  })
+
+  it('keeps an empty rendered order empty when fallback worktrees exist', () => {
+    expect(pruneVisibleWorktreeOrder([], ['worktree-b', 'worktree-a'])).toEqual([])
   })
 })
 

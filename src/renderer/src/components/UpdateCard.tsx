@@ -16,7 +16,7 @@ import {
   ShieldAlert,
   X
 } from 'lucide-react'
-import type { ChangelogData } from '../../../shared/types'
+import type { ChangelogData, UpdateStatus } from '../../../shared/types'
 import {
   isWindowsSignatureCheckUnavailableFailure,
   isWindowsSignatureMismatchFailure
@@ -62,6 +62,16 @@ type ErrorCardModel = {
     isPending?: boolean
     onClick: () => void
   }
+}
+
+export function getUpdateErrorRetryTarget(
+  status: Extract<UpdateStatus, { state: 'error' }>,
+  cachedVersion: string | null
+): 'check' | 'download' | 'install' {
+  if (status.retryAction === 'install') {
+    return 'install'
+  }
+  return cachedVersion ? 'download' : 'check'
 }
 
 // ── Compact card (transient check feedback) ─────────────────────────
@@ -227,8 +237,10 @@ export function UpdateCard() {
 
   const isUserInitiated = 'userInitiated' in status && status.userInitiated
   const cachedVersion = versionRef.current
+  const isInstallRetryError = status.state === 'error' && status.retryAction === 'install'
   const shouldShowDetailedErrorCard =
-    status.state === 'error' && (hasStartedDownload.current || cachedVersion !== null)
+    status.state === 'error' &&
+    (hasStartedDownload.current || cachedVersion !== null || isInstallRetryError)
 
   // Compact transient states: only show for user-initiated checks.
   if (status.state === 'checking' && !isUserInitiated) {
@@ -322,6 +334,8 @@ export function UpdateCard() {
     status.state === 'error' && isWindowsSignatureMismatchFailure(status.message)
   const isSignatureCheckBlockedError =
     status.state === 'error' && isWindowsSignatureCheckUnavailableFailure(status.message)
+  const errorRetryTarget =
+    status.state === 'error' ? getUpdateErrorRetryTarget(status, cachedVersion) : null
   const errorCard: ErrorCardModel | null =
     status.state === 'error'
       ? isHttp2UpdateError
@@ -378,24 +392,35 @@ export function UpdateCard() {
               }
             : {
                 // Why: title is scoped to the failed operation so check-time (GitHub-side) failures don't read as an Orca bug.
-                title: cachedVersion ? 'Update Error' : 'Update Check Failed',
-                summary: cachedVersion
-                  ? 'Could not complete the update.'
-                  : 'Could not check for updates.',
+                title:
+                  cachedVersion || isInstallRetryError ? 'Update Error' : 'Update Check Failed',
+                summary:
+                  cachedVersion || isInstallRetryError
+                    ? 'Could not complete the update.'
+                    : 'Could not check for updates.',
                 detail: status.message,
                 releaseUrl: releaseUrlForVersion(cachedVersion),
                 // Why: check-time failures are often transient, so offer a Re-check instead of forcing manual download.
-                primaryAction: cachedVersion
-                  ? {
-                      label: translate('auto.components.UpdateCard.48565a32bc', 'Retry Download'),
-                      onClick: handleUpdate
-                    }
-                  : {
-                      label: translate('auto.components.UpdateCard.6b0085010d', 'Re-check'),
-                      onClick: () => {
-                        void window.api.updater.check({ includePrerelease: false })
+                primaryAction:
+                  errorRetryTarget === 'install'
+                    ? {
+                        label: translate('auto.components.UpdateCard.2c2d3e03ca', 'Try Again'),
+                        onClick: handleInstallRetry
                       }
-                    }
+                    : errorRetryTarget === 'download'
+                      ? {
+                          label: translate(
+                            'auto.components.UpdateCard.48565a32bc',
+                            'Retry Download'
+                          ),
+                          onClick: handleUpdate
+                        }
+                      : {
+                          label: translate('auto.components.UpdateCard.6b0085010d', 'Re-check'),
+                          onClick: () => {
+                            void window.api.updater.check({ includePrerelease: false })
+                          }
+                        }
               }
       : installError
         ? {

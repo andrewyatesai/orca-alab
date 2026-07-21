@@ -1,8 +1,11 @@
 import { app, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
-import { networkInterfaces } from 'node:os'
 import type { RuntimeAccessGrant } from '../../shared/runtime-access-grants'
-import { isTailnetIPv4Address } from '../rust-tailnet-address'
 import type { MobilePairingConnectionMode } from '../../shared/mobile-pairing-connection-mode'
+import {
+  getDefaultPairingAddress,
+  listPairingNetworkInterfaces,
+  type NetworkInterface
+} from './mobile-pairing-interfaces'
 import type { DeviceEntry } from '../runtime/device-registry'
 import type { OrcaRuntimeRpcServer } from '../runtime/runtime-rpc'
 import type { RelayBrokerStatus } from '../runtime/relay/relay-session-broker'
@@ -13,37 +16,7 @@ import {
   type WindowsMobileFirewallEnvironment
 } from '../runtime/windows-mobile-firewall'
 
-export type NetworkInterface = {
-  name: string
-  address: string
-}
-
-// Why: the WebSocket transport advertises 0.0.0.0 as its endpoint, which isn't
-// connectable from a mobile device. We enumerate all non-internal IPv4
-// addresses so the user can choose which one to advertise in the QR code
-// (e.g. LAN vs Tailscale).
-function getNetworkInterfaces(): NetworkInterface[] {
-  const result: NetworkInterface[] = []
-  const interfaces = networkInterfaces()
-  for (const [name, addrs] of Object.entries(interfaces)) {
-    if (!addrs) {
-      continue
-    }
-    for (const addr of addrs) {
-      if (addr.family === 'IPv4' && !addr.internal) {
-        result.push({ name, address: addr.address })
-      }
-    }
-  }
-  return result.sort(
-    (a, b) => Number(isTailnetIPv4Address(b.address)) - Number(isTailnetIPv4Address(a.address))
-  )
-}
-
-function getDefaultPairingAddress(): string | null {
-  const ifaces = getNetworkInterfaces()
-  return ifaces.length > 0 ? ifaces[0]!.address : null
-}
+export type { NetworkInterface }
 
 function toRuntimeAccessGrant(device: DeviceEntry): RuntimeAccessGrant {
   return {
@@ -75,7 +48,7 @@ export function registerMobileHandlers(
     systemRoot: process.env.SystemRoot
   }
   ipcMain.handle('mobile:listNetworkInterfaces', (): { interfaces: NetworkInterface[] } => ({
-    interfaces: getNetworkInterfaces()
+    interfaces: listPairingNetworkInterfaces()
   }))
 
   ipcMain.handle(

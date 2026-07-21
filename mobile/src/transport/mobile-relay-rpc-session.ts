@@ -7,6 +7,7 @@ import { MobileRelayE2eeLink } from './mobile-relay-e2ee-link'
 import { MobileRelayRpcStreams } from './mobile-relay-rpc-streams'
 import { MobileE2EEAuthenticationError } from './mobile-e2ee-v2-physical-channel'
 import { isRpcResponse } from './rpc-response-shape'
+import { encodeTerminalStreamFrame, TerminalStreamOpcode } from './terminal-stream-protocol'
 import type { RpcClient } from './rpc-client'
 import type { ConnectionState, RpcResponse } from './types'
 
@@ -42,6 +43,7 @@ export function connectMobileRelayRpcSession(args: {
   let resumeConfirmation: DeviceResumeConfirmed | null = null
   let failure: Error | null = null
   let closed = false
+  let terminalBinaryInputSeq = 0
   const streams = new MobileRelayRpcStreams({
     nextId,
     sendFrame,
@@ -87,6 +89,26 @@ export function connectMobileRelayRpcSession(args: {
 
     updateTerminalSubscriptionViewport(terminal, viewport) {
       streams.updateTerminalViewport(terminal, viewport)
+    },
+
+    sendTerminalBinaryInput(terminal, payload) {
+      // Why: fire-and-forget keystroke path over the relay E2EE link; a false
+      // return routes the caller to the terminal.send RPC fallback.
+      if (closed || state !== 'connected') {
+        return false
+      }
+      const streamId = streams.findTerminalStreamId(terminal)
+      if (streamId === null) {
+        return false
+      }
+      return link.sendBinary(
+        encodeTerminalStreamFrame({
+          opcode: TerminalStreamOpcode.Input,
+          streamId,
+          seq: terminalBinaryInputSeq++,
+          payload
+        })
+      )
     },
     getState: () => state,
     getReconnectAttempt: () => 0,

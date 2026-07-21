@@ -11,6 +11,7 @@ import {
   type ExecutionHostId,
   type ExecutionHostScope
 } from '../../../../shared/execution-host'
+import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 
 /**
  * Whether a worktree represents the repo's default-branch row that the
@@ -261,7 +262,8 @@ function addVisibleLineageAncestors(
  * position. By caching the IDs that WorktreeList actually rendered, the
  * shortcut numbering always matches the sidebar card order.
  */
-let _cachedVisibleIds: string[] = []
+let _cachedVisibleIds: string[] | null = null
+let _isRenderedOrderActive = false
 
 /**
  * Called by WorktreeList after computing visible worktrees so the Cmd+1–9
@@ -269,6 +271,29 @@ let _cachedVisibleIds: string[] = []
  */
 export function setVisibleWorktreeIds(ids: string[]): void {
   _cachedVisibleIds = ids
+  _isRenderedOrderActive = true
+}
+
+export function releaseVisibleWorktreeOrder(): void {
+  _isRenderedOrderActive = false
+}
+
+export function pruneVisibleWorktreeOrder(
+  renderedIds: readonly string[],
+  currentVisibleIds: readonly string[],
+  retainedIds: ReadonlySet<string> = new Set()
+): string[] {
+  const eligibleIds = new Set([...currentVisibleIds, ...retainedIds])
+  const prunedIds: string[] = []
+  const seenIds = new Set<string>()
+
+  for (const id of renderedIds) {
+    if (eligibleIds.has(id) && !seenIds.has(id)) {
+      prunedIds.push(id)
+      seenIds.add(id)
+    }
+  }
+  return prunedIds
 }
 
 /**
@@ -276,14 +301,16 @@ export function setVisibleWorktreeIds(ids: string[]): void {
  * state. Called by the App-level Cmd+1–9 handler (not a React hook — reads
  * store snapshot at call time).
  *
- * If WorktreeList has rendered at least once, returns the cached IDs so the
- * shortcut numbering matches the sidebar. Falls back to a live recomputation
- * only before WorktreeList's first render (e.g. app startup).
+ * Once WorktreeList has rendered, its order is kept (pruned against the live
+ * visible set); only before the first render is the live computation used
+ * directly.
  */
 export function getVisibleWorktreeIds(): string[] {
-  // Prefer the cached IDs that mirror the rendered sidebar order.
-  if (_cachedVisibleIds.length > 0) {
-    return _cachedVisibleIds
+  if (_isRenderedOrderActive) {
+    return _cachedVisibleIds ?? []
+  }
+  if (_cachedVisibleIds?.length === 0) {
+    return []
   }
 
   // Fallback: live recomputation for the window before WorktreeList renders.
@@ -315,7 +342,7 @@ export function getVisibleWorktreeIds(): string[] {
     sortedIds = sorted.map((w) => w.id)
   }
 
-  return computeVisibleWorktreeIds(state.worktreesByRepo, sortedIds, {
+  const currentVisibleIds = computeVisibleWorktreeIds(state.worktreesByRepo, sortedIds, {
     filterRepoIds: state.filterRepoIds,
     showSleepingWorkspaces: state.showSleepingWorkspaces,
     tabsByWorktree: state.tabsByWorktree,
@@ -334,4 +361,15 @@ export function getVisibleWorktreeIds(): string[] {
     defaultHostId: getSettingsFocusedExecutionHostId(state.settings),
     worktreeLineageById: state.worktreeLineageById
   })
+
+  if (_cachedVisibleIds === null) {
+    return currentVisibleIds
+  }
+
+  // Why: folder workspaces are absent from worktreesByRepo, so the live fallback must not evict their rendered slots.
+  const retainedFolderWorkspaceIds = new Set(
+    state.folderWorkspaces.map((workspace) => folderWorkspaceKey(workspace.id))
+  )
+  // Why: with the sidebar hidden there is no fresh rendered order; only shrink the last one so collapsed items aren't re-appended.
+  return pruneVisibleWorktreeOrder(_cachedVisibleIds, currentVisibleIds, retainedFolderWorkspaceIds)
 }

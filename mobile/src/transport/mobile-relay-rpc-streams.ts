@@ -5,6 +5,7 @@ import {
 } from './rpc-client-terminal-binary-frame'
 import {
   buildTerminalUnsubscribeParams,
+  findRoutableTerminalStreamId,
   updateTerminalSubscriptionViewport
 } from './rpc-client-terminal-subscription'
 import type { RpcClient } from './rpc-client'
@@ -67,6 +68,20 @@ export class MobileRelayRpcStreams {
 
   updateTerminalViewport(terminal: string, viewport: { cols: number; rows: number }): void {
     updateTerminalSubscriptionViewport(this.streams.values(), terminal, viewport)
+  }
+
+  /** Live binary streamId for a terminal, or null when no routable stream exists. */
+  findTerminalStreamId(terminal: string): number | null {
+    const streamIdsByRequest = new Map<string, ReadonlySet<number>>()
+    for (const [id, stream] of this.streams) {
+      streamIdsByRequest.set(id, stream.streamIds)
+    }
+    return findRoutableTerminalStreamId(
+      this.streams,
+      streamIdsByRequest,
+      this.terminalListeners,
+      terminal
+    )
   }
 
   handleResponse(response: RpcResponse): boolean {

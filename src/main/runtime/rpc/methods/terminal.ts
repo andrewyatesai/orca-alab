@@ -42,6 +42,8 @@ import { assertTerminalAgentSendable } from '../terminal-agent-send-guard'
 const REQUESTED_SNAPSHOT_BYTE_BUDGET = 2 * 1024 * 1024
 const TERMINAL_STREAM_CHUNK_BYTES = 48 * 1024
 const TERMINAL_OUTPUT_FLUSH_MS = 5
+// Why: every flush is a radio-waking network frame on a phone (#9490); a wider window trades imperceptible echo latency for far fewer wakeups during floods.
+const MOBILE_TERMINAL_OUTPUT_FLUSH_MS = 50
 // Why: output batches become binary stream payloads; byte size is the transport cost.
 const TERMINAL_OUTPUT_BATCH_MAX_BYTES = 64 * 1024
 // Why: remote clients can apply output pressure without pausing runtime PTY ingestion.
@@ -149,7 +151,10 @@ type TerminalOutputFrameChunk = {
   opcode?: TerminalStreamOpcode
 }
 
-function createTerminalOutputBatcher(onFlush: (data: string, meta?: TerminalOutputMeta) => void): {
+function createTerminalOutputBatcher(
+  onFlush: (data: string, meta?: TerminalOutputMeta) => void,
+  flushWindowMs = TERMINAL_OUTPUT_FLUSH_MS
+): {
   push: (data: string, meta?: TerminalOutputMeta) => void
   flush: () => void
   dispose: () => void
@@ -221,7 +226,7 @@ function createTerminalOutputBatcher(onFlush: (data: string, meta?: TerminalOutp
       }
       if (!timer) {
         // Why: coalesce stream output before it crosses the network; desktop subscribers share the same burst boundary.
-        timer = setTimeout(flush, TERMINAL_OUTPUT_FLUSH_MS)
+        timer = setTimeout(flush, flushWindowMs)
         if (typeof timer.unref === 'function') {
           timer.unref()
         }
@@ -2163,19 +2168,22 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
           pendingOutputOverflowed: false,
           lastResizeCols: undefined,
           resizeGeneration: 0,
-          outputBatcher: createTerminalOutputBatcher((data, meta) => {
-            if (meta?.cwd !== undefined) {
-              sendFrame(
-                request.streamId,
-                TerminalStreamOpcode.Metadata,
-                encodeTerminalStreamJson({ cwd: meta.cwd }),
-                meta.seq
-              )
-            }
-            for (const chunk of iterateTerminalOutputFrameChunks(data, meta)) {
-              queueOrSendOutput(stream, chunk)
-            }
-          }),
+          outputBatcher: createTerminalOutputBatcher(
+            (data, meta) => {
+              if (meta?.cwd !== undefined) {
+                sendFrame(
+                  request.streamId,
+                  TerminalStreamOpcode.Metadata,
+                  encodeTerminalStreamJson({ cwd: meta.cwd }),
+                  meta.seq
+                )
+              }
+              for (const chunk of iterateTerminalOutputFrameChunks(data, meta)) {
+                queueOrSendOutput(stream, chunk)
+              }
+            },
+            isMobile ? MOBILE_TERMINAL_OUTPUT_FLUSH_MS : TERMINAL_OUTPUT_FLUSH_MS
+          ),
           unsubscribeData: () => {},
           unsubscribeResize: () => {},
           unsubscribeFit: () => {},
@@ -2742,18 +2750,21 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         }
         sendBinary(encodeTerminalStreamFrame({ opcode, streamId, seq: frameSeq, payload }))
       }
-      outputBatcher = createTerminalOutputBatcher((data, meta) => {
-        if (meta?.cwd !== undefined) {
-          sendFrame(
-            TerminalStreamOpcode.Metadata,
-            encodeTerminalStreamJson({ cwd: meta.cwd }),
-            meta.seq
-          )
-        }
-        for (const chunk of iterateTerminalOutputFrameChunks(data, meta)) {
-          sendFrame(chunk.opcode ?? TerminalStreamOpcode.Output, chunk.bytes, chunk.seq)
-        }
-      })
+      outputBatcher = createTerminalOutputBatcher(
+        (data, meta) => {
+          if (meta?.cwd !== undefined) {
+            sendFrame(
+              TerminalStreamOpcode.Metadata,
+              encodeTerminalStreamJson({ cwd: meta.cwd }),
+              meta.seq
+            )
+          }
+          for (const chunk of iterateTerminalOutputFrameChunks(data, meta)) {
+            sendFrame(chunk.opcode ?? TerminalStreamOpcode.Output, chunk.bytes, chunk.seq)
+          }
+        },
+        isMobile ? MOBILE_TERMINAL_OUTPUT_FLUSH_MS : TERMINAL_OUTPUT_FLUSH_MS
+      )
       unregisterBinaryHandler =
         registerBinaryStreamHandler?.(streamId, (frame) => {
           if (closed) {

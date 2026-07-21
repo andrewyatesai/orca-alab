@@ -2,7 +2,7 @@ import {
   getPreferredPairingOffer,
   type KnownRuntimeEnvironment
 } from '../../shared/runtime-environments'
-import { resolveEnvironment, markEnvironmentUsed } from '../../shared/runtime-environment-store'
+import { resolveEnvironment } from '../../shared/runtime-environment-store'
 import type { RuntimeRpcResponse } from '../../shared/runtime-rpc-envelope'
 import type { RuntimeStatus } from '../../shared/runtime-types'
 import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../shared/protocol-version'
@@ -13,7 +13,7 @@ import {
 } from '../../shared/remote-runtime-client'
 import { withRemoteRuntimeTailscaleHint } from '../../shared/remote-runtime-tailscale-hint'
 import { enqueueRuntimeCall } from './runtime-environment-call-queue'
-import { pruneRuntimeHostPtyBindingsOnRuntimeChurn } from '../runtime-host-pty-binding-churn-prune'
+import { markEnvironmentUsedWithChurnPrune } from '../runtime-host-pty-binding-churn-prune'
 import {
   sendRemoteRuntimeConnectionRequest,
   sendRemoteRuntimeSharedControlRequest,
@@ -30,20 +30,6 @@ export function resetSharedControlSupport(): void {
 
 export function clearSharedControlSupport(environmentId: string): void {
   sharedControlSupport.delete(environmentId)
-}
-
-// Why: a changed runtimeId means the host runtime restarted and every persisted
-// terminal handle for the environment is dead — prune them so the next restore
-// does not reattach-fail and respawn closed tabs (#9352).
-function markEnvironmentUsedTrackingChurn(
-  userDataPath: string,
-  environmentId: string,
-  runtimeId: string
-): void {
-  const { runtimeInstanceChanged } = markEnvironmentUsed(userDataPath, environmentId, { runtimeId })
-  if (runtimeInstanceChanged) {
-    pruneRuntimeHostPtyBindingsOnRuntimeChurn(environmentId)
-  }
 }
 
 // Why: when a remote host is unreachable, point the user at Tailscale as the
@@ -99,7 +85,7 @@ export async function getRuntimeEnvironmentStatus(
     )
   }
   if (response.ok === true) {
-    markEnvironmentUsedTrackingChurn(userDataPath, environment.id, response._meta.runtimeId)
+    markEnvironmentUsedWithChurnPrune(userDataPath, environment.id, response._meta.runtimeId)
   }
   return attachRemoteControlDiagnostics(
     withTailscaleHintForResponse(response, pairing.endpoint),
@@ -192,7 +178,7 @@ export async function subscribeRuntimeEnvironment(
       return
     }
     markedUsed = true
-    markEnvironmentUsedTrackingChurn(userDataPath, environment.id, runtimeId)
+    markEnvironmentUsedWithChurnPrune(userDataPath, environment.id, runtimeId)
   }
   const callbacksWithMarkUsed = {
     onResponse: (response: RuntimeRpcResponse<unknown>) => {
@@ -252,7 +238,7 @@ function markEnvironmentUsedFromResponse(
   response: RuntimeRpcResponse<unknown>
 ): void {
   if (response.ok === true) {
-    markEnvironmentUsedTrackingChurn(userDataPath, environmentId, response._meta.runtimeId)
+    markEnvironmentUsedWithChurnPrune(userDataPath, environmentId, response._meta.runtimeId)
   }
 }
 
@@ -295,7 +281,7 @@ async function supportsSharedControl(
       timeoutMs
     )
     if (response.ok === true) {
-      markEnvironmentUsedTrackingChurn(userDataPath, environment.id, response._meta.runtimeId)
+      markEnvironmentUsedWithChurnPrune(userDataPath, environment.id, response._meta.runtimeId)
       resolvedCacheKey = getSharedControlSupportCacheKey(
         environment,
         pairing,

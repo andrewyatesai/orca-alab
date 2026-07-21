@@ -7657,6 +7657,7 @@ export class OrcaRuntimeService {
     })
     if (isNativeWindowsConptyPty(ptyId)) {
       emulator.installConptyPrimaryDeviceAttributesOverride()
+      emulator.installConptyOscColorReplySuppression()
     }
     // Why the lazy getter: replies must use the freshest renderer push at
     // parse time, and stay silent (never default) before the first push.
@@ -7674,7 +7675,11 @@ export class OrcaRuntimeService {
    *  data already created this PTY's emulator. Idempotent emulator-side. */
   private ensureNativeWindowsConptyDa1Override(ptyId: string): void {
     if (isNativeWindowsConptyPty(ptyId)) {
-      this.headlessTerminals.get(ptyId)?.emulator.installConptyPrimaryDeviceAttributesOverride()
+      const emulator = this.headlessTerminals.get(ptyId)?.emulator
+      emulator?.installConptyPrimaryDeviceAttributesOverride()
+      // Why together: the OSC 10/11/12 reply leak (#6975) shares the ConPTY
+      // determination, so the retrofit path must install both.
+      emulator?.installConptyOscColorReplySuppression()
     }
   }
 

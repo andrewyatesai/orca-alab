@@ -237,6 +237,13 @@ export class HeadlessEmulator {
     this.ensureQueryResponder().enableConptyDa1Override()
   }
 
+  /** ConPTY swallows the ESC of an OSC 10/11/12 reply written as PTY input and
+   *  echoes the printable remainder into the prompt (#6975); mute those
+   *  reports for native-Windows-ConPTY PTYs. Idempotent. */
+  installConptyOscColorReplySuppression(): void {
+    this.ensureQueryResponder().enableConptyOscColorReplySuppression()
+  }
+
   /** Re-seed persisted kitty-keyboard flags via the same `CSI = flags ; 1 u`
    *  parse a live push uses, so hidden `CSI ? u` reports them instead of ?0u.
    *  Routed as an UNFLAGGED write — outside any forwarding window it answers

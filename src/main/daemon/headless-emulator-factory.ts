@@ -29,6 +29,7 @@ export type TerminalEmulator = {
   installViewAttributeResponder(getter: () => TerminalViewAttributes | null): void
   applyPushedViewAttributes(attributes: TerminalViewAttributes): void
   installConptyPrimaryDeviceAttributesOverride(): void
+  installConptyOscColorReplySuppression(): void
   applyKittyKeyboardFlags(flags: number): Promise<void>
   disableQueryReplyForwarding(): void
   dispose(): void

@@ -325,6 +325,60 @@ describe('reconcileSerializedMarkdown', () => {
     expect(reconciled.replace(/\r\n/g, '')).not.toContain('\n')
   })
 
+  it('does not crash on a multi-byte doc and still preserves style (#9492)', () => {
+    // Multi-byte codepoints before the edit made applyPatches' internal UTF-8→UCS-2
+    // index adjustment overshoot the source end and throw, dropping the save.
+    const originalSource = '中文中文中文中文中文中文中文中文中文中文 🎉🎉🎉🎉🎉\n\n_tail_ here\n'
+    const baseCanonical = fakeCanonicalize(originalSource)
+    const edited = baseCanonical.replace('here', 'there')
+
+    const reconciled = reconcileWithFake(originalSource, edited)
+
+    expect(fakeCanonicalize(reconciled).trimEnd()).toBe(edited.trimEnd())
+    expect(reconciled).toContain('_tail_ there')
+  })
+
+  it('preserves style in a CJK doc when editing after multi-byte text (#9158)', () => {
+    const originalSource = '# 标题\n\n中文正文，_强调_ 和 __加粗__。\n\n* 第一项\n* 第二项\n'
+    const baseCanonical = fakeCanonicalize(originalSource)
+    const edited = baseCanonical.replace('第二项', '第二项！')
+
+    const reconciled = reconcileWithFake(originalSource, edited)
+
+    expect(fakeCanonicalize(reconciled).trimEnd()).toBe(edited.trimEnd())
+    expect(reconciled).toContain('_强调_')
+    expect(reconciled).toContain('__加粗__')
+    expect(reconciled).toContain('* 第一项')
+    expect(reconciled).toContain('* 第二项！')
+  })
+
+  it('preserves style in an emoji (surrogate-pair) doc round-trip (#9158)', () => {
+    const originalSource = '_intro_ 🎉🚀👩‍💻 family 👨‍👩‍👧‍👦\n\n* item 🎯\n* other\n'
+    const baseCanonical = fakeCanonicalize(originalSource)
+    const edited = baseCanonical.replace('other', 'other!')
+
+    const reconciled = reconcileWithFake(originalSource, edited)
+
+    expect(fakeCanonicalize(reconciled).trimEnd()).toBe(edited.trimEnd())
+    expect(reconciled).toContain('_intro_')
+    expect(reconciled).toContain('* item 🎯')
+    expect(reconciled).toContain('* other!')
+  })
+
+  it('places a hunk exactly in a large CJK doc where fuzzy match alone gives up (#9158)', () => {
+    // UTF-8 byte offsets run ~3x ahead of UCS-2 here, far beyond the fuzzy match
+    // distance — only exact index conversion keeps the source-preserving path.
+    const body = ('中文段落，这里是一些正文内容。'.repeat(10) + '\n\n').repeat(20)
+    const originalSource = `${body}_tail_ here\n`
+    const baseCanonical = fakeCanonicalize(originalSource)
+    const edited = baseCanonical.replace('here', 'there')
+
+    const reconciled = reconcileWithFake(originalSource, edited)
+
+    expect(fakeCanonicalize(reconciled).trimEnd()).toBe(edited.trimEnd())
+    expect(reconciled).toContain('_tail_ there')
+  })
+
   it('lands a repeated-substring edit on the correct occurrence or falls back', () => {
     const originalSource = ['- _alpha_', '- _beta_', '', '- _alpha_', '- _beta_', ''].join('\n')
     const baseCanonical = fakeCanonicalize(originalSource)
@@ -385,6 +439,24 @@ describe('serializeRichMarkdownForReconcile (real editor pipeline)', () => {
     expect(reconciled).toContain('_emphasis_') // original style preserved
     expect(reconciled).toContain('# Title!') // edit applied
     // Safety invariant: reconciled renders exactly to the editor's canonical output.
+    expect(serialize(reconciled)!.trimEnd()).toBe(edited.trimEnd())
+  })
+
+  it('reconciles a non-canonical CJK/emoji doc end-to-end with the real serializer (#9158)', () => {
+    const originalSource = '# 标题 🎉\n\n_强调_ 文本 👩‍💻 和 __加粗__\n'
+    const baseCanonical = serialize(originalSource)!
+    const edited = baseCanonical.replace('# 标题 🎉', '# 标题 🎉 更新')
+
+    const reconciled = reconcileSerializedMarkdown({
+      originalSource,
+      baseCanonical,
+      edited,
+      roundTrip: (md) => serialize(md)
+    })
+
+    expect(reconciled).toContain('_强调_')
+    expect(reconciled).toContain('__加粗__')
+    expect(reconciled).toContain('# 标题 🎉 更新')
     expect(serialize(reconciled)!.trimEnd()).toBe(edited.trimEnd())
   })
 

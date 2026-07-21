@@ -46,6 +46,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { isRemoteWorkspaceSnapshotApplyInProgress, useIpcEvents } from './hooks/useIpcEvents'
 import { useAutomationDispatchEvents } from './hooks/useAutomationDispatchEvents'
 import RetainedAgentsSyncGate from './components/dashboard/RetainedAgentsSyncGate'
+import ClosedEditorTabCleanupGate from './components/editor/ClosedEditorTabCleanupGate'
 import { AgentHibernationGate } from './components/AgentHibernationGate'
 import { ActivityTitlebarControls } from './components/activity/ActivityTitlebarControls'
 import Sidebar from './components/Sidebar'
@@ -2006,6 +2007,9 @@ function App(): React.JSX.Element {
             <WorkspacePortScanner enabled={workspaceSessionReady} />
             {/* Why: leaf-mounted retention sync keeps agent-status subscriptions out of the App render tree. */}
             <RetainedAgentsSyncGate />
+            {/* Why: EditorPanel unmounts when its last tab closes, so close
+            cleanup must run from an always-mounted host to not leak models. */}
+            <ClosedEditorTabCleanupGate />
             <AgentHibernationGate />
             {/* Why: workspace activation is a hot path; activeWorktreeId in reset keys would remount whole surfaces during wake. */}
             <RecoverableRenderErrorBoundary

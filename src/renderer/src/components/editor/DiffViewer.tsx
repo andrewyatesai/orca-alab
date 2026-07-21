@@ -26,6 +26,7 @@ import type { DiffViewerProps } from './diff-viewer-props'
 import { buildDiffEditorWordWrapOptions } from './diff-editor-word-wrap-options'
 import { useDiffEditorRegistration } from './diff-navigation-context'
 import { preserveDiffViewStateAcrossModelSwaps } from './diff-model-swap-view-state'
+import { resolveEditorEditContextEnabled } from './monaco-input-mode'
 
 export default function DiffViewer({
   modelKey,
@@ -418,6 +419,7 @@ export default function DiffViewer({
             options={{
               readOnly: !editable,
               originalEditable: false,
+              editContext: resolveEditorEditContextEnabled(settings?.editorExperimentalInput),
               renderSideBySide: sideBySide,
               minimap: { enabled: false },
               scrollBeyondLastLine: false,
@@ -432,7 +434,8 @@ export default function DiffViewer({
               find: {
                 addExtraSpaceOnTop: false,
                 autoFindInSelection: 'never',
-                seedSearchStringFromSelection: 'never'
+                // Why: prefill Cmd+F from the selection (Monaco's default).
+                seedSearchStringFromSelection: 'always'
               }
             }}
           />

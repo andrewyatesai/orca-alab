@@ -203,6 +203,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     editorAutoSaveDelayMs: DEFAULT_EDITOR_AUTO_SAVE_DELAY_MS,
     editorMinimapEnabled: false,
     editorWordWrap: true,
+    editorExperimentalInput: false,
     richMarkdownSpellcheckEnabled: true,
     markdownReviewToolsEnabled: true,
     primarySelectionMiddleClickPaste: getDefaultPrimarySelectionMiddleClickPaste(),

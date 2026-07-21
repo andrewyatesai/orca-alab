@@ -2591,6 +2591,11 @@ export type GlobalSettings = {
   editorMinimapEnabled: boolean
   /** Defaults on for profiles saved before file-editor wrapping became configurable. */
   editorWordWrap?: boolean
+  /** Opt-in to Monaco's experimental EditContext input path. Defaults off so
+   *  editors use the legacy textarea input, which is immune to a Chromium
+   *  EditContext bug that can intermittently make all editors ignore typing
+   *  until restart (the terminal is unaffected; it never used EditContext). */
+  editorExperimentalInput?: boolean
   /** Persisted opt-out for browser spellcheck noise in rich Markdown editing surfaces. */
   richMarkdownSpellcheckEnabled?: boolean
   /** Whether local markdown review note controls and the review panel are shown. */

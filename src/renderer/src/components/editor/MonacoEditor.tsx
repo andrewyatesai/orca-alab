@@ -34,8 +34,12 @@ import {
   createMarkdownDocLinkDecorationController,
   type MarkdownDocLinkDecorationController
 } from './monaco-markdown-doc-link-decorations'
-import { buildGitConflictDecorations, hasGitConflictMarkers } from './monaco-conflict-decorations'
+import {
+  createGitConflictDecorationRefresher,
+  type GitConflictDecorationRefresher
+} from './monaco-conflict-decoration-refresh'
 import { selectWorktreeDiffComments } from '@/store/worktree-diff-comments-selector'
+import { resolveEditorEditContextEnabled } from './monaco-input-mode'
 import type { DiffComment } from '../../../../shared/types'
 import { isMarkdownComment } from '@/lib/diff-comment-compat'
 import { formatMarkdownReviewNotes, type MarkdownReviewNote } from '@/lib/markdown-review-notes'
@@ -119,7 +123,8 @@ export default function MonacoEditor({
   const languageRef = useRef(language)
   languageRef.current = language
   const markdownDocLinkDecorationsRef = useRef<MarkdownDocLinkDecorationController | null>(null)
-  const conflictDecorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null)
+  const conflictDecorationRefresherRef = useRef<GitConflictDecorationRefresher | null>(null)
+  const conflictScanFilePathRef = useRef<string | null>(null)
   const revealDecorationRef = useRef<editor.IEditorDecorationsCollection | null>(null)
   const revealHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const revealRafRef = useRef<number | null>(null)
@@ -154,6 +159,7 @@ export default function MonacoEditor({
   )
   const editorFontFamily = settings?.terminalFontFamily || 'monospace'
   const editorWordWrap = settings?.editorWordWrap
+  const editContextEnabled = resolveEditorEditContextEnabled(settings?.editorExperimentalInput)
   const estimatedAutoHeight = useMemo(() => {
     if (!autoHeight) {
       return null
@@ -522,8 +528,8 @@ export default function MonacoEditor({
           window.cancelAnimationFrame(autoHeightFrame)
           autoHeightFrame = null
         }
-        conflictDecorationsRef.current?.clear()
-        conflictDecorationsRef.current = null
+        conflictDecorationRefresherRef.current?.dispose()
+        conflictDecorationRefresherRef.current = null
         uninstallE2EProbe()
         editorRef.current = null
         setMountedEditor(null)
@@ -716,9 +722,12 @@ export default function MonacoEditor({
     editorRef.current.updateOptions({
       fontSize: editorFontSize,
       fontFamily: editorFontFamily,
+      // Why: Monaco swaps its input controller live when editContext changes,
+      // so toggling the setting recovers a wedged editor without a remount.
+      editContext: editContextEnabled,
       ...buildFileEditorWordWrapOptions(editorWordWrap)
     })
-  }, [editorFontFamily, editorFontSize, editorWordWrap])
+  }, [editContextEnabled, editorFontFamily, editorFontSize, editorWordWrap])
 
   useEffect(() => {
     markdownDocLinkDecorationsRef.current?.refresh()
@@ -730,19 +739,23 @@ export default function MonacoEditor({
       return
     }
 
-    if (!conflictDecorationsEnabled || !hasGitConflictMarkers(content)) {
-      conflictDecorationsRef.current?.clear()
+    // Why: the disabled check must stay ahead of any content scan so the
+    // default (non-conflict) editing path never pays a per-keystroke parse.
+    if (!conflictDecorationsEnabled) {
+      conflictDecorationRefresherRef.current?.clear()
       return
     }
 
     // Why: conflict markers are ordinary file text, so Monaco needs explicit decorations to keep unresolved blocks visible.
-    const decorations = buildGitConflictDecorations(content)
-    if (!conflictDecorationsRef.current) {
-      conflictDecorationsRef.current = ed.createDecorationsCollection(decorations)
-      return
+    if (!conflictDecorationRefresherRef.current) {
+      conflictDecorationRefresherRef.current = createGitConflictDecorationRefresher(ed)
     }
-    conflictDecorationsRef.current.set(decorations)
-  }, [conflictDecorationsEnabled, content, mountedEditor])
+    // Why: this component is keyed per pane, so switching files reuses the
+    // instance; a file/model swap must redecorate immediately, not debounced.
+    const fileChanged = conflictScanFilePathRef.current !== filePath
+    conflictScanFilePathRef.current = filePath
+    conflictDecorationRefresherRef.current.refresh(content, { immediate: fileChanged })
+  }, [conflictDecorationsEnabled, content, mountedEditor, filePath])
 
   useEffect(() => {
     updateMarkdownCompletionDocuments()
@@ -755,8 +768,8 @@ export default function MonacoEditor({
       }
       markdownDocLinkDecorationsRef.current?.dispose()
       markdownDocLinkDecorationsRef.current = null
-      conflictDecorationsRef.current?.clear()
-      conflictDecorationsRef.current = null
+      conflictDecorationRefresherRef.current?.dispose()
+      conflictDecorationRefresherRef.current = null
     }
   }, [])
 
@@ -839,6 +852,7 @@ export default function MonacoEditor({
           automaticLayout: true,
           tabSize: 2,
           readOnly,
+          editContext: editContextEnabled,
           scrollbar: autoHeight
             ? {
                 vertical: autoHeightUsesInternalScroll ? 'auto' : 'hidden',
@@ -851,7 +865,9 @@ export default function MonacoEditor({
           find: {
             addExtraSpaceOnTop: false,
             autoFindInSelection: 'never',
-            seedSearchStringFromSelection: 'never'
+            // Why: prefill Cmd+F with the current selection (or the word under the
+            // cursor) — Monaco's default — so selecting then searching works.
+            seedSearchStringFromSelection: 'always'
           },
           // Why: Monaco owns its rendered line surface, so align its selection-clipboard with the app opt-out (the global DOM hook can't).
           selectionClipboard: settings?.primarySelectionMiddleClickPaste ?? isLinuxUserAgent()

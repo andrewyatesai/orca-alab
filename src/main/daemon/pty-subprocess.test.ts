@@ -526,11 +526,16 @@ describe('createPtySubprocess', () => {
       }
     }
 
-    // The sync subprocess layer consumes the capability prepared by its async
-    // daemon boundary; this cwd-repair test deliberately exercises it unprepared.
+    // Fork divergence from upstream (#8985): an unprepared spawn boundary must
+    // fail closed to the login(1) TCC wrap, never open to a direct spawn.
     expect(spawnMock).toHaveBeenCalledWith(
-      '/bin/bash',
-      expect.any(Array),
+      '/usr/bin/login',
+      expect.arrayContaining([
+        '-flpq',
+        '/usr/bin/env',
+        expect.stringMatching(/^SHELL=/),
+        '/bin/bash'
+      ]),
       expect.objectContaining({ cwd: originalCwd })
     )
   })

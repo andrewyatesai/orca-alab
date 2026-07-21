@@ -9,6 +9,7 @@ import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 
 import { ORCA_HOOK_PROTOCOL_VERSION } from '../shared/agent-hook-types'
+import { timingSafeTokenCompare } from '../shared/timing-safe-token-compare'
 import {
   clearAllListenerCaches,
   clearPaneCacheState,
@@ -250,7 +251,9 @@ export class RelayAgentHookServer {
       res.end()
       return
     }
-    if (req.headers['x-orca-agent-hook-token'] !== this.token) {
+    // Why: constant-time compare prevents a local caller from inferring how
+    // many leading header bytes match via response timing.
+    if (!timingSafeTokenCompare(this.token, String(req.headers['x-orca-agent-hook-token'] ?? ''))) {
       res.writeHead(403)
       res.end()
       return

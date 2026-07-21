@@ -6256,6 +6256,71 @@ describe('registerWorktreeHandlers', () => {
     })
   })
 
+  it('runs the preCreate hook in the primary repo before git worktree add', async () => {
+    listWorktreesMock.mockResolvedValue(createdWorktreeList)
+    getEffectiveHooksMock.mockReturnValue({
+      scripts: { preCreate: 'git-crypt lock' }
+    })
+    shouldRunSetupForCreateMock.mockReturnValue(true)
+    runHookMock.mockResolvedValue({ success: true, output: '' })
+
+    const result = await handlers['worktrees:create'](null, {
+      repoId: 'repo-1',
+      name: 'improve-dashboard',
+      setupDecision: 'run'
+    })
+
+    expect(runHookMock).toHaveBeenCalledWith(
+      'preCreate',
+      '/workspace/repo',
+      expect.objectContaining({ id: 'repo-1' }),
+      '/workspace/repo',
+      expect.objectContaining({ wslDistro: null })
+    )
+    expect(result).toMatchObject({
+      worktree: expect.objectContaining({ path: '/workspace/improve-dashboard' })
+    })
+  })
+
+  it('does not run the preCreate hook when the setup decision skips hooks', async () => {
+    listWorktreesMock.mockResolvedValue(createdWorktreeList)
+    getEffectiveHooksMock.mockReturnValue({
+      scripts: { preCreate: 'git-crypt lock' }
+    })
+    shouldRunSetupForCreateMock.mockReturnValue(false)
+
+    await handlers['worktrees:create'](null, {
+      repoId: 'repo-1',
+      name: 'improve-dashboard',
+      setupDecision: 'skip'
+    })
+
+    expect(runHookMock).not.toHaveBeenCalledWith(
+      'preCreate',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    )
+  })
+
+  it('fails the create when the preCreate hook fails', async () => {
+    listWorktreesMock.mockResolvedValue(createdWorktreeList)
+    getEffectiveHooksMock.mockReturnValue({
+      scripts: { preCreate: 'git-crypt lock' }
+    })
+    shouldRunSetupForCreateMock.mockReturnValue(true)
+    runHookMock.mockResolvedValue({ success: false, output: 'not a git-crypt repo' })
+
+    await expect(
+      handlers['worktrees:create'](null, {
+        repoId: 'repo-1',
+        name: 'improve-dashboard',
+        setupDecision: 'run'
+      })
+    ).rejects.toThrow(/preCreate hook failed[\s\S]*not a git-crypt repo/)
+  })
+
   it('returns a setup launch payload when setup should run', async () => {
     listWorktreesMock.mockResolvedValue(createdWorktreeList)
     getEffectiveHooksMock.mockReturnValue({

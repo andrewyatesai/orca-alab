@@ -217,14 +217,21 @@ export function getEffectiveHooksFromConfig(
   })
   const setup = getEffectiveHookScript(yamlHooks?.scripts.setup, localSetup, setupPolicy)
   const archive = getEffectiveHookScript(yamlHooks?.scripts.archive, localArchive, archivePolicy)
+  // Why (#4566): preCreate is yaml-only (no local Settings slot yet); the policy still lets 'local' users suppress it.
+  const preCreate = getEffectiveHookScript(
+    yamlHooks?.scripts.preCreate,
+    undefined,
+    resolveHookCommandSourcePolicy(rawPolicy, { hasLocalScript: false })
+  )
 
-  if (!setup && !archive) {
+  if (!setup && !archive && !preCreate) {
     return null
   }
 
   // Why: committed `orca.yaml` and local Settings can coexist; the source policy decides which is authoritative.
   return {
     scripts: {
+      ...(preCreate ? { preCreate } : {}),
       ...(setup ? { setup } : {}),
       ...(archive ? { archive } : {})
     }
@@ -532,7 +539,7 @@ function createWorktreeRunnerScript(
  * Run a named hook script in the given working directory.
  */
 export function runHook(
-  hookName: 'setup' | 'archive',
+  hookName: 'setup' | 'archive' | 'preCreate',
   cwd: string,
   repo: Repo,
   hooksPath?: string,

@@ -2037,6 +2037,7 @@ export type LinearTeam = {
 // ─── Hooks (orca.yaml) ──────────────────────────────────────────────
 export type OrcaHooks = {
   scripts: {
+    preCreate?: string // Runs in the primary repo before `git worktree add` (#4566, e.g. git-crypt lock)
     setup?: string // Runs after worktree is created
     archive?: string // Runs before worktree is archived
   }

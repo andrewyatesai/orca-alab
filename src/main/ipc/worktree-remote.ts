@@ -51,6 +51,7 @@ import {
   getSetupRunnerEnvVars,
   loadHooks,
   parseOrcaYaml,
+  runHook,
   shouldRunSetupForCreate
 } from '../hooks'
 import { requireSshGitProvider } from '../providers/ssh-git-dispatch'
@@ -1527,6 +1528,9 @@ export function emitCreateWorktreeProgress(
   }
 }
 
+// Why: matches HOOK_TIMEOUT in hooks.ts — pre-create prep (e.g. git-crypt lock) is quick; don't stall create indefinitely.
+const PRE_CREATE_HOOK_TIMEOUT_MS = 120_000
+
 function formatPublishRemoteBranchWarning(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   return `Workspace created, but Orca could not publish its branch to origin: ${message}`
@@ -1742,6 +1746,26 @@ export async function createRemoteWorktree(
     const primaryHooks = await readRemoteEffectiveHooks(repo, fsProvider, repo.path)
     if (primaryHooks?.scripts.setup) {
       shouldRunSetupForCreate(repo, args.setupDecision)
+    }
+    // Why (#4566): same pre-`git worktree add` prep slot as local creates; SSH
+    // hosts run the hook headlessly in the primary repo via the relay.
+    const preCreateScript = primaryHooks?.scripts.preCreate
+    if (preCreateScript && shouldRunSetupForCreate(repo, args.setupDecision)) {
+      await timing.time('pre_create_hook', async () => {
+        // Why: SSH remotes are POSIX hosts in Orca's relay model; `bash -lc`
+        // matches how remote setup runner scripts execute.
+        const hookResult = await provider.execNonInteractive(
+          'bash',
+          ['-lc', preCreateScript],
+          repo.path,
+          PRE_CREATE_HOOK_TIMEOUT_MS
+        )
+        if (hookResult.exitCode !== 0) {
+          throw new Error(
+            `orca.yaml preCreate hook failed; worktree was not created.\n${`${hookResult.stdout}\n${hookResult.stderr}`.trim()}`.trim()
+          )
+        }
+      })
     }
   }
 
@@ -2297,6 +2321,22 @@ export async function createLocalWorktree(
     checkoutExistingBranch,
     ...remoteTrackingBaseOption,
     ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
+  }
+  // Why (#4566): repos using git-crypt or similar need prep in the PRIMARY repo
+  // before `git worktree add` — the checkout's smudge filter can abort the add,
+  // so the post-create setup hook is too late. Same trust gate as setup.
+  const preCreateScript = getEffectiveHooks(repo)?.scripts.preCreate
+  if (preCreateScript && shouldRunSetupForCreate(repo, args.setupDecision)) {
+    await timing.time('pre_create_hook', async () => {
+      const hookResult = await runHook('preCreate', repo.path, repo, repo.path, {
+        wslDistro: localWorktreeGitOptions.wslDistro ?? null
+      })
+      if (!hookResult.success) {
+        throw new Error(
+          `orca.yaml preCreate hook failed; worktree was not created.\n${hookResult.output}`.trim()
+        )
+      }
+    })
   }
   const addResult: AddWorktreeResult =
     (await timing.time('git_worktree_add', async () => {

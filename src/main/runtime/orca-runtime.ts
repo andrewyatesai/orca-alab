@@ -16571,6 +16571,20 @@ export class OrcaRuntimeService {
       ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
     }
     const defaultAddWorktreeOption = addProjectGitOptions()
+    // Why (#4566): same pre-`git worktree add` prep slot as renderer creates
+    // (e.g. git-crypt lock); runtime callers opt in via the same hook decision.
+    const preCreateScript = getEffectiveHooks(repo)?.scripts.preCreate
+    const preCreateDecision = args.runHooks ? 'run' : (args.setupDecision ?? 'inherit')
+    if (preCreateScript && shouldRunSetupForCreate(repo, preCreateDecision)) {
+      const hookResult = await runHook('preCreate', repo.path, repo, repo.path, {
+        wslDistro: defaultAddWorktreeOption?.wslDistro ?? null
+      })
+      if (!hookResult.success) {
+        throw new Error(
+          `orca.yaml preCreate hook failed; worktree was not created.\n${hookResult.output}`.trim()
+        )
+      }
+    }
     const addResult: AddWorktreeResult =
       (await (sparseDirectories.length > 0
         ? checkoutExistingBranch

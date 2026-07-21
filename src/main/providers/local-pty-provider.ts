@@ -76,8 +76,6 @@ const PANE_IDENTITY_ENV_KEYS = [
 
 let ptyCounter = 0
 const ptyProcesses = new Map<string, pty.IPty>()
-// Why: only agent sessions get descendant tree-kill (tool children run in detached groups SIGHUP can't reach); plain terminals skip it so nohup-detached children survive.
-const ptyAgentSessionIds = new Set<string>()
 // Why: descendant capture is async, so reattach/duplicate shutdown must wait for the original owner, not return a dying PTY.
 type PtyShutdownOperation = {
   promise: Promise<void>
@@ -235,7 +233,6 @@ function clearPtyState(id: string): void {
   disposePtyListeners(id)
   disposePtyExitListener(id)
   ptyProcesses.delete(id)
-  ptyAgentSessionIds.delete(id)
   ptyShellName.delete(id)
   ptyAgentForegroundContextPaths.delete(id)
   ptyLastRecognizedForeground.delete(id)
@@ -870,10 +867,6 @@ export class LocalPtyProvider implements IPtyProvider {
     ptyInitialCwd.set(id, cwd)
     if (spawnedWslDistro !== undefined) {
       ptyWslDistroById.set(id, spawnedWslDistro)
-    }
-    // Why both: launchAgent is explicit intent that survives command rewrites; recognition catches bare agent command lines.
-    if (args.launchAgent || startupAgentRecognition) {
-      ptyAgentSessionIds.add(id)
     }
     ptyShellName.set(id, getSpawnedShellName(shellPath))
     if (finalEnv.ORCA_TERMINAL_HANDLE) {

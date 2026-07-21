@@ -70,6 +70,21 @@ describe('key releases are silent without kitty REPORT_EVENT_TYPES (real wasm)',
       '\x1b[97;1:3u'
     )
   })
+
+  it('reset escape hatch: bare Enter/Tab/Backspace releases stay silent even with :3 reporting', () => {
+    // Kitty spec (Report event types): these three keys get no release events
+    // without REPORT_ALL_KEYS_AS_ESC, so `reset` still works at a stuck shell.
+    expect(encode('Enter', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe('')
+    expect(encode('Tab', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe('')
+    expect(encode('Backspace', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe(
+      ''
+    )
+    // Chord-modified forms DO report (kitty reference impl: mods bypass the
+    // silent SIMPLE() paths), keeping Shift+Tab back-tab semantics intact.
+    expect(
+      encode('Tab', ATERM_KEY_MOD_SHIFT, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)
+    ).toBe('\x1b[9;2:3u')
+  })
 })
 
 // Kitty-spec conformance contract of engine 3742a3b4 — the exact behaviors the

@@ -253,8 +253,12 @@ describe('attachAtermTextareaInput', () => {
   it('suppresses a genuine composing insertText input until compositionend', () => {
     const h = mount()
     fireComposition(h.textarea, 'compositionstart')
-    // An in-progress IME keystroke (insertText) while composing must NOT be sent.
-    fireInput(h.textarea, 'n', 'insertText')
+    // An in-progress IME keystroke while composing carries isComposing=true in
+    // Chromium and must NOT be sent. (A NON-composing insertText mid-composition
+    // is a macOS Telex commit instead — covered in aterm-ime-commit-ordering.)
+    const event = new InputEvent('input', { data: 'n', inputType: 'insertText', bubbles: true })
+    Object.defineProperty(event, 'isComposing', { value: true, configurable: true })
+    h.textarea.dispatchEvent(event)
     expect(h.inputSink).not.toHaveBeenCalled()
     h.dispose()
   })

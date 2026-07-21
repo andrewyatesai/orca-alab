@@ -18,6 +18,14 @@ const __dirname = import.meta.dirname
 const ROOT = join(__dirname, '..', '..')
 const RELAY_ENTRY = join(ROOT, 'src', 'relay', 'relay.ts')
 const WATCHER_ENTRY = join(ROOT, 'src', 'main', 'ipc', 'parcel-watcher-process-entry.ts')
+const MANAGED_HOOK_RUNTIME_ENTRY = join(
+  ROOT,
+  'src',
+  'main',
+  'agent-hooks',
+  'managed-hook-runtime.ts'
+)
+const JSONC_PARSER_ESM_ENTRY = join(ROOT, 'node_modules', 'jsonc-parser', 'lib', 'esm', 'main.js')
 
 const PLATFORMS = [
   'linux-x64',
@@ -99,15 +107,36 @@ for (const platform of PLATFORMS) {
     logOverride: { 'empty-import-meta': 'silent' }
   })
 
+  await build({
+    entryPoints: [MANAGED_HOOK_RUNTIME_ENTRY],
+    bundle: true,
+    platform: 'node',
+    target: 'node18',
+    format: 'cjs',
+    outfile: join(outDir, 'managed-hook-runtime.js'),
+    // Why: jsonc-parser's default UMD build keeps relative dynamic requires
+    // that break after bundling; its ESM entry is equivalent and self-contained.
+    alias: { 'jsonc-parser': JSONC_PARSER_ESM_ENTRY },
+    sourcemap: false,
+    minify: true,
+    define: {
+      'process.env.NODE_ENV': '"production"'
+    }
+  })
+
   const patchPayloadFiles = copyNodePtyPatchPayload(outDir)
 
   // Why: include a content hash so the deploy check detects code changes
-  // even when RELAY_VERSION hasn't been bumped. Hash both process artifacts
-  // so a watcher-only change always deploys beside the matching relay host,
-  // and the node-pty patch payload so a patch-only change reinstalls too.
+  // even when RELAY_VERSION hasn't been bumped. Hash every executable module
+  // (and the node-pty patch payload) so a companion-only change always
+  // deploys beside the matching relay host.
   const relayContent = readFileSync(join(outDir, 'relay.js'))
   const watcherContent = readFileSync(join(outDir, 'relay-watcher.js'))
-  const hashBuilder = createHash('sha256').update(relayContent).update(watcherContent)
+  const managedHookRuntimeContent = readFileSync(join(outDir, 'managed-hook-runtime.js'))
+  const hashBuilder = createHash('sha256')
+    .update(relayContent)
+    .update(watcherContent)
+    .update(managedHookRuntimeContent)
   for (const payloadFile of patchPayloadFiles) {
     hashBuilder.update(readFileSync(payloadFile))
   }

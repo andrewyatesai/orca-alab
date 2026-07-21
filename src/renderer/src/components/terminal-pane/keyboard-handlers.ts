@@ -8,6 +8,7 @@ import type { PtyTransport } from './pty-transport'
 import { resolveTerminalShortcutAction } from './terminal-shortcut-policy'
 import type { MacOptionAsAlt } from './terminal-shortcut-policy'
 import { createTerminalNativeOnlyShortcutTracker } from './terminal-native-only-shortcut'
+import { createTerminalImeDeferredNewlineSender } from './terminal-ime-deferred-newline'
 import {
   ATERM_KEY_MOD_ALT,
   ATERM_KEY_MOD_SUPER,
@@ -279,6 +280,7 @@ export function useTerminalKeyboardShortcuts({
     // location from its own keydown event and clear it on keyup.
     let optionKeyLocation = 0
     const nativeOnlyShortcutTracker = createTerminalNativeOnlyShortcutTracker()
+    const deferredNewlineSender = createTerminalImeDeferredNewlineSender()
     const onModifierDown = (e: KeyboardEvent): void => {
       if (e.key === 'Alt') {
         optionKeyLocation = e.location
@@ -432,24 +434,47 @@ export function useTerminalKeyboardShortcuts({
       }
 
       if (action.type === 'sendInput') {
+        // preventDefault here does not cancel a pending IME commit (the
+        // compositionend still fires and aterm forwards the glyph), so it is safe
+        // to consume the chord even mid-composition — it just stops a stray
+        // browser newline from also reaching the helper textarea.
         e.preventDefault()
         e.stopImmediatePropagation()
         const pane = activePane
         if (!pane) {
           return
         }
-        const sent = paneTransportsRef.current.get(pane.id)?.sendInput(action.data) === true
-        if (sent) {
-          recordTerminalUserInputForLeaf(tabId, pane.leafId)
-          if (action.data === '\x1b[13;2u') {
-            // Why: this direct shortcut write does not pass through PTY onData,
-            // so no-OSC shells need an explicit post-write confirmation ladder.
-            const binding = panePtyBindingsRef?.current?.get(pane.id) as
-              | (IDisposable & { requestDroidReconfirmation?: () => void })
-              | undefined
-            binding?.requestDroidReconfirmation?.()
+        const sendResolvedInput = (): void => {
+          const sent = paneTransportsRef.current.get(pane.id)?.sendInput(action.data) === true
+          if (sent) {
+            recordTerminalUserInputForLeaf(tabId, pane.leafId)
+            if (action.data === '\x1b[13;2u') {
+              // Why: this direct shortcut write does not pass through PTY onData,
+              // so no-OSC shells need an explicit post-write confirmation ladder.
+              const binding = panePtyBindingsRef?.current?.get(pane.id) as
+                | (IDisposable & { requestDroidReconfirmation?: () => void })
+                | undefined
+              binding?.requestDroidReconfirmation?.()
+            }
           }
         }
+        // Why: Shift+Enter / Ctrl+Enter pressed while an IME composition is open
+        // is the committing keystroke — sending the newline now races ahead of
+        // the pending commit and pushes the composed CJK glyph below it. Forward
+        // the newline once the composition ends so the glyph lands first (the
+        // committed char + newline, matching a non-composing Shift+Enter).
+        if (e.isComposing && e.key === 'Enter') {
+          deferredNewlineSender.defer(pane.id, pane.terminal.element, sendResolvedInput)
+          return
+        }
+        if (e.key === 'Enter' && deferredNewlineSender.absorbRedispatchedEnter(pane.id)) {
+          // Why: macOS Hangul re-dispatches the committing Enter keydown with
+          // isComposing already false ~2ms after compositionend; it is the same
+          // physical keystroke as the deferred newline, and can land on either
+          // side of that send's macrotask.
+          return
+        }
+        sendResolvedInput()
         return
       }
 

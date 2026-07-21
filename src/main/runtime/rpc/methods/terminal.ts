@@ -2407,10 +2407,18 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
                 detachStream(request.streamId, true)
               }
             })
-            .catch(() => {
-              if (streams.get(request.streamId) === stream) {
-                detachStream(request.streamId, true)
+            .catch((error) => {
+              if (streams.get(request.streamId) !== stream) {
+                return
               }
+              // Why (#8871): waiter rejection (stale handle on host renderer
+              // reload, abort) is not an exit. An exit-shaped 'end' makes remote
+              // mirrors close live host tabs; a stream error retires them quietly.
+              detachStream(request.streamId, false)
+              sendStreamError(
+                request.streamId,
+                error instanceof Error ? error.message : 'terminal_handle_stale'
+              )
             })
         } catch (error) {
           // Why the ownership check: a newer subscribe may already own this streamId; tearing down the slot here would kill the successor's live registrations.

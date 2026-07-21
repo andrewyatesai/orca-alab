@@ -174,6 +174,11 @@ import { AutomationService } from './automations/service'
 import { createHeadlessAutomationOutputSnapshotBuffer } from './automations/headless-dispatch'
 import { buildHeadlessAutomationWorktreeCreateArgs } from './automations/headless-workspace-create'
 import { AgentAwakeService } from './agent-awake-service'
+import { AUTO_FETCH_TIMEOUT_MS, GitAutoFetchScheduler } from './git/auto-fetch-scheduler'
+import { gitExecFileAsync } from './git/runner'
+import { getLocalProjectGitExecOptions } from './project-runtime-git-options'
+import { resolveGitAutoFetchSettings } from '../shared/git-auto-fetch-settings'
+import { GIT_FETCH_SKIP_AUTO_MAINTENANCE_CONFIG_ARGS } from '../shared/git-fetch-auto-maintenance'
 import { registerSystemResumeBroadcast } from './system-resume-broadcast'
 import {
   recordCoalescedCrashBreadcrumb,
@@ -237,6 +242,7 @@ let headlessBrowserDisplayAvailable = false
 
 let starNag: StarNagService | null = null
 let agentAwakeService: AgentAwakeService | null = null
+let gitAutoFetchScheduler: GitAutoFetchScheduler | null = null
 let crashReports: CrashReportStore | null = null
 let unsubscribeAgentAwakeStatusChanges: (() => void) | null = null
 let unsubscribeSystemResumeBroadcast: (() => void) | null = null
@@ -1675,7 +1681,28 @@ app.whenReady().then(async () => {
       // Why: Store is the mutation authority for all settings writes, so every macOS toggle updates the native item live.
       syncMacMenuBarIcon(settings.showMenuBarIcon !== false)
     }
+    if ('autoFetchEnabled' in updates || 'autoFetchIntervalMinutes' in updates) {
+      gitAutoFetchScheduler?.configure(resolveGitAutoFetchSettings(settings))
+    }
   })
+  {
+    const autoFetchStore = store
+    gitAutoFetchScheduler = new GitAutoFetchScheduler({
+      // Why: only local-path git repos are fetchable here; SSH-connected repos
+      // fetch through their own host and folder repos have nothing to fetch.
+      listRepos: () =>
+        autoFetchStore.getRepos().filter((repo) => repo.kind !== 'folder' && !repo.connectionId),
+      fetchRepo: async (repo) => {
+        await gitExecFileAsync(
+          // Why: background fetches must not trigger auto-maintenance and must
+          // keep -c options ahead of the subcommand (Git 2.25 baseline).
+          [...GIT_FETCH_SKIP_AUTO_MAINTENANCE_CONFIG_ARGS, 'fetch', '--quiet'],
+          { ...getLocalProjectGitExecOptions(autoFetchStore, repo), timeout: AUTO_FETCH_TIMEOUT_MS }
+        )
+      }
+    })
+    gitAutoFetchScheduler.configure(resolveGitAutoFetchSettings(store.getSettings()))
+  }
   // Why: run before ClaudeRuntimeAuthService's constructor sync — a surviving daemon Claude CLI holds the single-use refresh token; early refresh rotates it out mid-session.
   attachClaudeLivePtyPersistence(store)
   const persistedClaudePtyIds = store.getClaudeLivePtySessionIds()
@@ -2247,6 +2274,8 @@ app.on('before-quit', () => {
   unsubscribeAgentAwakeStatusChanges = null
   agentAwakeService?.dispose()
   agentAwakeService = null
+  gitAutoFetchScheduler?.stop()
+  gitAutoFetchScheduler = null
   // Why: defer PTY cleanup to will-quit so the renderer captures scrollback before PTY-exit events unmount TerminalPane (dropping its capture callbacks).
   rateLimits?.stop()
 })

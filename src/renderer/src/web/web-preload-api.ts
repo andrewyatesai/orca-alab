@@ -116,6 +116,7 @@ import {
   assertClipboardImageDimensionsWithinLimit
 } from '../../../shared/clipboard-image'
 import { sanitizeWebRuntimeWorkspaceSession } from './web-workspace-session'
+import { GIT_REMOTE_OPERATION_RPC_TIMEOUT_MS } from '../../../shared/git-remote-operation-timeout'
 import {
   normalizeFeatureInteractions,
   type FeatureInteractionId,
@@ -1865,25 +1866,21 @@ function createGitApi(): NonNullable<Partial<PreloadApi>['git']> {
     },
     fetch: async ({ worktreePath, pushTarget }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.fetch', {
+      await callRemoteGitRuntimeResult('git.fetch', {
         worktree: toRuntimeWorktreeSelector(worktree.id),
         pushTarget
       })
     },
     syncFork: async ({ worktreePath, expectedUpstream }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      return callRuntimeResult(
-        'git.forkSync',
-        {
-          worktree: toRuntimeWorktreeSelector(worktree.id),
-          expectedUpstream
-        },
-        60_000
-      )
+      return callRemoteGitRuntimeResult('git.forkSync', {
+        worktree: toRuntimeWorktreeSelector(worktree.id),
+        expectedUpstream
+      })
     },
     push: async ({ worktreePath, publish, pushTarget }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.push', {
+      await callRemoteGitRuntimeResult('git.push', {
         worktree: toRuntimeWorktreeSelector(worktree.id),
         publish,
         pushTarget
@@ -1891,21 +1888,21 @@ function createGitApi(): NonNullable<Partial<PreloadApi>['git']> {
     },
     pull: async ({ worktreePath, pushTarget }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.pull', {
+      await callRemoteGitRuntimeResult('git.pull', {
         worktree: toRuntimeWorktreeSelector(worktree.id),
         pushTarget
       })
     },
     fastForward: async ({ worktreePath, pushTarget }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.fastForward', {
+      await callRemoteGitRuntimeResult('git.fastForward', {
         worktree: toRuntimeWorktreeSelector(worktree.id),
         pushTarget
       })
     },
     rebaseFromBase: async ({ worktreePath, baseRef }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.rebaseFromBase', {
+      await callRemoteGitRuntimeResult('git.rebaseFromBase', {
         worktree: toRuntimeWorktreeSelector(worktree.id),
         baseRef
       })
@@ -3075,6 +3072,10 @@ async function callRuntimeResult<TResult>(
     throw new Error(response.error.message)
   }
   return response.result as TResult
+}
+
+function callRemoteGitRuntimeResult<TResult>(method: string, params?: unknown): Promise<TResult> {
+  return callRuntimeResult(method, params, GIT_REMOTE_OPERATION_RPC_TIMEOUT_MS)
 }
 
 async function saveClipboardImageAsTempFileInRuntime(

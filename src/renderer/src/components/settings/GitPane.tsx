@@ -12,6 +12,7 @@ import {
   CompareAgainstUpstreamSetting,
   compareAgainstUpstreamMatchesSearch
 } from './CompareAgainstUpstreamSetting'
+import { GitAutoFetchSetting, gitAutoFetchMatchesSearch } from './GitAutoFetchSetting'
 import { getAutoRenameBranchSearchEntries } from './auto-rename-branch-search'
 import {
   KEEP_LOCAL_MAIN_UP_TO_DATE_SECTION_ID,
@@ -298,6 +299,9 @@ export function GitPane({
         settings={settings}
         updateSettings={updateSettings}
       />
+    ) : null,
+    gitAutoFetchMatchesSearch(searchQuery) ? (
+      <GitAutoFetchSetting key="git-auto-fetch" settings={settings} updateSettings={updateSettings} />
     ) : null,
     shouldShowAutoRenameBranchSetting(searchQuery, hasUnsavedBranchPromptChanges) ? (
       <AutoRenameBranchFromWorkSetting

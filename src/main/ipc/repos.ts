@@ -84,6 +84,7 @@ import { getCohortAtEmit } from '../telemetry/cohort-classifier'
 import type { RepoMethod } from '../../shared/telemetry-events'
 import { detectRepoIconAndUpstream } from '../repo-icon-autodetect'
 import { enrichMissingRepoGitRemoteIdentities } from '../repo-git-remote-identity-enrichment'
+import { promoteFolderReposWithGitRepositories } from '../repo-folder-git-promotion'
 import {
   getProjectHostSetupForRepo,
   getProjectIdentityRepoStamp
@@ -1163,6 +1164,11 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   ipcMain.removeHandler('sparsePresets:remove')
 
   ipcMain.handle('repos:list', () => {
+    // Why: kind is captured at add time; re-detect here so a later `git init`
+    // in a folder project surfaces the Git tab (issue #8125).
+    promoteFolderReposWithGitRepositories(store, {
+      onChanged: () => notifyReposChanged(mainWindow)
+    })
     enrichMissingRepoGitRemoteIdentities(store, {
       onChanged: () => notifyReposChanged(mainWindow)
     })

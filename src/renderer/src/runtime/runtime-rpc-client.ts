@@ -73,13 +73,17 @@ export async function callRuntimeRpc<TResult>(
   params?: unknown,
   options: {
     timeoutMs?: number
+    compatibilityTimeoutMs?: number
     suppressFeatureInteraction?: boolean
     reuseRecentCompatibilityFailure?: boolean
     signal?: AbortSignal
   } = {}
 ): Promise<TResult> {
   if (target.kind === 'environment' && method !== 'status.get') {
-    await ensureRuntimeEnvironmentCompatible(target.environmentId, options)
+    await ensureRuntimeEnvironmentCompatible(target.environmentId, {
+      timeoutMs: options.compatibilityTimeoutMs ?? options.timeoutMs,
+      reuseRecentCompatibilityFailure: options.reuseRecentCompatibilityFailure
+    })
   }
   if (options.signal?.aborted) {
     throw createRuntimeRpcAbortError()

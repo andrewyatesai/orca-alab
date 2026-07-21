@@ -2567,6 +2567,10 @@ export type GlobalSettings = {
   nestWorkspaces: boolean
   workspaceDirHistory?: OrcaWorkspaceLayout[]
   refreshLocalBaseRefOnWorktreeCreate: boolean
+  /** Periodically `git fetch` local repos so ahead/behind counts stay fresh for
+   *  agents (issue #6258). Off by default; failures back off per repo. */
+  autoFetchEnabled?: boolean
+  autoFetchIntervalMinutes?: number
   /** Set once the user dismisses the "local main is behind" suggestion toast, so
    *  the nudge to enable refreshLocalBaseRefOnWorktreeCreate never shows again. */
   localBaseRefSuggestionDismissed: boolean

@@ -28,6 +28,10 @@ type GitSpyTarget = {
   ): Promise<{ stdout: string; stderr: string }>
 }
 
+type RemoteGitSpyTarget = {
+  remoteGit(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }>
+}
+
 function deferredRelayBuffer(content: string): {
   promise: Promise<Buffer>
   resolve: () => void
@@ -930,7 +934,7 @@ describe('GitHandler', () => {
 
       expect(gitMock).toHaveBeenNthCalledWith(
         2,
-        ['restore', '--worktree', '--source=HEAD', '--', ':(literal)docs'],
+        ['restore', '--worktree', '--', ':(literal)docs'],
         tmpDir
       )
     })
@@ -1230,6 +1234,9 @@ describe('GitHandler', () => {
           }
           return { stdout: '', stderr: '' }
         })
+      const remoteGitSpy = vi
+        .spyOn(handler as unknown as RemoteGitSpyTarget, 'remoteGit')
+        .mockResolvedValue({ stdout: '', stderr: '' })
 
       const first = dispatcher.callRequest('git.diff', {
         worktreePath: tmpDir,
@@ -1258,7 +1265,7 @@ describe('GitHandler', () => {
       await Promise.all([first, second])
 
       expect(gitBufferSpy).toHaveBeenCalledTimes(2)
-      expect(gitSpy).toHaveBeenCalledWith(
+      expect(remoteGitSpy).toHaveBeenCalledWith(
         [
           '-c',
           'maintenance.auto=false',
@@ -1271,8 +1278,10 @@ describe('GitHandler', () => {
           'origin',
           '+refs/heads/main:refs/remotes/origin/main'
         ],
-        tmpDir
+        tmpDir,
+        expect.any(Object)
       )
+      expect(gitSpy).toHaveBeenCalledWith(['check-ref-format', 'refs/heads/main'], tmpDir)
     })
 
     it('coalesces concurrent identical git.branchDiff reads while in flight', async () => {
@@ -2430,6 +2439,8 @@ describe('GitHandler', () => {
       expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
         ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main^{commit}'],
         [
+          '-c',
+          'checkout.workers=0',
           'worktree',
           'add',
           '--no-track',
@@ -2469,7 +2480,7 @@ describe('GitHandler', () => {
       })
 
       expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
-        ['worktree', 'add', '/relay/wt', 'feature/test']
+        ['-c', 'checkout.workers=0', 'worktree', 'add', '/relay/wt', 'feature/test']
       ])
     })
 
@@ -2491,7 +2502,7 @@ describe('GitHandler', () => {
 
       expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
         ['rev-parse', '--verify', '--quiet', 'refs/heads/main^{commit}'],
-        ['worktree', 'add', '--no-track', '-b', 'feature/disambig', '/relay/wt', 'refs/heads/main'],
+        ['-c', 'checkout.workers=0', 'worktree', 'add', '--no-track', '-b', 'feature/disambig', '/relay/wt', 'refs/heads/main'],
         ['config', '--local', '--replace-all', 'branch.feature/disambig.base', 'refs/heads/main'],
         ['config', '--get', 'push.autoSetupRemote'],
         ['config', '--local', 'push.autoSetupRemote', 'true']
@@ -2518,6 +2529,8 @@ describe('GitHandler', () => {
         ['rev-parse', '--verify', '--quiet', 'refs/remotes/release/main^{commit}'],
         ['rev-parse', '--verify', '--quiet', 'refs/heads/release/main^{commit}'],
         [
+          '-c',
+          'checkout.workers=0',
           'worktree',
           'add',
           '--no-track',
@@ -2555,10 +2568,12 @@ describe('GitHandler', () => {
       })
 
       expect(gitMock.mock.calls[1]?.[0]).toEqual([
+        '-c',
+        'checkout.workers=0',
         'worktree',
         'add',
-        '--no-track',
         '--no-checkout',
+        '--no-track',
         '-b',
         'feature/sparse',
         '/relay/wt',
@@ -2583,7 +2598,7 @@ describe('GitHandler', () => {
       // No --local set: --get succeeded so we preserve the user's value.
       expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
         ['rev-parse', '--verify', '--quiet', 'refs/heads/main^{commit}'],
-        ['worktree', 'add', '--no-track', '-b', 'feature/preserve', '/relay/wt', 'main'],
+        ['-c', 'checkout.workers=0', 'worktree', 'add', '--no-track', '-b', 'feature/preserve', '/relay/wt', 'main'],
         ['config', '--local', '--replace-all', 'branch.feature/preserve.base', 'main'],
         ['config', '--get', 'push.autoSetupRemote']
       ])
@@ -2606,7 +2621,7 @@ describe('GitHandler', () => {
 
       expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
         ['rev-parse', '--verify', '--quiet', 'refs/heads/main^{commit}'],
-        ['worktree', 'add', '--no-track', '-b', 'feature/empty', '/relay/wt', 'main'],
+        ['-c', 'checkout.workers=0', 'worktree', 'add', '--no-track', '-b', 'feature/empty', '/relay/wt', 'main'],
         ['config', '--local', '--replace-all', 'branch.feature/empty.base', 'main'],
         ['config', '--get', 'push.autoSetupRemote']
       ])
@@ -2633,7 +2648,7 @@ describe('GitHandler', () => {
 
       expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
         ['rev-parse', '--verify', '--quiet', 'refs/heads/main^{commit}'],
-        ['worktree', 'add', '--no-track', '-b', 'feature/corrupt', '/relay/wt', 'main'],
+        ['-c', 'checkout.workers=0', 'worktree', 'add', '--no-track', '-b', 'feature/corrupt', '/relay/wt', 'main'],
         ['config', '--local', '--replace-all', 'branch.feature/corrupt.base', 'main'],
         ['config', '--get', 'push.autoSetupRemote']
       ])
@@ -2687,7 +2702,7 @@ describe('GitHandler', () => {
 
       expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
         ['rev-parse', '--verify', '--quiet', 'refs/heads/main^{commit}'],
-        ['worktree', 'add', '--no-track', '-b', 'feature/fail', '/relay/wt', 'main']
+        ['-c', 'checkout.workers=0', 'worktree', 'add', '--no-track', '-b', 'feature/fail', '/relay/wt', 'main']
       ])
     })
   })

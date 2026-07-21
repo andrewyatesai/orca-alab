@@ -7,6 +7,7 @@ import { gitFetchNative } from './rust-fetch'
 import type { GitPushTarget } from '../../shared/types'
 import type { GitRuntimeOptions } from './git-runtime-options'
 import { gitOptionsForWorktree } from './git-runtime-options'
+import { gitRemoteOperationOptionsForWorktree } from './git-remote-operation-options'
 import { validateGitPushTarget } from './push-target-validation'
 import { gitExecFileAsync } from './runner'
 import { runWithGitReadCacheInvalidation } from './status'
@@ -24,7 +25,7 @@ export async function gitPush(
     // else first-publish origin/HEAD), and run the push. runner.ts still executes
     // the mutating `git push`, so SSH/WSL/env routing is preserved.
     await gitPushNative(
-      (args) => gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options)),
+      (args) => gitExecFileAsync(args, gitRemoteOperationOptionsForWorktree(worktreePath, options)),
       pushTarget,
       options.forceWithLease ?? false
     )
@@ -44,7 +45,7 @@ async function gitPullWithArgs(
       const target = await validateGitPushTarget(worktreePath, pushTarget, options)
       await gitExecFileAsync(
         ['pull', ...effectiveArgs, target.remoteName, target.branchName],
-        gitOptionsForWorktree(worktreePath, options)
+        gitRemoteOperationOptionsForWorktree(worktreePath, options)
       )
       return
     }
@@ -57,12 +58,15 @@ async function gitPullWithArgs(
       // target origin/<branch>. Pull the same effective branch the UI reports.
       await gitExecFileAsync(
         ['pull', ...effectiveArgs, upstream.remoteName, upstream.branchName],
-        gitOptionsForWorktree(worktreePath, options)
+        gitRemoteOperationOptionsForWorktree(worktreePath, options)
       )
       return
     }
 
-    await gitExecFileAsync(['pull', ...effectiveArgs], gitOptionsForWorktree(worktreePath, options))
+    await gitExecFileAsync(
+      ['pull', ...effectiveArgs],
+      gitRemoteOperationOptionsForWorktree(worktreePath, options)
+    )
   }
 
   try {
@@ -107,7 +111,7 @@ export async function gitPullRebaseFromBase(
       // mutating `pull --rebase` — in one call; runner.ts still executes git, so
       // SSH/WSL/env routing is preserved.
       await gitPullRebaseFromBaseNative(
-        (args) => gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options)),
+        (args) => gitExecFileAsync(args, gitRemoteOperationOptionsForWorktree(worktreePath, options)),
         baseRef
       )
     } catch (error) {
@@ -126,7 +130,7 @@ export async function gitFetch(
     // `fetch --prune [<remote>]` — normalizing errors internally; runner.ts still
     // executes the mutating fetch, so SSH/WSL/env routing is preserved.
     await gitFetchNative(
-      (args) => gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options)),
+      (args) => gitExecFileAsync(args, gitRemoteOperationOptionsForWorktree(worktreePath, options)),
       pushTarget
     )
   } catch (error) {

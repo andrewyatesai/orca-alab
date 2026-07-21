@@ -10,6 +10,7 @@
 
 const DIVERGENT_PULL_RECONCILIATION_PATTERN =
   /Need to specify how to reconcile divergent branches|divergent branches and need to specify how to reconcile them/i
+const REMOTE_OPERATION_TIMEOUT_PATTERN = /\btimed out\b/i
 // Why: these args already pin a reconcile strategy; the merge fallback must not override an explicit choice like --ff-only.
 const RECONCILIATION_PULL_ARG_PATTERN =
   /^(--rebase|--no-rebase|--ff-only|--ff|--no-ff|--merge|-r)(=|$)/
@@ -71,3 +72,21 @@ export async function runPullWithDivergenceFallback(
 }
 
 export type GitRemoteOperation = 'push' | 'pull' | 'fetch' | 'upstream'
+
+/** Fixed user-facing message for a runner-enforced remote-operation timeout,
+ *  or null when `error` is not a timeout. Lives at the TS boundary (not the
+ *  Rust orca-text core) because the runner's `<binary> timed out.` text is a
+ *  runner artifact, and every env-specific normalizer wrapper checks it before
+ *  delegating to Rust. The output is fixed text, so no credential scrub is
+ *  needed before matching. */
+export function formatGitRemoteOperationTimeoutMessage(
+  error: unknown,
+  operation?: GitRemoteOperation
+): string | null {
+  if (!operation || !(error instanceof Error) || !REMOTE_OPERATION_TIMEOUT_PATTERN.test(error.message)) {
+    return null
+  }
+  const label =
+    operation === 'upstream' ? 'Remote status' : operation[0].toUpperCase() + operation.slice(1)
+  return `${label} timed out. Check your network connection and Git authentication, then try again.`
+}

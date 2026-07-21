@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  formatGitRemoteOperationTimeoutMessage,
   isDivergentPullReconciliationError,
   MERGE_RECONCILIATION_PULL_ARGS,
   pullArgsSpecifyReconciliation,
@@ -125,5 +126,27 @@ describe('runPullWithDivergenceFallback', () => {
 
     await expect(runPullWithDivergenceFallback([], runPull)).rejects.toBe(otherError)
     expect(runPull).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('formatGitRemoteOperationTimeoutMessage', () => {
+  it('formats runner-enforced timeouts per operation', () => {
+    expect(formatGitRemoteOperationTimeoutMessage(new Error('git timed out.'), 'push')).toBe(
+      'Push timed out. Check your network connection and Git authentication, then try again.'
+    )
+    expect(formatGitRemoteOperationTimeoutMessage(new Error('wsl.exe timed out.'), 'fetch')).toBe(
+      'Fetch timed out. Check your network connection and Git authentication, then try again.'
+    )
+    expect(formatGitRemoteOperationTimeoutMessage(new Error('git timed out.'), 'upstream')).toBe(
+      'Remote status timed out. Check your network connection and Git authentication, then try again.'
+    )
+  })
+
+  it('returns null for non-timeout errors and missing operations', () => {
+    expect(
+      formatGitRemoteOperationTimeoutMessage(new Error('fatal: Authentication failed'), 'push')
+    ).toBeNull()
+    expect(formatGitRemoteOperationTimeoutMessage(new Error('git timed out.'), undefined)).toBeNull()
+    expect(formatGitRemoteOperationTimeoutMessage('git timed out.', 'push')).toBeNull()
   })
 })

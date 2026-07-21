@@ -109,6 +109,9 @@ export const REPO_METHODS: RpcMethod[] = [
     name: 'repo.list',
     params: null,
     handler: (_params, { runtime }) => {
+      // Why: kind is captured at add time; re-detect here so a later `git init`
+      // in a folder project surfaces the Git tab (issue #8125).
+      runtime.promoteFolderReposWithGitRepositories?.()
       runtime.enrichMissingRepoGitRemoteIdentities?.()
       return { repos: runtime.listRepos() }
     }

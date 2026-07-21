@@ -249,6 +249,64 @@ describe('runner execFile timeout handling', () => {
     expect(child.kill).toHaveBeenCalled()
   })
 
+  it('escalates POSIX timed-out command children to SIGKILL when they ignore SIGTERM', async () => {
+    await withPlatform('linux', async () => {
+      const processKill = vi.spyOn(process, 'kill').mockImplementation(() => true)
+      const child = createMockChildProcess(1234)
+      spawnMock.mockReturnValue(child)
+
+      try {
+        const promise = gitExecFileAsync(['fetch', '--prune'], {
+          cwd: '/repo',
+          timeout: 1000,
+          killProcessTree: true
+        })
+        const rejection = expect(promise).rejects.toThrow('git timed out.')
+
+        await vi.advanceTimersByTimeAsync(1000)
+        await rejection
+        expect(processKill).toHaveBeenCalledWith(-1234, 'SIGTERM')
+        expect(spawnMock).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.any(Array),
+          expect.objectContaining({ detached: true })
+        )
+
+        await vi.advanceTimersByTimeAsync(2000)
+        expect(processKill).toHaveBeenCalledWith(-1234, 'SIGKILL')
+      } finally {
+        processKill.mockRestore()
+      }
+    })
+  })
+
+  it('cancels POSIX force-kill escalation when the command tree closes', async () => {
+    await withPlatform('linux', async () => {
+      const processKill = vi.spyOn(process, 'kill').mockImplementation(() => true)
+      const child = createMockChildProcess(1234)
+      spawnMock.mockReturnValue(child)
+
+      try {
+        const promise = gitExecFileAsync(['fetch', '--prune'], {
+          cwd: '/repo',
+          timeout: 1000,
+          killProcessTree: true
+        })
+        const rejection = expect(promise).rejects.toThrow('git timed out.')
+
+        await vi.advanceTimersByTimeAsync(1000)
+        await rejection
+        child.emit('close', null, 'SIGTERM')
+        await vi.advanceTimersByTimeAsync(2000)
+
+        expect(processKill).toHaveBeenCalledTimes(1)
+        expect(processKill).toHaveBeenCalledWith(-1234, 'SIGTERM')
+      } finally {
+        processKill.mockRestore()
+      }
+    })
+  })
+
   it('runs gh non-interactively while preserving explicit env', async () => {
     const child = createMockChildProcess(1234)
     let capturedEnv: NodeJS.ProcessEnv | undefined
@@ -472,7 +530,7 @@ describe('runner execFile timeout handling', () => {
     expect(capturedEnv?.GIT_TERMINAL_PROMPT).toBe('0')
   })
 
-  it('routes git through the selected WSL distro login shell when requested', async () => {
+  it('routes git through the selected WSL distro without a login shell by default', async () => {
     await withPlatform('win32', async () => {
       const child = createMockChildProcess(1234)
       execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
@@ -483,6 +541,34 @@ describe('runner execFile timeout handling', () => {
       await gitExecFileAsync(['status', '--short'], {
         cwd: String.raw`C:\repo`,
         wslDistro: 'Ubuntu'
+      })
+
+      expect(execFileMock).toHaveBeenCalledWith(
+        'wsl.exe',
+        ['-d', 'Ubuntu', '--', 'bash', '-c', expect.any(String)],
+        expect.objectContaining({ cwd: undefined }),
+        expect.any(Function)
+      )
+      const shellCommand = execFileMock.mock.calls[0]?.[1]?.[5] as string
+      expect(shellCommand).toContain('/mnt/c/repo')
+      expect(shellCommand).toContain("'git'")
+      expect(shellCommand).toContain('status')
+      expect(shellCommand).toContain('--short')
+    })
+  })
+
+  it('routes git through the selected WSL distro login shell when requested', async () => {
+    await withPlatform('win32', async () => {
+      const child = createMockChildProcess(1234)
+      execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
+        cb(null, 'ok', '')
+        return child
+      })
+
+      await gitExecFileAsync(['status', '--short'], {
+        cwd: String.raw`C:\repo`,
+        wslDistro: 'Ubuntu',
+        useWslLoginShell: true
       })
 
       expect(execFileMock).toHaveBeenCalledWith(

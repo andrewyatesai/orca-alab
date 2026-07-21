@@ -2060,12 +2060,10 @@ export async function discardChanges(
     }
 
     if (tracked) {
-      await gitExecFileAsync(
-        ['restore', '--worktree', '--source=HEAD', '--', literalPathspec(filePath, options)],
-        {
-          ...gitOptionsForWorktree(worktreePath, options)
-        }
-      )
+      // Why: restore from the index, not HEAD, so a discard keeps staged content.
+      await gitExecFileAsync(['restore', '--worktree', '--', literalPathspec(filePath, options)], {
+        ...gitOptionsForWorktree(worktreePath, options)
+      })
       return
     }
 
@@ -2174,11 +2172,11 @@ export async function bulkDiscardChanges(
       async () => {
         for (let i = 0; i < trackedPaths.length; i += BULK_CHUNK_SIZE) {
           const chunk = trackedPaths.slice(i, i + BULK_CHUNK_SIZE)
+          // Why: restore from the index, not HEAD (see discardChanges).
           await gitExecFileAsync(
             [
               'restore',
               '--worktree',
-              '--source=HEAD',
               '--',
               ...chunk.map((filePath) => literalPathspec(filePath, options))
             ],

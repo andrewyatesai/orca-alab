@@ -4678,7 +4678,6 @@
           "modalDescription": "Instala el skill de Linear desde una terminal.",
           "modalPrompt": "Permite que los Agents lean y editen el issue de Linear adjunto.",
           "dontShowAgain": "No volver a mostrar",
-          "notNow": "Ahora no",
           "missingBoth": "Faltan la CLI de Orca y el skill de Linear para Agents.",
           "missingCli": "Falta la CLI de Orca.",
           "missingSkill": "Falta el skill de Linear para Agents.",

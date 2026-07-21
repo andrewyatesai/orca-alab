@@ -4678,7 +4678,6 @@
           "modalDescription": "从终端安装 Linear 技能。",
           "modalPrompt": "允许智能体读取和编辑已附加的 Linear ticket。",
           "dontShowAgain": "不再显示",
-          "notNow": "暂不",
           "missingBoth": "缺少 Orca CLI 和 Linear 智能体技能。",
           "missingCli": "缺少 Orca CLI。",
           "missingSkill": "缺少 Linear 智能体技能。",

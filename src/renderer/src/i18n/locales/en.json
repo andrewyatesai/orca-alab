@@ -4743,7 +4743,6 @@
           "modalDescription": "Install the Linear skill from a terminal.",
           "modalPrompt": "Enable agents to read and edit the attached Linear ticket.",
           "dontShowAgain": "Don't show again",
-          "notNow": "Not now",
           "missingBoth": "Orca CLI and Linear agent skill are missing.",
           "missingCli": "Orca CLI is missing.",
           "missingSkill": "Linear agent skill is missing.",

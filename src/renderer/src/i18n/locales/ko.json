@@ -4678,7 +4678,6 @@
           "modalDescription": "terminal에서 Linear 스킬을 설치합니다.",
           "modalPrompt": "agents가 첨부된 Linear 티켓을 읽고 편집할 수 있게 합니다.",
           "dontShowAgain": "다시 표시하지 않음",
-          "notNow": "나중에",
           "missingBoth": "Orca CLI와 Linear agent 스킬이 없습니다.",
           "missingCli": "Orca CLI가 없습니다.",
           "missingSkill": "Linear agent 스킬이 없습니다.",

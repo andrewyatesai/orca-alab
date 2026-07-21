@@ -4678,7 +4678,6 @@
           "modalDescription": "terminal から Linear スキルをインストールします。",
           "modalPrompt": "Agents が添付された Linear チケットを読み書きできるようにします。",
           "dontShowAgain": "今後表示しない",
-          "notNow": "後で",
           "missingBoth": "Orca CLI と Linear agent スキルがありません。",
           "missingCli": "Orca CLI がありません。",
           "missingSkill": "Linear agent スキルがありません。",

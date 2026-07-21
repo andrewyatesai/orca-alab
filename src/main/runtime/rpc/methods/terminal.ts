@@ -69,6 +69,9 @@ type SnapshotFrameOptions = {
   source?: 'headless' | 'renderer'
   oscLinks?: TerminalOscLinkRange[]
   pendingEscapeTailAnsi?: string
+  alternateScreen?: boolean
+  // Why: UTF-16 length of the history prefix inside `data`; lets an alt-screen restorer split history from the alt frame (#6106).
+  scrollbackChars?: number
 }
 
 type SerializedSnapshot = {
@@ -83,6 +86,8 @@ type SerializedSnapshot = {
   scrollbackRows: number
   truncatedByByteBudget: boolean
   pendingEscapeTailAnsi?: string
+  alternateScreen?: boolean
+  scrollbackChars?: number
 } | null
 
 type TerminalViewportClient = {
@@ -671,6 +676,7 @@ async function serializeBudgetedRequestedSnapshot(
     ...serialized,
     data: bounded.scrollbackAnsi + serialized.data,
     scrollbackRows: bounded.rows,
+    scrollbackChars: bounded.scrollbackAnsi.length,
     truncatedByByteBudget: bounded.truncatedByByteBudget
   }
 }
@@ -694,7 +700,9 @@ function sendSnapshotFrames(
       oscLinks: options.oscLinks,
       pendingEscapeTailAnsi: options.pendingEscapeTailAnsi,
       truncated: options.truncated === true,
-      truncatedByByteBudget: options.truncatedByByteBudget === true
+      truncatedByByteBudget: options.truncatedByByteBudget === true,
+      alternateScreen: options.alternateScreen,
+      scrollbackChars: options.scrollbackChars
     })
   )
   let chunks = 0
@@ -720,6 +728,7 @@ async function serializeBudgetedMobileSnapshot(
           ...serialized,
           data: (serialized.scrollbackAnsi ?? '') + serialized.data,
           scrollbackRows: 0,
+          scrollbackChars: (serialized.scrollbackAnsi ?? '').length,
           truncatedByByteBudget: false
         }
       : null
@@ -741,6 +750,7 @@ async function serializeBudgetedMobileSnapshot(
     ...serialized,
     data: bounded.scrollbackAnsi + serialized.data,
     scrollbackRows: bounded.rows,
+    scrollbackChars: bounded.scrollbackAnsi.length,
     truncatedByByteBudget: bounded.truncatedByByteBudget
   }
 }
@@ -1679,6 +1689,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             source: serialized?.source,
             truncated: !serialized,
             truncatedByByteBudget: serialized?.truncatedByByteBudget,
+            alternateScreen: serialized?.alternateScreen,
+            scrollbackChars: serialized?.scrollbackChars,
             data: serialized?.data ?? ''
           })
           if (serialized && typeof serialized.seq === 'number') {
@@ -2010,6 +2022,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             pendingEscapeTailAnsi: serialized?.pendingEscapeTailAnsi,
             truncated: false,
             truncatedByByteBudget: serialized?.truncatedByByteBudget,
+            alternateScreen: serialized?.alternateScreen,
+            scrollbackChars: serialized?.scrollbackChars,
             data: serialized?.data ?? ''
           })
         } catch (error) {

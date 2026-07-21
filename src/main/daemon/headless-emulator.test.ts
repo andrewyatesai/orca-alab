@@ -586,12 +586,17 @@ describe('HeadlessEmulator', () => {
       expect(snapshot.rehydrateSequences).toContain('\x1b[?2004h')
     })
 
-    it('generates empty rehydration when all modes are default', async () => {
+    it('emits only explicit mouse-mode disarms when all modes are default', async () => {
       emulator = new HeadlessEmulator({ cols: 80, rows: 24 })
       await emulator.write('just plain text')
 
+      // Why not empty (#8335): rehydration replays into LIVE renderer engines
+      // on hidden-pane restore, so default modes must actively disarm any
+      // stale renderer-side mouse arm instead of leaving it in place.
       const snapshot = emulator.getSnapshot()
-      expect(snapshot.rehydrateSequences).toBe('')
+      expect(snapshot.rehydrateSequences).toBe(
+        '\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1016l'
+      )
     })
 
     it('rehydrates mouse reporting after alternate screen activation', async () => {

@@ -31,6 +31,11 @@ export function selectAtermEngineKeyEncoder(term: AtermTerminal): AtermEngineKey
 
 const HOST_KEY_BYTES_DECODER = new TextDecoder()
 
+// Why: IBus/macOS IMEs can restore the just-committed string as a plain
+// insertText within a few ms of compositionend (upstream #9235); one identical
+// echo inside this window is absorbed so a commit is never double-sent.
+export const ATERM_IME_DUPLICATE_COMMIT_ABSORB_WINDOW_MS = 50
+
 /** Encode a host-synthesized key PRESS (window-level shortcut policy 'encodeKey'
  *  actions — e.g. Cmd+Backspace / Option+B routed to a kitty/modifyOtherKeys
  *  pane) through the pane's engine, honoring the live keyboard mode so the
@@ -131,6 +136,12 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
   // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
   const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
   let composing = false
+  // Commit a non-composing insertText already forwarded while `composing` was
+  // still set (macOS Telex commits can outrun compositionend, #6698); the
+  // trailing compositionend must not re-send this string.
+  let commitForwardedBeforeCompositionEnd: string | null = null
+  // The just-committed string + deadline for absorbing one IME echo of it.
+  let duplicateCommitAbsorb: { data: string; until: number } | null = null
   const effectsTerm = term as AtermTerminal & {
     note_keystroke?: () => void
     note_matrix_rain_alt_scroll?: () => void
@@ -223,6 +234,9 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     if (event.isComposing || composing) {
       return
     }
+    // A real key press cycle precedes any user-typed insertText, so an
+    // identical string after this keydown is the user's input, not an IME echo.
+    duplicateCommitAbsorb = null
     // The copy chord runs BEFORE the consumer hook: the hook's clipboard-bypass
     // rules assume the host copy pipeline owns those chords, and under aterm
     // that pipeline IS this chord (canvas selections have no DOM selection for
@@ -325,6 +339,21 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     // fired while composing (local flag OR event.isComposing) so a composed run
     // isn't sent twice char-by-char.
     if (!isPasteInsert && (composing || inputEvent.isComposing)) {
+      // Why: macOS Telex delivers the committed syllable as a NON-composing
+      // insertText that can outrun compositionend (#6698); dropping it loses
+      // the syllable ("chinhs" → "ch"), so forward it and let the trailing
+      // compositionend dedupe against it.
+      if (
+        composing &&
+        inputEvent.isComposing === false &&
+        inputEvent.inputType === 'insertText' &&
+        inputEvent.data
+      ) {
+        commitForwardedBeforeCompositionEnd = inputEvent.data
+        noteEffectsKeystroke()
+        inputSink(inputEvent.data)
+        textarea.value = ''
+      }
       return
     }
     // For insertText/insertFromPaste InputEvent.data carries the inserted text.
@@ -339,6 +368,19 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
       if (isPasteInsert) {
         pasteSink(data)
       } else {
+        // One identical insertText right after a composition commit is the IME
+        // restoring its own commit (IBus Hangul); absorb it exactly once.
+        if (
+          duplicateCommitAbsorb !== null &&
+          inputEvent.inputType === 'insertText' &&
+          data === duplicateCommitAbsorb.data &&
+          Date.now() <= duplicateCommitAbsorb.until
+        ) {
+          duplicateCommitAbsorb = null
+          textarea.value = ''
+          return
+        }
+        duplicateCommitAbsorb = null
         noteEffectsKeystroke()
         // Predictive echo: track each typed printable as a speculative ghost (the
         // engine declines non-printables/wraps itself). Skipped for paste (bulk,
@@ -369,10 +411,17 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
   }
   const onCompositionEnd = (event: CompositionEvent): void => {
     composing = false
-    // Committed text sends exactly once, here (a cancel delivers empty data).
-    if (event.data) {
+    const alreadyForwarded = commitForwardedBeforeCompositionEnd
+    commitForwardedBeforeCompositionEnd = null
+    // Committed text sends exactly once, here (a cancel delivers empty data; a
+    // commit an early insertText already forwarded must not send again).
+    if (event.data && event.data !== alreadyForwarded) {
       noteEffectsKeystroke()
       inputSink(event.data)
+      duplicateCommitAbsorb = {
+        data: event.data,
+        until: Date.now() + ATERM_IME_DUPLICATE_COMMIT_ABSORB_WINDOW_MS
+      }
     }
     textarea.value = ''
     compositionView.end()

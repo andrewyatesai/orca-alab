@@ -53,18 +53,28 @@ export type RemoteRuntimeMultiplexedTerminalCallbacks = {
   onTransportClose?: () => void
 }
 
+export type RemoteRuntimeSerializedBufferSnapshot = {
+  data: string
+  cols: number
+  rows: number
+  seq?: number
+  source?: 'headless' | 'renderer'
+  pendingEscapeTailAnsi?: string
+  /** The snapshot captures an alternate-screen TUI; restore must not wipe the
+   *  normal buffer's scrollback (#6106). */
+  alternateScreen?: boolean
+  /** UTF-16 length of the normal-buffer history prefix inside `data` (#6106). */
+  scrollbackChars?: number
+}
+
 export type RemoteRuntimeMultiplexedTerminal = {
   streamId: number
   sendInput: (text: string) => boolean
   resize: (cols: number, rows: number) => boolean
   claimViewport: (cols: number, rows: number) => boolean
-  serializeBuffer: (opts?: { scrollbackRows?: number }) => Promise<{
-    data: string
-    cols: number
-    rows: number
-    seq?: number
-    source?: 'headless' | 'renderer'
-  } | null>
+  serializeBuffer: (opts?: {
+    scrollbackRows?: number
+  }) => Promise<RemoteRuntimeSerializedBufferSnapshot | null>
   close: () => void
 }
 
@@ -101,20 +111,13 @@ type RemoteRuntimeSnapshotInfo = {
   // must write it AFTER the replay reset so the next live chunk completes it
   // instead of rendering literally (#7329).
   pendingEscapeTailAnsi?: string
+  alternateScreen?: boolean
+  scrollbackChars?: number
 }
 
 type RemoteRuntimeSnapshotRequest = {
   requestId: number
-  resolve: (
-    snapshot: {
-      data: string
-      cols: number
-      rows: number
-      seq?: number
-      source?: 'headless' | 'renderer'
-      pendingEscapeTailAnsi?: string
-    } | null
-  ) => void
+  resolve: (snapshot: RemoteRuntimeSerializedBufferSnapshot | null) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
 }
@@ -551,7 +554,9 @@ class RemoteRuntimeTerminalMultiplexer {
             rows: info?.rows ?? 24,
             seq: info?.seq,
             source: info?.source,
-            pendingEscapeTailAnsi: info?.pendingEscapeTailAnsi
+            pendingEscapeTailAnsi: info?.pendingEscapeTailAnsi,
+            alternateScreen: info?.alternateScreen,
+            scrollbackChars: info?.scrollbackChars
           })
           clearPendingSnapshotRequest(stream)
         } else if (target === 'initial') {
@@ -660,13 +665,7 @@ class RemoteRuntimeTerminalMultiplexer {
   private requestSnapshot(
     stream: RemoteRuntimeMultiplexedTerminalState,
     opts?: { scrollbackRows?: number }
-  ): Promise<{
-    data: string
-    cols: number
-    rows: number
-    seq?: number
-    source?: 'headless' | 'renderer'
-  } | null> {
+  ): Promise<RemoteRuntimeSerializedBufferSnapshot | null> {
     if (this.streams.get(stream.streamId) !== stream || !this.ready || !this.subscription) {
       return Promise.resolve(null)
     }
@@ -892,6 +891,8 @@ function decodeSnapshotInfo(
     requestId?: unknown
     truncated?: unknown
     pendingEscapeTailAnsi?: unknown
+    alternateScreen?: unknown
+    scrollbackChars?: unknown
   }>(payload)
   if (!raw) {
     return null
@@ -904,7 +905,14 @@ function decodeSnapshotInfo(
     requestId: typeof raw.requestId === 'number' ? raw.requestId : undefined,
     truncated: raw.truncated === true,
     pendingEscapeTailAnsi:
-      typeof raw.pendingEscapeTailAnsi === 'string' ? raw.pendingEscapeTailAnsi : undefined
+      typeof raw.pendingEscapeTailAnsi === 'string' ? raw.pendingEscapeTailAnsi : undefined,
+    alternateScreen: typeof raw.alternateScreen === 'boolean' ? raw.alternateScreen : undefined,
+    scrollbackChars:
+      typeof raw.scrollbackChars === 'number' &&
+      Number.isSafeInteger(raw.scrollbackChars) &&
+      raw.scrollbackChars >= 0
+        ? raw.scrollbackChars
+        : undefined
   }
 }
 

@@ -222,6 +222,58 @@ describe('getRelayShellLaunchConfig', () => {
     }
   )
 
+  it.skipIf(process.platform === 'win32')(
+    'strips and prepends the remote CLI bin dir in every wrapper',
+    () => {
+      getRelayShellLaunchConfig('/bin/zsh', {
+        HOME: homeDir,
+        ORCA_REMOTE_CLI_BIN_DIR: '/tmp/orca-cli-bin'
+      })
+      getRelayShellLaunchConfig('/bin/bash', { HOME: homeDir })
+      const root = join(homeDir, '.orca-relay', 'shell-ready')
+      for (const file of [
+        join(root, 'zsh', '.zshrc'),
+        join(root, 'zsh', '.zlogin'),
+        join(root, 'bash', 'rcfile')
+      ]) {
+        const content = readFileSync(file, 'utf8')
+        expect(content).toContain(
+          'while [[ "$__orca_cli_path" == *:"${ORCA_REMOTE_CLI_BIN_DIR}":* ]]; do'
+        )
+        expect(content).toContain(
+          'export PATH="${ORCA_REMOTE_CLI_BIN_DIR}${__orca_cli_path:+:$__orca_cli_path}"'
+        )
+      }
+    }
+  )
+
+  itWithBash('forces the remote CLI bin dir to the front of PATH when already mid-PATH', () => {
+    const cliBinDir = join(homeDir, 'orca-cli-bin')
+    const config = getRelayShellLaunchConfig('/bin/bash', {
+      HOME: homeDir,
+      ORCA_REMOTE_CLI_BIN_DIR: cliBinDir
+    })
+    const result = spawnSync('bash', ['--noprofile', '--rcfile', config.args[1] as string, '-i'], {
+      input: 'printf "ORCA_TEST_PATH=%s\\n" "$PATH"\nexit 0\n',
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: homeDir,
+        TERM: process.env.TERM || 'xterm',
+        ORCA_REMOTE_CLI_BIN_DIR: cliBinDir,
+        PATH: `/usr/bin:${cliBinDir}:/bin`
+      },
+      timeout: 5000
+    })
+
+    expect(result.error).toBeUndefined()
+    const pathLine = /ORCA_TEST_PATH=([^\n]*)/.exec(result.stdout ?? '')
+    expect(pathLine).not.toBeNull()
+    const entries = (pathLine as RegExpExecArray)[1].split(':')
+    expect(entries[0]).toBe(cliBinDir)
+    expect(entries.filter((entry) => entry === cliBinDir)).toHaveLength(1)
+  })
+
   itWithBash('runs the relay bash wrapper without fake C/D markers before the first prompt', () => {
     const config = getRelayShellLaunchConfig('/bin/bash', { HOME: homeDir })
     const output = runInteractiveBashRcfile(config.args[1] as string, homeDir)

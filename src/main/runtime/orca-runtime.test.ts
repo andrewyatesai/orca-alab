@@ -6398,6 +6398,74 @@ describe('OrcaRuntimeService', () => {
     }
   })
 
+  // Why: ephemeral VM setup-on-host must work for non-GitHub providers too —
+  // GitLab/Bitbucket projects have no `providerIdentity`, only a canonical git
+  // remote identity (#6712).
+  it('links an existing folder to a GitLab project via git remote identity', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'orca-runtime-project-gitlab-'))
+    const gitRemoteIdentity = {
+      canonicalKey: 'gitlab.com/acme/widgets',
+      remoteName: 'origin',
+      remoteUrl: 'https://gitlab.com/acme/widgets.git'
+    }
+    const repos: Record<string, unknown>[] = [
+      {
+        id: 'repo-gitlab-1',
+        path: '/tmp/gitlab-widgets',
+        displayName: 'widgets',
+        badgeColor: 'blue',
+        addedAt: 1,
+        kind: 'git',
+        gitRemoteIdentity
+      }
+    ]
+    getRepoUpstreamMock.mockResolvedValue(null)
+    const runtimeStore = {
+      ...store,
+      getRepos: () => [...repos] as never,
+      addRepo: (repo: Record<string, unknown>) => {
+        repos.push(repo)
+      },
+      getRepo: (id: string) => repos.find((repo) => repo.id === id) as never,
+      updateRepo: (id: string, updates: Record<string, unknown>) => {
+        const index = repos.findIndex((repo) => repo.id === id)
+        if (index === -1) {
+          return null
+        }
+        repos[index] = { ...repos[index], ...updates }
+        return repos[index] as never
+      },
+      getProjects: () => projectHostSetupProjectionFromRepos(repos as never).projects as never,
+      getProjectHostSetups: () =>
+        projectHostSetupProjectionFromRepos(repos as never).setups as never
+    }
+    const runtime = new OrcaRuntimeService(runtimeStore as never)
+
+    try {
+      execFileSync('git', ['init'], { cwd: tempRoot, stdio: 'ignore' })
+      const result = await runtime.setupProjectExistingFolder({
+        projectId: 'git:gitlab.com/acme/widgets',
+        hostId: 'runtime:env-1',
+        path: tempRoot,
+        kind: 'git',
+        setupMethod: 'imported-existing-folder'
+      })
+
+      expect(result.project.id).toBe('git:gitlab.com/acme/widgets')
+      expect(result.repo).toMatchObject({
+        path: tempRoot,
+        gitRemoteIdentity,
+        projectHostSetupMethod: 'imported-existing-folder'
+      })
+      expect(result.setup).toMatchObject({
+        projectId: 'git:gitlab.com/acme/widgets',
+        path: tempRoot
+      })
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
   it('keeps path-only runtime addRepo reuse working when a host-qualified repo already exists', async () => {
     const repos: Record<string, unknown>[] = [
       {

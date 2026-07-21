@@ -2282,7 +2282,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     try {
       const ownerState = get()
       const requestStartedWorktrees = ownerState.worktreesByRepo[repoId]
-      const hostId = repoHostId(ownerState, repoId)
+      // Why: events from a non-focused host pass ownerHostId so a duplicate repo id refreshes that host's rows, not the focused host's.
+      const hostId = repoHostId(ownerState, repoId, options?.ownerHostId)
       const ownerWasMissingAtStart = !ownerState.repos.some((repo) => repo.id === repoId)
       const setup = getProjectHostSetupForRepoHost(ownerState, repoId, hostId)
       const settings = settingsForRepoOwner(ownerState, repoId, hostId)

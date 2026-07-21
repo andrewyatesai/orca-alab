@@ -84,7 +84,10 @@ import { getCohortAtEmit } from '../telemetry/cohort-classifier'
 import type { RepoMethod } from '../../shared/telemetry-events'
 import { detectRepoIconAndUpstream } from '../repo-icon-autodetect'
 import { enrichMissingRepoGitRemoteIdentities } from '../repo-git-remote-identity-enrichment'
-import { getProjectHostSetupForRepo } from '../../shared/project-host-setup-projection'
+import {
+  getProjectHostSetupForRepo,
+  getProjectIdentityRepoStamp
+} from '../../shared/project-host-setup-projection'
 import {
   getRepoExecutionHostId,
   normalizeExecutionHostId,
@@ -136,16 +139,12 @@ function alignRepoWithRequestedProject(
   let setup = getProjectHostSetupForRepo(store.getProjectHostSetups(), repo)
   if (setup.projectId !== projectId) {
     const project = store.getProjects().find((entry) => entry.id === projectId)
-    if (!project?.providerIdentity || project.providerIdentity.provider !== 'github') {
+    const identityStamp = getProjectIdentityRepoStamp(project)
+    if (!identityStamp) {
       throw new Error('Imported folder does not match the selected project identity.')
     }
     // Why: stamp the selected project's provider identity when the folder lacks upstream, so projection can merge it.
-    const updated = store.updateRepo(repo.id, {
-      upstream: {
-        owner: project.providerIdentity.owner,
-        repo: project.providerIdentity.repo
-      }
-    })
+    const updated = store.updateRepo(repo.id, identityStamp)
     if (!updated) {
       throw new Error(`Project setup repo disappeared before it could be linked: ${repo.id}`)
     }
@@ -718,6 +717,18 @@ const ProjectHostSetupCreateIpcArgs = z.object({
 
 const ProjectHostSetupUpdateIpcArgs = z.object({
   setupId: z.string().min(1),
+  hostId: z
+    .string()
+    .min(1)
+    .transform((value, ctx) => {
+      const hostId = normalizeExecutionHostId(value)
+      if (!hostId) {
+        ctx.addIssue({ code: 'custom', message: 'Invalid host ID' })
+        return z.NEVER
+      }
+      return hostId
+    })
+    .optional(),
   updates: z.object({
     displayName: z.string().optional(),
     path: z.string().optional(),
@@ -732,7 +743,19 @@ const ProjectHostSetupUpdateIpcArgs = z.object({
 })
 
 const ProjectHostSetupDeleteIpcArgs = z.object({
-  setupId: z.string().min(1)
+  setupId: z.string().min(1),
+  hostId: z
+    .string()
+    .min(1)
+    .transform((value, ctx) => {
+      const hostId = normalizeExecutionHostId(value)
+      if (!hostId) {
+        ctx.addIssue({ code: 'custom', message: 'Invalid host ID' })
+        return z.NEVER
+      }
+      return hostId
+    })
+    .optional()
 })
 
 const FolderWorkspaceLinkedTaskArgs = z

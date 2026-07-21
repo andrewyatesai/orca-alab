@@ -188,6 +188,7 @@ export type ProjectHostSetupCloneArgs = {
 
 export type ProjectHostSetupUpdateArgs = {
   setupId: string
+  hostId?: ExecutionHostId
   updates: Partial<
     Pick<
       ProjectHostSetup,
@@ -204,6 +205,7 @@ export type ProjectHostSetupUpdateArgs = {
 
 export type ProjectHostSetupDeleteArgs = {
   setupId: string
+  hostId?: ExecutionHostId
 }
 
 export type ProjectHostSetupResult = {

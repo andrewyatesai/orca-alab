@@ -201,6 +201,34 @@ describe('project-host workspace target resolution', () => {
     })
   })
 
+  it('resolves an explicit same-id setup on the requested host', () => {
+    const repos = [
+      makeRepo('orca-local'),
+      makeRepo('orca-runtime', { executionHostId: 'runtime:gpu' })
+    ]
+    const projects = [makeProject('github:stablyai/orca', ['orca-local', 'orca-runtime'])]
+    const projectHostSetups = [
+      makeSetup('shared-setup', 'github:stablyai/orca', 'local', 'orca-local'),
+      makeSetup('shared-setup', 'github:stablyai/orca', 'runtime:gpu', 'orca-runtime')
+    ]
+
+    expect(
+      resolveWorkspaceCreationTarget({
+        eligibleRepos: repos,
+        projects,
+        projectHostSetups,
+        projectHostSetupId: 'shared-setup',
+        hostId: 'runtime:gpu'
+      })
+    ).toMatchObject({
+      status: 'ready',
+      target: {
+        hostId: 'runtime:gpu',
+        repoId: 'orca-runtime'
+      }
+    })
+  })
+
   // Regression: selecting a project in the new-workspace dropdown must not be
   // pinned to the host of the currently-active workspace. Each project below is
   // set up on exactly one (different) host; picking the other project while the

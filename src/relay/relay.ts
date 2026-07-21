@@ -11,7 +11,7 @@
 import { createServer, createConnection, type Socket, type Server } from 'node:net'
 import { homedir } from 'node:os'
 import { resolve, join } from 'node:path'
-import { unlinkSync, existsSync, statSync } from 'node:fs'
+import { unlinkSync, existsSync, statSync, writeFileSync } from 'node:fs'
 import {
   RELAY_SENTINEL,
   FrameDecoder,
@@ -320,6 +320,7 @@ async function main(): Promise<void> {
 
   let ownsSocketPath = false
   let ownedSocketIdentity: SocketIdentity | null = null
+  const pidFile = `${sockPath}.pid`
   const ownsCurrentSocketPath = (): boolean => {
     if (isWindowsNamedPipePath(sockPath)) {
       return ownsSocketPath
@@ -335,6 +336,13 @@ async function main(): Promise<void> {
   const cleanupOwnedSocket = (): void => {
     if (ownsCurrentSocketPath()) {
       cleanupSocket(sockPath)
+      if (!isWindowsNamedPipePath(sockPath)) {
+        try {
+          unlinkSync(pidFile)
+        } catch {
+          // Best effort: the pidfile may already be gone after a stale cleanup.
+        }
+      }
     }
     ownsSocketPath = false
     ownedSocketIdentity = null
@@ -730,6 +738,21 @@ async function main(): Promise<void> {
         restoreUmask()
         ownsSocketPath = true
         ownedSocketIdentity = readSocketIdentity(sockPath)
+        if (detached && !isWindowsNamedPipePath(sockPath)) {
+          try {
+            writeFileSync(pidFile, `${process.pid}\n`)
+          } catch (err) {
+            const pidWriteErr = err instanceof Error ? err : new Error(String(err))
+            relayLogLine(
+              `[relay] Socket server error before ready: failed to write pidfile ${pidFile}: ${pidWriteErr.message}`
+            )
+            server.close(() => {
+              cleanupOwnedSocket()
+              reject(pidWriteErr as NodeJS.ErrnoException)
+            })
+            return
+          }
+        }
         server.on('error', (err) => {
           relayLogLine(`[relay] Socket server error: ${err.message}`)
         })
@@ -913,10 +936,12 @@ async function main(): Promise<void> {
         gitHandler.dispose()
         hookServer.stop()
         // Why: server.close() unlinks the listen path; skip if a newer relay rebound it, else we strand that newer daemon.
-        if (socketServer && ownsCurrentSocketPath()) {
+        // Why: cleanup must precede close() — close() can unlink the path first, breaking the ownership check and leaking the pidfile.
+        const ownedSocketAtShutdown = ownsCurrentSocketPath()
+        cleanupOwnedSocket()
+        if (socketServer && ownedSocketAtShutdown) {
           socketServer.close()
         }
-        cleanupOwnedSocket()
         process.exit(0)
       })
       .catch((error) => {

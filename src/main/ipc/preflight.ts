@@ -1,4 +1,10 @@
 import { ipcMain } from 'electron'
+import type { Store } from '../persistence'
+import {
+  checkPreflightViaRemoteRuntime,
+  detectAgentsViaRemoteRuntime,
+  refreshAgentsViaRemoteRuntime
+} from './preflight-remote-runtime'
 import type { PathSource, ShellHydrationFailureReason } from '../../shared/types'
 import { hydrateShellPath, mergePathSegments } from '../startup/hydrate-shell-path'
 import { getAzureDevOpsAuthStatus } from '../azure-devops/client'
@@ -273,22 +279,34 @@ export async function runPreflightCheck(
   return result
 }
 
-export function registerPreflightHandlers(): void {
+export function registerPreflightHandlers(store: Store): void {
   ipcMain.handle(
     'preflight:check',
     async (
       _event,
       args?: PreflightRuntimeContext & { force?: boolean }
     ): Promise<PreflightStatus> => {
+      const environmentId = store.getSettings().activeRuntimeEnvironmentId?.trim()
+      if (environmentId) {
+        return checkPreflightViaRemoteRuntime(environmentId, args?.force)
+      }
       return runPreflightCheck(args?.force, args)
     }
   )
 
-  ipcMain.handle('preflight:detectAgents', async (_event, args?: PreflightRuntimeContext) =>
-    detectInstalledAgentsWithShellPathHydration(args)
-  )
+  ipcMain.handle('preflight:detectAgents', async (_event, args?: PreflightRuntimeContext) => {
+    const environmentId = store.getSettings().activeRuntimeEnvironmentId?.trim()
+    if (environmentId) {
+      return detectAgentsViaRemoteRuntime(environmentId)
+    }
+    return detectInstalledAgentsWithShellPathHydration(args)
+  })
 
   ipcMain.handle('preflight:refreshAgents', async (_event, args?: PreflightRuntimeContext) => {
+    const environmentId = store.getSettings().activeRuntimeEnvironmentId?.trim()
+    if (environmentId) {
+      return refreshAgentsViaRemoteRuntime(environmentId)
+    }
     return refreshShellPathAndDetectAgents(args)
   })
 

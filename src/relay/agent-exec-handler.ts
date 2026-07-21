@@ -1,9 +1,10 @@
 import { exec, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import type { RelayDispatcher, RequestContext } from './dispatcher'
 import { applyTerminalGitCredentialPromptGuard } from '../shared/terminal-git-credential-guard'
 import { mergeGitConfigEnvProtocol } from '../shared/git-credential-prompt-env'
+import { resolveDefaultShell } from './pty-shell-utils'
 
 const DEFAULT_TIMEOUT_MS = 60_000
 const MAX_TIMEOUT_MS = 5 * 60 * 1000
@@ -66,6 +67,29 @@ function getWindowsSafeSpawn(
   return { spawnCmd: getCmdExePath(), spawnArgs: ['/d', '/s', '/c', commandLine] }
 }
 
+function getSpawnPlan(
+  binary: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  useShell: boolean
+): { spawnCmd: string; spawnArgs: string[] } {
+  if (process.platform === 'win32' || !useShell) {
+    return getWindowsSafeSpawn(binary, args, env)
+  }
+  const shell = resolveDefaultShell()
+  const shellName = basename(shell).toLowerCase()
+  if (shellName !== 'bash' && shellName !== 'zsh') {
+    return { spawnCmd: binary, spawnArgs: args }
+  }
+  // Why: SSH relay processes are launched by a non-interactive SSH command,
+  // whose PATH often lacks nvm/fnm/Homebrew agent installs. Remote agent
+  // generation should resolve commands like the user's Orca terminal shell.
+  return {
+    spawnCmd: shell,
+    spawnArgs: ['-ilc', 'exec "$@"', '_', binary, ...args]
+  }
+}
+
 // Why: mirrors src/main/text-generation/commit-message-text-generation.ts. On
 // Windows, npm-installed CLIs like `claude`/`codex` are usually `.cmd` shims.
 // We route those through cmd.exe so Node can launch them, and taskkill is
@@ -97,6 +121,7 @@ type ExecParams = {
   timeoutMs: unknown
   env: unknown
   operation: unknown
+  shell: unknown
 }
 
 type CancelParams = {
@@ -180,11 +205,12 @@ export class AgentExecHandler {
       isUnattended: true,
       platform: process.platform
     })
+    const useShell = params.shell === true
 
     return new Promise<ExecResult>((resolve) => {
       let child
       try {
-        const { spawnCmd, spawnArgs } = getWindowsSafeSpawn(binary, args, spawnEnv)
+        const { spawnCmd, spawnArgs } = getSpawnPlan(binary, args, spawnEnv, useShell)
         child = spawn(spawnCmd, spawnArgs, {
           cwd,
           env: spawnEnv,

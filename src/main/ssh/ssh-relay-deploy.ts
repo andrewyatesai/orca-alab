@@ -66,6 +66,10 @@ import {
   MIN_SSH_RELAY_GRACE_PERIOD_SECONDS
 } from '../../shared/ssh-types'
 
+function escapePosixExtendedRegex(value: string): string {
+  return value.replace(/[.[\]{}()*+?^$|\\]/g, '\\$&')
+}
+
 export type RelayDeployResult = {
   transport: MultiplexerTransport
   platform: RelayPlatform
@@ -1069,14 +1073,39 @@ async function launchRelay(
           '[ssh-relay] Socket reconnect failed, launching fresh relay:',
           err instanceof Error ? err.message : String(err)
         )
-        // Why: stale socket from a crashed relay — remove it so the fresh launch can bind at the same path.
-        await execCommand(conn, `rm -f ${shellEscape(sockFile)}`, { signal }).catch(
-          (cleanupErr) => {
-            if (isUnconfirmedSshCommandTermination(cleanupErr)) {
-              throw cleanupErr
-            }
+        // Why: unlinking a Unix socket does not stop the detached relay that owns it — reap that process before rebinding the path.
+        const pidFile = `${sockFile}.pid`
+        const swallowUnlessUnconfirmed = (cleanupErr: unknown): string => {
+          if (isUnconfirmedSshCommandTermination(cleanupErr)) {
+            throw cleanupErr
           }
-        )
+          return ''
+        }
+        const pidOutput = await execCommand(conn, `cat ${shellEscape(pidFile)} 2>/dev/null`, {
+          signal
+        }).catch(swallowUnlessUnconfirmed)
+        const pid = pidOutput.trim()
+        if (/^[1-9]\d*$/.test(pid)) {
+          const relayCommandMarker = 'ORCA_RELAY_PID_MATCH'
+          const relayScriptPattern = '(^|[[:space:]])relay\\.js([[:space:]]|$)'
+          const sockPathPattern =
+            `(^|[[:space:]])--sock-path[[:space:]]+` +
+            `${escapePosixExtendedRegex(sockFile)}([[:space:]]|$)`
+          const commandLine = await execCommand(
+            conn,
+            `cmd="$(ps -ww -p ${pid} -o command= 2>/dev/null)" && ` +
+              `printf '%s\\n' "$cmd" | grep -Eq -- ${shellEscape(relayScriptPattern)} && ` +
+              `printf '%s\\n' "$cmd" | grep -Eq -- ${shellEscape(sockPathPattern)} ` +
+              `>/dev/null && echo ${relayCommandMarker} || true`,
+            { signal }
+          ).catch(swallowUnlessUnconfirmed)
+          if (commandLine.trim() === relayCommandMarker) {
+            await execCommand(conn, `kill -TERM ${pid}`, { signal }).catch(swallowUnlessUnconfirmed)
+          }
+        }
+        await execCommand(conn, `rm -f ${shellEscape(sockFile)} ${shellEscape(pidFile)}`, {
+          signal
+        }).catch(swallowUnlessUnconfirmed)
         signal?.throwIfAborted()
       }
     }

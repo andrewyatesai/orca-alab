@@ -87,7 +87,8 @@ export function RepositoryHostSetupsSection({
     hostOptions
   })
   const hostOptionById = new Map(hostOptions.map((option) => [option.id, option]))
-  const [deletingSetupId, setDeletingSetupId] = useState<string | null>(null)
+  // Why: setup ids can repeat across hosts; key the pending delete by host+id so a sibling host's row stays removable.
+  const [deletingSetupKey, setDeletingSetupKey] = useState<string | null>(null)
   const projectId = selectedProjectHostSetup?.projectId
   // Why: the single project pane switches host in place — set the ephemeral
   // per-project selection instead of navigating to a separate repo section.
@@ -160,8 +161,9 @@ export function RepositoryHostSetupsSection({
       <div className="divide-y divide-border rounded-md border border-border">
         {projectHostSetups.map((setup) => {
           const isCurrentSetup = setup.hostId === selectedHostId
+          const setupKey = `${setup.hostId}\0${setup.id}`
           const canOpenSetup = setup.repoId.trim().length > 0
-          const canRemoveSetup = !canOpenSetup && deletingSetupId !== setup.id
+          const canRemoveSetup = !canOpenSetup && deletingSetupKey !== setupKey
           return (
             <div
               key={setup.hostId}
@@ -210,9 +212,9 @@ export function RepositoryHostSetupsSection({
                   variant="outline"
                   size="sm"
                   onClick={async () => {
-                    setDeletingSetupId(setup.id)
-                    await deleteProjectHostSetup({ setupId: setup.id })
-                    setDeletingSetupId(null)
+                    setDeletingSetupKey(setupKey)
+                    await deleteProjectHostSetup({ setupId: setup.id, hostId: setup.hostId })
+                    setDeletingSetupKey(null)
                   }}
                 >
                   {translate('auto.components.settings.RepositoryPane.removeSetup', 'Remove')}

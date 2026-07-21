@@ -77,6 +77,7 @@ import {
   getRepoExecutionHostId,
   isRuntimeOwnedSshTargetId,
   LOCAL_EXECUTION_HOST_ID,
+  normalizeExecutionHostId,
   parseExecutionHostId,
   toRuntimeExecutionHostId,
   toSshExecutionHostId,
@@ -247,6 +248,24 @@ function getProjectSetupRuntimeTarget(
   return parsedHost?.kind === 'runtime'
     ? { kind: 'environment', environmentId: parsedHost.environmentId }
     : { kind: 'local' }
+}
+
+function findProjectHostSetupByMutationArgs(
+  setups: readonly ProjectHostSetup[],
+  args: Pick<ProjectHostSetupUpdateArgs, 'setupId' | 'hostId'>
+): ProjectHostSetup | undefined {
+  if (args.hostId === undefined) {
+    return setups.find((setup) => setup.id === args.setupId)
+  }
+  const hostId = normalizeExecutionHostId(args.hostId)
+  if (!hostId) {
+    throw new Error(`Invalid host ID: ${args.hostId}`)
+  }
+  return setups.find((setup) => setup.id === args.setupId && setup.hostId === hostId)
+}
+
+function isSameProjectHostSetup(a: ProjectHostSetup, b: ProjectHostSetup): boolean {
+  return a.id === b.id && a.hostId === b.hostId
 }
 
 function getProjectUpdateRuntimeTarget(
@@ -2488,8 +2507,10 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
         projects: s.projects.some((entry) => entry.id === result.project.id)
           ? s.projects.map((entry) => (entry.id === result.project.id ? result.project : entry))
           : [...s.projects, result.project],
-        projectHostSetups: s.projectHostSetups.some((entry) => entry.id === setup.id)
-          ? s.projectHostSetups.map((entry) => (entry.id === setup.id ? setup : entry))
+        projectHostSetups: s.projectHostSetups.some((entry) => isSameProjectHostSetup(entry, setup))
+          ? s.projectHostSetups.map((entry) =>
+              isSameProjectHostSetup(entry, setup) ? setup : entry
+            )
           : [...s.projectHostSetups, setup]
       }))
       return { project: result.project, setup }
@@ -2506,7 +2527,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
   updateProjectHostSetup: async (args) => {
     try {
-      const currentSetup = get().projectHostSetups.find((setup) => setup.id === args.setupId)
+      const currentSetup = findProjectHostSetupByMutationArgs(get().projectHostSetups, args)
       const target = currentSetup
         ? getProjectSetupRuntimeTarget(currentSetup.hostId)
         : { kind: 'local' as const }
@@ -2536,8 +2557,10 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
         projects: s.projects.some((entry) => entry.id === result.project.id)
           ? s.projects.map((entry) => (entry.id === result.project.id ? result.project : entry))
           : [...s.projects, result.project],
-        projectHostSetups: s.projectHostSetups.some((entry) => entry.id === setup.id)
-          ? s.projectHostSetups.map((entry) => (entry.id === setup.id ? setup : entry))
+        projectHostSetups: s.projectHostSetups.some((entry) => isSameProjectHostSetup(entry, setup))
+          ? s.projectHostSetups.map((entry) =>
+              isSameProjectHostSetup(entry, setup) ? setup : entry
+            )
           : [...s.projectHostSetups, setup]
       }))
       return { ...result, repo, setup }
@@ -2554,7 +2577,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
   deleteProjectHostSetup: async (args) => {
     try {
-      const currentSetup = get().projectHostSetups.find((setup) => setup.id === args.setupId)
+      const currentSetup = findProjectHostSetupByMutationArgs(get().projectHostSetups, args)
       const target = currentSetup
         ? getProjectSetupRuntimeTarget(currentSetup.hostId)
         : { kind: 'local' as const }
@@ -2574,7 +2597,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       const repoHostId = repo ? getRepoExecutionHostId(repo) : null
       set((s) => {
         const projectHostSetups = s.projectHostSetups.filter(
-          (setup) => setup.id !== result.setup.id
+          (setup) => !isSameProjectHostSetup(setup, result.setup)
         )
         const repos =
           repo && repoHostId
@@ -2851,7 +2874,10 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
             hostId: ownerHostId
           }),
           activeRepoId: s.activeRepoId === projectId ? null : s.activeRepoId,
-          filterRepoIds: s.filterRepoIds.filter((id) => id !== projectId),
+          // Why: a sibling host may still own this id; only drop the filter entry when no host row remains.
+          filterRepoIds: repoIdFullyRemoved
+            ? s.filterRepoIds.filter((id) => id !== projectId)
+            : s.filterRepoIds,
           worktreesByRepo: nextWorktrees,
           detectedWorktreesByRepo: nextDetectedWorktrees,
           tabsByWorktree: nextTabs,

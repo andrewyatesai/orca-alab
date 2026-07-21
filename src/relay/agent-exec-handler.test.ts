@@ -1,7 +1,12 @@
 import { exec, spawn } from 'node:child_process'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ChildProcess from 'node:child_process'
-import { createFakeChild, createHandlers, requestContext } from './agent-exec-handler-test-harness'
+import {
+  createFakeChild,
+  createHandlers,
+  requestContext,
+  withPlatform
+} from './agent-exec-handler-test-harness'
 import { TERMINAL_GIT_CREDENTIAL_GUARD_POLICY_ENV } from '../shared/terminal-git-credential-guard'
 
 vi.mock('child_process', async (importOriginal) => {
@@ -179,6 +184,63 @@ describe('AgentExecHandler', () => {
         } else {
           process.env[key] = saved[key]
         }
+      }
+    }
+  })
+
+  it('uses the default POSIX shell when requested so SSH agent commands inherit shell PATH', async () => {
+    const originalShell = process.env.SHELL
+    process.env.SHELL = '/bin/bash'
+    try {
+      await withPlatform('linux', async () => {
+        const child = createFakeChild()
+        spawnMock.mockReturnValue(child as never)
+        const handlers = createHandlers()
+
+        const pending = handlers.get('agent.execNonInteractive')!(
+          {
+            binary: 'opencode',
+            args: ['run', '--model', 'opencode/deepseek-v4-flash-free'],
+            cwd: '/repo',
+            stdin: 'PROMPT',
+            timeoutMs: 5_000,
+            shell: true
+          },
+          requestContext()
+        )
+
+        child.emit('close', 0)
+
+        await expect(pending).resolves.toMatchObject({
+          exitCode: 0,
+          timedOut: false
+        })
+        expect(spawnMock).toHaveBeenCalledWith(
+          '/bin/bash',
+          [
+            '-ilc',
+            'exec "$@"',
+            '_',
+            'opencode',
+            'run',
+            '--model',
+            'opencode/deepseek-v4-flash-free'
+          ],
+          // Why: the fork always spawns with a guarded env copy, never the
+          // process.env reference upstream asserted on.
+          expect.objectContaining({
+            cwd: '/repo',
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true
+          })
+        )
+        expect(child.stdin.end).toHaveBeenCalledWith('PROMPT')
+      })
+    } finally {
+      if (originalShell === undefined) {
+        delete process.env.SHELL
+      } else {
+        process.env.SHELL = originalShell
       }
     }
   })

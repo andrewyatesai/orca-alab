@@ -3,13 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockLaunchAgentBackgroundSession = vi.fn()
 const mockLaunchWorktreeBackgroundTerminals = vi.fn()
-const mockSubmitPromptToAgentTab = vi.fn()
+const mockSubmitPromptToAgentPty = vi.fn()
 const mockFindReusableAutomationSession = vi.fn()
 const mockObserveExistingAutomationSession = vi.fn()
 const mockCreateWorktree = vi.fn()
 const mockMarkDispatchResult = vi.fn()
 const mockOnDispatchRequested = vi.fn()
 const mockRendererReady = vi.fn()
+const mockCloseWebRuntimeTerminal = vi.fn()
+const mockPtyKill = vi.fn()
+const mockCloseTab = vi.fn()
 
 const setupLaunch = {
   runnerScriptPath: '/tmp/setup.sh',
@@ -30,9 +33,10 @@ const state = {
   activeTabId: 'tab-active',
   activeTabType: 'terminal' as const,
   repos: [{ id: 'repo-1', connectionId: null }],
-  agentStatusByPaneKey: {},
+  agentStatusByPaneKey: {} as Record<string, { state: string; updatedAt: number }>,
   allWorktrees: vi.fn<() => TestWorktree[]>(() => []),
   createWorktree: mockCreateWorktree,
+  closeTab: mockCloseTab,
   subscribe: vi.fn(() => () => {}),
   setActiveView: vi.fn(),
   setActiveWorktree: vi.fn(),
@@ -101,7 +105,11 @@ vi.mock('@/lib/launch-worktree-background-terminals', () => ({
 }))
 
 vi.mock('@/lib/agent-paste-draft', () => ({
-  submitPromptToAgentTab: mockSubmitPromptToAgentTab
+  submitPromptToAgentPty: mockSubmitPromptToAgentPty
+}))
+
+vi.mock('@/runtime/web-runtime-session', () => ({
+  closeWebRuntimeTerminal: mockCloseWebRuntimeTerminal
 }))
 
 vi.mock('@/lib/automation-session-reuse', () => ({
@@ -135,44 +143,49 @@ vi.mock('@/store', () => ({
   }
 }))
 
-describe('useAutomationDispatchEvents setup launch', () => {
-  beforeEach(() => {
-    vi.resetModules()
-    vi.unstubAllGlobals()
-    vi.clearAllMocks()
-    state.activeView = 'terminal'
-    state.activeWorktreeId = 'wt-active'
-    state.activeTabId = 'tab-active'
-    state.activeTabType = 'terminal'
-    state.repos = [{ id: 'repo-1', connectionId: null }]
-    state.agentStatusByPaneKey = {}
-    state.allWorktrees.mockReturnValue([])
-    mockCreateWorktree.mockResolvedValue({ worktree: createdWorktree, setup: setupLaunch })
-    mockLaunchWorktreeBackgroundTerminals.mockResolvedValue(undefined)
-    mockLaunchAgentBackgroundSession.mockResolvedValue({
-      tabId: 'agent-tab',
-      ptyId: 'agent-pty',
-      startupPlan: {}
-    })
-    mockOnDispatchRequested.mockReturnValue(() => {})
-    vi.stubGlobal('window', {
-      api: {
-        automations: {
-          onDispatchRequested: mockOnDispatchRequested,
-          rendererReady: mockRendererReady,
-          markDispatchResult: mockMarkDispatchResult,
-          runPrecheck: vi.fn(),
-          listRuns: vi.fn().mockResolvedValue([])
-        },
-        ssh: {
-          needsPassphrasePrompt: vi.fn().mockResolvedValue(false),
-          getState: vi.fn().mockResolvedValue({ status: 'connected' }),
-          connect: vi.fn()
-        }
-      },
-      dispatchEvent: vi.fn()
-    })
+function resetDispatchTestEnvironment(): void {
+  vi.resetModules()
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
+  state.activeView = 'terminal'
+  state.activeWorktreeId = 'wt-active'
+  state.activeTabId = 'tab-active'
+  state.activeTabType = 'terminal'
+  state.repos = [{ id: 'repo-1', connectionId: null }]
+  state.agentStatusByPaneKey = {}
+  state.allWorktrees.mockReturnValue([])
+  mockCreateWorktree.mockResolvedValue({ worktree: createdWorktree, setup: setupLaunch })
+  mockLaunchWorktreeBackgroundTerminals.mockResolvedValue(undefined)
+  mockLaunchAgentBackgroundSession.mockResolvedValue({
+    tabId: 'agent-tab',
+    ptyId: 'agent-pty',
+    startupPlan: {}
   })
+  mockOnDispatchRequested.mockReturnValue(() => {})
+  vi.stubGlobal('window', {
+    api: {
+      automations: {
+        onDispatchRequested: mockOnDispatchRequested,
+        rendererReady: mockRendererReady,
+        markDispatchResult: mockMarkDispatchResult,
+        runPrecheck: vi.fn(),
+        listRuns: vi.fn().mockResolvedValue([])
+      },
+      ssh: {
+        needsPassphrasePrompt: vi.fn().mockResolvedValue(false),
+        getState: vi.fn().mockResolvedValue({ status: 'connected' }),
+        connect: vi.fn()
+      },
+      pty: {
+        kill: mockPtyKill
+      }
+    },
+    dispatchEvent: vi.fn()
+  })
+}
+
+describe('useAutomationDispatchEvents setup launch', () => {
+  beforeEach(resetDispatchTestEnvironment)
 
   it('starts setup terminal launch without waiting before launching the automation agent', async () => {
     const order: string[] = []
@@ -309,6 +322,106 @@ describe('useAutomationDispatchEvents setup launch', () => {
         worktreeId: 'wt-existing',
         prompt: 'run this'
       })
+    )
+  })
+})
+
+describe('useAutomationDispatchEvents background session cleanup', () => {
+  beforeEach(() => {
+    resetDispatchTestEnvironment()
+    mockLaunchAgentBackgroundSession.mockResolvedValue({
+      tabId: 'agent-tab',
+      ptyId: 'agent-pty',
+      paneKey: 'agent-tab:leaf',
+      startupPlan: {}
+    })
+  })
+
+  it('reaps the launched hidden tab and local PTY when the agent completes', async () => {
+    // Why: the 'done' status observed at dispatch time drives markCompletionResult.
+    state.agentStatusByPaneKey = {
+      'agent-tab:leaf': { state: 'done', updatedAt: Date.now() + 60_000 }
+    }
+    mockCloseWebRuntimeTerminal.mockReturnValue(false)
+
+    await registerAndDispatch()
+
+    expect(mockMarkDispatchResult).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'run-1', status: 'completed' })
+    )
+    expect(mockPtyKill).toHaveBeenCalledWith('agent-pty')
+    expect(mockCloseTab).toHaveBeenCalledWith('agent-tab', {
+      recordInteraction: false,
+      reason: 'cleanup'
+    })
+  })
+
+  it('closes remote-runtime PTYs through the runtime session path instead of pty.kill', async () => {
+    state.agentStatusByPaneKey = {
+      'agent-tab:leaf': { state: 'done', updatedAt: Date.now() + 60_000 }
+    }
+    mockCloseWebRuntimeTerminal.mockReturnValue(true)
+
+    await registerAndDispatch()
+
+    expect(mockCloseWebRuntimeTerminal).toHaveBeenCalledWith('agent-pty')
+    expect(mockPtyKill).not.toHaveBeenCalled()
+    expect(mockCloseTab).toHaveBeenCalledWith('agent-tab', {
+      recordInteraction: false,
+      reason: 'cleanup'
+    })
+  })
+
+  it('leaves the tab alone when the user is actively watching it', async () => {
+    state.activeTabId = 'agent-tab'
+    state.agentStatusByPaneKey = {
+      'agent-tab:leaf': { state: 'done', updatedAt: Date.now() + 60_000 }
+    }
+
+    await registerAndDispatch()
+
+    expect(mockMarkDispatchResult).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'run-1', status: 'completed' })
+    )
+    expect(mockPtyKill).not.toHaveBeenCalled()
+    expect(mockCloseWebRuntimeTerminal).not.toHaveBeenCalled()
+    expect(mockCloseTab).not.toHaveBeenCalled()
+  })
+
+  it('never reaps a reused session', async () => {
+    mockFindReusableAutomationSession.mockReturnValue({
+      tabId: 'reuse-tab',
+      ptyId: 'reuse-pty',
+      paneKey: 'reuse-tab:leaf'
+    })
+    mockSubmitPromptToAgentPty.mockResolvedValue(true)
+    mockObserveExistingAutomationSession.mockResolvedValue(() => {})
+
+    await registerAndDispatch(makeAutomation({ reuseSession: true }))
+
+    expect(mockLaunchAgentBackgroundSession).not.toHaveBeenCalled()
+    expect(mockMarkDispatchResult).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'run-1', status: 'dispatched' })
+    )
+    expect(mockPtyKill).not.toHaveBeenCalled()
+    expect(mockCloseWebRuntimeTerminal).not.toHaveBeenCalled()
+    expect(mockCloseTab).not.toHaveBeenCalled()
+  })
+
+  it('reaps the launched session when a later dispatch step fails', async () => {
+    mockCloseWebRuntimeTerminal.mockReturnValue(false)
+    mockMarkDispatchResult.mockRejectedValueOnce(new Error('persist failed'))
+    mockMarkDispatchResult.mockResolvedValue(undefined)
+
+    await registerAndDispatch()
+
+    expect(mockPtyKill).toHaveBeenCalledWith('agent-pty')
+    expect(mockCloseTab).toHaveBeenCalledWith('agent-tab', {
+      recordInteraction: false,
+      reason: 'cleanup'
+    })
+    expect(mockMarkDispatchResult).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runId: 'run-1', status: 'dispatch_failed' })
     )
   })
 })

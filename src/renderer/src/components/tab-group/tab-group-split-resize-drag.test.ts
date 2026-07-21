@@ -74,7 +74,12 @@ function createFrameControls() {
   return { requestFrame, cancelFrame, runFrames, queued }
 }
 
-function pointer(args: { pointerId?: number; clientX?: number; clientY?: number }): PointerEvent {
+function pointer(args: {
+  pointerId?: number
+  clientX?: number
+  clientY?: number
+  isPrimary?: boolean
+}): PointerEvent {
   return { pointerId: 1, clientX: 0, clientY: 0, ...args } as unknown as PointerEvent
 }
 
@@ -164,6 +169,58 @@ describe('beginSplitResizeDrag', () => {
     // Listeners are torn down so a later stray event cannot double-commit.
     expect(listeners.has('pointermove')).toBe(false)
     expect(listeners.has('pointerup')).toBe(false)
+  })
+
+  it('continues the resize when motion arrives from a different primary pointer (WSLg pen relay)', () => {
+    const onRatioChange = vi.fn()
+    const { handle, listeners, prevEl, nextEl } = createHandleHarness()
+    const frames = createFrameControls()
+
+    beginSplitResizeDrag({
+      handle,
+      pointerId: 1,
+      isHorizontal: true,
+      minRatio: 0.15,
+      maxRatio: 0.85,
+      onRatioChange,
+      requestFrame: frames.requestFrame,
+      cancelFrame: frames.cancelFrame
+    })
+
+    // WSLg's RDP relay presses as `mouse` (id 1) but streams motion as a `pen`
+    // pointer with a different pointerId; both are the primary pointer.
+    listeners.get('pointermove')?.(pointer({ pointerId: 19, isPrimary: true, clientX: 300 }))
+    frames.runFrames()
+
+    expect(prevEl?.style.flex).toBe('0.3 1 0%')
+    expect(nextEl?.style.flex).toBe('0.7 1 0%')
+
+    listeners.get('pointerup')?.(pointer({ pointerId: 1, clientX: 300 }))
+    expect(onRatioChange).toHaveBeenCalledWith(0.3)
+  })
+
+  it('ignores motion from a non-primary secondary pointer during the drag', () => {
+    const onRatioChange = vi.fn()
+    const { handle, listeners, prevEl } = createHandleHarness()
+    const frames = createFrameControls()
+
+    beginSplitResizeDrag({
+      handle,
+      pointerId: 1,
+      isHorizontal: true,
+      minRatio: 0.15,
+      maxRatio: 0.85,
+      onRatioChange,
+      requestFrame: frames.requestFrame,
+      cancelFrame: frames.cancelFrame
+    })
+
+    listeners.get('pointermove')?.(pointer({ pointerId: 5, isPrimary: false, clientX: 300 }))
+    frames.runFrames()
+
+    expect(prevEl?.style.flex).toBe('0.5 1 0%')
+    listeners.get('pointerup')?.(pointer({ pointerId: 1 }))
+    expect(onRatioChange).not.toHaveBeenCalled()
   })
 
   it('clamps the committed ratio to the min/max bounds', () => {

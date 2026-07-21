@@ -3853,6 +3853,12 @@ const api = {
       ipcRenderer.on('system:resumed', listener)
       return () => ipcRenderer.removeListener('system:resumed', listener)
     },
+    onMinimizedChanged: (callback: (isMinimized: boolean) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, isMinimized: boolean) =>
+        callback(isMinimized)
+      ipcRenderer.on('window:minimized-changed', listener)
+      return () => ipcRenderer.removeListener('window:minimized-changed', listener)
+    },
     /** Desktop custom titlebar only: minimize via renderer-drawn window controls. */
     minimize: (): void => {
       ipcRenderer.send('window:minimize')

@@ -248,6 +248,7 @@ type GitExecOptions = {
   env?: NodeJS.ProcessEnv
   signal?: AbortSignal
   wslDistro?: string
+  useWslLoginShell?: boolean
   useConfiguredSshCommandForNetwork?: boolean
 }
 
@@ -769,7 +770,7 @@ async function buildNetworkSshPolicyEnv(options: GitExecOptions): Promise<{
     ['config', '--get', 'core.sshCommand'],
     options.cwd,
     options.wslDistro,
-    { useWslLoginShell: Boolean(options.wslDistro) }
+    { useWslLoginShell: true }
   )
   let configuredCommand = ''
   try {
@@ -821,7 +822,11 @@ export async function gitExecFileAsync(
     { args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) },
     async () => {
       const resolved = resolveCommand('git', args, options.cwd, options.wslDistro, {
-        useWslLoginShell: Boolean(options.wslDistro)
+        // Why: login-shell startup on WSL is expensive and unnecessary for
+        // read-path commands (status/list/etc.). Keep it opt-in for callers
+        // that need login-shell policy (for example network auth/SSH flows).
+        useWslLoginShell:
+          options.useWslLoginShell ?? Boolean(options.useConfiguredSshCommandForNetwork)
       })
       const policy = options.useConfiguredSshCommandForNetwork
         ? await buildNetworkSshPolicyEnv(options)

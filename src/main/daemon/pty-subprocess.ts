@@ -31,6 +31,7 @@ import { isPwshAvailable } from '../pwsh'
 import { isHostCodexHomeForWsl, isWslCodexHomeForHost } from '../pty/codex-home-wsl-env'
 import { removeInheritedNoColor } from '../pty/terminal-color-env'
 import { removeAppImageRuntimeEnv } from '../pty/appimage-terminal-env'
+import { cloneInheritedSpawnEnv } from '../pty/inherited-spawn-env'
 import { parseWslPath } from '../wsl'
 import { addWslEnvKeys } from '../wsl-env'
 import {
@@ -534,7 +535,9 @@ function spawnDaemonPtyWithWindowsFallback(args: {
 export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandle {
   const size = normalizePtySize(opts.cols, opts.rows)
   const env: Record<string, string> = {
-    ...mergeGitConfigEnvProtocol(process.env, opts.env),
+    // Why: the daemon inherits claude child-session markers and Orca's
+    // NODE_ENV at fork (#9155, PR 9058); an explicit opts.env value still wins.
+    ...mergeGitConfigEnvProtocol(cloneInheritedSpawnEnv(), opts.env),
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     TERM_PROGRAM: 'Orca',

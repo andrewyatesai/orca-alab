@@ -19,8 +19,9 @@ import type { DaemonFileLog } from './daemon-file-log'
 import type * as DaemonHealthModule from './daemon-health'
 import { getDaemonSocketPath } from './daemon-spawner'
 
-const { getMacDaemonSystemResolverHealthMock } = vi.hoisted(() => ({
-  getMacDaemonSystemResolverHealthMock: vi.fn(async () => 'unknown')
+const { getMacDaemonSystemResolverHealthMock, prepareMacosTccLoginShellMock } = vi.hoisted(() => ({
+  getMacDaemonSystemResolverHealthMock: vi.fn(async () => 'unknown'),
+  prepareMacosTccLoginShellMock: vi.fn(async () => {})
 }))
 
 const itOnPosix = process.platform === 'win32' ? it.skip : it
@@ -30,6 +31,16 @@ vi.mock('./daemon-health', async (importOriginal) => {
   return {
     ...actual,
     getMacDaemonSystemResolverHealth: getMacDaemonSystemResolverHealthMock
+  }
+})
+
+// Why: #8985 — spawn awaits the login(1) PAM preflight; stub it so adapter
+// tests never execFile a real /usr/bin/login on macOS hosts.
+vi.mock('../providers/macos-tcc-login-shell', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../providers/macos-tcc-login-shell')>()
+  return {
+    ...actual,
+    prepareMacosTccLoginShell: prepareMacosTccLoginShellMock
   }
 })
 
@@ -131,6 +142,8 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
     lastSpawnOpts = null
     getMacDaemonSystemResolverHealthMock.mockReset()
     getMacDaemonSystemResolverHealthMock.mockResolvedValue('unknown')
+    prepareMacosTccLoginShellMock.mockReset()
+    prepareMacosTccLoginShellMock.mockResolvedValue(undefined)
   })
 
   afterEach(async () => {
@@ -145,6 +158,39 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       expect(result.id).toBeDefined()
       expect(typeof result.id).toBe('string')
       expect(result.providerSequence).toEqual({ value: 0, generation: 'reset' })
+    })
+
+    it('resolves the macOS login(1) TCC preflight before asking the daemon to spawn (#8985)', async () => {
+      let spawnedBeforePreflight: boolean | null = null
+      prepareMacosTccLoginShellMock.mockImplementation(async () => {
+        spawnedBeforePreflight = lastSpawnOpts !== null
+      })
+
+      await adapter.spawn({ cols: 80, rows: 24 })
+
+      expect(prepareMacosTccLoginShellMock).toHaveBeenCalledOnce()
+      expect(spawnedBeforePreflight).toBe(false)
+    })
+
+    it('skips the preflight for a legacy public-daemon protocol that ignores shellArgs', async () => {
+      const ensureConnectedSpy = vi
+        .spyOn(DaemonClient.prototype, 'ensureConnected')
+        .mockResolvedValue()
+      const requestSpy = vi.spyOn(DaemonClient.prototype, 'request').mockResolvedValue({
+        isNew: true,
+        pid: null,
+        shellState: 'unsupported',
+        snapshot: null
+      } as never)
+      const legacy = new DaemonPtyAdapter({ socketPath, tokenPath, protocolVersion: 23 })
+      try {
+        await legacy.spawn({ sessionId: 'legacy-session', cols: 80, rows: 24 })
+        expect(prepareMacosTccLoginShellMock).not.toHaveBeenCalled()
+      } finally {
+        legacy.dispose()
+        requestSpy.mockRestore()
+        ensureConnectedSpy.mockRestore()
+      }
     })
 
     it('carries classified startup spans from the daemon source to the adapter', async () => {

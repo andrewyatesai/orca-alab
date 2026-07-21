@@ -1745,6 +1745,40 @@ describe('registerPtyHandlers', () => {
         expect(spawnOptions.env.ORCA_AGENT_HOOK_TOKEN).toBe('agent-token')
       })
 
+      it('marks inherited claude child-session markers and NODE_ENV for daemon-side deletion (#9155)', async () => {
+        // Why: the Rust daemon merges its own forked env engine-side; only the
+        // envToDelete list can strip markers it inherited from a `claude` ancestor.
+        const spawnOptions = await daemonSpawnAndGetOptions({}, undefined, undefined, {
+          CLAUDECODE: '1',
+          CLAUDE_CODE_CHILD_SESSION: '1',
+          NODE_ENV: 'development'
+        })
+        expect(spawnOptions.envToDelete).toEqual(
+          expect.arrayContaining([
+            'CLAUDECODE',
+            'CLAUDE_CODE_CHILD_SESSION',
+            'CLAUDE_CODE_SESSION_ID',
+            'CLAUDE_CODE_EXECPATH',
+            'CLAUDE_CODE_ENTRYPOINT',
+            'NODE_ENV'
+          ])
+        )
+        expect(spawnOptions.env.CLAUDECODE).toBeUndefined()
+        expect(spawnOptions.env.CLAUDE_CODE_CHILD_SESSION).toBeUndefined()
+        expect(spawnOptions.env.NODE_ENV).toBeUndefined()
+      })
+
+      it('keeps an explicitly requested claude session env off the daemon deletion list', async () => {
+        const spawnOptions = await daemonSpawnAndGetOptions({
+          CLAUDE_CODE_ENTRYPOINT: 'sdk-ts',
+          NODE_ENV: 'test'
+        })
+        expect(spawnOptions.env.CLAUDE_CODE_ENTRYPOINT).toBe('sdk-ts')
+        expect(spawnOptions.env.NODE_ENV).toBe('test')
+        expect(spawnOptions.envToDelete ?? []).not.toContain('CLAUDE_CODE_ENTRYPOINT')
+        expect(spawnOptions.envToDelete ?? []).not.toContain('NODE_ENV')
+      })
+
       it('deletes stale Claude scoped settings env from runtime-created daemon PTYs', async () => {
         type RuntimeSpawnController = {
           spawn(args: {

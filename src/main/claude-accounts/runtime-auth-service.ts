@@ -87,6 +87,7 @@ type ClaudeRuntimeCredentialCandidate = {
 }
 
 const RUNTIME_OAUTH_ACCOUNT_PARSE_ERROR = Symbol('runtime-oauth-account-parse-error')
+const RUNTIME_CREDENTIALS_FILE_UNREADABLE = Symbol('runtime-credentials-file-unreadable')
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
@@ -98,6 +99,13 @@ export class ClaudeRuntimeAuthService {
   private lastSyncedAccountId: string | null = null
   // Why: creds Orca last wrote to the shared file; a mismatch on managed→default transition means an external login overwrote it, so adopt it as the new default.
   private lastWrittenCredentialsJson: string | null = null
+  // Why: compare-and-swap baseline (#9582) — runtime credential writes only land
+  // over contents this service wrote or read this sync, never over a concurrent
+  // Claude refresh whose rotated (single-use) token would otherwise be lost.
+  private observedRuntimeCredentialsFileJson:
+    | string
+    | null
+    | typeof RUNTIME_CREDENTIALS_FILE_UNREADABLE = null
   private hasMaterializedRuntimeAuth = false
   private hasLastWrittenOauthAccount = false
   private lastWrittenOauthAccount: unknown = null
@@ -118,6 +126,23 @@ export class ClaudeRuntimeAuthService {
   }
 
   async prepareForRateLimitFetch(
+    target?: ClaudeAccountSelectionTarget
+  ): Promise<ClaudeRuntimeAuthPreparation> {
+    const effectiveTarget = target ?? this.getDefaultAccountSelectionTarget()
+    await this.syncForCurrentSelection(effectiveTarget)
+    return this.getPreparation(effectiveTarget)
+  }
+
+  // Why: Claude OAuth refresh tokens are single-use and rotating, and Orca's
+  // managed store shares the same lineage as the terminal's ~/.claude. When a
+  // terminal Claude session rotates the token, the managed copy goes stale and
+  // a usage fetch fails with invalid_grant. Re-running the sync adopts the
+  // terminal's rotated token back into the managed store (the read-back path),
+  // and proactively refreshes when no live PTY owns the credentials — so a
+  // failed fetch can recover without forcing an interactive re-auth. The
+  // live-PTY guard inside the sync is preserved, so this never races a live
+  // session's own rotation.
+  async reconcileActiveManagedAuthFromRuntime(
     target?: ClaudeAccountSelectionTarget
   ): Promise<ClaudeRuntimeAuthPreparation> {
     const effectiveTarget = target ?? this.getDefaultAccountSelectionTarget()
@@ -173,7 +198,10 @@ export class ClaudeRuntimeAuthService {
     return next
   }
 
-  private async doSyncForCurrentSelection(target?: ClaudeAccountSelectionTarget): Promise<void> {
+  private async doSyncForCurrentSelection(
+    target?: ClaudeAccountSelectionTarget,
+    isRetryAfterConcurrentCredentialsWrite = false
+  ): Promise<void> {
     const settings = this.store.getSettings()
     const effectiveTarget = this.resolveWslDefaultTarget(target)
     const normalizedTarget = normalizeClaudeAccountSelectionTarget(effectiveTarget)
@@ -342,11 +370,8 @@ export class ClaudeRuntimeAuthService {
       return
     }
 
+    const runtimeCredentialsJson = this.observeRuntimeCredentialsFile()
     if (this.lastSyncedAccountId === null) {
-      const paths = this.pathResolver.getRuntimePaths()
-      const runtimeCredentialsJson = existsSync(paths.credentialsPath)
-        ? readFileSync(paths.credentialsPath, 'utf-8')
-        : null
       await this.captureSystemDefaultSnapshotForManagedEntry(
         runtimeCredentialsJson,
         credentialsJson
@@ -418,7 +443,19 @@ export class ClaudeRuntimeAuthService {
     }
 
     const paths = this.pathResolver.getRuntimePaths()
-    this.writeRuntimeCredentials(credentialsJson)
+    if (!this.writeRuntimeCredentials(credentialsJson, { requireObservedRuntimeFile: true })) {
+      if (!isRetryAfterConcurrentCredentialsWrite) {
+        // Why: #9582 — another writer changed .credentials.json mid-sync; re-run
+        // so read-back can adopt that refresh instead of clobbering it.
+        return this.doSyncForCurrentSelection(target, true)
+      }
+      console.warn(
+        '[claude-runtime-auth] Preserving concurrently rewritten Claude runtime credentials after losing the write race'
+      )
+      this.lastSyncedAccountId = activeAccount.id
+      this.hasMaterializedRuntimeAuth = true
+      return
+    }
     if (process.platform === 'darwin') {
       // Why: Claude Code 2.1+ reads the scoped service, older builds the legacy unsuffixed one; runtime switching must satisfy both.
       try {
@@ -542,11 +579,18 @@ export class ClaudeRuntimeAuthService {
 
       await this.writeManagedCredentials(match.account, runtimeContents)
       if (options.updateLastWrittenCredentialsJson) {
-        this.writeRuntimeCredentials(runtimeContents)
-        this.lastWrittenCredentialsJson = runtimeContents
-        if (process.platform === 'darwin') {
-          const paths = this.pathResolver.getRuntimePaths()
-          await writeActiveClaudeKeychainCredentialsForRuntime(runtimeContents, paths.configDir)
+        if (this.writeRuntimeCredentials(runtimeContents, { requireObservedRuntimeFile: true })) {
+          this.lastWrittenCredentialsJson = runtimeContents
+          if (process.platform === 'darwin') {
+            const paths = this.pathResolver.getRuntimePaths()
+            await writeActiveClaudeKeychainCredentialsForRuntime(runtimeContents, paths.configDir)
+          }
+        } else {
+          // Why: #9582 — the file changed after candidates were read; let the
+          // next sync pass reconcile instead of clobbering the newer write.
+          console.warn(
+            '[claude-runtime-auth] Skipping runtime credentials rewrite after concurrent external write'
+          )
         }
       }
       return { status: 'persisted' }
@@ -567,9 +611,7 @@ export class ClaudeRuntimeAuthService {
     baselineCredentialsJson: string
   ): Promise<ClaudeRuntimeCredentialCandidate[]> {
     const paths = this.pathResolver.getRuntimePaths()
-    const fileCredentials = existsSync(paths.credentialsPath)
-      ? readFileSync(paths.credentialsPath, 'utf-8')
-      : null
+    const fileCredentials = this.observeRuntimeCredentialsFile()
     const runtimeOauthAccount = this.readRuntimeOauthAccount()
     const candidates: ClaudeRuntimeCredentialCandidate[] = []
     const pushCandidate = (credentialsJson: string | null): void => {
@@ -1727,7 +1769,10 @@ export class ClaudeRuntimeAuthService {
     }
   }
 
-  private writeRuntimeCredentials(contents: string): void {
+  private writeRuntimeCredentials(
+    contents: string,
+    options?: { requireObservedRuntimeFile: boolean }
+  ): boolean {
     const credentialsPath = this.pathResolver.getRuntimePaths().credentialsPath
     mkdirSync(dirname(credentialsPath), { recursive: true })
     // Why: skip unchanged rewrites to dodge Windows EPERM contention (#1507); re-verify the file since another Claude may have rewritten it.
@@ -1736,15 +1781,49 @@ export class ClaudeRuntimeAuthService {
       this.fileContentsEqual(credentialsPath, contents)
     ) {
       this.ensureOwnerOnlyMode(credentialsPath)
-      return
+      return true
     }
     if (this.fileContentsEqual(credentialsPath, contents)) {
       this.ensureOwnerOnlyMode(credentialsPath)
       this.lastWrittenCredentialsJson = contents
-      return
+      return true
+    }
+    if (options?.requireObservedRuntimeFile && !this.runtimeCredentialsFileWasObserved()) {
+      return false
     }
     writeFileAtomically(credentialsPath, contents, { mode: 0o600 })
     this.lastWrittenCredentialsJson = contents
+    return true
+  }
+
+  // Why: #9582 swap guard — exact contents beat mtime (coarse on FAT/HFS+); an
+  // unobserved change means a concurrent writer owns the file right now.
+  private runtimeCredentialsFileWasObserved(): boolean {
+    let currentContents: string | null
+    try {
+      currentContents = this.readRuntimeCredentialsFile()
+    } catch {
+      // Why: an unreadable target keeps the legacy atomic-replace fallback only
+      // when this sync pass already saw it unreadable.
+      return this.observedRuntimeCredentialsFileJson === RUNTIME_CREDENTIALS_FILE_UNREADABLE
+    }
+    return (
+      currentContents === null ||
+      currentContents === this.lastWrittenCredentialsJson ||
+      currentContents === this.observedRuntimeCredentialsFileJson
+    )
+  }
+
+  private observeRuntimeCredentialsFile(): string | null {
+    try {
+      const contents = this.readRuntimeCredentialsFile()
+      this.observedRuntimeCredentialsFileJson = contents
+      return contents
+    } catch (error) {
+      console.warn('[claude-runtime-auth] Cannot read runtime Claude credentials:', error)
+      this.observedRuntimeCredentialsFileJson = RUNTIME_CREDENTIALS_FILE_UNREADABLE
+      return null
+    }
   }
 
   private writeJson(targetPath: string, value: unknown): void {

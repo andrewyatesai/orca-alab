@@ -745,6 +745,33 @@ describe('ClaudeRuntimeAuthService', () => {
     expect(readFileSync(runtimeCredentialsPath, 'utf-8')).toBe(refreshedCredentials)
   })
 
+  it('reconcileActiveManagedAuthFromRuntime adopts a terminal-rotated token into the managed store', async () => {
+    const runtimeCredentialsPath = join(testState.fakeHomeDir, '.claude', '.credentials.json')
+    const originalCredentials = createClaudeCredentialsJson('user@example.com', 'original')
+    const rotatedCredentials = createClaudeCredentialsJson('user@example.com', 'rotated')
+    const managedAuthPath = createManagedClaudeAuth(
+      testState.userDataDir,
+      'account-1',
+      originalCredentials
+    )
+    const settings = createSettings({
+      claudeManagedAccounts: [createClaudeAccount('account-1', managedAuthPath)]
+    })
+    const store = createStore(settings)
+
+    const { ClaudeRuntimeAuthService } = await import('./runtime-auth-service')
+    const service = new ClaudeRuntimeAuthService(store as never)
+    settings.activeClaudeManagedAccountId = 'account-1'
+    await service.syncForCurrentSelection()
+
+    // Simulate a terminal Claude session rotating the shared ~/.claude token.
+    writeFileSync(runtimeCredentialsPath, rotatedCredentials, 'utf-8')
+    await service.reconcileActiveManagedAuthFromRuntime()
+
+    expect(readManagedCredentialsForTest('account-1', managedAuthPath)).toBe(rotatedCredentials)
+    expect(readFileSync(runtimeCredentialsPath, 'utf-8')).toBe(rotatedCredentials)
+  })
+
   it('rejects wrong-shaped refreshed credentials during read-back', async () => {
     const runtimeCredentialsPath = join(testState.fakeHomeDir, '.claude', '.credentials.json')
     const originalCredentials = createClaudeCredentialsJson('user@example.com', 'original')
@@ -3861,5 +3888,89 @@ describe('ClaudeRuntimeAuthService', () => {
     await service.syncForCurrentSelection()
 
     expect(readManagedCredentialsForTest('account-1', managedAuthPath1)).toBe(runtimeRotated)
+  })
+
+  it('adopts a concurrent CLI token refresh instead of clobbering it mid-sync', async () => {
+    const runtimeCredentialsPath = join(testState.fakeHomeDir, '.claude', '.credentials.json')
+    const managedOriginal = createClaudeCredentialsJson('one@example.com', 'one-managed', null, 1_000)
+    const orcaRefreshed = createClaudeCredentialsJson('one@example.com', 'one-orca', null, 2_000)
+    // A live external `claude` rotates its (single-use) refresh token while
+    // Orca's own proactive refresh is in flight — the multi-writer race (#9582).
+    const cliRotated = createClaudeCredentialsJson('one@example.com', 'one-cli', null, 3_000)
+    const managedAuthPath = createManagedClaudeAuth(
+      testState.userDataDir,
+      'account-1',
+      managedOriginal
+    )
+    const settings = createSettings({
+      claudeManagedAccounts: [
+        createClaudeAccount('account-1', managedAuthPath, { email: 'one@example.com' })
+      ],
+      activeClaudeManagedAccountId: 'account-1'
+    })
+    const store = createStore(settings)
+
+    const { ClaudeRuntimeAuthService } = await import('./runtime-auth-service')
+    const service = new ClaudeRuntimeAuthService(store as never)
+    await service.syncForCurrentSelection()
+    expect(readFileSync(runtimeCredentialsPath, 'utf-8')).toBe(managedOriginal)
+
+    vi.mocked(isOauthTokenExpiring).mockReturnValueOnce(true)
+    vi.mocked(refreshClaudeOauthCredentials).mockImplementationOnce(async () => {
+      writeFileSync(runtimeCredentialsPath, cliRotated, 'utf-8')
+      return orcaRefreshed
+    })
+    await service.syncForCurrentSelection()
+
+    // The CLI's rotation must win: clobbering it with Orca's refresh would
+    // leave the CLI holding invalidated tokens.
+    expect(readFileSync(runtimeCredentialsPath, 'utf-8')).toBe(cliRotated)
+    expect(readManagedCredentialsForTest('account-1', managedAuthPath)).toBe(cliRotated)
+    expect(refreshClaudeOauthCredentials).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves unattributable runtime credentials after losing the write race twice', async () => {
+    const runtimeCredentialsPath = join(testState.fakeHomeDir, '.claude', '.credentials.json')
+    const managedOriginal = createClaudeCredentialsJson('one@example.com', 'one-managed', null, 1_000)
+    const foreignWrites = [
+      createClaudeCredentialsJson('intruder@example.com', 'foreign-1'),
+      createClaudeCredentialsJson('intruder@example.com', 'foreign-2')
+    ]
+    const managedAuthPath = createManagedClaudeAuth(
+      testState.userDataDir,
+      'account-1',
+      managedOriginal
+    )
+    const settings = createSettings({
+      claudeManagedAccounts: [
+        createClaudeAccount('account-1', managedAuthPath, { email: 'one@example.com' })
+      ],
+      activeClaudeManagedAccountId: 'account-1'
+    })
+    const store = createStore(settings)
+
+    const { ClaudeRuntimeAuthService } = await import('./runtime-auth-service')
+    const service = new ClaudeRuntimeAuthService(store as never)
+    await service.syncForCurrentSelection()
+
+    let refreshCalls = 0
+    vi.mocked(isOauthTokenExpiring).mockReturnValue(true)
+    vi.mocked(refreshClaudeOauthCredentials).mockImplementation(async () => {
+      writeFileSync(runtimeCredentialsPath, foreignWrites[refreshCalls], 'utf-8')
+      refreshCalls += 1
+      return null
+    })
+    try {
+      await service.syncForCurrentSelection()
+
+      // Bounded retry lost twice: leave the concurrent writer's file alone
+      // rather than clobber tokens Orca has never read.
+      expect(readFileSync(runtimeCredentialsPath, 'utf-8')).toBe(foreignWrites[1])
+      expect(readManagedCredentialsForTest('account-1', managedAuthPath)).toBe(managedOriginal)
+      expect(refreshCalls).toBe(2)
+    } finally {
+      vi.mocked(isOauthTokenExpiring).mockReturnValue(false)
+      vi.mocked(refreshClaudeOauthCredentials).mockResolvedValue(null)
+    }
   })
 })

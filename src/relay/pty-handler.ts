@@ -2,8 +2,10 @@
 import type { IPty } from 'node-pty'
 import type * as NodePty from 'node-pty'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { resolveWindowsGitBashShellPath } from '../main/git-bash'
+import { cloneInheritedSpawnEnv } from '../main/pty/inherited-spawn-env'
 import { WINDOWS_GIT_BASH_SHELL } from '../shared/windows-terminal-shell'
 import type { RelayDispatcher, RequestContext } from './dispatcher'
 import {
@@ -385,9 +387,13 @@ export class PtyHandler {
     ctx: { id: string; paneKey?: string; shell: string; command?: string },
     envToDelete: readonly string[] = []
   ): Record<string, string> {
+    // Why: claude child-session markers and Orca's NODE_ENV describe the relay
+    // process's own ancestry, not the pane's (#9155, upstream PR 9058); a
+    // renderer-supplied value merged below still wins.
+    const inheritedEnv = cloneInheritedSpawnEnv()
     const baseEnv = mergeGitConfigEnvProtocol(
       {
-        ...process.env,
+        ...inheritedEnv,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
         TERM_PROGRAM: 'Orca',
@@ -397,6 +403,20 @@ export class PtyHandler {
       },
       rendererEnv
     ) as Record<string, string>
+    // Why: #8711 — Codex resolves Orca's status hooks via CODEX_HOME, but SSH
+    // spawns never carried it, so remote Codex read whatever home the login
+    // env had and the hooks installed to ~/.codex on this host never fired.
+    // Pin both vars to the install target; a client-supplied value wins, and
+    // envToDelete below can still strip them.
+    const remoteCodexHome = join(baseEnv.HOME || process.env.HOME || homedir(), '.codex')
+    if (!rendererEnv || !Object.prototype.hasOwnProperty.call(rendererEnv, 'CODEX_HOME')) {
+      baseEnv.CODEX_HOME = remoteCodexHome
+    }
+    if (!rendererEnv || !Object.prototype.hasOwnProperty.call(rendererEnv, 'ORCA_CODEX_HOME')) {
+      // Why: shadow mirrors the effective CODEX_HOME so shell wrappers restore
+      // the same home remote rc files may re-export over.
+      baseEnv.ORCA_CODEX_HOME = baseEnv.CODEX_HOME
+    }
     const augmented: Record<string, string> = {}
     for (const augmenter of this.envAugmenters) {
       try {

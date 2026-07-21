@@ -76,8 +76,9 @@ function loginPreflightSucceeds(username: string, accountHome: string): Promise<
 
 /**
  * Resolves the one-time PAM capability check before a fresh PTY is spawned.
- * Callers await this at their async request boundary so existing terminals and
- * the Electron main thread remain responsive while login(1) runs.
+ * Callers await this at their async request boundary (#8985: the daemon
+ * adapter spawn boundary included) so existing terminals and the Electron main
+ * thread remain responsive while login(1) runs.
  */
 export async function prepareMacosTccLoginShell(): Promise<void> {
   if (process.platform !== 'darwin' || isDisabledByEnv()) {
@@ -121,7 +122,7 @@ export function resetMacosLoginShellPreflightForTests(): void {
  * without disturbing login's attribution (skipped when the shell path contains `=`).
  *
  * No-op off macOS, when already wrapped, when disabled via {@link DISABLE_ENV_VAR},
- * or when the login(1) PAM preflight rejects this process's user.
+ * or when the login(1) PAM preflight rejected this process's user.
  */
 export function wrapShellSpawnForMacosTccAttribution(
   file: string,
@@ -147,9 +148,11 @@ export function wrapShellSpawnForMacosTccAttribution(
   if (!username) {
     return { file, args }
   }
-  // Why: an unprepared or failed host must fail open to a usable direct shell;
-  // production fresh-spawn boundaries await prepareMacosTccLoginShell first.
-  if (cachedLoginPreflightResult !== true) {
+  // Why: fork divergence from upstream — a boundary that never awaited the
+  // preflight keeps today's wrap (never fail-open, which is how #8985's
+  // per-launch TCC prompts appeared upstream); only a preflight that ran and
+  // proved PAM rejects this user downgrades to a direct shell.
+  if (cachedLoginPreflightResult === false) {
     return { file, args }
   }
 

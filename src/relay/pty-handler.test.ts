@@ -195,6 +195,52 @@ describe('PtyHandler', () => {
     expect(handler.activePtyCount).toBe(0)
   })
 
+  it("does not forward Orca's own NODE_ENV into the spawned shell", async () => {
+    // Why: Orca's process carries NODE_ENV (`development` in dev/electron-dev
+    // builds). Forwarding it into integrated terminals breaks tools that key
+    // off NODE_ENV (e.g. `next build` / Vitest). It must be stripped from the
+    // inherited env; other inherited vars (PATH) must survive.
+    const original = process.env.NODE_ENV
+    process.env.NODE_ENV = 'development'
+    try {
+      await dispatcher.callRequest('pty.spawn', { cols: 80, rows: 24 })
+
+      const spawnOptions = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+      expect(spawnOptions.env).not.toHaveProperty('NODE_ENV')
+      expect(spawnOptions.env.PATH).toBe(process.env.PATH)
+    } finally {
+      if (original === undefined) {
+        delete process.env.NODE_ENV
+      } else {
+        process.env.NODE_ENV = original
+      }
+    }
+  })
+
+  it('lets a renderer-supplied NODE_ENV through (only the ambient Orca value is stripped)', async () => {
+    // Why: stripping targets the *inherited* process env, not an explicit
+    // caller request. A shell profile or startup plan that deliberately sets
+    // NODE_ENV must still win.
+    const original = process.env.NODE_ENV
+    process.env.NODE_ENV = 'development'
+    try {
+      await dispatcher.callRequest('pty.spawn', {
+        cols: 80,
+        rows: 24,
+        env: { NODE_ENV: 'test' }
+      })
+
+      const spawnOptions = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+      expect(spawnOptions.env.NODE_ENV).toBe('test')
+    } finally {
+      if (original === undefined) {
+        delete process.env.NODE_ENV
+      } else {
+        process.env.NODE_ENV = original
+      }
+    }
+  })
+
   it('preserves unrelated node-pty spawn failures', async () => {
     mockPtySpawn.mockImplementationOnce(() => {
       throw new Error('File not found: missing-shell.exe')
@@ -203,6 +249,51 @@ describe('PtyHandler', () => {
     await expect(dispatcher.callRequest('pty.spawn', {})).rejects.toThrow(
       'File not found: missing-shell.exe'
     )
+  })
+
+  it('strips inherited claude child-session markers from the spawn env (#9155)', async () => {
+    // Why: a relay started under a `claude` session would otherwise make every
+    // remote tab's claude chain to the dead ancestor and skip its transcript.
+    const seeded: Record<string, string> = {
+      CLAUDECODE: '1',
+      CLAUDE_CODE_CHILD_SESSION: '1',
+      CLAUDE_CODE_SESSION_ID: '08a1a595-d1ec-4142-9680-0eec5fc15e17',
+      CLAUDE_CODE_EXECPATH: '/home/user/.local/bin/claude',
+      CLAUDE_CODE_ENTRYPOINT: 'cli'
+    }
+    const saved: Record<string, string | undefined> = {}
+    for (const [key, value] of Object.entries(seeded)) {
+      saved[key] = process.env[key]
+      process.env[key] = value
+    }
+
+    try {
+      await dispatcher.callRequest('pty.spawn', { cols: 80, rows: 24 })
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
+      }
+    }
+
+    const spawnOptions = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+    for (const key of Object.keys(seeded)) {
+      expect(spawnOptions.env).not.toHaveProperty(key)
+    }
+  })
+
+  it('lets a renderer-supplied claude session env through (only inherited markers are stripped)', async () => {
+    await dispatcher.callRequest('pty.spawn', {
+      cols: 80,
+      rows: 24,
+      env: { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' }
+    })
+
+    const spawnOptions = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+    expect(spawnOptions.env.CLAUDE_CODE_ENTRYPOINT).toBe('sdk-ts')
   })
 
   it('atomically caps concurrent PTY spawn admission', async () => {
@@ -1746,6 +1837,42 @@ describe('PtyHandler', () => {
     expect(spawnEnv.name).toBe('xterm-256color')
     expect(spawnEnv.env.SEEN_OPENCODE_CONFIG_DIR).toBe('/remote/renderer-opencode')
     expect(spawnEnv.env.SEEN_PI_CODING_AGENT_DIR).toBe('/remote/pi')
+  })
+
+  it('defaults CODEX_HOME and ORCA_CODEX_HOME to the remote ~/.codex (#8711)', async () => {
+    await dispatcher.callRequest('pty.spawn', {
+      env: { HOME: '/home/remote-user' }
+    })
+
+    const spawnEnv = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+    const expected = join('/home/remote-user', '.codex')
+    expect(spawnEnv.env.CODEX_HOME).toBe(expected)
+    expect(spawnEnv.env.ORCA_CODEX_HOME).toBe(expected)
+  })
+
+  it('lets a client-supplied Codex home win over the relay ~/.codex default', async () => {
+    await dispatcher.callRequest('pty.spawn', {
+      env: {
+        HOME: '/home/remote-user',
+        CODEX_HOME: '/home/remote-user/.orca/codex-runtime',
+        ORCA_CODEX_HOME: '/home/remote-user/.orca/codex-runtime'
+      }
+    })
+
+    const spawnEnv = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+    expect(spawnEnv.env.CODEX_HOME).toBe('/home/remote-user/.orca/codex-runtime')
+    expect(spawnEnv.env.ORCA_CODEX_HOME).toBe('/home/remote-user/.orca/codex-runtime')
+  })
+
+  it('does not resurrect Codex home defaults past envToDelete', async () => {
+    await dispatcher.callRequest('pty.spawn', {
+      env: { HOME: '/home/remote-user' },
+      envToDelete: ['CODEX_HOME', 'ORCA_CODEX_HOME']
+    })
+
+    const spawnEnv = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+    expect(spawnEnv.env.CODEX_HOME).toBeUndefined()
+    expect(spawnEnv.env.ORCA_CODEX_HOME).toBeUndefined()
   })
 
   it('applies identity defaults, then deletions, while preserving explicit TERM', async () => {

@@ -1002,6 +1002,10 @@ class InMemoryOrchestrationMessages {
     return this.activeCoordinatorRun
   }
 
+  getActiveCoordinatorRuns(): { coordinator_handle: string }[] {
+    return this.activeCoordinatorRun ? [this.activeCoordinatorRun] : []
+  }
+
   markAsDelivered(ids: string[]): void {
     const deliveredIds = new Set(ids)
     for (const message of this.messages) {

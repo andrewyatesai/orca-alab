@@ -738,11 +738,16 @@ export const ORCHESTRATION_HANDLERS: Record<string, CommandHandler> = {
     printResult(result, json, (r) => `Run ${r.runId} started (${r.status})`)
   },
 
-  'orchestration run-stop': async ({ client, json }) => {
+  'orchestration run-stop': async ({ flags, client, json }) => {
     const result = await client.call<{
       runId: string
       stopped: boolean
-    }>('orchestration.runStop', {})
+    }>('orchestration.runStop', {
+      // Why: several orchestrators may run concurrently (#4389); an untargeted
+      // stop is only accepted by the runtime when exactly one run is active.
+      runId: getOptionalStringFlag(flags, 'run'),
+      from: getOptionalStringFlag(flags, 'from')
+    })
     printResult(result, json, (r) => `Run ${r.runId} stopped`)
   },
 

@@ -129,9 +129,9 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
   },
   {
     path: ['orchestration', 'run-stop'],
-    summary: 'Stop the active coordinator run',
-    usage: 'orca orchestration run-stop [--json]',
-    allowedFlags: [...GLOBAL_FLAGS]
+    summary: 'Stop an active coordinator run',
+    usage: 'orca orchestration run-stop [--run <run_id>] [--from <handle>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'run', 'from']
   },
   {
     path: ['orchestration', 'gate-create'],

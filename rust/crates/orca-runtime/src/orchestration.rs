@@ -840,6 +840,18 @@ impl OrchestrationDb {
         Ok(stmt.query_row([], row_to_coordinator).optional()?)
     }
 
+    /// Every still-running coordinator, newest first (TS `getActiveCoordinatorRuns`).
+    /// Multiple orchestrators may run concurrently in one workspace (issue #4389),
+    /// so lifecycle gating must see all of them, not just the latest.
+    pub fn active_coordinator_runs(&self) -> Result<Vec<CoordinatorRun>, StoreError> {
+        let conn = self.db.connection();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {RUN_COLUMNS} FROM coordinator_runs WHERE status = 'running' ORDER BY created_at DESC, rowid DESC"
+        ))?;
+        let rows = stmt.query_map([], row_to_coordinator)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     // ---- queries + lifecycle ----
 
     /// Terminal handles seen in message history that have no active dispatch (TS

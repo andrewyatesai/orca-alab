@@ -131,10 +131,10 @@ orca orchestration gate-create --task <task_id> --question <text> [--options <js
 orca orchestration gate-resolve --id <gate_id> --resolution <text> [--json]
 orca orchestration gate-list [--task <task_id>] [--status <status>] [--json]
 orca orchestration run --spec <text> [--from <handle>] [--poll-interval-ms <n>] [--max-concurrent <n>] [--worktree <selector>] [--json]
-orca orchestration run-stop [--json]
+orca orchestration run-stop [--run <run_id>] [--from <handle>] [--json]
 ```
 
-`run` returns immediately with a run ID. Query progress with `task-list`. Use `ask` for worker-to-coordinator questions; it creates a `decision_gate` message that the coordinator answers with `reply`. Use `gate-create` only for coordinator-managed task DAG decisions, not for answering a worker's `ask`.
+`run` returns immediately with a run ID. Query progress with `task-list`. Coordinator runs are keyed by their `--from` handle, so orchestrators with different handles may run concurrently in one workspace; when more than one run is active, `run-stop` requires `--run` or `--from` to name its target. If an older CLI rejects those flags, run-stop targets the sole active run. Use `ask` for worker-to-coordinator questions; it creates a `decision_gate` message that the coordinator answers with `reply`. Use `gate-create` only for coordinator-managed task DAG decisions, not for answering a worker's `ask`.
 
 Recovery only: `orca orchestration reset --tasks|--messages|--all --json` clears runtime-global orchestration state. Do not run it during active coordination unless explicitly abandoning that state.
 

@@ -125,4 +125,84 @@ describe('orchestration gate RPC lifecycle recovery', () => {
     expect(db.getActiveCoordinatorRun()?.id).toBe(result.runId)
     expect(coordinatorMock.instances).toHaveLength(1)
   })
+
+  it('allows coordinators with different handles to run concurrently', async () => {
+    db = new OrchestrationDb(':memory:')
+
+    const first = (await call('orchestration.run', { spec: 'a', from: 'coord-a' })) as {
+      runId: string
+    }
+    const second = (await call('orchestration.run', { spec: 'b', from: 'coord-b' })) as {
+      runId: string
+    }
+
+    expect(first.runId).not.toBe(second.runId)
+    expect(
+      db
+        .getActiveCoordinatorRuns()
+        .map((run) => run.id)
+        .sort()
+    ).toEqual([first.runId, second.runId].sort())
+    expect(coordinatorMock.instances).toHaveLength(2)
+
+    await expect(call('orchestration.run', { spec: 'c', from: 'coord-a' })).rejects.toThrow(
+      `Coordinator already running: ${first.runId}`
+    )
+    expect(coordinatorMock.instances).toHaveLength(2)
+  })
+
+  it('stops only the targeted run and leaves the other coordinator alive', async () => {
+    db = new OrchestrationDb(':memory:')
+
+    const first = (await call('orchestration.run', { spec: 'a', from: 'coord-a' })) as {
+      runId: string
+    }
+    const second = (await call('orchestration.run', { spec: 'b', from: 'coord-b' })) as {
+      runId: string
+    }
+
+    // Why: with several orchestrators live an untargeted stop would pick one
+    // arbitrarily — the mutual-kill in #4389 — so it must demand a target.
+    await expect(call('orchestration.runStop', {})).rejects.toThrow(
+      'Multiple active coordinator runs'
+    )
+
+    await expect(call('orchestration.runStop', { from: 'coord-a' })).resolves.toEqual({
+      runId: first.runId,
+      stopped: true
+    })
+    expect(coordinatorMock.instances[0].stopped).toBe(true)
+    expect(coordinatorMock.instances[1].stopped).toBe(false)
+
+    await expect(call('orchestration.runStop', { runId: second.runId })).resolves.toEqual({
+      runId: second.runId,
+      stopped: true
+    })
+    expect(coordinatorMock.instances[1].stopped).toBe(true)
+  })
+
+  it('reaps only the same-handle stale row when starting a new run', async () => {
+    db = new OrchestrationDb(':memory:')
+    const staleA = db.createCoordinatorRun({ spec: 'old a', coordinatorHandle: 'coord-a' })
+    const staleB = db.createCoordinatorRun({ spec: 'old b', coordinatorHandle: 'coord-b' })
+
+    const result = (await call('orchestration.run', { spec: 'new a', from: 'coord-a' })) as {
+      runId: string
+    }
+
+    expect(result.runId).not.toBe(staleA.id)
+    expect(db.getCoordinatorRun(staleA.id)?.status).toBe('failed')
+    expect(db.getCoordinatorRun(staleB.id)?.status).toBe('running')
+  })
+
+  it('rejects a targeted stop for an unknown run or handle', async () => {
+    db = new OrchestrationDb(':memory:')
+
+    await expect(call('orchestration.runStop', { runId: 'run_missing' })).rejects.toThrow(
+      'No active coordinator run: run_missing'
+    )
+    await expect(call('orchestration.runStop', { from: 'coord-missing' })).rejects.toThrow(
+      'No active coordinator run for handle: coord-missing'
+    )
+  })
 })

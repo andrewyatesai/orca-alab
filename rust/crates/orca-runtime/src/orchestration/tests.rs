@@ -349,6 +349,21 @@ fn coordinator_run_lifecycle_and_idle_terminals() {
 }
 
 #[test]
+fn active_coordinator_runs_lists_every_running_row_newest_first() {
+    let db = OrchestrationDb::open_in_memory().unwrap();
+    assert!(db.active_coordinator_runs().unwrap().is_empty());
+
+    db.create_coordinator_run("run1", "spec-a", "coordinator-a", None).unwrap();
+    db.create_coordinator_run("run2", "spec-b", "coordinator-b", None).unwrap();
+    db.create_coordinator_run("run3", "spec-c", "coordinator-c", None).unwrap();
+    db.update_coordinator_run("run2", "failed", Some("2026-01-01T00:00:00.000Z")).unwrap();
+
+    let active: Vec<String> = db.active_coordinator_runs().unwrap().into_iter().map(|r| r.id).collect();
+    // created_at has second granularity, so rowid breaks the tie newest-first.
+    assert_eq!(active, vec!["run3".to_string(), "run1".to_string()]);
+}
+
+#[test]
 fn reset_helpers_clear_the_right_tables() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     db.send_message(&msg("m1", "a", "hi")).unwrap();

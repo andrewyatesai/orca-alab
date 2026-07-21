@@ -23347,7 +23347,13 @@ export class OrcaRuntimeService {
     }
 
     // The active coordinator prompt is user-owned input, so push-on-idle must not synthesize Enter.
-    if (this._orchestrationDb.getActiveCoordinatorRun()?.coordinator_handle === handle) {
+    // Why: runs are keyed by handle (#4389), so any live coordinator's pane
+    // qualifies — not only the newest run's. Optional-call keeps partial test
+    // doubles without the list method on the single-run path.
+    const activeCoordinatorRuns = this._orchestrationDb.getActiveCoordinatorRuns?.() ?? [
+      this._orchestrationDb.getActiveCoordinatorRun()
+    ]
+    if (activeCoordinatorRuns.some((run) => run?.coordinator_handle === handle)) {
       this._orchestrationDb.markAsDelivered(unread.map((m) => m.id))
       return
     }

@@ -2716,6 +2716,13 @@
             "0b38ee2f86": "Cancel",
             "c337c9d75c": "Close"
           },
+          "TerminalDeadPaneOverlay": {
+            "failed": "Terminal exited",
+            "clean": "Terminal closed",
+            "detail": "The shell process ended (exit code {{code}}). The output above is preserved.",
+            "close": "Close",
+            "restart": "Restart"
+          },
           "TerminalSshReconnectOverlay": {
             "authFailed": "Authentication failed for {{value0}}. Connect again to continue this terminal session.",
             "reconnectFailed": "The SSH connection to {{value0}} failed. Connect again to continue this terminal session.",

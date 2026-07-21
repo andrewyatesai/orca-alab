@@ -421,7 +421,7 @@ describe('createRemoteRuntimePtyTransport', () => {
 
     // Why: no red xterm error — retire quietly and let the next session-tabs
     // snapshot drive respawn/removal.
-    await vi.waitFor(() => expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-1'))
+    await vi.waitFor(() => expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-1', 1))
     expect(transport.getPtyId()).toBeNull()
     expect(onError).not.toHaveBeenCalled()
   })
@@ -843,7 +843,7 @@ describe('createRemoteRuntimePtyTransport', () => {
       }
     })
 
-    expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-exited')
+    expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-exited', 1)
     expect(transport.getPtyId()).toBeNull()
     expect(transport.isConnected()).toBe(false)
   })
@@ -912,7 +912,7 @@ describe('createRemoteRuntimePtyTransport', () => {
       result: { type: 'end', streamId }
     })
 
-    await vi.waitFor(() => expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-1'))
+    await vi.waitFor(() => expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-1', 0))
     expect(onExit).toHaveBeenCalledWith(0)
     expect(runtimeCall).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1007,7 +1007,9 @@ describe('createRemoteRuntimePtyTransport', () => {
 
     // Why: exit is reported only after the runtime confirms the host terminal
     // exited (terminal.wait), so the report lands asynchronously (#9151).
-    await vi.waitFor(() => expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-new'))
+    await vi.waitFor(() =>
+      expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-new', 0)
+    )
     expect(transport.getPtyId()).toBeNull()
     expect(transport.isConnected()).toBe(false)
   })

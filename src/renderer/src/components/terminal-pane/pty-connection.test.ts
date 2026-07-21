@@ -512,6 +512,7 @@ function createDeps(overrides: Record<string, unknown> = {}) {
     onPtyExitRef: { current: vi.fn() },
     onAgentExitedRef: { current: vi.fn() },
     onPtyErrorRef: { current: vi.fn() },
+    onPaneProcessDied: vi.fn(),
     clearTabPtyId: vi.fn(),
     consumeSuppressedPtyExit: vi.fn(() => false),
     updateTabTitle: vi.fn(),
@@ -2220,8 +2221,8 @@ describe('connectPanePty', () => {
     expect(manager.closePane).toHaveBeenCalledWith(2)
   })
 
-  it('keeps a worktree sole terminal mounted when its freshly-spawned PTY exits before input (direnv failure)', async () => {
-    // Why (regression): a failing .envrc direnv makes the sole terminal's shell exit immediately; routing to onPtyExitRef would close the tab and bounce the user to Landing, so keep it mounted.
+  it('keeps a worktree sole terminal mounted when its process exits non-zero (direnv failure)', async () => {
+    // Why (regression): a failing .envrc direnv makes the sole terminal's shell exit non-zero immediately; routing to onPtyExitRef would close the tab and bounce the user to Landing, so keep it mounted with the recovery overlay (onPaneProcessDied).
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport('tab-pty')
     transportFactoryQueue.push(transport)
@@ -2229,23 +2230,20 @@ describe('connectPanePty', () => {
     const deps = createDeps()
 
     connectPanePty(createPane(1) as never, manager as never, deps as never)
-    const onPtySpawn = createdTransportOptions[0]?.onPtySpawn as
-      | ((ptyId: string) => void)
+    const onPtyExit = createdTransportOptions[0]?.onPtyExit as
+      | ((ptyId: string, exitCode: number) => void)
       | undefined
-    const onPtyExit = createdTransportOptions[0]?.onPtyExit as ((ptyId: string) => void) | undefined
-    expect(onPtySpawn).toBeTypeOf('function')
     expect(onPtyExit).toBeTypeOf('function')
 
-    // A genuine fresh spawn (onPtySpawn fires only for non-reattach spawns) the user never typed into.
-    onPtySpawn?.('tab-pty')
-    onPtyExit?.('tab-pty')
+    onPtyExit?.('tab-pty', 1)
 
     expect(deps.onPtyExitRef.current).not.toHaveBeenCalled()
+    expect(deps.onPaneProcessDied).toHaveBeenCalledWith(1)
     expect(manager.closePane).not.toHaveBeenCalled()
   })
 
-  it('tears down the sole terminal when a freshly-spawned PTY exits after the user typed input', async () => {
-    // Why: an explicit `exit` (or any typed input) is a deliberate close, not a failed-startup shell, so the worktree should deactivate as before.
+  it('keeps a worktree sole terminal mounted when its process crashes non-zero after the user typed input', async () => {
+    // Why: a shell the user worked in that later crashes (non-zero) is still a process death, not a deliberate exit; only a clean exit code counts as "the user left".
     const { connectPanePty } = await import('./pty-connection')
     const pane = createPane(1)
     const transport = createMockTransport('tab-pty')
@@ -2254,23 +2252,48 @@ describe('connectPanePty', () => {
     const deps = createDeps()
 
     connectPanePty(pane as never, manager as never, deps as never)
-    const onPtySpawn = createdTransportOptions[0]?.onPtySpawn as
-      | ((ptyId: string) => void)
+    const onPtyExit = createdTransportOptions[0]?.onPtyExit as
+      | ((ptyId: string, exitCode: number) => void)
       | undefined
-    const onPtyExit = createdTransportOptions[0]?.onPtyExit as ((ptyId: string) => void) | undefined
-    expect(onPtySpawn).toBeTypeOf('function')
     expect(onPtyExit).toBeTypeOf('function')
 
-    onPtySpawn?.('tab-pty')
-    sendTerminalInputThroughPane(pane, 'exit\r')
-    onPtyExit?.('tab-pty')
+    sendTerminalInputThroughPane(pane, 'somecmd\r')
+    onPtyExit?.('tab-pty', 137)
 
-    expect(deps.onPtyExitRef.current).toHaveBeenCalledWith('tab-pty')
+    expect(deps.onPtyExitRef.current).not.toHaveBeenCalled()
+    expect(deps.onPaneProcessDied).toHaveBeenCalledWith(137)
     expect(manager.closePane).not.toHaveBeenCalled()
   })
 
-  it('tears down the sole terminal when a reattached (not freshly spawned) PTY exits', async () => {
-    // Why: reattach/coldRestore skip onPtySpawn, so a now-dead previously-live session must still route through onPtyExitRef; the keep-mounted guard is only for brand-new shells.
+  it('tears down the sole terminal only on a deliberate clean exit (code 0 after the user typed)', async () => {
+    // Why: typing `exit`/Ctrl-D (exit code 0 after interaction) is the user
+    // deliberately leaving — that should still deactivate the worktree and
+    // return to Landing exactly as before.
+    const { connectPanePty } = await import('./pty-connection')
+    const pane = createPane(1)
+    const transport = createMockTransport('tab-pty')
+    transportFactoryQueue.push(transport)
+    const manager = createManager(1)
+    const deps = createDeps()
+
+    connectPanePty(pane as never, manager as never, deps as never)
+    const onPtyExit = createdTransportOptions[0]?.onPtyExit as
+      | ((ptyId: string, exitCode: number) => void)
+      | undefined
+    expect(onPtyExit).toBeTypeOf('function')
+
+    sendTerminalInputThroughPane(pane, 'exit\r')
+    onPtyExit?.('tab-pty', 0)
+
+    expect(deps.onPtyExitRef.current).toHaveBeenCalledWith('tab-pty')
+    expect(deps.onPaneProcessDied).not.toHaveBeenCalled()
+    expect(manager.closePane).not.toHaveBeenCalled()
+  })
+
+  it('keeps a worktree sole terminal mounted on a clean exit the user never typed into', async () => {
+    // Why: an rc-file/startup that exits 0 on its own (no interaction) is not a
+    // deliberate user exit — keep it recoverable rather than silently bouncing
+    // to Landing for a worktree the user just opened.
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport('tab-pty')
     transportFactoryQueue.push(transport)
@@ -2278,17 +2301,75 @@ describe('connectPanePty', () => {
     const deps = createDeps()
 
     connectPanePty(createPane(1) as never, manager as never, deps as never)
-    const onPtyExit = createdTransportOptions[0]?.onPtyExit as ((ptyId: string) => void) | undefined
+    const onPtyExit = createdTransportOptions[0]?.onPtyExit as
+      | ((ptyId: string, exitCode: number) => void)
+      | undefined
     expect(onPtyExit).toBeTypeOf('function')
 
-    // No onPtySpawn call: simulates a reattach to a persisted session.
-    onPtyExit?.('tab-pty')
+    // No terminal input before the clean exit.
+    onPtyExit?.('tab-pty', 0)
 
+    expect(deps.onPtyExitRef.current).not.toHaveBeenCalled()
+    expect(deps.onPaneProcessDied).toHaveBeenCalledWith(0)
+    expect(manager.closePane).not.toHaveBeenCalled()
+  })
+
+  it('re-arms onPaneProcessDied when a relaunched sole pane dies again', async () => {
+    // Why: the recovery overlay's Restart calls connectPanePty again on a fresh
+    // transport. If that relaunched shell also dies (e.g. the .envrc is still
+    // broken), the overlay must re-appear — each connection registers its own
+    // exit handler, so a second death must fire onPaneProcessDied again.
+    const { connectPanePty } = await import('./pty-connection')
+    const manager = createManager(1)
+    const deps = createDeps()
+
+    const firstTransport = createMockTransport('tab-pty')
+    transportFactoryQueue.push(firstTransport)
+    connectPanePty(createPane(1) as never, manager as never, deps as never)
+    const firstOnExit = createdTransportOptions[0]?.onPtyExit as
+      | ((ptyId: string, exitCode: number) => void)
+      | undefined
+    firstOnExit?.('tab-pty', 1)
+    expect(deps.onPaneProcessDied).toHaveBeenCalledTimes(1)
+
+    // Relaunch: a fresh connection on a new transport, which then also dies.
+    const secondTransport = createMockTransport('tab-pty-2')
+    transportFactoryQueue.push(secondTransport)
+    connectPanePty(createPane(1) as never, manager as never, deps as never)
+    const secondOnExit = createdTransportOptions[1]?.onPtyExit as
+      | ((ptyId: string, exitCode: number) => void)
+      | undefined
+    secondOnExit?.('tab-pty-2', 1)
+
+    expect(deps.onPaneProcessDied).toHaveBeenCalledTimes(2)
+    expect(deps.onPtyExitRef.current).not.toHaveBeenCalled()
+  })
+
+  it('routes a remote-runtime sole pane death through onPtyExitRef, not the recovery overlay', async () => {
+    // Why: the recovery overlay's Restart spawns a LOCAL shell, which is wrong
+    // for a host-owned web-runtime pane (its liveness is host-authoritative).
+    // Remote/SSH panes therefore keep their prior teardown behavior.
+    enableActiveRuntimeEnvironment('env-1')
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('tab-pty')
+    transportFactoryQueue.push(transport)
+    const manager = createManager(1)
+    const deps = createDeps()
+
+    connectPanePty(createPane(1) as never, manager as never, deps as never)
+    const onPtyExit = createdTransportOptions[0]?.onPtyExit as
+      | ((ptyId: string, exitCode: number) => void)
+      | undefined
+    expect(onPtyExit).toBeTypeOf('function')
+
+    onPtyExit?.('tab-pty', 1)
+
+    expect(deps.onPaneProcessDied).not.toHaveBeenCalled()
     expect(deps.onPtyExitRef.current).toHaveBeenCalledWith('tab-pty')
     expect(manager.closePane).not.toHaveBeenCalled()
   })
 
-  it('rebinds a provider replacement without granting fresh-spawn exit protection', async () => {
+  it('rebinds a provider replacement and keeps a dying replacement recoverable', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport('terminal-old')
     transportFactoryQueue.push(transport)
@@ -2299,12 +2380,14 @@ describe('connectPanePty', () => {
     const onPtyRebind = createdTransportOptions[0]?.onPtyRebind as
       | ((ptyId: string, replacedPtyId: string) => void)
       | undefined
-    const onPtyExit = createdTransportOptions[0]?.onPtyExit as ((ptyId: string) => void) | undefined
+    const onPtyExit = createdTransportOptions[0]?.onPtyExit as
+      | ((ptyId: string, exitCode: number) => void)
+      | undefined
     expect(onPtyRebind).toBeTypeOf('function')
     expect(onPtyExit).toBeTypeOf('function')
 
     onPtyRebind?.('terminal-reconnected', 'terminal-old')
-    onPtyExit?.('terminal-reconnected')
+    onPtyExit?.('terminal-reconnected', 1)
 
     expect(deps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(1, 'terminal-reconnected')
     expect(deps.updateTabPtyId).toHaveBeenCalledWith(
@@ -2312,7 +2395,10 @@ describe('connectPanePty', () => {
       'terminal-reconnected',
       'terminal-old'
     )
-    expect(deps.onPtyExitRef.current).toHaveBeenCalledWith('terminal-reconnected')
+    // Why: a rebound replacement that dies is still a sole-pane process death —
+    // it gets the recovery overlay instead of deactivating the worktree.
+    expect(deps.onPtyExitRef.current).not.toHaveBeenCalled()
+    expect(deps.onPaneProcessDied).toHaveBeenCalledWith(1)
     expect(manager.closePane).not.toHaveBeenCalled()
   })
 
@@ -19427,7 +19513,11 @@ describe('connectPanePty', () => {
       expect(manager.closePane).toHaveBeenCalledWith(2)
     })
 
-    it('routes the last pane through onPtyExitRef when its session is dead', async () => {
+    it('keeps the last pane mounted with a recovery overlay when its session was reaped while hidden', async () => {
+      // Why: a session reaped while the pane was hidden is an unexpected death,
+      // not a deliberate exit. It must NOT route through onPtyExitRef (which
+      // would deactivate the worktree and bounce to Landing); instead the pane
+      // stays mounted and onPaneProcessDied offers in-place recovery.
       const { connectPanePty } = await import('./pty-connection')
       const transport = createMockTransport('pty-pane-1')
       transportFactoryQueue.push(transport)
@@ -19439,7 +19529,8 @@ describe('connectPanePty', () => {
       // The last pane reattaches to the tab's persisted ptyId ('tab-pty').
       binding.reconcileIfSessionDead(new Set(['some-other-live']))
 
-      expect(deps.onPtyExitRef.current).toHaveBeenCalledWith('tab-pty')
+      expect(deps.onPtyExitRef.current).not.toHaveBeenCalled()
+      expect(deps.onPaneProcessDied).toHaveBeenCalledWith(1)
       expect(manager.closePane).not.toHaveBeenCalled()
     })
 

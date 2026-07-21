@@ -3,7 +3,6 @@ import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner
 import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session'
 import {
   agentProviderSessionsEqual,
-  type AgentProviderSessionMetadata,
   type SleepingAgentSessionRecord
 } from '../../../shared/agent-session-resume'
 import { AGENT_STATUS_STALE_AFTER_MS } from '../../../shared/agent-status-types'

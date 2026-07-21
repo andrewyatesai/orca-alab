@@ -1748,6 +1748,42 @@ describe('PtyHandler', () => {
     expect(spawnEnv.env.SEEN_PI_CODING_AGENT_DIR).toBe('/remote/pi')
   })
 
+  it('defaults CODEX_HOME and ORCA_CODEX_HOME to the remote ~/.codex (#8711)', async () => {
+    await dispatcher.callRequest('pty.spawn', {
+      env: { HOME: '/home/remote-user' }
+    })
+
+    const spawnEnv = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+    const expected = join('/home/remote-user', '.codex')
+    expect(spawnEnv.env.CODEX_HOME).toBe(expected)
+    expect(spawnEnv.env.ORCA_CODEX_HOME).toBe(expected)
+  })
+
+  it('lets a client-supplied Codex home win over the relay ~/.codex default', async () => {
+    await dispatcher.callRequest('pty.spawn', {
+      env: {
+        HOME: '/home/remote-user',
+        CODEX_HOME: '/home/remote-user/.orca/codex-runtime',
+        ORCA_CODEX_HOME: '/home/remote-user/.orca/codex-runtime'
+      }
+    })
+
+    const spawnEnv = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+    expect(spawnEnv.env.CODEX_HOME).toBe('/home/remote-user/.orca/codex-runtime')
+    expect(spawnEnv.env.ORCA_CODEX_HOME).toBe('/home/remote-user/.orca/codex-runtime')
+  })
+
+  it('does not resurrect Codex home defaults past envToDelete', async () => {
+    await dispatcher.callRequest('pty.spawn', {
+      env: { HOME: '/home/remote-user' },
+      envToDelete: ['CODEX_HOME', 'ORCA_CODEX_HOME']
+    })
+
+    const spawnEnv = mockPtySpawn.mock.calls[0][2] as { env: Record<string, string> }
+    expect(spawnEnv.env.CODEX_HOME).toBeUndefined()
+    expect(spawnEnv.env.ORCA_CODEX_HOME).toBeUndefined()
+  })
+
   it('applies identity defaults, then deletions, while preserving explicit TERM', async () => {
     handler.addEnvAugmenter(() => ({
       TERM: 'augmenter-term',

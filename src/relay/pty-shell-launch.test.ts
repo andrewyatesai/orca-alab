@@ -156,6 +156,28 @@ describe('getRelayShellLaunchConfig', () => {
   )
 
   it.skipIf(process.platform === 'win32')(
+    'restores CODEX_HOME from ORCA_CODEX_HOME after remote startup files (#8711)',
+    () => {
+      const config = getRelayShellLaunchConfig('/bin/zsh', {
+        HOME: homeDir,
+        ORCA_MIMOCODE_HOME: '/tmp/orca-mimocode-overlay',
+        ORCA_CODEX_HOME: '/home/remote/.codex'
+      })
+      const restoreLine =
+        '[[ -n "${ORCA_CODEX_HOME:-}" ]] && export CODEX_HOME="${ORCA_CODEX_HOME}"'
+      const zshRoot = join(homeDir, '.orca-relay', 'shell-ready', 'zsh')
+
+      expect(config.env.ZDOTDIR).toBe(zshRoot)
+      expect(readFileSync(join(zshRoot, '.zshrc'), 'utf8')).toContain(restoreLine)
+      expect(readFileSync(join(zshRoot, '.zlogin'), 'utf8')).toContain(restoreLine)
+
+      getRelayShellLaunchConfig('/bin/bash', { HOME: homeDir })
+      const rcfile = join(homeDir, '.orca-relay', 'shell-ready', 'bash', 'rcfile')
+      expect(readFileSync(rcfile, 'utf8')).toContain(restoreLine)
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
     'wraps bash even without overlay env for OSC 133 lifecycle markers',
     () => {
       const config = getRelayShellLaunchConfig('/bin/bash', { HOME: homeDir })

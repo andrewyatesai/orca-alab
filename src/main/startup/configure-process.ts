@@ -142,7 +142,7 @@ export function patchPackagedProcessPath(): void {
     }
   }
 
-  // Why: version-manager CLIs use env-node shebangs, so node must be on PATH or spawns fail (also seeds Windows user-local dirs).
+  // Why: packaged GUI launches miss rc-added user CLI bins; seed known package-manager dirs without interactive shell init.
   extraPaths.push(...getVersionManagerBinPaths())
 
   const pathKey = process.platform === 'win32' && process.env.Path !== undefined ? 'Path' : 'PATH'

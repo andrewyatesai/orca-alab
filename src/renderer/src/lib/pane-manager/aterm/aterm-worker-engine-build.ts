@@ -173,7 +173,7 @@ export type EngineHandle = {
     query: string,
     caseSensitive: boolean,
     isRegex: boolean,
-    cursor: number | undefined,
+    cursor: bigint | undefined,
     rowBudget: number
   ) => EngineBudgetedSearchStep
   /** Drop any in-flight budgeted search state (frees the partial index). */

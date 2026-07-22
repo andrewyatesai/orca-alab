@@ -67,12 +67,14 @@ describe('worker terminal searchFind query', () => {
   })
 })
 
-/** A budgeted engine step with test-relevant fields overridden. */
+/** A budgeted engine step with test-relevant fields overridden. `matches` are
+ *  per-slice DELTAS; `reset: true` starts a new logical result stream. */
 function step(over: Partial<EngineBudgetedSearchStep>): EngineBudgetedSearchStep {
   return {
     matches: new Uint32Array(0),
     complete: false,
     cursor: undefined,
+    reset: false,
     incompleteIndex: false,
     rowsFed: 0,
     totalRows: 0,
@@ -121,7 +123,7 @@ describe('budgeted sliced find (P1.1)', () => {
   it('cancels between slices when a newer find id is observed — cursor dropped, partial matches never surface', () => {
     vi.useFakeTimers()
     const { handle, searchBudgeted, searchBudgetedCancel } = makeBudgetedHandle([
-      step({ matches: new Uint32Array([5, 0, 3]), cursor: 11, rowsFed: 4096, totalRows: 50000 })
+      step({ matches: new Uint32Array([5, 0, 3]), cursor: 11n, reset: true, rowsFed: 4096, totalRows: 50000 })
     ])
     const search = createWorkerSearch(handle, () => 24)
     const respond = vi.fn()
@@ -147,10 +149,12 @@ describe('budgeted sliced find (P1.1)', () => {
   it('a newer find superseding mid-run settles the old query null and completes fresh (no stale cursor)', () => {
     vi.useFakeTimers()
     const { handle, searchBudgeted, searchBudgetedCancel } = makeBudgetedHandle([
-      step({ matches: new Uint32Array([5, 0, 2]), cursor: 5, rowsFed: 4096, totalRows: 50000 }),
+      step({ matches: new Uint32Array([5, 0, 2]), cursor: 5n, reset: true, rowsFed: 4096, totalRows: 50000 }),
+      // The superseding find's FIRST step: a fresh stream (reset) completing at once.
       step({
         matches: new Uint32Array([9, 2, 3]),
         complete: true,
+        reset: true,
         rowsFed: 50000,
         totalRows: 50000
       })
@@ -179,9 +183,10 @@ describe('budgeted sliced find (P1.1)', () => {
   it('resumes across slices via the cursor and answers only on completion', () => {
     vi.useFakeTimers()
     const { handle, searchBudgeted, scrollIntoView } = makeBudgetedHandle([
-      step({ matches: new Uint32Array([3, 0, 4]), cursor: 7, rowsFed: 4096, totalRows: 8000 }),
+      step({ matches: new Uint32Array([3, 0, 4]), cursor: 7n, reset: true, rowsFed: 4096, totalRows: 8000 }),
+      // Continuation slice: DELTA only — the runner accumulates across slices.
       step({
-        matches: new Uint32Array([3, 0, 4, 9, 2, 4]),
+        matches: new Uint32Array([9, 2, 4]),
         complete: true,
         rowsFed: 8000,
         totalRows: 8000
@@ -195,7 +200,7 @@ describe('budgeted sliced find (P1.1)', () => {
     vi.runAllTimers()
 
     expect(searchBudgeted).toHaveBeenCalledTimes(2)
-    expect(searchBudgeted.mock.calls[1].slice(0, 4)).toEqual(['ab', false, false, 7]) // resumed
+    expect(searchBudgeted.mock.calls[1].slice(0, 4)).toEqual(['ab', false, false, 7n]) // resumed
     expect(JSON.parse(respond.mock.calls[0][0] as string)).toEqual({ count: 2, activeIndex: 2 })
     expect(search.generation()).toBe(3)
     expect(scrollIntoView).toHaveBeenCalledWith(9) // LAST match scrolled into view
@@ -208,6 +213,7 @@ describe('budgeted sliced find (P1.1)', () => {
       step({
         matches: new Uint32Array([3, 0, 4]),
         complete: true,
+        reset: true,
         incompleteIndex: true,
         rowsFed: 8000,
         totalRows: 8000
@@ -215,12 +221,14 @@ describe('budgeted sliced find (P1.1)', () => {
       step({
         matches: new Uint32Array([3, 0, 4]),
         complete: true,
+        reset: true,
         rowsFed: 8000,
         totalRows: 8000
       }),
       step({
         matches: new Uint32Array([3, 0, 4]),
         complete: true,
+        reset: true,
         incompleteIndex: true,
         rowsFed: 8000,
         totalRows: 8000
@@ -244,14 +252,21 @@ describe('budgeted sliced find (P1.1)', () => {
 
   it('settles with the scanned prefix flagged stale after repeated engine restarts — every call slice-budgeted', () => {
     vi.useFakeTimers()
-    // rowsFed DROPS on calls 2-4 (content changed between slices; the engine
-    // restarted from row zero) — the third restart settles the run with the
-    // step's partial matches instead of escalating to an unbounded call.
+    // Calls 2-4 arrive as RESET streams on a resumed cursor (content changed
+    // between slices; the engine restarted from row zero) — the third restart
+    // settles the run with the restarted stream's partial matches instead of
+    // escalating to an unbounded call.
     const { handle, searchBudgeted } = makeBudgetedHandle([
-      step({ cursor: 5, rowsFed: 4096, totalRows: 50000 }),
-      step({ cursor: 6, rowsFed: 2000, totalRows: 50000 }),
-      step({ cursor: 7, rowsFed: 1500, totalRows: 50000 }),
-      step({ matches: new Uint32Array([3, 0, 4]), cursor: 8, rowsFed: 1000, totalRows: 50000 })
+      step({ cursor: 5n, reset: true, rowsFed: 4096, totalRows: 50000 }),
+      step({ cursor: 6n, reset: true, rowsFed: 2000, totalRows: 50000 }),
+      step({ cursor: 7n, reset: true, rowsFed: 1500, totalRows: 50000 }),
+      step({
+        matches: new Uint32Array([3, 0, 4]),
+        cursor: 8n,
+        reset: true,
+        rowsFed: 1000,
+        totalRows: 50000
+      })
     ])
     const search = createWorkerSearch(handle, () => 24)
     const respond = vi.fn()
@@ -293,10 +308,16 @@ describe('budgeted sliced find (P1.1)', () => {
   it('a newer find id observed between slices cancels a restarting run before it settles', () => {
     vi.useFakeTimers()
     const { handle, searchBudgeted, searchBudgetedCancel } = makeBudgetedHandle([
-      step({ cursor: 5, rowsFed: 4096, totalRows: 50000 }),
-      step({ cursor: 6, rowsFed: 2000, totalRows: 50000 }),
-      step({ cursor: 7, rowsFed: 1500, totalRows: 50000 }),
-      step({ matches: new Uint32Array([3, 0, 4]), cursor: 8, rowsFed: 1000, totalRows: 50000 })
+      step({ cursor: 5n, reset: true, rowsFed: 4096, totalRows: 50000 }),
+      step({ cursor: 6n, reset: true, rowsFed: 2000, totalRows: 50000 }),
+      step({ cursor: 7n, reset: true, rowsFed: 1500, totalRows: 50000 }),
+      step({
+        matches: new Uint32Array([3, 0, 4]),
+        cursor: 8n,
+        reset: true,
+        rowsFed: 1000,
+        totalRows: 50000
+      })
     ])
     const search = createWorkerSearch(handle, () => 24)
     const respond = vi.fn()

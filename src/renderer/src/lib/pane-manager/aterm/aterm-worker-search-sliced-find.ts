@@ -92,8 +92,9 @@ export function createSlicedFindRunner(
     if (!searchBudgeted) {
       return
     }
-    let cursor: number | undefined
-    let rowsSeen = 0
+    let cursor: bigint | undefined
+    // Deltas accumulated across slices (v0.58 contract); a reset step clears it.
+    let found: WorkerMatch[] = []
     let restarts = 0
     let engineMs = 0
     let sliceTimer: ReturnType<typeof setTimeout> | null = null
@@ -109,7 +110,7 @@ export function createSlicedFindRunner(
       }
     }
     activeRun = me
-    const finish = (found: WorkerMatch[], complete: boolean, incompleteIndex: boolean): void => {
+    const finish = (complete: boolean, incompleteIndex: boolean): void => {
       activeRun = null
       if (!complete) {
         // Streaming-restart settle: the partial index is dead weight (the next
@@ -142,27 +143,36 @@ export function createSlicedFindRunner(
           Math.round((sliceRows * SEARCH_SLICE_BUDGET_MS) / Math.max(dt, 0.5))
         )
       )
+      // A reset step on a RESUMED cursor means the engine restarted (content
+      // changed between slices; the stale cursor started over): drop the old
+      // stream's accumulated deltas before appending this step's. (Rows-drop
+      // detection is gone — bounded backlog-drain turns hold rows_fed steady.)
+      const restarted = step.reset && cursor !== undefined
+      if (step.reset) {
+        found = []
+      }
+      for (const m of decodeMatches(step.matches)) {
+        found.push(m)
+      }
       if (step.complete) {
-        finish(decodeMatches(step.matches), true, step.incompleteIndex)
+        finish(true, step.incompleteIndex)
         return
       }
-      // A rows-scanned DROP means the engine restarted (content changed between
-      // slices; the stale cursor started over). Bounded: sustained streaming would
-      // restart forever, so after the restart cap the run SETTLES with the scanned
-      // prefix's matches flagged stale — every engine call stays slice-budgeted,
-      // and the trailing refresh owns the final answer once output calms.
-      if (cursor !== undefined && step.rowsFed <= rowsSeen) {
+      // Bounded: sustained streaming would restart forever, so after the restart
+      // cap the run SETTLES with the scanned prefix's matches flagged stale —
+      // every engine call stays slice-budgeted, and the trailing refresh owns
+      // the final answer once output calms.
+      if (restarted) {
         restarts++
         if (restarts >= SEARCH_FIND_MAX_RESTARTS) {
           // Report cost EXTRAPOLATED to full-buffer scale: engineMs only covers
           // the scanned prefix, and an underestimate would let the cost gate
           // eagerly run the blocking one-shot on the very next reply read.
           engineMs = (engineMs * step.totalRows) / Math.max(step.rowsFed, 1)
-          finish(decodeMatches(step.matches), false, step.incompleteIndex)
+          finish(false, step.incompleteIndex)
           return
         }
       }
-      rowsSeen = step.rowsFed
       cursor = step.cursor
       sliceTimer = setTimeout(slice, 0)
     }

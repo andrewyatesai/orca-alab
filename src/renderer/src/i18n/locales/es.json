@@ -2630,7 +2630,9 @@
             "925f49f210": "Expandir panel",
             "df766809e0": "Contraer panel",
             "cff67afad1": "Copiar contexto",
-            "openLinkDefaultBrowser": "Abrir en el navegador predeterminado"
+            "openLinkDefaultBrowser": "Abrir en el navegador predeterminado",
+            "projectQuickCommandProvenance": "Defined in orca.yaml",
+            "reviewOrcaYamlTrust": "Review orca.yaml trust…"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "Reiniciar servicio",
@@ -6125,7 +6127,10 @@
           "38d61927e6": "No hay comandos rápidos guardados.",
           "44923dd982": "destructivo",
           "ec1ed99e70": "Eliminar",
-          "d1d0976320": "Ninguno"
+          "d1d0976320": "Ninguno",
+          "projectSourceBadge": "orca.yaml",
+          "projectCommandsTitle": "Project Commands",
+          "projectCommandsCaption": "Defined in orca.yaml and shared with everyone on the repository. Edit them in the repository, not here."
         },
         "RecentTabOrderControl": {
           "3b17c81ede": "Orden de la barra de pestañas",

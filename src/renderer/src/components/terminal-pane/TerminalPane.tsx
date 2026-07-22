@@ -152,6 +152,15 @@ import {
   terminalQuickCommandMatchesRepo
 } from '@/lib/git-wasm/terminal-quick-commands'
 import {
+  isProjectQuickCommand,
+  projectQuickCommandsNotOverriddenByLocal
+} from '../../../../shared/project-quick-commands'
+import {
+  reviewProjectQuickCommandTrust,
+  useProjectQuickCommands
+} from '@/hooks/use-project-quick-commands'
+import { isSharedOrcaCommandTrusted } from '@/lib/orca-hook-trust'
+import {
   createTerminalQuickCommandDraft,
   TerminalQuickCommandDialog
 } from '@/components/terminal-quick-commands/TerminalQuickCommandDialog'
@@ -875,6 +884,32 @@ export default function TerminalPane({
   const globalQuickCommands = validQuickCommands.filter(
     (command) => getTerminalQuickCommandScope(command).type === 'global'
   )
+  const projectQuickCommandsState = useProjectQuickCommands(quickCommandRepoId)
+  // Why (#8481): a local command with the same label overrides the orca.yaml one.
+  const projectQuickCommands = projectQuickCommandsNotOverriddenByLocal(
+    repoQuickCommands,
+    projectQuickCommandsState.commands
+  )
+  const reviewProjectQuickCommands = (): void => {
+    if (quickCommandRepoId) {
+      void reviewProjectQuickCommandTrust(quickCommandRepoId)
+    }
+  }
+  const dispatchQuickCommandWithTrustGate = (command: TerminalQuickCommand): void => {
+    // Why: shared-command injection gate — orca.yaml bytes never reach a shell
+    // unless the repo's trust record covers the snapshot they came from. Read
+    // trust at click time so a render-stale `trusted` prop cannot leak through.
+    if (isProjectQuickCommand(command)) {
+      const trust = quickCommandRepoId
+        ? useAppStore.getState().trustedOrcaHooks[quickCommandRepoId]
+        : undefined
+      if (!isSharedOrcaCommandTrusted(trust, projectQuickCommandsState.sharedTrustContentHash)) {
+        reviewProjectQuickCommands()
+        return
+      }
+    }
+    contextMenu.onQuickCommand(command)
+  }
   const quickCommandGroupId =
     useAppStore(
       (s) =>
@@ -3103,8 +3138,11 @@ export default function TerminalPane({
         onCopyAgentSessionContext={() => void contextMenu.onCopyAgentSessionContext()}
         repoQuickCommands={repoQuickCommands}
         globalQuickCommands={globalQuickCommands}
+        projectQuickCommands={projectQuickCommands}
+        projectQuickCommandsTrusted={projectQuickCommandsState.trusted}
+        onReviewProjectQuickCommands={reviewProjectQuickCommands}
         quickCommandRepoLabel={quickCommandRepoLabel}
-        onQuickCommand={contextMenu.onQuickCommand}
+        onQuickCommand={dispatchQuickCommandWithTrustGate}
         onAddQuickCommand={
           quickCommandRepoId
             ? () => openQuickCommandEditor({ type: 'repo', repoId: quickCommandRepoId })

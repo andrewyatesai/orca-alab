@@ -2050,7 +2050,15 @@ export type OrcaHooks = {
   defaultTabs?: OrcaDefaultTabTemplate[] // Terminal tabs to create once for a new worktree
   environmentRecipes?: OrcaVmRecipe[] // Project-scoped per-workspace environment recipes
   environmentRecipeDiagnostics?: OrcaVmRecipeDiagnostic[] // Non-fatal validation issues from environmentRecipes
+  quickCommands?: OrcaProjectQuickCommand[] // Project-level terminal quick commands (#8481)
+  quickCommandDiagnostics?: OrcaVmRecipeDiagnostic[] // Non-fatal validation issues from quickCommands
 }
+
+// Why: yaml carries no id — a stable id is derived per repo at merge time — and
+// `agent` stays a plain string here; renderers validate it against TuiAgent.
+export type OrcaProjectQuickCommand =
+  | { label: string; command: string; appendEnter?: boolean }
+  | { label: string; action: 'agent-prompt'; agent: string; prompt: string }
 
 export type OrcaDefaultTabTemplate = {
   title?: string

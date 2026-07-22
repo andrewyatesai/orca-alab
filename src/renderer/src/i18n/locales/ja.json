@@ -2630,7 +2630,9 @@
             "925f49f210": "ペインを展開する",
             "df766809e0": "ペインを折りたたむ",
             "cff67afad1": "コンテキストをコピー",
-            "openLinkDefaultBrowser": "既定のブラウザで開く"
+            "openLinkDefaultBrowser": "既定のブラウザで開く",
+            "projectQuickCommandProvenance": "Defined in orca.yaml",
+            "reviewOrcaYamlTrust": "Review orca.yaml trust…"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "デーモンを再起動します",
@@ -6147,7 +6149,10 @@
           "38d61927e6": "クイック コマンドは保存されません。",
           "44923dd982": "破壊的な",
           "ec1ed99e70": "削除",
-          "d1d0976320": "なし"
+          "d1d0976320": "なし",
+          "projectSourceBadge": "orca.yaml",
+          "projectCommandsTitle": "Project Commands",
+          "projectCommandsCaption": "Defined in orca.yaml and shared with everyone on the repository. Edit them in the repository, not here."
         },
         "RecentTabOrderControl": {
           "3b17c81ede": "タブストリップの順序",

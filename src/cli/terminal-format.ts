@@ -95,6 +95,8 @@ export function formatTerminalShow(result: { terminal: RuntimeTerminalShow }): s
     `branch: ${terminal.branch}`,
     `leaf: ${terminal.leafId}`,
     `ptyId: ${terminal.ptyId ?? 'none'}`,
+    `status: ${terminal.status}`,
+    `pid: ${terminal.pid ?? 'null'}`,
     `connected: ${terminal.connected}`,
     `writable: ${terminal.writable}`,
     `preview: ${terminal.preview || '<empty>'}`
@@ -170,6 +172,11 @@ export function formatTerminalFocus(result: { focus: RuntimeTerminalFocus }): st
 export function formatTerminalClose(result: { close: RuntimeTerminalClose }): string {
   if (result.close.closeMode === 'tab') {
     return `Closed terminal tab ${result.close.tabId} (${result.close.handle}).`
+  }
+  if (result.close.closeMode === 'pty') {
+    // Why: tells orchestrators no tab was closed — the live tabless PTY was killed instead (#9193).
+    const ptyNote = result.close.ptyKilled ? ' PTY killed.' : ' PTY kill failed.'
+    return `Terminal ${result.close.handle} had no tab to close.${ptyNote}`
   }
   const ptyNote = result.close.ptyKilled ? ' PTY killed.' : ''
   return `Closed terminal ${result.close.handle}.${ptyNote}`

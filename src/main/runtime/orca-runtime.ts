@@ -1316,6 +1316,8 @@ type RuntimePtyController = {
   ): Promise<boolean>
   getCwd?(ptyId: string): Promise<string | null>
   getForegroundProcess(ptyId: string): Promise<string | null>
+  /** Null = no evidence either way; only positive death evidence may reject a send (#9169/#9166). */
+  getSessionLiveness?(ptyId: string): Promise<{ alive: boolean; pid: number | null } | null>
   confirmForegroundProcess?(ptyId: string): Promise<string | null>
   hasChildProcesses?(ptyId: string): Promise<boolean>
   clearBuffer?(ptyId: string): Promise<void>
@@ -1342,6 +1344,14 @@ type RuntimePtyController = {
     signal?: AbortSignal
   ): Promise<boolean>
   getSize?(ptyId: string): { cols: number; rows: number } | null
+}
+
+/** #9169: single liveness verdict shared by send/show/read. 'daemon' = positive registry evidence; 'cache' = derived from the cached connected/exit flags. */
+type TerminalLiveness = {
+  status: RuntimeTerminalState
+  pid: number | null
+  exitCode: number | null
+  source: 'daemon' | 'cache'
 }
 
 type WorktreeStartupDraftPaste = {
@@ -9526,6 +9536,11 @@ export class OrcaRuntimeService {
     this.remoteDesktopViewerRevisions.delete(ptyId)
     this.disposeHeadlessTerminal(ptyId)
     this.agentDetector?.onExit(ptyId)
+    this.finalizePtyExitRecords(ptyId, exitCode)
+  }
+
+  /** Canonical record/waiter/projection bookkeeping for a dead PTY — shared by onPtyExit and the daemon liveness reconcile (#9169). */
+  private finalizePtyExitRecords(ptyId: string, exitCode: number): void {
     const pty = this.ptysById.get(ptyId)
     if (pty) {
       pty.connected = false
@@ -11646,6 +11661,8 @@ export class OrcaRuntimeService {
   async showTerminal(handle: string): Promise<RuntimeTerminalShow> {
     const pty = this.getLivePtyForHandle(handle)
     if (pty) {
+      // Why: resolve liveness before building the summary so connected/writable reflect a daemon-reaped PTY (#9169).
+      const liveness = await this.resolveTerminalLiveness(pty.pty.ptyId)
       const worktreesById = await this.getResolvedWorktreeMap()
       const summary = this.buildPtyTerminalSummary(pty.pty, worktreesById)
       const preview = await this.visibleSnapshotPreview(pty.pty.ptyId, summary.preview)
@@ -11657,13 +11674,18 @@ export class OrcaRuntimeService {
         leafId: parsePaneKey(pty.pty.paneKey ?? '')?.leafId ?? pty.record.leafId,
         paneRuntimeId: -1,
         ptyId: pty.pty.ptyId,
-        rendererGraphEpoch: this.rendererGraphEpoch
+        rendererGraphEpoch: this.rendererGraphEpoch,
+        status: liveness.status,
+        pid: liveness.pid
       }
     }
     const graphEpoch = this.captureReadyGraphEpoch()
     const worktreesById = await this.getResolvedWorktreeMap()
     this.assertStableReadyGraph(graphEpoch)
     const { leaf } = this.getLiveLeafForHandle(handle)
+    const liveness = leaf.ptyId
+      ? await this.resolveTerminalLiveness(leaf.ptyId)
+      : this.deriveCachedLeafLiveness(leaf)
     const summary = this.buildTerminalSummary(leaf, worktreesById)
     const preview = leaf.ptyId
       ? await this.visibleSnapshotPreview(leaf.ptyId, summary.preview)
@@ -11677,7 +11699,9 @@ export class OrcaRuntimeService {
       preview,
       paneRuntimeId: leaf.paneRuntimeId,
       ptyId: leaf.ptyId,
-      rendererGraphEpoch: this.rendererGraphEpoch
+      rendererGraphEpoch: this.rendererGraphEpoch,
+      status: liveness.status,
+      pid: liveness.pid
     }
   }
 
@@ -11687,16 +11711,21 @@ export class OrcaRuntimeService {
   ): Promise<RuntimeTerminalRead> {
     const pty = this.getLivePtyForHandle(handle)
     if (pty) {
-      const read = this.readPtyTerminal(handle, pty.pty, opts)
+      // Why: status must come from the same liveness source terminal.show uses (#9169), not a private connected-flag derivation.
+      const liveness = await this.resolveTerminalLiveness(pty.pty.ptyId)
+      const read = this.readPtyTerminal(handle, pty.pty, opts, liveness)
       const visibleRead = await this.withVisibleSnapshotFallback(pty.pty.ptyId, read, opts)
       this.assertLiveTerminalHandleTargetsPty(handle, pty.pty.ptyId)
       return visibleRead
     }
 
     const { leaf } = this.getLiveLeafForHandle(handle)
+    const leafLiveness = leaf.ptyId
+      ? await this.resolveTerminalLiveness(leaf.ptyId)
+      : this.deriveCachedLeafLiveness(leaf)
     const read = readTerminalTail({
       handle,
-      status: getTerminalState(leaf),
+      status: leafLiveness.status,
       previewLines: leaf.tailBuffer,
       completedLines: leaf.tailTranscriptBuffer,
       partialLine: leaf.tailPartialLine,
@@ -11732,6 +11761,7 @@ export class OrcaRuntimeService {
       if (!pty.pty.connected) {
         throw new Error('terminal_not_writable')
       }
+      await this.assertTerminalLivenessWritable(pty.pty.ptyId)
       const payload = buildSendPayload(action)
       if (payload === null) {
         throw new Error('invalid_terminal_send')
@@ -11749,6 +11779,7 @@ export class OrcaRuntimeService {
     if (!leaf.writable || !leaf.ptyId) {
       throw new Error('terminal_not_writable')
     }
+    await this.assertTerminalLivenessWritable(leaf.ptyId)
     const payload = buildSendPayload(action)
     if (payload === null) {
       throw new Error('invalid_terminal_send')
@@ -11779,6 +11810,7 @@ export class OrcaRuntimeService {
       if (!pty.pty.connected) {
         throw new Error('terminal_not_writable')
       }
+      await this.assertTerminalLivenessWritable(pty.pty.ptyId)
       await assertTerminalInputWithinLimitWithYield(payload)
       await this.writeTerminalAgentPrompt(pty.pty.ptyId, payload, options)
       return { handle, accepted: true, bytesWritten }
@@ -11788,6 +11820,7 @@ export class OrcaRuntimeService {
     if (!leaf.writable || !leaf.ptyId) {
       throw new Error('terminal_not_writable')
     }
+    await this.assertTerminalLivenessWritable(leaf.ptyId)
     await assertTerminalInputWithinLimitWithYield(payload)
     await this.writeTerminalAgentPrompt(leaf.ptyId, payload, options)
     return { handle, accepted: true, bytesWritten }
@@ -20535,7 +20568,10 @@ export class OrcaRuntimeService {
     if (pty) {
       const tabId = pty.pty.tabId
       if (!tabId) {
-        throw new Error('terminal_tab_not_found')
+        // Why: restart adoption and binding-churn pruning make live tabless PTYs routine (#9193); converge on the pane-close kill so a `--tab` retry can progress instead of looping on not-found.
+        this.claudeAgentTeams.removeTeamForLeaderHandle(handle)
+        const ptyKilled = this.ptyController?.kill(pty.pty.ptyId) ?? false
+        return { handle, tabId: pty.record.tabId, closeMode: 'pty', ptyKilled }
       }
       await this.closeMobileSessionTab(`id:${pty.pty.worktreeId}`, tabId)
       this.claudeAgentTeams.removeTeamForLeaderHandle(handle)
@@ -23649,14 +23685,77 @@ export class OrcaRuntimeService {
     }
   }
 
+  /** #9169: one liveness source for send/show/read. Positive daemon death evidence converges the cached records through the canonical exit bookkeeping; absence of evidence falls back to the cached flags. */
+  private async resolveTerminalLiveness(ptyId: string): Promise<TerminalLiveness> {
+    const probe = this.ptyController?.getSessionLiveness?.(ptyId)
+    if (!probe) {
+      return this.deriveCachedTerminalLiveness(ptyId)
+    }
+    const result = await withTimeoutResult(probe, PTY_CONTROLLER_LIST_TIMEOUT_MS)
+    if (!result.ok || result.value === null) {
+      // Why: timeout/unreachable is not death evidence — fail open on the cached flags (#9166 guard).
+      return this.deriveCachedTerminalLiveness(ptyId)
+    }
+    if (result.value.alive) {
+      return { status: 'running', pid: result.value.pid, exitCode: null, source: 'daemon' }
+    }
+    const cached = this.deriveCachedTerminalLiveness(ptyId)
+    if (cached.status === 'running') {
+      // Why: the daemon reaped this PTY but no exit event landed (the #9169 wedge); reuse the exit bookkeeping so projections, waiters, and snapshots converge.
+      this.finalizePtyExitRecords(ptyId, cached.exitCode ?? -1)
+    }
+    return {
+      status: 'exited',
+      pid: null,
+      exitCode: this.ptysById.get(ptyId)?.lastExitCode ?? cached.exitCode,
+      source: 'daemon'
+    }
+  }
+
+  private deriveCachedTerminalLiveness(ptyId: string): TerminalLiveness {
+    const pty = this.ptysById.get(ptyId)
+    if (pty) {
+      return {
+        status: pty.connected ? 'running' : pty.lastExitCode !== null ? 'exited' : 'unknown',
+        pid: null,
+        exitCode: pty.lastExitCode,
+        source: 'cache'
+      }
+    }
+    for (const leaf of this.getLeavesForPty(ptyId)) {
+      return this.deriveCachedLeafLiveness(leaf)
+    }
+    return { status: 'unknown', pid: null, exitCode: null, source: 'cache' }
+  }
+
+  private deriveCachedLeafLiveness(leaf: RuntimeLeafRecord): TerminalLiveness {
+    return {
+      status: getTerminalState(leaf),
+      pid: null,
+      exitCode: leaf.lastExitCode,
+      source: 'cache'
+    }
+  }
+
+  /** Why: reject sends only on positive daemon death evidence — 'unknown'/cache-sourced answers must stay writable (#9166 regression guard). */
+  private async assertTerminalLivenessWritable(ptyId: string): Promise<void> {
+    const liveness = await this.resolveTerminalLiveness(ptyId)
+    if (liveness.status === 'exited' && liveness.source === 'daemon') {
+      throw new Error('terminal_not_writable')
+    }
+  }
+
   private readPtyTerminal(
     handle: string,
     pty: RuntimePtyWorktreeRecord,
-    opts: { cursor?: number; limit?: number } = {}
+    opts: { cursor?: number; limit?: number } = {},
+    liveness?: TerminalLiveness
   ): RuntimeTerminalRead {
     return readTerminalTail({
       handle,
-      status: pty.connected ? 'running' : pty.lastExitCode !== null ? 'exited' : 'unknown',
+      status:
+        liveness?.status ??
+        (pty.connected ? 'running' : pty.lastExitCode !== null ? 'exited' : 'unknown'),
       previewLines: pty.tailBuffer,
       completedLines: pty.tailTranscriptBuffer,
       partialLine: pty.tailPartialLine,

@@ -3321,6 +3321,14 @@ export function registerPtyHandlers(
         return null
       }
     },
+    getSessionLiveness: async (ptyId) => {
+      try {
+        // Why: providers without a session registry (local, SSH relay) return no evidence, so the runtime keeps its cached-flag behavior for them (#9169).
+        return (await getProviderForPty(ptyId).getSessionLiveness?.(ptyId)) ?? null
+      } catch {
+        return null
+      }
+    },
     confirmForegroundProcess: async (ptyId) => {
       try {
         const provider = getProviderForPty(ptyId)

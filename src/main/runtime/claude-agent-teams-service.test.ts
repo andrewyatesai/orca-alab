@@ -59,7 +59,9 @@ function createServiceWithLeader(): {
       preview: '',
       paneRuntimeId: -1,
       ptyId: 'pty-1',
-      rendererGraphEpoch: 1
+      rendererGraphEpoch: 1,
+      status: 'running' as const,
+      pid: null
     }))
   }
   return {

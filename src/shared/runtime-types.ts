@@ -457,6 +457,9 @@ export type RuntimeTerminalShow = RuntimeTerminalSummary & {
   paneRuntimeId: number
   ptyId: string | null
   rendererGraphEpoch: number
+  /** Single-source liveness shared with terminal.read (#9169): show and read agree definitionally. */
+  status: RuntimeTerminalState
+  pid: number | null
 }
 
 export type RuntimeTerminalState = 'running' | 'exited' | 'unknown'
@@ -555,8 +558,9 @@ export type RuntimeTerminalFocus = {
 export type RuntimeTerminalClose = {
   handle: string
   tabId: string
-  /** Present for the durable whole-tab lifecycle without changing legacy receipts. */
-  closeMode?: 'tab'
+  /** Present for the durable whole-tab lifecycle without changing legacy receipts.
+   *  'pty' = no tab existed for the handle, so the live PTY was killed instead (#9193). */
+  closeMode?: 'tab' | 'pty'
   ptyKilled: boolean
 }
 

@@ -20072,6 +20072,291 @@ describe('OrcaRuntimeService', () => {
     expect(flushOrThrow).toHaveBeenCalledTimes(1)
   })
 
+  it("closeTerminalTab kills a live pty-backed handle with no tab binding and reports closeMode 'pty'", async () => {
+    // Why: restart adoption records daemon-surviving PTYs without a tab binding (#9193); `--tab` close must converge on the kill, not throw not-found.
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-orphan`
+    const kill = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }]
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+    expect(terminal.tabId).toBe(`pty:${ptyId}`)
+
+    await expect(runtime.closeTerminalTab(terminal.handle)).resolves.toEqual({
+      handle: terminal.handle,
+      tabId: `pty:${ptyId}`,
+      closeMode: 'pty',
+      ptyKilled: true
+    })
+    expect(kill).toHaveBeenCalledWith(ptyId)
+  })
+
+  it('closeTerminal and closeTerminalTab agree for a restart-adopted tabless PTY', async () => {
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-orphan-agree`
+    const kill = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }]
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    const tabClose = await runtime.closeTerminalTab(terminal.handle)
+    const paneClose = await runtime.closeTerminal(terminal.handle)
+
+    // Why: the reported divergence was not-found on one path, kill on the other; both paths must share one liveness model.
+    expect(tabClose).toEqual({
+      handle: terminal.handle,
+      tabId: `pty:${ptyId}`,
+      closeMode: 'pty',
+      ptyKilled: true
+    })
+    expect(paneClose).toEqual({ handle: terminal.handle, tabId: `pty:${ptyId}`, ptyKilled: true })
+    expect(kill).toHaveBeenCalledTimes(2)
+    expect(kill).toHaveBeenNthCalledWith(1, ptyId)
+    expect(kill).toHaveBeenNthCalledWith(2, ptyId)
+  })
+
+  it('killed tabless handle disappears from listTerminals and worktree projections', async () => {
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-orphan-gone`
+    let daemonSessions = [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }]
+    const kill = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => daemonSessions
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+    const before = await runtime.getWorktreePs()
+    expect(
+      before.worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
+    ).toMatchObject({ liveTerminalCount: 1, hasAttachedPty: true })
+
+    await runtime.closeTerminalTab(terminal.handle)
+    // Why: the provider exit callback is the physical-death proof the kill path relies on; no extra cleanup code should be needed.
+    daemonSessions = []
+    runtime.onPtyExit(ptyId, 0)
+
+    expect((await runtime.listTerminals()).terminals).toEqual([])
+    const after = await runtime.getWorktreePs()
+    expect(
+      after.worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
+    ).toMatchObject({ liveTerminalCount: 0, hasAttachedPty: false })
+  })
+
+  it('keeps the durable whole-tab close for a pty-backed handle with a live tab binding', async () => {
+    // Why: pins #8958/#9114 behavior — the #9193 convergence must only fire when no tab exists.
+    const { runtimeStore } = makeRuntimeStoreWithWorkspaceSession(
+      makeWorkspaceSessionWithHeadlessTerminal({
+        tabsByWorktree: {
+          [TEST_WORKTREE_ID]: [
+            {
+              id: 'laptop-tab',
+              ptyId: null,
+              worktreeId: TEST_WORKTREE_ID,
+              title: 'Durable',
+              customTitle: null,
+              color: null,
+              sortOrder: 0,
+              createdAt: 1
+            }
+          ]
+        },
+        terminalLayoutsByTabId: {
+          'laptop-tab': makeHeadlessTerminalLayout({ [HEADLESS_LEAF_ID]: undefined })
+        }
+      })
+    )
+    const spawn = vi.fn().mockResolvedValue({ id: 'laptop-created-pty' })
+    const kill = vi.fn(() => true)
+    const runtime = new OrcaRuntimeService({ ...runtimeStore, flushOrThrow: vi.fn() } as never)
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill,
+      getForegroundProcess: async () => null
+    })
+    runtime.syncWindowGraph(0, { tabs: [], leaves: [] })
+    const terminal = await runtime.createTerminal(`id:${TEST_WORKTREE_ID}`, {
+      tabId: 'laptop-tab',
+      leafId: HEADLESS_LEAF_ID
+    })
+
+    await expect(runtime.closeTerminalTab(terminal.handle)).resolves.toEqual({
+      handle: terminal.handle,
+      tabId: 'laptop-tab',
+      closeMode: 'tab',
+      ptyKilled: false
+    })
+    expect(kill).toHaveBeenCalledWith('laptop-created-pty')
+  })
+
+  it('send into a daemon-reaped PTY throws terminal_not_writable and flips the record disconnected', async () => {
+    // Why: the #9169 wedge — daemon reaped the session but the exit event was lost, so the cached connected flag lies forever.
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-reaped`
+    const write = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }],
+      getSessionLiveness: async () => ({ alive: false, pid: null })
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+    expect(terminal.connected).toBe(true)
+
+    await expect(runtime.sendTerminal(terminal.handle, { text: 'into the void' })).rejects.toThrow(
+      'terminal_not_writable'
+    )
+    expect(write).not.toHaveBeenCalled()
+    await expect(runtime.readTerminal(terminal.handle)).resolves.toMatchObject({
+      status: 'exited'
+    })
+    await expect(runtime.showTerminal(terminal.handle)).resolves.toMatchObject({
+      status: 'exited',
+      connected: false,
+      writable: false
+    })
+  })
+
+  it('send proceeds when the daemon probe returns no evidence (source: cache)', async () => {
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-no-evidence`
+    const write = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }],
+      // Why: null = daemon can't testify (#9166 guard) — the cached connected flag must keep the send writable.
+      getSessionLiveness: async () => null
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    await expect(
+      runtime.sendTerminal(terminal.handle, { text: 'still writable' })
+    ).resolves.toMatchObject({ accepted: true })
+    expect(write).toHaveBeenCalled()
+  })
+
+  it('send proceeds when the daemon probe times out (source: cache)', async () => {
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-probe-hang`
+    const write = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }],
+      getSessionLiveness: () => new Promise(() => {})
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    vi.useFakeTimers()
+    try {
+      const sendPromise = runtime.sendTerminal(terminal.handle, { text: 'eventually accepted' })
+      await vi.advanceTimersByTimeAsync(3_100)
+      await expect(sendPromise).resolves.toMatchObject({ accepted: true })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(write).toHaveBeenCalled()
+  })
+
+  it('show and read report identical status for a pty-backed handle', async () => {
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-agree`
+    let alive = true
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }],
+      getSessionLiveness: async () => ({ alive, pid: alive ? 4242 : null })
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    const showAlive = await runtime.showTerminal(terminal.handle)
+    const readAlive = await runtime.readTerminal(terminal.handle)
+    expect(showAlive.status).toBe('running')
+    expect(showAlive.pid).toBe(4242)
+    expect(readAlive.status).toBe(showAlive.status)
+
+    alive = false
+    const showDead = await runtime.showTerminal(terminal.handle)
+    const readDead = await runtime.readTerminal(terminal.handle)
+    expect(showDead.status).toBe('exited')
+    expect(showDead.pid).toBeNull()
+    expect(readDead.status).toBe(showDead.status)
+  })
+
+  it('show and read report identical status for a leaf-backed handle', async () => {
+    let alive = true
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      getSessionLiveness: async () => ({ alive, pid: alive ? 777 : null })
+    })
+    syncSinglePty(runtime)
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    const showAlive = await runtime.showTerminal(terminal.handle)
+    expect(showAlive.status).toBe('running')
+    expect((await runtime.readTerminal(terminal.handle)).status).toBe(showAlive.status)
+
+    alive = false
+    const showDead = await runtime.showTerminal(terminal.handle)
+    const readDead = await runtime.readTerminal(terminal.handle)
+    expect(showDead.status).toBe('exited')
+    expect(readDead.status).toBe(showDead.status)
+  })
+
+  it('agent prompt send honors daemon liveness', async () => {
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-prompt-reaped`
+    const write = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }],
+      getSessionLiveness: async () => ({ alive: false, pid: null })
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    await expect(runtime.sendTerminalAgentPrompt(terminal.handle, 'do things')).rejects.toThrow(
+      'terminal_not_writable'
+    )
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it('lists PTY-backed mobile session terminals without a renderer graph', async () => {
     const spawn = vi.fn().mockResolvedValue({ id: 'laptop-created-pty' })
     const runtime = new OrcaRuntimeService(store)

@@ -28,6 +28,7 @@ import type {
   PtyBackgroundStreamEvent,
   PtyProviderBufferSnapshot,
   PtyProcessInfo,
+  PtySessionLiveness,
   PtySpawnOptions,
   PtySpawnResult
 } from '../providers/types'
@@ -160,6 +161,16 @@ export class DaemonPtyAdapter implements IPtyProvider {
   // gap). The spawn path restores from those files via ignoreCleanEnd, so
   // deletion must be skipped while a spawn is in flight.
   private spawnsInFlight = new Map<string, number>()
+  // Why: send/show/read consult liveness on hot paths; one short-lived listSessions snapshot serves them all instead of a per-call RPC (#9169).
+  private static SESSION_LIVENESS_MEMO_MS = 1_500
+  private sessionLivenessSnapshot: {
+    fetchedAt: number
+    byId: Map<string, { isAlive: boolean; pid: number | null }>
+  } | null = null
+  private sessionLivenessFetch: Promise<Map<
+    string,
+    { isAlive: boolean; pid: number | null }
+  > | null> | null = null
 
   supportsGitCredentialGuardHost(): boolean {
     // Why: the fork's own Rust daemon (protocol 10xx) spawns env verbatim and does
@@ -921,6 +932,61 @@ export class DaemonPtyAdapter implements IPtyProvider {
       }))
   }
 
+  /** #9169: positive per-session liveness from the daemon registry. Null = no evidence (spawn in flight, daemon unreachable) so callers fail open on their cached flags. */
+  async getSessionLiveness(id: string): Promise<PtySessionLiveness | null> {
+    // Why: the registry may not list a session whose spawn is still in flight; rejecting then would be the #9166 startup TOCTOU regression.
+    if ((this.spawnsInFlight.get(id) ?? 0) > 0) {
+      return null
+    }
+    const byId = await this.getSessionLivenessSnapshot()
+    if (!byId) {
+      return null
+    }
+    const session = byId.get(id)
+    if (!session) {
+      // Why: absence is death evidence only for ids this daemon could own — a minted daemon session id or one this adapter has tracked; anything else is no evidence.
+      const everTracked =
+        this.activeSessionIds.has(id) ||
+        this.killedSessionTombstones.has(id) ||
+        this.initialCwds.has(id)
+      if (!everTracked && parsePtySessionId(id).worktreeId === null) {
+        return null
+      }
+      return { alive: false, pid: null }
+    }
+    return { alive: session.isAlive, pid: session.pid }
+  }
+
+  private async getSessionLivenessSnapshot(): Promise<Map<
+    string,
+    { isAlive: boolean; pid: number | null }
+  > | null> {
+    const memo = this.sessionLivenessSnapshot
+    if (memo && Date.now() - memo.fetchedAt < DaemonPtyAdapter.SESSION_LIVENESS_MEMO_MS) {
+      return memo.byId
+    }
+    // Why: concurrent probes inside one memo window coalesce into a single listSessions RPC.
+    this.sessionLivenessFetch ??= (async () => {
+      try {
+        await this.ensureConnected()
+        const result = await this.client.request<ListSessionsResult>('listSessions', undefined)
+        const byId = new Map(
+          result.sessions.map((session) => [
+            session.sessionId,
+            { isAlive: session.isAlive, pid: session.pid }
+          ])
+        )
+        this.sessionLivenessSnapshot = { fetchedAt: Date.now(), byId }
+        return byId
+      } catch {
+        return null
+      } finally {
+        this.sessionLivenessFetch = null
+      }
+    })()
+    return await this.sessionLivenessFetch
+  }
+
   // Why keep both: the Manage Sessions panel needs full SessionInfo (pid/state/createdAt) that listProcesses drops for the IPtyProvider contract.
   async listSessions(): Promise<SessionInfo[]> {
     await this.ensureConnected()
@@ -937,6 +1003,8 @@ export class DaemonPtyAdapter implements IPtyProvider {
   fanoutSyntheticExits(code: number): void {
     const ids = [...this.activeSessionIds]
     this.activeSessionIds.clear()
+    // Why: every session is about to die with the daemon; a memoized alive answer would outlive them.
+    this.sessionLivenessSnapshot = null
     this.dirtySessionVersions.clear()
     this.lastFullCheckpointAt.clear()
     this.sessionsNeedingFullCheckpoint.clear()
@@ -1491,6 +1559,8 @@ export class DaemonPtyAdapter implements IPtyProvider {
       } else if (event.event === 'exit') {
         this.activeSessionIds.delete(event.sessionId)
         this.pidsBySessionId.delete(event.sessionId)
+        // Why: a memoized liveness snapshot must not answer alive=true for a just-reaped session inside the memo window (#9169).
+        this.sessionLivenessSnapshot?.byId.set(event.sessionId, { isAlive: false, pid: null })
         this.dirtySessionVersions.delete(event.sessionId)
         // Why: a reused sessionId must not inherit the dead session's owed resume (stray resumePty) or backgrounded/thinned state.
         this.pausedProducerSessionIds.delete(event.sessionId)

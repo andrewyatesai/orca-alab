@@ -4,22 +4,25 @@ import type {
   PtyBackgroundStreamEvent,
   PtyProviderBufferSnapshot,
   PtyProcessInfo,
+  PtySessionLiveness,
   PtySpawnOptions,
   PtySpawnResult
 } from '../providers/types'
+
+type PtyDataFanoutPayload = {
+  id: string
+  data: string
+  sequenceChars?: number
+  transformed?: boolean
+  seq?: number
+}
 
 export class DaemonPtyRouter implements IPtyProvider {
   private current: DaemonPtyAdapter
   private legacy: DaemonPtyAdapter[]
   private sessionAdapters = new Map<string, DaemonPtyAdapter>()
   private unsubscribers: (() => void)[] = []
-  private dataListeners: ((payload: {
-    id: string
-    data: string
-    sequenceChars?: number
-    transformed?: boolean
-    seq?: number
-  }) => void)[] = []
+  private dataListeners: ((payload: PtyDataFanoutPayload) => void)[] = []
   private exitListeners: ((payload: { id: string; code: number }) => void)[] = []
 
   constructor(opts: { current: DaemonPtyAdapter; legacy: DaemonPtyAdapter[] }) {
@@ -186,6 +189,11 @@ export class DaemonPtyRouter implements IPtyProvider {
     await this.current.revive(state)
   }
 
+  async getSessionLiveness(id: string): Promise<PtySessionLiveness | null> {
+    // Why: adapterFor self-heals routing by asking who owns the pty, so death evidence comes from the daemon that actually hosts it.
+    return await this.adapterFor(id).getSessionLiveness(id)
+  }
+
   async listProcesses(opts?: { deadlineMs?: number }): Promise<PtyProcessInfo[]> {
     // Why: runtime exact-stop/liveness flows fail closed for the current daemon
     // and live legacy daemons. A legacy endpoint whose socket/token disappeared
@@ -219,15 +227,7 @@ export class DaemonPtyRouter implements IPtyProvider {
     return this.current.getProfiles()
   }
 
-  onData(
-    callback: (payload: {
-      id: string
-      data: string
-      sequenceChars?: number
-      transformed?: boolean
-      seq?: number
-    }) => void
-  ): () => void {
+  onData(callback: (payload: PtyDataFanoutPayload) => void): () => void {
     this.dataListeners.push(callback)
     return () => {
       const idx = this.dataListeners.indexOf(callback)

@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { githubAvatarUrl } from './github-issue-comment-helpers'
+import { githubAvatarUrl } from './github-issue-mutations'
 import { resolveGitHubUserAvatarSrc } from './github-user-avatar'
 
 describe('issue #8784 GHE avatar fallback (regression)', () => {

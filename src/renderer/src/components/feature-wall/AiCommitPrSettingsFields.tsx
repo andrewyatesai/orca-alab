@@ -14,7 +14,7 @@ import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { translate } from '@/i18n/i18n'
-import { commitMessageAgentLabel } from './ai-commit-pr-settings-helpers'
+import { commitMessageAgentLabel } from './commit-message-ai-settings'
 
 type AiCommitPrSettingsFieldsProps = {
   config: CommitMessageAiSettings

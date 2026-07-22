@@ -25,7 +25,7 @@ import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import {
   getLinkedItemDisplayName,
   toFolderWorkspaceLinkedTask
-} from './folder-workspace-composer-helpers'
+} from './folder-workspace-composer-sources'
 
 type FolderWorkspaceCreateInput = {
   projectGroupId: string

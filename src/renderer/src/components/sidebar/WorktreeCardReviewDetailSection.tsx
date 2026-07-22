@@ -16,7 +16,7 @@ import {
 import { DetailHeader, MetadataActionIcon } from './WorktreeCardMetadataControls'
 import { ReviewChecksBadge, ReviewStateBadge } from './WorktreeCardMetadataStatusBadges'
 import type { WorktreeCardPrDisplay } from './worktree-card-pr-display'
-import { getProviderName, getReviewLabel, ReviewIcon } from './worktree-review-helpers'
+import { getProviderName, getReviewLabel, ReviewIcon } from './worktree-review-provider-display'
 
 type WorktreeCardReviewDetailSectionProps = {
   review: WorktreeCardPrDisplay | null

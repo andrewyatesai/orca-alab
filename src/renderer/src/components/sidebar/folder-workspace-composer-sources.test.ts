@@ -3,7 +3,7 @@ import type { ProjectGroup, Repo } from '../../../../shared/types'
 import {
   getFolderSourceRepos,
   getFolderWorkspacePrimaryActionLabel
-} from './folder-workspace-composer-helpers'
+} from './folder-workspace-composer-sources'
 
 function repo(id: string, overrides: Partial<Repo> = {}): Repo {
   return {

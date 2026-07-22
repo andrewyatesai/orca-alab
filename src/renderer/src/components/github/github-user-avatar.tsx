@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { githubAvatarUrl } from '@/components/github/github-issue-comment-helpers'
+import { githubAvatarUrl } from '@/components/github/github-issue-mutations'
 
 /**
  * Build a 1-2 character initials placeholder from a display name or login,

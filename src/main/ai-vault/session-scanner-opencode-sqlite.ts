@@ -7,7 +7,7 @@ import {
 } from './session-scanner-accumulator'
 import { normalizeTitleText } from './session-scanner-values'
 import SyncDatabase from '../sqlite/sync-database'
-import { columnExists, tableExists } from '../opencode-usage/schema-helpers'
+import { columnExists, tableExists } from '../opencode-usage/opencode-db-schema-probes'
 
 // Why: OpenCode 1.17.x migrated session storage from per-session JSON files
 // to a single SQLite DB at ~/.local/share/opencode/opencode.db. This module

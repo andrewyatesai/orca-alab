@@ -15,7 +15,7 @@ import {
 import { DetailHeader, MetaIconBadge, MetadataActionIcon } from './WorktreeCardMetadataControls'
 import { LinearStateBadge } from './WorktreeCardMetadataStatusBadges'
 import { useWorktreeCardDetailsHoverControl } from './worktree-card-details-hover-state'
-import { getReviewLabel, ReviewIcon } from './worktree-review-helpers'
+import { getReviewLabel, ReviewIcon } from './worktree-review-provider-display'
 import type {
   WorktreeCardIssueDisplay,
   WorktreeCardLinearIssueDisplay,

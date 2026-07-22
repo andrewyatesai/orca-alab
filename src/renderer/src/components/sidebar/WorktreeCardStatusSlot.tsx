@@ -8,7 +8,7 @@ import { FilledBellIcon } from './WorktreeCardHelpers'
 import StatusIndicator from './StatusIndicator'
 import { useWorktreeActivityStatus } from './use-worktree-activity-status'
 import type { WorktreeCardPrDisplay } from './worktree-card-pr-display'
-import { getReviewLabel, ReviewIcon } from './worktree-review-helpers'
+import { getReviewLabel, ReviewIcon } from './worktree-review-provider-display'
 
 type WorktreeCardStatusSlotProps = {
   worktreeId: string

@@ -135,7 +135,7 @@ import {
   toGitHubLinkedWorkItem,
   toGitLabLinkedWorkItem,
   toLinearLinkedWorkItem
-} from '@/components/sidebar/folder-workspace-composer-helpers'
+} from '@/components/sidebar/folder-workspace-composer-sources'
 import { useFolderWorkspaceComposerPathStatus } from '@/components/sidebar/folder-workspace-composer-path-status'
 import { submitFolderWorkspaceCreate } from '@/components/sidebar/folder-workspace-composer-submit'
 import { buildExecutionHostRegistry } from '../../../shared/execution-host-registry'

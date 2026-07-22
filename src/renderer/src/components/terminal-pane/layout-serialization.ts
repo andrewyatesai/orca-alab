@@ -228,8 +228,9 @@ export function restorePaneFontSizes(
 }
 
 /** If the buffer ends inside the alt screen (agent TUI at shutdown), cut at the
- *  final unmatched enter so the restored terminal is usable. Shared by the mount
- *  tail replay and the async deep-restore rebuild so both cut identically. */
+ *  final unmatched enter so the restored terminal is usable. The async deep-
+ *  restore rebuild cuts identically via altScreenReplayEndOffset (chunked scan,
+ *  no joined string) — keep the two in sync. */
 export function trimTrailingAltScreenEnter(buffer: string): string {
   const lastOn = buffer.lastIndexOf('\x1b[?1049h')
   const lastOff = buffer.lastIndexOf('\x1b[?1049l')

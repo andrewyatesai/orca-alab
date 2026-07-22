@@ -475,11 +475,7 @@ export type AtermWorkerQueryResult = {
 /** A PANE-scoped failure: its engine build (GPU acquire / CPU init) failed. The
  *  loader answers with a 'fallback' so the pane rebuilds as CPU on the same canvas.
  *  Worker-fatal failures are NOT here — they post the worker-scoped 'crash'. */
-export type AtermWorkerError = {
-  type: 'error'
-  phase: 'init'
-  message: string
-}
+export type AtermWorkerError = { type: 'error'; phase: 'init'; message: string }
 
 /** Every pane-scoped event, paneId-free — what the worker's per-pane post builds;
  *  the entry stamps the paneId and the manager routes on it. */

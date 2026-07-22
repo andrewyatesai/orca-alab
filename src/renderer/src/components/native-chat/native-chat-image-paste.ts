@@ -50,7 +50,7 @@ export function isNativeChatImageAttachmentPath(path: string): boolean {
   return isImageDropPath(path)
 }
 
-/** True when a path is a clipboard-paste temp file (`orca-paste-<ts>-<uuid>.png`).
+/** True when a path is a clipboard-paste temp file (`orca-paste-*.png` basename).
  *  Those names are noise in the UI, so the composer shows a friendly label
  *  instead of the basename. */
 export function isNativeChatPastedImagePath(path: string): boolean {

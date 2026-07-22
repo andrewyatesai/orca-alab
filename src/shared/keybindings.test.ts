@@ -297,6 +297,23 @@ describe('keybindings', () => {
     })
   })
 
+  it('findKeybindingConflicts without customEntries is unchanged by the custom-entry extension', () => {
+    // Why: guards that the added trailing param cannot perturb existing conflict output.
+    const overrides = {
+      'view.tasks': ['Mod+P'],
+      'terminal.splitDown': ['Mod+D']
+    } as const
+    for (const platform of ['darwin', 'linux', 'win32'] as const) {
+      const withoutParam = findKeybindingConflicts(platform, overrides)
+      expect(findKeybindingConflicts(platform, overrides, {}, [])).toEqual(withoutParam)
+      expect(findKeybindingConflicts(platform, overrides, {}, undefined)).toEqual(withoutParam)
+    }
+    expect(findKeybindingConflicts('darwin', overrides)).toContainEqual({
+      binding: 'Mod+P',
+      actionIds: expect.arrayContaining(['worktree.quickOpen', 'view.tasks'])
+    })
+  })
+
   it('keeps zoom reset on Mod+0 and focuses worktree list on a distinct chord', () => {
     // Why: both actions previously defaulted to Mod+0, so main-process zoom
     // reset always won and Focus worktree list was unreachable (#8584).

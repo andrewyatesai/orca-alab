@@ -1,4 +1,8 @@
 import { atermSearchMatchRect } from './aterm-search-overlay'
+import {
+  createSearchMarkerModelCache,
+  type AtermSearchMarkerModel
+} from './aterm-search-marker-model'
 import type { AtermSearchController, AtermSearchMatch } from './aterm-search'
 import type { AtermMetrics } from './aterm-grid-reflow'
 import type { AtermTerminal } from './aterm_wasm.js'
@@ -12,9 +16,16 @@ export type AtermSearchApi = {
   clearSearch: () => void
   searchMatchCount: () => number
   searchActiveMatchIndex: () => number
-  /** Subscribe to search-state changes that land asynchronously (the worker pushes
-   *  count/active-index a frame after a posted find/next/prev). Returns a disposer;
-   *  a no-op disposer in-process, where the count updates synchronously. */
+  /** True while posted find results haven't landed yet (worker path only — the
+   *  in-process search is synchronous). The label shows "~N, searching…" then. */
+  searchIsPending: () => boolean
+  /** Scrollbar match-marker model: bounded track fractions over the retained
+   *  buffer, from the FULL sorted match list on either path. */
+  searchMarkerModel: () => AtermSearchMarkerModel
+  /** Subscribe to search-state changes that land after the call returns: the worker
+   *  pushes count/active-index a frame after a posted find/next/prev; in-process the
+   *  controller notifies on every highlight update (find/next/prev/refresh/clear).
+   *  Returns a disposer. */
   onSearchStateChange: (handler: () => void) => () => void
   searchActiveMatchRect: () => {
     x: number
@@ -34,6 +45,9 @@ export type AtermSearchApiDeps = {
   getRows: () => number
   getSearchMatches: () => AtermSearchMatch[]
   getSearchActiveIndex: () => number
+  /** In-process change feed (fires on every controller highlight update) — the
+   *  onSearchStateChange fallback where no worker facade exists. */
+  onControllerSearchStateChange: (handler: () => void) => () => void
 }
 
 /** Build the controller's search method surface. Extracted so the renderer stays
@@ -49,6 +63,8 @@ export function buildAtermSearchApi(deps: AtermSearchApiDeps): AtermSearchApi {
   const workerSearch = (): ReturnType<
     NonNullable<AtermWorkerAsyncFacade['searchStateSnapshot']>
   > | null => facade.searchStateSnapshot?.() ?? null
+  // In-process marker derivation (the worker path ships its model in the snapshot).
+  const markerCache = createSearchMarkerModelCache()
   return {
     findMatches: (query, caseSensitive, isRegex) =>
       isDisposed() ? 0 : searchController.find(query, caseSensitive, isRegex),
@@ -64,7 +80,23 @@ export function buildAtermSearchApi(deps: AtermSearchApiDeps): AtermSearchApi {
     },
     searchMatchCount: () => workerSearch()?.count ?? searchController.count(),
     searchActiveMatchIndex: () => workerSearch()?.activeIndex ?? searchController.activeIndex(),
-    onSearchStateChange: (handler) => facade.onSearchStateChange?.(handler) ?? (() => undefined),
+    // In-process find is synchronous, so results are never pending there.
+    searchIsPending: () => workerSearch()?.pending ?? false,
+    searchMarkerModel: () => {
+      const workerState = workerSearch()
+      if (workerState) {
+        return workerState.markers
+      }
+      return markerCache(
+        deps.getSearchMatches(),
+        deps.getSearchActiveIndex(),
+        // Oldest retained absolute row: ring eviction keeps absolute rows growing.
+        term.search_display_origin - term.base_y,
+        term.base_y + getRows()
+      )
+    },
+    onSearchStateChange: (handler) =>
+      facade.onSearchStateChange?.(handler) ?? deps.onControllerSearchStateChange(handler),
     searchActiveMatchRect: () => {
       const workerState = workerSearch()
       if (workerState) {

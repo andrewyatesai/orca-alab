@@ -5,6 +5,10 @@
 
 import type { EngineHandle } from './aterm-worker-engine-build'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
+import {
+  createSearchMarkerModelCache,
+  type AtermSearchMarkerModel
+} from './aterm-search-marker-model'
 
 /** A match in absolute-row coords (the engine's native index space). */
 type WorkerMatch = { line: number; startCol: number; length: number }
@@ -18,7 +22,9 @@ function decodeMatches(flat: Uint32Array): WorkerMatch[] {
 }
 
 export type WorkerSearch = {
-  find: (query: string, caseSensitive: boolean, isRegex: boolean) => void
+  /** Run a new query now. `generation` is the main thread's request id, echoed in
+   *  the snapshot so it can correlate results and flag still-pending ones. */
+  find: (query: string, caseSensitive: boolean, isRegex: boolean, generation?: number) => void
   next: () => void
   prev: () => void
   clear: () => void
@@ -37,6 +43,11 @@ export type WorkerSearch = {
   /** Device-pixel rects of ALL on-screen matches (for the main-thread overlay), each
    *  flagged active so the overlay can paint the active one stronger. */
   visibleRects: () => AtermWorkerState['searchMatchRects']
+  /** Echo of the last find's request generation (0 before any find). */
+  generation: () => number
+  /** Scrollbar marker model from the FULL sorted match list (bounded buckets);
+   *  memoized, so unchanged frames cost a reference compare. */
+  markerModel: () => AtermSearchMarkerModel
 }
 
 export function createWorkerSearch(handle: EngineHandle, getRows: () => number): WorkerSearch {
@@ -47,6 +58,8 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
   let caseSensitive = false
   let isRegex = false
   let dirty = false
+  let generation = 0
+  const markerCache = createSearchMarkerModelCache()
 
   const run = (): void => {
     matches = query ? decodeMatches(handle.search(query, caseSensitive, isRegex)) : []
@@ -68,10 +81,11 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
   }
 
   return {
-    find: (q, cs, regex) => {
+    find: (q, cs, regex, gen = 0) => {
       query = q
       caseSensitive = cs
       isRegex = regex
+      generation = gen
       dirty = false
       if (!q) {
         matches = []
@@ -136,6 +150,14 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
         }
       }
       return rects
+    },
+    generation: () => generation,
+    markerModel: () => {
+      ensureFresh()
+      // Re-base by the oldest retained row: ring eviction keeps absolute rows
+      // growing, so raw lines would pin every marker to the bottom of the track.
+      const firstLine = e.search_display_origin - e.base_y
+      return markerCache(matches, active, firstLine, e.base_y + getRows())
     }
   }
 

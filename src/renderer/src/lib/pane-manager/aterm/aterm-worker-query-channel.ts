@@ -6,6 +6,7 @@
 // Promise.all at quit (save/hydrate/fork).
 
 import type { AtermWorkerPaneCommand, AtermWorkerQuery } from './aterm-render-worker-protocol'
+import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
 
 /** A detected link span returned by the async linkAt query. */
 export type AtermWorkerLinkHit = { url: string; kind: number; start_col: number; end_col: number }
@@ -31,6 +32,11 @@ export type AtermWorkerAsyncFacade = {
     count: number
     activeIndex: number
     activeRect: { x: number; y: number; width: number; height: number } | null
+    /** Scrollbar marker model the worker derived from the full match list. */
+    markers: AtermSearchMarkerModel
+    /** True while a posted find hasn't been echoed back yet (count is the previous
+     *  query's) — the label shows "~N, searching…" instead of a stale claim. */
+    pending: boolean
   }
   /** Advance / step back / clear the worker's active match (the worker owns the match set;
    *  the main-thread searchController is empty on this path, so next/prev/clear must post). */
@@ -84,11 +90,7 @@ export function createAtermWorkerQueryChannel(
   }
   const pending = new Map<number, Pending>()
 
-  const settle = (
-    id: number,
-    value: string | number | boolean | null,
-    byReply = true
-  ): void => {
+  const settle = (id: number, value: string | number | boolean | null, byReply = true): void => {
     const entry = pending.get(id)
     if (!entry) {
       return

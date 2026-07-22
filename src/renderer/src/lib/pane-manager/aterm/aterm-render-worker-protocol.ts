@@ -17,6 +17,8 @@
 // contract without importing each other's runtime.
 
 import type { AtermThemeColors } from './aterm-theme-colors'
+import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
+import type { AtermWorkerSearchCommand } from './aterm-worker-search-protocol'
 import type { AtermWorkerRainCommand } from './aterm-worker-rain-protocol'
 import type { AtermWorkerSpillCommand } from './aterm-worker-spill-protocol'
 import type { AtermWorkerPredictCommand } from './aterm-worker-predict-protocol'
@@ -181,17 +183,12 @@ export type AtermWorkerSetCursorHollow = { type: 'setCursorHollow'; hollow: bool
 export type AtermWorkerSetHover =
   | { type: 'setHover'; row: number; col: number }
   | { type: 'setHover'; clear: true }
-/** Search: the worker runs find/next/prev/clear, paints highlights, and reports
- *  count/activeIndex/rect in the snapshot. */
-export type AtermWorkerSearchFind = {
-  type: 'searchFind'
-  query: string
-  caseSensitive: boolean
-  isRegex: boolean
-}
-export type AtermWorkerSearchNext = { type: 'searchNext' }
-export type AtermWorkerSearchPrev = { type: 'searchPrev' }
-export type AtermWorkerSearchClear = { type: 'searchClear' }
+// Search commands live in aterm-worker-search-protocol (like rain/spill/predict);
+// re-exported so this file stays the wire contract's single entry point.
+export type {
+  AtermWorkerSearchCommand,
+  AtermWorkerSearchFind
+} from './aterm-worker-search-protocol'
 /** Swap this pane's primary font face (terminalFontFamily) + reflow once its bytes
  *  load. Carries bytes per pane (a custom family is per-pane user state); the engine
  *  intern registry dedupes identical bytes across panes, so the transfer is transient. */
@@ -293,10 +290,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetCursorBlinkPhase
   | AtermWorkerSetCursorHollow
   | AtermWorkerSetHover
-  | AtermWorkerSearchFind
-  | AtermWorkerSearchNext
-  | AtermWorkerSearchPrev
-  | AtermWorkerSearchClear
+  | AtermWorkerSearchCommand
   | AtermWorkerSetPrimaryFont
   | AtermWorkerSetBoldFont
   | AtermWorkerMouseEncode
@@ -415,6 +409,12 @@ export type AtermWorkerState = {
   searchCount: number
   searchActiveIndex: number
   searchActiveRect: { x: number; y: number; width: number; height: number } | null
+  /** Echo of the last APPLIED find's request generation (0 before any find). The main
+   *  side treats results as pending while its newest posted generation is ahead. */
+  searchGeneration: number
+  /** Scrollbar match markers: bounded track fractions derived in the worker from the
+   *  FULL sorted match list (the on-screen searchMatchRects can't place off-screen ticks). */
+  searchMarkers: AtermSearchMarkerModel
   /** The engine exports the spill surface (spill_rev/spill_ptr/...): the loader
    *  reads the FIRST snapshot's value to flip the cross-pane spill seam live. */
   spillExportCapable: boolean

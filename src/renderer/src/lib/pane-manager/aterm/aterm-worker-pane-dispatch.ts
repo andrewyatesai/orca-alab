@@ -314,7 +314,7 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       return
     }
     case 'searchFind':
-      term?.searchFind(msg.query, msg.caseSensitive, msg.isRegex)
+      term?.searchFind(msg.query, msg.caseSensitive, msg.isRegex, msg.generation)
       scheduleDraw()
       return
     case 'searchNext':

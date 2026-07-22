@@ -2,6 +2,8 @@ import {
   markTerminalPinnedViewport,
   syncTerminalScrollIntentFromViewport
 } from '../terminal-scroll-intent'
+import { SEARCH_ACTIVE_FILL, SEARCH_MATCH_FILL } from './aterm-search-overlay'
+import { searchMarkerModelsEqual, type AtermSearchMarkerModel } from './aterm-search-marker-model'
 import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -23,9 +25,16 @@ export type AtermScrollbarOverlayDeps = {
    *  the drag can record intent. Without it a keyed remount snaps to the bottom.
    *  Absent → no intent tracking (tests / pre-wire). */
   getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
+  /** Search match-marker model for the track strip (bounded fractions of the
+   *  retained buffer). Absent → no marker strip (tests / pre-wire). */
+  getSearchMarkers?: () => AtermSearchMarkerModel
 }
 
 export type AtermScrollbarOverlay = {
+  /** Re-read getSearchMarkers and repaint the strip if it changed. The wiring calls
+   *  this from onSearchStateChange — the strip must show while search is active even
+   *  when the thumb is faded out, so it can't ride the thumb's rAF loop. */
+  refreshSearchMarkers: () => void
   dispose: () => void
 }
 
@@ -49,7 +58,7 @@ export function createAtermScrollbarOverlay(
   canvas: HTMLCanvasElement,
   deps: AtermScrollbarOverlayDeps
 ): AtermScrollbarOverlay {
-  const { term, getRows, redraw, isDisposed, getScrollIntentTarget } = deps
+  const { term, getRows, redraw, isDisposed, getScrollIntentTarget, getSearchMarkers } = deps
   const host = canvas.parentElement
 
   // Record scroll intent on the facade after a thumb-driven scroll — the same seam
@@ -80,6 +89,66 @@ export function createAtermScrollbarOverlay(
     transition: 'opacity 0.15s ease'
   } satisfies Partial<CSSStyleDeclaration>)
   host?.appendChild(thumb)
+
+  // Search match-marker strip (VS-Code-overview-ruler-style): one tick per marker
+  // fraction, %-positioned so pane resizes rescale it with zero JS. Sits UNDER the
+  // thumb (zIndex 4 < 5) and takes no pointer events, so drags stay grabbable.
+  // Visible whenever a search has matches — independent of the thumb's idle fade.
+  const markerLayer = document.createElement('div')
+  markerLayer.dataset.testid = 'aterm-scrollbar-search-markers' // e2e locator
+  Object.assign(markerLayer.style, {
+    position: 'absolute',
+    top: '0',
+    bottom: '0',
+    right: '0',
+    width: `${THUMB_WIDTH_PX}px`,
+    zIndex: '4',
+    pointerEvents: 'none'
+  } satisfies Partial<CSSStyleDeclaration>)
+  host?.appendChild(markerLayer)
+  let paintedMarkers: AtermSearchMarkerModel = { fractions: [], activeFraction: null }
+
+  const markerTick = (fraction: number, active: boolean): HTMLDivElement => {
+    const tick = document.createElement('div')
+    if (active) {
+      tick.dataset.active = 'true'
+    }
+    Object.assign(tick.style, {
+      position: 'absolute',
+      left: '0',
+      right: '0',
+      height: active ? '3px' : '2px',
+      top: `${(fraction * 100).toFixed(4)}%`,
+      // Center the tick on its fraction so a bottom-edge marker stays on-track.
+      transform: 'translateY(-50%)',
+      borderRadius: '1px',
+      // Same tones as the on-canvas match highlights so both read as one feature.
+      background: active ? SEARCH_ACTIVE_FILL : SEARCH_MATCH_FILL
+    } satisfies Partial<CSSStyleDeclaration>)
+    return tick
+  }
+
+  const refreshSearchMarkers = (): void => {
+    // Disposed check FIRST: the in-process getter reads the engine, which a torn-down
+    // pane may already have freed.
+    if (isDisposed()) {
+      return
+    }
+    const model = getSearchMarkers?.()
+    if (!model) {
+      return
+    }
+    if (searchMarkerModelsEqual(model, paintedMarkers)) {
+      return
+    }
+    paintedMarkers = model
+    const ticks = model.fractions.map((fraction) => markerTick(fraction, false))
+    if (model.activeFraction !== null) {
+      // Painted last so the active tone reads over its (deduped) bucket neighbor.
+      ticks.push(markerTick(model.activeFraction, true))
+    }
+    markerLayer.replaceChildren(...ticks)
+  }
 
   let visible = false
   let hovering = false
@@ -248,6 +317,7 @@ export function createAtermScrollbarOverlay(
   thumb.addEventListener('wheel', onThumbWheel, { passive: false })
 
   return {
+    refreshSearchMarkers,
     dispose: () => {
       hostTarget.removeEventListener('wheel', onHostWheel)
       hostTarget.removeEventListener('mousemove', onHostMouseMove)
@@ -264,6 +334,7 @@ export function createAtermScrollbarOverlay(
         rafId = null
       }
       thumb.remove()
+      markerLayer.remove()
     }
   }
 }

@@ -96,7 +96,7 @@ export function createWorkerTerminal(
   /** Update the hover link/cursor; returns whether the OUTCOME (STATE hoverLink/hoverCursor)
    *  changed, so the caller can post a render-free STATE only when it did. */
   setHover: (pos: { row: number; col: number } | null) => boolean
-  searchFind: (query: string, caseSensitive: boolean, isRegex: boolean) => void
+  searchFind: (query: string, caseSensitive: boolean, isRegex: boolean, generation: number) => void
   searchNext: () => void
   searchPrev: () => void
   searchClear: () => void
@@ -232,6 +232,8 @@ export function createWorkerTerminal(
         searchCount: search.count(),
         searchActiveIndex: search.activeIndex(),
         searchActiveRect: search.activeRect(),
+        searchGeneration: search.generation(),
+        searchMarkers: search.markerModel(),
         searchMatchRects: search.visibleRects(),
         spillExportCapable,
         dirtyRows: dirtyRowTracker.build(rows, cols),
@@ -303,7 +305,7 @@ export function createWorkerTerminal(
       // link/cursor actually changed — a sweep through the same link/blank posts nothing.
       return hoverCursor !== prevCursor || !hoverLinkOutcomeEqual(prevLink, hoverLink)
     },
-    searchFind: (q, cs, regex) => search.find(q, cs, regex),
+    searchFind: (q, cs, regex, generation) => search.find(q, cs, regex, generation),
     searchNext: () => search.next(),
     searchPrev: () => search.prev(),
     searchClear: () => search.clear(),

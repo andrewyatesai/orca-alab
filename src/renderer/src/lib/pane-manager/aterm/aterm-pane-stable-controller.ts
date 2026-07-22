@@ -35,6 +35,8 @@ export function createStableAtermPaneController(
     clearSearch: () => current().clearSearch(),
     searchMatchCount: () => current().searchMatchCount(),
     searchActiveMatchIndex: () => current().searchActiveMatchIndex(),
+    searchIsPending: () => current().searchIsPending(),
+    searchMarkerModel: () => current().searchMarkerModel(),
     onSearchStateChange: (handler) => current().onSearchStateChange(handler),
     searchActiveMatchRect: () => current().searchActiveMatchRect(),
     setFileLinkOpener: (fn) => current().setFileLinkOpener(fn),

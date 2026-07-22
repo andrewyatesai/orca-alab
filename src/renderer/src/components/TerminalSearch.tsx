@@ -15,6 +15,9 @@ export type AtermSearchSurface = {
   clearSearch: () => void
   searchMatchCount: () => number
   searchActiveMatchIndex: () => number
+  /** True while a posted find's results haven't landed (worker path): the count is
+   *  still the previous query's, so the label shows "~N, searching…" instead. */
+  searchIsPending: () => boolean
   /** Subscribe to async search-state updates; returns a disposer. On the default off-main
    *  worker path the count/active-index land a frame after find/next/prev, so the label
    *  must re-read when they arrive (no-op disposer in-process). */
@@ -78,12 +81,19 @@ export default function TerminalSearch({
   const [matchLabel, setMatchLabel] = useState('')
   const requestQuery = getFindRequestQuery(query)
 
-  // Reflect the aterm controller's exact match count ("active / total").
+  // Reflect the aterm controller's exact match count ("active / total"), or an
+  // honest approximation while a posted find is still in flight on the worker path
+  // (the snapshot count is the PREVIOUS query's until the worker echoes back).
   const syncAtermMatchLabel = useCallback(() => {
     if (!atermSearch) {
       return
     }
     const total = atermSearch.searchMatchCount()
+    if (atermSearch.searchIsPending()) {
+      const searching = translate('auto.components.TerminalSearch.searchingPending', 'searching…')
+      setMatchLabel(total === 0 ? searching : `~${total}, ${searching}`)
+      return
+    }
     setMatchLabel(total === 0 ? '0' : `${atermSearch.searchActiveMatchIndex()} / ${total}`)
   }, [atermSearch])
 

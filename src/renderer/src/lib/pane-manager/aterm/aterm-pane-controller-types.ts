@@ -1,4 +1,5 @@
 import type { AtermFileLinkOpener, AtermLinkProviderSource } from './aterm-link-input'
+import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import type { AtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import type { AtermThemeColors } from './aterm-theme-colors'
@@ -51,8 +52,15 @@ export type AtermPaneController = AtermRendererReplySurface & {
   searchMatchCount: () => number
   /** 1-based active match index, or 0 when there are no matches. */
   searchActiveMatchIndex: () => number
-  /** Subscribe to async search-state updates (worker path pushes count/active-index a
-   *  frame after find/next/prev); returns a disposer. No-op disposer in-process. */
+  /** True while a posted find's results haven't landed yet (worker path) — the
+   *  count is the previous query's, so the UI labels it "~N, searching…". */
+  searchIsPending: () => boolean
+  /** Scrollbar match-marker model (bounded track fractions of the retained buffer)
+   *  derived from the FULL sorted match list; empty when no query/matches. */
+  searchMarkerModel: () => AtermSearchMarkerModel
+  /** Subscribe to search-state updates that land after the call (worker pushes
+   *  count/active-index a frame later; in-process notifies per highlight update);
+   *  returns a disposer. */
   onSearchStateChange: (handler: () => void) => () => void
   /** Device-pixel rect of the active match's highlight on the canvas (the exact
    *  cell band the overlay paints), or null when there is no on-screen active

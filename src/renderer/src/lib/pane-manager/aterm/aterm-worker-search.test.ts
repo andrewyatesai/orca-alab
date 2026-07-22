@@ -2,17 +2,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { createWorkerSearch } from './aterm-worker-search'
 
 // Minimal engine/handle stub. `search` returns one match (flat [line,startCol,length]).
-function makeHandle() {
+function makeHandle(matches: number[] = [3, 0, 4]) {
   const engine = {
     scroll_search_line_into_view: vi.fn(),
-    search_display_origin: 0,
+    search_display_origin: 76,
     display_offset: 0,
+    base_y: 76,
     cell_width: 8,
     cell_height: 16
   }
-  const search = vi.fn(() => new Uint32Array([3, 0, 4]))
+  const search = vi.fn(() => new Uint32Array(matches))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { handle: { engine, search } as any, search }
+  return { handle: { engine, search } as any, search, engine }
 }
 
 describe('aterm-worker-search dirty coalescing', () => {
@@ -75,5 +76,51 @@ describe('aterm-worker-search dirty coalescing', () => {
     s.clear() // resets, no query
     s.count()
     expect(search).toHaveBeenCalledTimes(1) // only the initial find indexed
+  })
+})
+
+describe('aterm-worker-search find-generation echo', () => {
+  it('echoes the last find generation (0 before any find / when omitted)', () => {
+    const { handle } = makeHandle()
+    const s = createWorkerSearch(handle, () => 24)
+    expect(s.generation()).toBe(0)
+    s.find('foo', false, false, 7)
+    expect(s.generation()).toBe(7)
+    s.find('foobar', false, false)
+    expect(s.generation()).toBe(0)
+  })
+})
+
+describe('aterm-worker-search scrollbar marker model', () => {
+  it('derives bounded fractions from the full sorted match list', () => {
+    // base_y=76 + 24 rows → 100 retained lines; matches at lines 10 and 60.
+    const { handle } = makeHandle([10, 0, 4, 60, 2, 4])
+    const s = createWorkerSearch(handle, () => 24)
+    s.find('foo', false, false)
+    const model = s.markerModel()
+    expect(model.fractions).toEqual([0.105, 0.605])
+    // find selects the LAST match → its fraction is active.
+    expect(model.activeFraction).toBe(0.605)
+  })
+
+  it('re-indexes a dirty query before deriving markers, and memoizes across frames', () => {
+    const { handle, search } = makeHandle([10, 0, 4])
+    const s = createWorkerSearch(handle, () => 24)
+    s.find('foo', false, false)
+    const first = s.markerModel()
+    expect(s.markerModel()).toBe(first) // unchanged frame → cached model identity
+    s.markDirty()
+    s.markerModel()
+    expect(search).toHaveBeenCalledTimes(2) // markerModel flushed the dirty index
+  })
+
+  it('is empty with no query and after clear', () => {
+    const { handle } = makeHandle([10, 0, 4])
+    const s = createWorkerSearch(handle, () => 24)
+    expect(s.markerModel().fractions).toEqual([])
+    s.find('foo', false, false)
+    expect(s.markerModel().fractions).toHaveLength(1)
+    s.clear()
+    expect(s.markerModel()).toEqual({ fractions: [], activeFraction: null })
   })
 })

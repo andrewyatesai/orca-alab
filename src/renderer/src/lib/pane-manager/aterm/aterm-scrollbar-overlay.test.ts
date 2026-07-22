@@ -7,6 +7,7 @@ import {
   markTerminalPinnedViewport,
   syncTerminalScrollIntentFromViewport
 } from '../terminal-scroll-intent'
+import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
 import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -41,8 +42,15 @@ function fakeEngine(displayOffset = 100): FakeEngine {
 
 function mountOverlay(
   engine: FakeEngine,
-  getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
-): { host: HTMLElement; thumb: HTMLElement; dispose: () => void } {
+  getScrollIntentTarget?: () => TerminalScrollIntentTarget | null,
+  getSearchMarkers?: () => AtermSearchMarkerModel
+): {
+  host: HTMLElement
+  thumb: HTMLElement
+  markerLayer: HTMLElement
+  refreshSearchMarkers: () => void
+  dispose: () => void
+} {
   const host = document.createElement('div')
   // happy-dom does no layout: give the track a height so the thumb geometry is real.
   Object.defineProperty(host, 'clientHeight', { value: 200, configurable: true })
@@ -54,10 +62,20 @@ function mountOverlay(
     getRows: () => 24,
     redraw: vi.fn(),
     isDisposed: () => false,
-    getScrollIntentTarget
+    getScrollIntentTarget,
+    getSearchMarkers
   })
   const thumb = host.querySelector('[data-testid="aterm-scrollbar-thumb"]') as HTMLElement
-  return { host, thumb, dispose: overlay.dispose }
+  const markerLayer = host.querySelector(
+    '[data-testid="aterm-scrollbar-search-markers"]'
+  ) as HTMLElement
+  return {
+    host,
+    thumb,
+    markerLayer,
+    refreshSearchMarkers: overlay.refreshSearchMarkers,
+    dispose: overlay.dispose
+  }
 }
 
 function startDrag(thumb: HTMLElement, clientY: number): void {
@@ -122,5 +140,62 @@ describe('createAtermScrollbarOverlay thumb-drag scroll intent', () => {
     expect(markTerminalPinnedViewport).not.toHaveBeenCalled()
     expect(syncTerminalScrollIntentFromViewport).not.toHaveBeenCalled()
     dispose()
+  })
+})
+
+describe('createAtermScrollbarOverlay search match markers', () => {
+  it('paints one %-positioned tick per fraction plus a distinct active tick', () => {
+    let model: AtermSearchMarkerModel = { fractions: [0.25, 0.75], activeFraction: 0.75 }
+    const { markerLayer, refreshSearchMarkers, dispose } = mountOverlay(
+      fakeEngine(0),
+      undefined,
+      () => model
+    )
+
+    expect(markerLayer.children).toHaveLength(0) // nothing until a refresh lands
+    refreshSearchMarkers()
+
+    const ticks = Array.from(markerLayer.children) as HTMLElement[]
+    expect(ticks).toHaveLength(3) // two fraction ticks + the active one on top
+    expect(ticks[0].style.top).toBe('25.0000%')
+    expect(ticks[1].style.top).toBe('75.0000%')
+    expect(ticks[2].dataset.active).toBe('true')
+    expect(ticks[2].style.top).toBe('75.0000%')
+    // Percent positioning is the resize story: no px math to go stale.
+    expect(ticks[0].style.transform).toBe('translateY(-50%)')
+    // The strip must never intercept thumb drags or canvas clicks.
+    expect(markerLayer.style.pointerEvents).toBe('none')
+
+    // Clearing the search (empty model) empties the strip.
+    model = { fractions: [], activeFraction: null }
+    refreshSearchMarkers()
+    expect(markerLayer.children).toHaveLength(0)
+    dispose()
+  })
+
+  it('skips the DOM rebuild when the model is value-equal', () => {
+    const { markerLayer, refreshSearchMarkers, dispose } = mountOverlay(
+      fakeEngine(0),
+      undefined,
+      () => ({
+        fractions: [0.5],
+        activeFraction: null
+      })
+    )
+    refreshSearchMarkers()
+    const first = markerLayer.children[0]
+    refreshSearchMarkers() // fresh (equal) model object → no repaint
+    expect(markerLayer.children[0]).toBe(first)
+    dispose()
+  })
+
+  it('removes the marker layer on dispose', () => {
+    const { host, markerLayer, dispose } = mountOverlay(fakeEngine(0), undefined, () => ({
+      fractions: [],
+      activeFraction: null
+    }))
+    expect(host.contains(markerLayer)).toBe(true)
+    dispose()
+    expect(host.contains(markerLayer)).toBe(false)
   })
 })

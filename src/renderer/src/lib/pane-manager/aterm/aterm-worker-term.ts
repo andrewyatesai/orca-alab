@@ -16,6 +16,7 @@
 // theme + search + cursor path is live.
 
 import type { AtermTerminal } from './aterm_wasm.js'
+import { createWorkerSearchMirror } from './aterm-worker-search-mirror'
 import { createWorkerPredictFacade } from './aterm-worker-predict-facade'
 import { createAtermWorkerQueryChannel } from './aterm-worker-query-channel'
 import { createAtermWorkerGridMirror } from './aterm-worker-grid-mirror'
@@ -111,10 +112,10 @@ export function createWorkerBackedTerm(deps: {
   // Side-channel buffers: OSC app-events + desktop notifications + bell are
   // pull-drained by the facade; replies are pushed to subscribers (see onReply).
   const sideChannels = createWorkerSideChannelBuffers(notifySideChannel)
-  // Fired when the worker's snapshot search count/active-index changes — the worker owns
-  // the match set, so results land a frame after a posted find/next/prev; the search UI
-  // subscribes (onSearchStateChange) and re-reads the snapshot-backed count then.
-  const searchChangeListeners = new Set<() => void>()
+  // The worker owns the match set, so results land a frame after a posted
+  // find/next/prev: the mirror stamps find generations, derives pending, and
+  // fans out change notifications the search UI + scrollbar strip subscribe to.
+  const searchMirror = createWorkerSearchMirror(post)
   // Predictive-echo glitch deadline (ms) reflected from the worker's per-frame STATE:
   // the controller's synchronous predict_next_deadline_ms() read returns this, and the
   // listeners re-arm the controller's ONE timer when it changes (the worker owns the
@@ -146,8 +147,7 @@ export function createWorkerBackedTerm(deps: {
     // the facade emits onSelectionChange now (PRIMARY / copy-on-select on idle
     // shells), not on the next PTY chunk.
     const selectionChanged = rangeKey(next.selectionRange) !== rangeKey(state.selectionRange)
-    const searchChanged =
-      next.searchCount !== state.searchCount || next.searchActiveIndex !== state.searchActiveIndex
+    const searchChanged = searchMirror.changed(state, next)
     // The glitch deadline changed (a ghost armed/ticked/expired): re-arm the controller's
     // one timer. Includes → null (a confirmed/flushed guess disarms) so no stale timer
     // outlives the heal. Unchanged (both null in the common no-ghost steady state) → no fire.
@@ -169,7 +169,7 @@ export function createWorkerBackedTerm(deps: {
       notifySideChannel()
     }
     if (searchChanged) {
-      searchChangeListeners.forEach((fn) => fn())
+      searchMirror.notify()
     }
     if (predictDeadlineChanged) {
       predictDeadlineListeners.forEach((fn) => fn(nextDeadline))
@@ -342,9 +342,9 @@ export function createWorkerBackedTerm(deps: {
     authorize_notifications: (allowed: boolean) =>
       post({ type: 'setNotificationsAuthorized', allowed }),
     search: (query: string, caseSensitive: boolean, isRegex?: boolean) => {
-      post({ type: 'searchFind', query, caseSensitive, isRegex: isRegex ?? false })
-      // Counts/highlights come back via the snapshot; the search controller reads them
-      // from the controller's snapshot-backed getters (Stage D wires the search API).
+      // Generation-stamped post; counts/highlights come back via the snapshot — the
+      // search controller reads them from the snapshot-backed getters.
+      searchMirror.postFind(query, caseSensitive, isRegex ?? false)
       return new Uint32Array(0)
     },
 
@@ -391,21 +391,14 @@ export function createWorkerBackedTerm(deps: {
     // The worker runs search + pushes count/active-index/rect in each snapshot; expose
     // them so the controller's search-count UI reflects real matches (term.search() can't
     // return them synchronously over the seam).
-    searchStateSnapshot: () => ({
-      count: state.searchCount,
-      activeIndex: state.searchActiveIndex,
-      activeRect: state.searchActiveRect
-    }),
+    searchStateSnapshot: () => searchMirror.snapshot(state),
     // Search nav/clear run in the worker (it owns the match set), so post the commands —
     // the main-thread searchController has no matches on this path. next/prev advance the
     // worker's active match (+ scroll it into view); clear stops its highlights.
     searchNext: () => post({ type: 'searchNext' }),
     searchPrev: () => post({ type: 'searchPrev' }),
     searchClear: () => post({ type: 'searchClear' }),
-    onSearchStateChange: (handler: () => void) => {
-      searchChangeListeners.add(handler)
-      return () => searchChangeListeners.delete(handler)
-    },
+    onSearchStateChange: searchMirror.subscribe,
 
     free: () => post({ type: 'dispose' })
   }
@@ -443,7 +436,7 @@ export function createWorkerBackedTerm(deps: {
       replyListeners.clear()
       metricsListeners.clear()
       sideChannelListeners.clear()
-      searchChangeListeners.clear()
+      searchMirror.clear()
       predictDeadlineListeners.clear()
       grid.clear()
       cachedSerialize = ''

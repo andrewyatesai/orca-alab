@@ -30,11 +30,16 @@ export function createAtermPaneSearchState(deps: {
   let searchMatches: AtermSearchMatch[] = []
   let searchActiveIndex = -1
   let searchRefreshPending = false
+  // In-process change feed: every highlight update (find/next/prev/refresh/clear)
+  // funnels through setSearchHighlights, so the scrollbar marker strip and the
+  // search UI get one notify seam on this path (the worker path pushes via STATE).
+  const searchStateListeners = new Set<() => void>()
 
   const searchController = createAtermSearchController(term, {
     setSearchHighlights: (next, activeIndex) => {
       searchMatches = next
       searchActiveIndex = activeIndex
+      searchStateListeners.forEach((listener) => listener())
     },
     scrollToMatch: (match) => {
       if (!isDisposed()) {
@@ -51,7 +56,11 @@ export function createAtermPaneSearchState(deps: {
     isDisposed,
     getRows,
     getSearchMatches: () => searchMatches,
-    getSearchActiveIndex: () => searchActiveIndex
+    getSearchActiveIndex: () => searchActiveIndex,
+    onControllerSearchStateChange: (handler) => {
+      searchStateListeners.add(handler)
+      return () => searchStateListeners.delete(handler)
+    }
   })
 
   return {

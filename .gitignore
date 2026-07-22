@@ -200,3 +200,6 @@ prod-release-scan-*.md
 tools/benchmarks/results/terminal-pipeline-*.json
 tools/orc-electron/coi-killcheck/killcheck-result.json
 tools/autoformalize-candidates.json
+
+# Publication-engine stage artifacts (attestation, inventories)
+/publish/.out/

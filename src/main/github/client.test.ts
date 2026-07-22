@@ -3411,6 +3411,75 @@ describe('getPRForBranch', () => {
     })
   })
 
+  // Why: REST `mergeable` is true for blocked/behind/unstable PRs; dropping mergeable_state made
+  // the renderer show a green "Able to merge" badge for PRs GitHub reports as blocked.
+  it.each([
+    ['blocked', 'BLOCKED'],
+    ['behind', 'BEHIND'],
+    ['unstable', 'UNSTABLE'],
+    ['draft', 'DRAFT'],
+    ['has_hooks', 'HAS_HOOKS'],
+    ['clean', 'CLEAN']
+  ])(
+    'preserves REST mergeable_state %s as mergeStateStatus %s on the quota fallback path',
+    async (mergeableState, expectedStatus) => {
+      getOwnerRepoMock.mockResolvedValueOnce({ owner: 'acme', repo: 'widgets' })
+      gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'linked-head-oid\n', stderr: '' })
+      ghExecFileAsyncMock
+        .mockRejectedValueOnce(new Error('GraphQL: API rate limit already exceeded'))
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({
+            number: 77,
+            title: 'REST fallback merge state',
+            state: 'open',
+            html_url: 'https://github.com/acme/widgets/pull/77',
+            updated_at: '2026-07-01T00:00:00Z',
+            draft: false,
+            mergeable: true,
+            mergeable_state: mergeableState,
+            head: { ref: 'feature/test', sha: 'linked-head-oid' },
+            base: { ref: 'main', sha: 'linked-base-oid' }
+          })
+        })
+
+      const pr = await getPRForBranch('/repo-root', 'feature/test', 77)
+
+      expect(pr).toMatchObject({
+        number: 77,
+        mergeable: 'MERGEABLE',
+        mergeStateStatus: expectedStatus
+      })
+      // Why: the quota-degraded REST path must not add a GraphQL merge-metadata probe.
+      expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(2)
+    }
+  )
+
+  it('leaves mergeStateStatus unset when REST mergeable_state is unknown', async () => {
+    getOwnerRepoMock.mockResolvedValueOnce({ owner: 'acme', repo: 'widgets' })
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'linked-head-oid\n', stderr: '' })
+    ghExecFileAsyncMock
+      .mockRejectedValueOnce(new Error('GraphQL: API rate limit already exceeded'))
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          number: 78,
+          title: 'REST fallback still computing',
+          state: 'open',
+          html_url: 'https://github.com/acme/widgets/pull/78',
+          updated_at: '2026-07-01T00:00:00Z',
+          draft: false,
+          mergeable: null,
+          mergeable_state: 'unknown',
+          head: { ref: 'feature/test', sha: 'linked-head-oid' },
+          base: { ref: 'main', sha: 'linked-base-oid' }
+        })
+      })
+
+    const pr = await getPRForBranch('/repo-root', 'feature/test', 78)
+
+    expect(pr?.mergeable).toBe('UNKNOWN')
+    expect(pr?.mergeStateStatus).toBeUndefined()
+  })
+
   it('resolves fork PR push target using the origin URL protocol', async () => {
     getOwnerRepoMock.mockResolvedValueOnce({ owner: 'stablyai', repo: 'orca' })
     getOwnerRepoForRemoteMock.mockResolvedValueOnce({ owner: 'stablyai', repo: 'orca' })

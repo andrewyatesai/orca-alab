@@ -2070,6 +2070,50 @@ function mapRestPRMergeable(pr: RestPullRequest): PRMergeableState {
   return 'UNKNOWN'
 }
 
+// REST `mergeable_state` domain — the lowercase mirror of GraphQL MergeStateStatus.
+type RestMergeableStateValue =
+  | 'clean'
+  | 'dirty'
+  | 'blocked'
+  | 'behind'
+  | 'unstable'
+  | 'draft'
+  | 'has_hooks'
+  | 'unknown'
+
+// Why: REST `mergeable` is true even for blocked/behind/unstable PRs (it only reflects conflicts);
+// only mergeable_state carries the signal the renderer classifier uses to demote "Able to merge".
+function mapRestPRMergeStateStatus(pr: RestPullRequest): string | undefined {
+  const state = (pr.mergeable_state?.toLowerCase() ?? undefined) as
+    | RestMergeableStateValue
+    | undefined
+  switch (state) {
+    case 'clean':
+      return 'CLEAN'
+    case 'dirty':
+      return 'DIRTY'
+    case 'blocked':
+      return 'BLOCKED'
+    case 'behind':
+      return 'BEHIND'
+    case 'unstable':
+      return 'UNSTABLE'
+    case 'draft':
+      return 'DRAFT'
+    case 'has_hooks':
+      return 'HAS_HOOKS'
+    case 'unknown':
+    case undefined:
+      return undefined
+    default: {
+      // Why: a new REST state must degrade to "no status", never silently pass as clean.
+      const unhandled: never = state
+      void unhandled
+      return undefined
+    }
+  }
+}
+
 function derivePullRequestMergeable(data: PullRequestLookupData): PRMergeableState {
   const mergeable = normalizePRMergeable(data.mergeable)
   if (mergeable === 'CONFLICTING' || data.mergeStateStatus === 'DIRTY') {
@@ -2079,6 +2123,7 @@ function derivePullRequestMergeable(data: PullRequestLookupData): PRMergeableSta
 }
 
 function mapRestPullRequest(pr: RestPullRequest): PullRequestLookupData {
+  const mergeStateStatus = mapRestPRMergeStateStatus(pr)
   return {
     number: pr.number,
     title: pr.title,
@@ -2088,6 +2133,7 @@ function mapRestPullRequest(pr: RestPullRequest): PullRequestLookupData {
     updatedAt: pr.updated_at ?? '',
     isDraft: pr.draft,
     mergeable: mapRestPRMergeable(pr),
+    ...(mergeStateStatus !== undefined ? { mergeStateStatus } : {}),
     baseRefName: pr.base?.ref,
     headRefName: pr.head?.ref,
     baseRefOid: pr.base?.sha,
@@ -2257,8 +2303,9 @@ async function hydratePullRequestLookupData(
   ghOptions: GhExecOptions
 ): Promise<PullRequestLookupData> {
   const normalized = normalizePullRequestLookupData(data)
-  const hasRichMergeFields =
-    'reviewDecision' in data || 'mergeStateStatus' in data || 'autoMergeRequest' in data
+  // Why: REST fallback data now carries mergeStateStatus; only gh-pr-view-shaped data warrants the
+  // GraphQL metadata probe (the REST path runs precisely when gh/GraphQL is already failing).
+  const hasRichMergeFields = 'reviewDecision' in data || 'autoMergeRequest' in data
   const mergeMetadata = hasRichMergeFields
     ? await detectRepositoryMergeMetadata(ownerRepo, normalized.baseRefName, ghOptions)
     : undefined

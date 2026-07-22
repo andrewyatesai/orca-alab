@@ -166,6 +166,21 @@ pre-encoded frames to the semantic enum + moving encoding into the writer — a
 contained streaming-layer change, but on every terminal's live-output path, so
 it gets built + reviewed on its own rather than rushed.
 
+**SHIPPED (2026-07-21, P2):** `stream_coalescing.rs` implements exactly this —
+`route_output` enqueues semantic `StreamItem::Data`/`Event` per read (recipients
+bound immediately), and each socket's writer thread encodes per its negotiated
+format and merges adjacent same-session data to 32 KiB via `try_recv`-only
+coalescing (an empty queue flushes immediately — zero added interactive
+latency; the doc's 2 ms `recv_timeout` was dropped for that reason). Events are
+never merged and flush all pending data first, both formats. Measured with
+`examples/stream_flood_bench.rs` (end-to-end serve() + real client, 500 MB
+corpus) on a LOADED M-series host (loadavg 7–10, not the quiet-machine
+condition above): NDJSON 109 → 133 MB/s mean (+22%; medians 103 → 140), binary
+135 → 140 MB/s (within noise). Writer-side coalescing only engages when the
+socket writer is the bottleneck — under host contention the ~1 KiB PTY reads
+are, so the quiet-machine +58% ceiling was not reproducible here and remains
+unclaimed for the writer form.
+
 ## Reproduce
 
 `rust/crates/orca-daemon/examples/pump_bench.rs` (self-contained; measures

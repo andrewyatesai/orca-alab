@@ -12,6 +12,7 @@
 
 use orca_daemon::registry::Registry;
 use orca_daemon::rpc::dispatch_request;
+use orca_daemon::stream_coalescing::{encode_stream_item, StreamItem, StreamWireFormat};
 use serde_json::{json, Value};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -19,6 +20,12 @@ use std::time::{Duration, Instant};
 
 fn dispatch(reg: &Arc<Registry>, client: &str, req: Value) -> Value {
     serde_json::from_str(&dispatch_request(&req, reg, client)).expect("valid JSON")
+}
+
+/// Encode a queued semantic item exactly as the NDJSON writer thread would, so
+/// line-level assertions survive the semantic-queue migration unchanged.
+fn ndjson_line(item: &StreamItem) -> String {
+    String::from_utf8(encode_stream_item(item, StreamWireFormat::Ndjson)).unwrap()
 }
 
 fn wait_until(mut pred: impl FnMut() -> bool, timeout: Duration) -> bool {
@@ -33,11 +40,11 @@ fn wait_until(mut pred: impl FnMut() -> bool, timeout: Duration) -> bool {
 }
 
 /// Scan a stream Receiver for a `data` event carrying `needle` (drains as it goes).
-fn wait_for_data(rx: &Receiver<String>, session: &str, needle: &str, timeout: Duration) -> bool {
+fn wait_for_data(rx: &Receiver<StreamItem>, session: &str, needle: &str, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if let Ok(line) = rx.recv_timeout(Duration::from_millis(100)) {
-            let v: Value = serde_json::from_str(&line).expect("event JSON");
+        if let Ok(item) = rx.recv_timeout(Duration::from_millis(100)) {
+            let v: Value = serde_json::from_str(&ndjson_line(&item)).expect("event JSON");
             if v["event"] == json!("data")
                 && v["sessionId"] == json!(session)
                 && v["payload"]["data"]
@@ -53,10 +60,10 @@ fn wait_for_data(rx: &Receiver<String>, session: &str, needle: &str, timeout: Du
 
 /// Drain everything currently queued on a Receiver into one string of data-event
 /// payloads (for MUST-NOT-receive assertions).
-fn drain_data(rx: &Receiver<String>, session: &str) -> String {
+fn drain_data(rx: &Receiver<StreamItem>, session: &str) -> String {
     let mut out = String::new();
-    while let Ok(line) = rx.try_recv() {
-        let v: Value = serde_json::from_str(&line).expect("event JSON");
+    while let Ok(item) = rx.try_recv() {
+        let v: Value = serde_json::from_str(&ndjson_line(&item)).expect("event JSON");
         if v["event"] == json!("data") && v["sessionId"] == json!(session) {
             out.push_str(v["payload"]["data"].as_str().unwrap_or(""));
         }
@@ -64,11 +71,11 @@ fn drain_data(rx: &Receiver<String>, session: &str) -> String {
     out
 }
 
-fn wait_for_exit(rx: &Receiver<String>, session: &str, timeout: Duration) -> bool {
+fn wait_for_exit(rx: &Receiver<StreamItem>, session: &str, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if let Ok(line) = rx.recv_timeout(Duration::from_millis(100)) {
-            let v: Value = serde_json::from_str(&line).expect("event JSON");
+        if let Ok(item) = rx.recv_timeout(Duration::from_millis(100)) {
+            let v: Value = serde_json::from_str(&ndjson_line(&item)).expect("event JSON");
             if v["event"] == json!("exit") && v["sessionId"] == json!(session) {
                 return true;
             }
@@ -95,8 +102,8 @@ fn create_marked_session(
     owner: &str,
     session: &str,
     marker: &str,
-) -> Receiver<String> {
-    let (tx, rx) = channel::<String>();
+) -> Receiver<StreamItem> {
+    let (tx, rx) = channel::<StreamItem>();
     reg.register_stream(owner.to_string(), tx);
     let created = dispatch(
         reg,
@@ -116,8 +123,8 @@ fn create_marked_session(
     rx
 }
 
-fn register_stream(reg: &Arc<Registry>, client: &str) -> (Sender<String>, Receiver<String>) {
-    let (tx, rx) = channel::<String>();
+fn register_stream(reg: &Arc<Registry>, client: &str) -> (Sender<StreamItem>, Receiver<StreamItem>) {
+    let (tx, rx) = channel::<StreamItem>();
     reg.register_stream(client.to_string(), tx.clone());
     (tx, rx)
 }

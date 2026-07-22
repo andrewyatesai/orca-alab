@@ -7,6 +7,10 @@ import {
 } from '../../../../shared/terminal-fonts'
 import { normalizeTerminalFontWeight } from '../../lib/git-wasm/terminal-fonts'
 import {
+  MAX_TERMINAL_LINE_HEIGHT,
+  MIN_TERMINAL_LINE_HEIGHT
+} from '../../../../shared/terminal-line-height-settings'
+import {
   fontFamilyHasKnownLigatures,
   resolveTerminalLigaturesEnabled
 } from '../../../../shared/terminal-ligatures'
@@ -81,11 +85,19 @@ export function TerminalAdvancedTypographyControls({
           description=""
           value={settings.terminalLineHeight}
           defaultValue={1}
-          min={1}
-          max={3}
+          min={MIN_TERMINAL_LINE_HEIGHT}
+          max={MAX_TERMINAL_LINE_HEIGHT}
           step={0.1}
-          suffix="1-3"
-          onChange={(value) => updateSettings({ terminalLineHeight: clampNumber(value, 1, 3) })}
+          suffix={`${MIN_TERMINAL_LINE_HEIGHT}-${MAX_TERMINAL_LINE_HEIGHT}`}
+          onChange={(value) =>
+            updateSettings({
+              terminalLineHeight: clampNumber(
+                value,
+                MIN_TERMINAL_LINE_HEIGHT,
+                MAX_TERMINAL_LINE_HEIGHT
+              )
+            })
+          }
         />
       </SearchableSetting>
 

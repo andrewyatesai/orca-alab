@@ -152,9 +152,15 @@ describe('mapGhosttyToOrca — adjust-cell-height', () => {
     expect(result.unsupportedKeys).toEqual([])
   })
 
-  it('accepts the inclusive 3x line-height ceiling', () => {
+  it('accepts the former 3x ceiling now that the clamp allows more', () => {
     const result = mapGhosttyToOrca({ 'adjust-cell-height': '200%' })
     expect(result.diff).toEqual({ terminalLineHeight: 3 })
+    expect(result.unsupportedKeys).toEqual([])
+  })
+
+  it('accepts the inclusive 10x accessibility ceiling (upstream #7934)', () => {
+    const result = mapGhosttyToOrca({ 'adjust-cell-height': '900%' })
+    expect(result.diff).toEqual({ terminalLineHeight: 10 })
     expect(result.unsupportedKeys).toEqual([])
   })
 
@@ -170,14 +176,14 @@ describe('mapGhosttyToOrca — adjust-cell-height', () => {
     expect(result.unsupportedKeys).toEqual(['adjust-cell-height'])
   })
 
-  it('rejects a percentage above the 3x line-height ceiling', () => {
-    const result = mapGhosttyToOrca({ 'adjust-cell-height': '250%' })
+  it('rejects a percentage above the 10x line-height ceiling', () => {
+    const result = mapGhosttyToOrca({ 'adjust-cell-height': '950%' })
     expect(result.diff).toEqual({})
     expect(result.unsupportedKeys).toEqual(['adjust-cell-height'])
   })
 
   it('rejects values that only fall inside the ceiling after rounding', () => {
-    const result = mapGhosttyToOrca({ 'adjust-cell-height': '200.4%' })
+    const result = mapGhosttyToOrca({ 'adjust-cell-height': '900.4%' })
     expect(result.diff).toEqual({})
     expect(result.unsupportedKeys).toEqual(['adjust-cell-height'])
   })

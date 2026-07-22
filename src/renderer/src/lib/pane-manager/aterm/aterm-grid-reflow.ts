@@ -15,7 +15,7 @@ type GridReflowConfig = {
   /** Base cell font size in CSS px (the user's terminalFontSize). Read live so a
    *  size change re-rasterizes without a pane rebuild; defaults are handled upstream. */
   getFontPx: () => number
-  /** Cell line-height multiplier (the user's terminalLineHeight, ~1–3). Read live so
+  /** Cell line-height multiplier (the user's terminalLineHeight, ~1–10). Read live so
    *  a change re-derives the cell-box height (not the glyph px) without a rebuild. */
   getLineHeight: () => number
   /** Read the current grid (cols/rows). */

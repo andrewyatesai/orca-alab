@@ -4,15 +4,20 @@ import { act, render } from '@testing-library/react'
 import { create } from 'zustand'
 import type { OpenFile } from '@/store/slices/editor'
 
+import { registerLoadedMonaco, type LoadedMonaco } from '@/lib/loaded-monaco'
+
 const disposeSpy = vi.fn()
 
-vi.mock('monaco-editor', () => ({
+// Why: the hook reads Monaco from the loaded-instance registry (never a static
+// import — chunk budget), so the test registers the fake the same way
+// monaco-setup registers the real one.
+registerLoadedMonaco({
   Uri: { parse: (value: string) => value },
   editor: {
     getModel: () => ({ dispose: disposeSpy }),
     getModels: () => []
   }
-}))
+} as unknown as LoadedMonaco)
 
 type TestState = { openFiles: OpenFile[] }
 const testStore = create<TestState>(() => ({ openFiles: [] }))

@@ -16,6 +16,7 @@ import { installMonacoDelayerCancellationGuard } from './monaco-delayer-cancella
 import { installMonacoDiffEditorDisposalGuard } from './monaco-diff-editor-disposal'
 import { installMonacoPeekReferencesPreviewOptions } from './monaco-peek-preview-options'
 import { installMonacoContextMenuPaste } from '@/components/editor/install-monaco-context-menu-paste'
+import { registerLoadedMonaco } from './loaded-monaco'
 
 globalThis.MonacoEnvironment = {
   getWorker(_workerId, label) {
@@ -89,6 +90,8 @@ installMonacoContextMenuPaste(monaco)
 
 // Configure Monaco to use the locally bundled editor instead of CDN
 loader.config({ monaco })
+
+registerLoadedMonaco(monaco)
 
 // Re-export for convenience
 export { monaco }

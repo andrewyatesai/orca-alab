@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import * as monaco from 'monaco-editor'
+import { getLoadedMonaco } from '@/lib/loaded-monaco'
 import type { OpenFile } from '@/store/slices/editor'
 import { cursorPositionCache, diffViewStateCache, scrollTopCache } from '@/lib/scroll-cache'
 import {
@@ -30,11 +30,15 @@ export function useClosedEditorTabCleanup(openFiles: OpenFile[]): void {
 }
 
 function disposeClosedEditorTab(prevId: string, prevFile: OpenFile): void {
+  // Why: read Monaco from the loaded-instance registry, not a static import —
+  // this hook is on the eager App path and must not pull Monaco into the
+  // startup chunk. A null read means no Monaco, hence no models to dispose.
+  const monaco = getLoadedMonaco()
   switch (prevFile.mode) {
     case 'edit':
       // Why: the edit model URI is constructed via monaco.Uri.parse(filePath)
       // to match @monaco-editor/react's `path` prop convention.
-      monaco.editor.getModel(monaco.Uri.parse(prevFile.filePath))?.dispose()
+      monaco?.editor.getModel(monaco.Uri.parse(prevFile.filePath))?.dispose()
       scrollTopCache.delete(prevFile.filePath)
       deleteCacheEntriesByPrefix(scrollTopCache, `${prevFile.filePath}::`)
       // Why: markdown and mermaid surfaces keep mode-scoped scroll positions.
@@ -53,7 +57,7 @@ function disposeClosedEditorTab(prevId: string, prevFile: OpenFile): void {
     case 'diff':
       // Why: kept diff models are keyed by tab id, and fallback recovery can
       // append generation suffixes; closing the tab owns that whole namespace.
-      {
+      if (monaco) {
         const { originalModelPathPrefix, modifiedModelPathPrefix } =
           getDiffViewerMonacoModelPathPrefixes(prevId)
         disposeUnattachedMonacoModelsByPathPrefix(monaco, originalModelPathPrefix)

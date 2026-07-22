@@ -1,4 +1,5 @@
 import { forceRepaintThroughRenderPause } from './terminal-render-pause-release'
+import { bumpTerminalWriteGeneration } from './terminal-write-generation'
 import { runGuardedWriteCompletionStep } from './xterm-write-callback-guard'
 
 export type ForegroundTerminalOutputTarget = {
@@ -164,6 +165,10 @@ export function writeForegroundTerminalChunk(
   data: string,
   options: ForegroundTerminalWriteOptions = {}
 ): boolean {
+  if (data.length > 0) {
+    // Why: deep scrollback hydration fences on this to detect any concurrent writer (terminal-write-generation.ts).
+    bumpTerminalWriteGeneration(terminal)
+  }
   const beforeWriteViewport = options.forceViewportRefresh
     ? captureViewportSnapshot(terminal)
     : null

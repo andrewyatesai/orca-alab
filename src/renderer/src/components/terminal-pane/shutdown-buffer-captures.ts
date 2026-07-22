@@ -1,5 +1,9 @@
 export type ShutdownBufferCaptureOptions = {
   includeLocalBuffers?: boolean
+  /** Per-pane byte cap for captured buffers. Quit-time capture raises it to the
+   *  disk-store limit (buffers migrate straight to snapshot files); sleep-time
+   *  capture keeps the session default so Zustand/web-sync payloads stay small. */
+  bufferByteLimit?: number
 }
 
 /** Map of tabId → buffer-capture callback, one per mounted TerminalPane.

@@ -51,6 +51,7 @@ import { AgentHibernationGate } from './components/AgentHibernationGate'
 import { ActivityTitlebarControls } from './components/activity/ActivityTitlebarControls'
 import Sidebar from './components/Sidebar'
 import { shutdownBufferCaptures } from './components/terminal-pane/shutdown-buffer-captures'
+import { TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT } from '../../shared/terminal-scrollback-limits'
 import { dispatchWindowCloseRequest } from './components/window-close-request-coordinator'
 import {
   getSystemPrefersDarkSnapshot,
@@ -1194,7 +1195,13 @@ function App(): React.JSX.Element {
       if (shouldCaptureSession) {
         for (const capture of shutdownBufferCaptures.values()) {
           try {
-            capture({ includeLocalBuffers: false })
+            // Why the store-limit cap here only: quit-time buffers migrate straight to disk
+            // snapshot files (P5 deep restore replays them next launch); sleep-time captures
+            // keep the small default because they stay resident in Zustand/session sync.
+            capture({
+              includeLocalBuffers: false,
+              bufferByteLimit: TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT
+            })
           } catch {
             // Don't let one pane's failure block the rest.
           }

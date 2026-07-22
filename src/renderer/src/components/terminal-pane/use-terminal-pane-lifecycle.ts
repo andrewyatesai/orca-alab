@@ -67,6 +67,10 @@ import {
   restorePaneFontSizes,
   restoreScrollbackBuffers
 } from './layout-serialization'
+import {
+  startTerminalScrollbackDeepRestore,
+  type TerminalScrollbackDeepRestoreSource
+} from './terminal-scrollback-deep-restore'
 import { atermAppKeyProtocolNegotiated } from '@/lib/pane-manager/aterm/aterm-key-encoding'
 import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
 import { pruneUnboundTerminalLayoutLeaves } from './terminal-layout-unbound-leaf-prune'
@@ -380,10 +384,14 @@ function terminalSelectionExceedsPrimaryLimit(terminal: Terminal): boolean {
 function hydrateTerminalScrollbackRefs(layout: TerminalLayoutSnapshot): {
   layout: TerminalLayoutSnapshot
   hydrated: boolean
+  // P5: leaves whose snapshot holds more than the sync 512KB tail; the older
+  // region streams in asynchronously after the tail paints (deep restore).
+  deepRestoreSourcesByLeafId: Map<string, TerminalScrollbackDeepRestoreSource>
 } {
+  const deepRestoreSourcesByLeafId = new Map<string, TerminalScrollbackDeepRestoreSource>()
   const refs = layout.scrollbackRefsByLeafId
   if (!refs || Object.keys(refs).length === 0) {
-    return { layout, hydrated: false }
+    return { layout, hydrated: false, deepRestoreSourcesByLeafId }
   }
 
   const buffers = { ...layout.buffersByLeafId }
@@ -393,10 +401,19 @@ function hydrateTerminalScrollbackRefs(layout: TerminalLayoutSnapshot): {
       continue
     }
     try {
-      const buffer = window.api.session.readTerminalScrollback({ ref })
-      if (buffer) {
-        buffers[leafId] = buffer
+      const tail = window.api.session.readTerminalScrollbackTail({ ref })
+      if (tail?.text) {
+        buffers[leafId] = tail.text
         hydrated = true
+        if (tail.olderChunkCursor < tail.olderEndOffset) {
+          deepRestoreSourcesByLeafId.set(leafId, {
+            ref,
+            tailText: tail.text,
+            olderChunkCursor: tail.olderChunkCursor,
+            olderEndOffset: tail.olderEndOffset,
+            fingerprint: tail.fingerprint
+          })
+        }
       }
     } catch {
       // Best-effort restore; failed snapshot reads should not block terminal mount.
@@ -404,8 +421,8 @@ function hydrateTerminalScrollbackRefs(layout: TerminalLayoutSnapshot): {
   }
 
   return hydrated
-    ? { layout: { ...layout, buffersByLeafId: buffers }, hydrated }
-    : { layout, hydrated }
+    ? { layout: { ...layout, buffersByLeafId: buffers }, hydrated, deepRestoreSourcesByLeafId }
+    : { layout, hydrated, deepRestoreSourcesByLeafId }
 }
 
 export function resolveQueuedInitialCwd(
@@ -1693,6 +1710,29 @@ export function useTerminalPaneLifecycle({
       replayingPanesRef,
       restoredViewportBlankingPanesRef
     )
+    // P5: kick off async deep hydration in the SAME turn as the tail replay so its
+    // write-generation fence is captured before any live PTY byte can interleave.
+    const cancelScrollbackDeepRestores: (() => void)[] = []
+    for (const [leafId, source] of hydratedInitialScrollback.deepRestoreSourcesByLeafId) {
+      const restoredPaneId = restoredPaneByLeafId.get(leafId)
+      const restoredPane =
+        restoredPaneId === undefined
+          ? undefined
+          : manager.getPanes().find((candidate) => candidate.id === restoredPaneId)
+      if (!restoredPane) {
+        continue
+      }
+      cancelScrollbackDeepRestores.push(
+        startTerminalScrollbackDeepRestore({
+          pane: restoredPane,
+          manager,
+          source,
+          replayingPanesRef,
+          readOlderChunk: (chunkArgs) =>
+            window.api.session.readTerminalScrollbackOlderChunk(chunkArgs)
+        })
+      )
+    }
     if (restoredBuffers && initialLayoutRef.current.scrollbackRefsByLeafId) {
       const layoutWithoutRestoredBuffers = { ...initialLayoutRef.current }
       delete layoutWithoutRestoredBuffers.buffersByLeafId
@@ -1868,6 +1908,9 @@ export function useTerminalPaneLifecycle({
     return () => {
       window.removeEventListener(SPLIT_TERMINAL_PANE_EVENT, onCliSplitPane)
       window.removeEventListener(CLOSE_TERMINAL_PANE_EVENT, onCliClosePane)
+      for (const cancelDeepRestore of cancelScrollbackDeepRestores) {
+        cancelDeepRestore()
+      }
       const currentWorktreeTabs = useAppStore.getState().tabsByWorktree[worktreeId]
       const tabStillExists = Boolean(
         currentWorktreeTabs?.some((candidate) => candidate.id === tabId)

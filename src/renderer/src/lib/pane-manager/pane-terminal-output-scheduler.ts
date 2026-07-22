@@ -6,6 +6,7 @@ import {
   type ForegroundTerminalOutputTarget
 } from './pane-terminal-foreground-render-settle'
 import { mirrorOutputToAterm } from './aterm/aterm-output-mirror'
+import { bumpTerminalWriteGeneration } from './terminal-write-generation'
 import { runGuardedWriteCompletionStep } from './xterm-write-callback-guard'
 import { recordRendererCrashBreadcrumb } from '@/lib/crash-breadcrumb-recorder'
 import {
@@ -1052,6 +1053,10 @@ export function writeTerminalOutput(
     options.ackCredit?.()
     return
   }
+
+  // Why at enqueue (not drain): deep scrollback hydration must see queued-but-undrained
+  // live bytes as a concurrent writer too (terminal-write-generation.ts).
+  bumpTerminalWriteGeneration(terminal)
 
   // Mirror the same byte stream to the aterm canvas (no-op unless this pane's
   // terminal has a registered controller). Done up front so the canvas sees

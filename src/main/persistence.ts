@@ -229,6 +229,7 @@ import {
   parseWorkspaceKey,
   worktreeWorkspaceKey
 } from '../shared/workspace-scope'
+import { TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT } from '../shared/terminal-scrollback-limits'
 import {
   collectTerminalScrollbackSnapshotRefs,
   deleteTerminalScrollbackSnapshotSync,
@@ -237,6 +238,11 @@ import {
   readTerminalScrollbackSnapshotSync,
   type TerminalScrollbackSnapshotStorage
 } from './terminal-scrollback-snapshots'
+import {
+  readTerminalScrollbackSnapshotOlderChunkSync,
+  readTerminalScrollbackSnapshotTailSync,
+  type TerminalScrollbackSnapshotTailRead
+} from './terminal-scrollback-snapshot-deep-read'
 import { track } from './telemetry/client'
 import { getCohortAtEmit } from './telemetry/cohort-classifier'
 import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from './startup/startup-diagnostics'
@@ -3508,7 +3514,11 @@ export class Store {
     }
 
     const workspaceSession = pruneWorkspaceSessionBrowserHistory(
-      pruneLocalTerminalScrollbackBuffers(result.workspaceSession, result.repos)
+      // Why the store-limit cap: legacy JSON buffers migrate to disk refs right below,
+      // so pre-truncating to the session bound would permanently discard restorable history.
+      pruneLocalTerminalScrollbackBuffers(result.workspaceSession, result.repos, {
+        bufferByteLimit: TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT
+      })
     )
     const migratedScrollback = migrateWorkspaceSessionTerminalScrollbackSnapshots(
       workspaceSession,
@@ -5711,6 +5721,23 @@ export class Store {
     return readTerminalScrollbackSnapshotSync(ref, this.terminalScrollbackSnapshotStorage)
   }
 
+  /** Sync tail read plus the offsets async deep hydration streams the rest with. */
+  readTerminalScrollbackSnapshotTail(ref: string): TerminalScrollbackSnapshotTailRead | null {
+    return readTerminalScrollbackSnapshotTailSync(ref, this.terminalScrollbackSnapshotStorage)
+  }
+
+  readTerminalScrollbackSnapshotOlderChunk(args: {
+    ref: string
+    cursor: number
+    endOffset: number
+    fingerprint: string
+  }): { text: string; nextCursor: number } | null {
+    return readTerminalScrollbackSnapshotOlderChunkSync(
+      args,
+      this.terminalScrollbackSnapshotStorage
+    )
+  }
+
   /** Resolve the worktree a terminal tab belongs to; more reliable than agent-echoed hook fields. */
   getWorktreeIdForTab(tabId: string): string | undefined {
     return findWorktreeIdForTab(this.getWorkspaceSession(), tabId)
@@ -5964,7 +5991,11 @@ export class Store {
         }
       }
     }
-    session = pruneLocalTerminalScrollbackBuffers(session, this.state.repos)
+    // Why the store-limit cap: buffers here migrate into disk snapshot refs in the next
+    // statement, so the P5 deep-restore budget (5MB) applies, not the session-JSON bound.
+    session = pruneLocalTerminalScrollbackBuffers(session, this.state.repos, {
+      bufferByteLimit: TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT
+    })
     const migratedScrollback = migrateWorkspaceSessionTerminalScrollbackSnapshots(
       session,
       this.terminalScrollbackSnapshotStorage

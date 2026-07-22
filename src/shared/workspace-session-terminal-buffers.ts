@@ -48,19 +48,23 @@ export function shouldPreserveTerminalScrollbackBuffers(
   )
 }
 
-export function capTerminalScrollbackSessionBuffer(buffer: string): string {
+export function capTerminalScrollbackSessionBuffer(
+  buffer: string,
+  byteLimit: number = TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT
+): string {
   if (
-    buffer.length <= TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT &&
-    !measureUtf8ByteLength(buffer, {
-      stopAfterBytes: TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT
-    }).exceededLimit
+    buffer.length <= byteLimit &&
+    !measureUtf8ByteLength(buffer, { stopAfterBytes: byteLimit }).exceededLimit
   ) {
     return buffer
   }
-  return clampUtf8TextTail(buffer, TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT).text
+  return clampUtf8TextTail(buffer, byteLimit).text
 }
 
-function capTerminalScrollbackLeafBuffers(buffers: Record<string, string> | undefined): {
+function capTerminalScrollbackLeafBuffers(
+  buffers: Record<string, string> | undefined,
+  byteLimit: number
+): {
   buffers: Record<string, string> | undefined
   changed: boolean
 } {
@@ -70,7 +74,7 @@ function capTerminalScrollbackLeafBuffers(buffers: Record<string, string> | unde
   let changed = false
   const capped: Record<string, string> = {}
   for (const [leafId, buffer] of Object.entries(buffers)) {
-    const next = capTerminalScrollbackSessionBuffer(buffer)
+    const next = capTerminalScrollbackSessionBuffer(buffer, byteLimit)
     capped[leafId] = next
     changed ||= next !== buffer
   }
@@ -79,8 +83,13 @@ function capTerminalScrollbackLeafBuffers(buffers: Record<string, string> | unde
 
 export function pruneLocalTerminalScrollbackBuffers(
   session: WorkspaceSessionState,
-  repos: readonly RepoConnection[]
+  repos: readonly RepoConnection[],
+  // Why an override exists: callers that immediately migrate buffers into disk
+  // snapshot refs (P5 store, 5MB) may keep more than the session-JSON bound;
+  // callers whose buffers stay durably in JSON must use the default.
+  opts: { bufferByteLimit?: number } = {}
 ): WorkspaceSessionState {
+  const bufferByteLimit = opts.bufferByteLimit ?? TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT
   const repoById = new Map(repos.map((repo) => [repo.id, repo] as const))
   const worktreeIdByTabId = new Map<string, string>()
   const tabsByWorktree = session.tabsByWorktree ?? {}
@@ -98,7 +107,7 @@ export function pruneLocalTerminalScrollbackBuffers(
     }
     const worktreeId = worktreeIdByTabId.get(tabId)
     if (shouldPreserveTerminalScrollbackBuffersForRepoMap(worktreeId, repoById)) {
-      const capped = capTerminalScrollbackLeafBuffers(layout.buffersByLeafId)
+      const capped = capTerminalScrollbackLeafBuffers(layout.buffersByLeafId, bufferByteLimit)
       if (capped.changed) {
         terminalLayoutsByTabId ??= { ...terminalLayoutsByTabIdForRead }
         terminalLayoutsByTabId[tabId] = { ...layout, buffersByLeafId: capped.buffers }

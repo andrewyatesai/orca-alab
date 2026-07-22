@@ -169,7 +169,10 @@ function isInsideNativeChatRoot(target: EventTarget | null): boolean {
 }
 
 // Why: registry lives in a leaf module to break the slice → TerminalPane → store → slice import cycle that leaves createTerminalSlice undefined at init.
-import { shutdownBufferCaptures } from './shutdown-buffer-captures'
+import {
+  shutdownBufferCaptures,
+  type ShutdownBufferCaptureOptions
+} from './shutdown-buffer-captures'
 import { mergeCapturedLeafState } from './merge-captured-leaf-state'
 import { pasteTerminalText } from './terminal-bracketed-paste'
 import {
@@ -2427,7 +2430,7 @@ export default function TerminalPane({
 
   // Register a shutdown capture callback; App.tsx's beforeunload handler invokes all to serialize terminal buffers.
   useEffect(() => {
-    const captureBuffers = (options?: { includeLocalBuffers?: boolean }): void => {
+    const captureBuffers = (options?: ShutdownBufferCaptureOptions): void => {
       const manager = managerRef.current
       const container = containerRef.current
       if (!manager || !container) {
@@ -2455,6 +2458,9 @@ export default function TerminalPane({
         existingLayout: existing,
         // Why: beforeunload skips local/floating bytes (session payloads prune them); worktree sleep keeps them as defense-in-depth.
         captureBuffers: shouldCaptureScrollbackBuffers,
+        ...(options?.bufferByteLimit !== undefined
+          ? { bufferByteLimit: options.bufferByteLimit }
+          : {}),
         clearedScrollbackLeafIds: clearedScrollbackLeafIdsRef.current
       })
       setTabLayout(tabId, layout)

@@ -227,6 +227,15 @@ export function restorePaneFontSizes(
   return fontSizesByPaneId
 }
 
+/** If the buffer ends inside the alt screen (agent TUI at shutdown), cut at the
+ *  final unmatched enter so the restored terminal is usable. Shared by the mount
+ *  tail replay and the async deep-restore rebuild so both cut identically. */
+export function trimTrailingAltScreenEnter(buffer: string): string {
+  const lastOn = buffer.lastIndexOf('\x1b[?1049h')
+  const lastOff = buffer.lastIndexOf('\x1b[?1049l')
+  return lastOn > lastOff ? buffer.slice(0, lastOn) : buffer
+}
+
 /**
  * Write saved scrollback buffers into restored panes so the user sees prior
  * output after a restart. Exits alt-screen first if a buffer ended mid-TUI.
@@ -241,8 +250,6 @@ export function restoreScrollbackBuffers(
   if (!savedBuffers) {
     return
   }
-  const ALT_SCREEN_ON = '\x1b[?1049h'
-  const ALT_SCREEN_OFF = '\x1b[?1049l'
   for (const [oldLeafId, buffer] of Object.entries(savedBuffers)) {
     const newPaneId = restoredPaneByLeafId.get(oldLeafId)
     if (newPaneId == null || !buffer) {
@@ -267,13 +274,7 @@ export function restoreScrollbackBuffers(
       const renderOptions = {
         shouldRefreshViewportSynchronously: () => !manager.hasWebglRenderer(pane.id)
       }
-      let buf = buffer
-      // If the buffer ends in alt-screen (agent TUI at shutdown), exit it so the terminal is usable.
-      const lastOn = buf.lastIndexOf(ALT_SCREEN_ON)
-      const lastOff = buf.lastIndexOf(ALT_SCREEN_OFF)
-      if (lastOn > lastOff) {
-        buf = buf.slice(0, lastOn)
-      }
+      const buf = trimTrailingAltScreenEnter(buffer)
       if (buf.length > 0) {
         // replayIntoTerminal: buffer queries (DA1/DECRQM/CPR) would auto-reply into the new shell's stdin. See replay-guard.ts.
         replayIntoTerminal(pane, replayingPanesRef, buf, renderOptions)

@@ -41,4 +41,37 @@ export function registerSessionHandlers(store: Store): void {
         typeof args?.ref === 'string' ? store.readTerminalScrollbackSnapshot(args.ref) : null
     }
   )
+
+  // P5 deep restore: sync tail (bounded, renderer-blocking like the legacy read)
+  // plus offsets, then the older region streams through the async chunk handle.
+  ipcMain.on(
+    'session:read-terminal-scrollback-tail-sync',
+    (event, args: { ref?: unknown } | undefined) => {
+      event.returnValue =
+        typeof args?.ref === 'string' ? store.readTerminalScrollbackSnapshotTail(args.ref) : null
+    }
+  )
+
+  ipcMain.handle(
+    'session:read-terminal-scrollback-older-chunk',
+    (
+      _event,
+      args: { ref?: unknown; cursor?: unknown; endOffset?: unknown; fingerprint?: unknown }
+    ) => {
+      if (
+        typeof args?.ref !== 'string' ||
+        typeof args.cursor !== 'number' ||
+        typeof args.endOffset !== 'number' ||
+        typeof args.fingerprint !== 'string'
+      ) {
+        return null
+      }
+      return store.readTerminalScrollbackSnapshotOlderChunk({
+        ref: args.ref,
+        cursor: args.cursor,
+        endOffset: args.endOffset,
+        fingerprint: args.fingerprint
+      })
+    }
+  )
 }

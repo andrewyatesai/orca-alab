@@ -102,8 +102,9 @@ function GitBashIcon({ size = 14 }: { size?: number }): React.JSX.Element {
 }
 
 function NushellIcon({ size = 14 }: { size?: number }): React.JSX.Element {
-  // Why: text tile like WslIcon — a brand ellipse is unreadable at 14px; the
-  // green tile keeps nu distinct from the PowerShell/CMD/WSL badges.
+  // Why: text tile like WslIcon (a brand ellipse is unreadable at 14px), but on
+  // the GenericTerminalIcon B/W palette per the nushell design §3.6 — colorful
+  // tiles stay reserved for shells with a brand identity in this set.
   return (
     <svg
       width={size}
@@ -112,12 +113,12 @@ function NushellIcon({ size = 14 }: { size?: number }): React.JSX.Element {
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden
     >
-      <rect x="1.5" y="3" width="21" height="18" rx="2.5" fill="#3AA675" />
+      <rect x="1.5" y="3" width="21" height="18" rx="2.5" fill="#1F1F1F" />
       <text
         x="12"
-        y="15.4"
+        y="15.2"
         textAnchor="middle"
-        fontSize="8"
+        fontSize="7"
         fontWeight="800"
         fill="#ffffff"
         fontFamily="system-ui, -apple-system, sans-serif"

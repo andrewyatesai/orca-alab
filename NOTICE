@@ -1,0 +1,11 @@
+Orca: ALab Edition
+Copyright 2026 Andrew Yates
+
+This product is a downstream fork of Orca (https://github.com/stablyai/orca),
+Copyright (c) 2026 Lovecast Inc., distributed under the MIT License. The
+upstream MIT copyright and permission notice are preserved in
+THIRD-PARTY-NOTICES.md ("Upstream Orca") and apply to the portions of this
+software derived from upstream Orca.
+
+Third-party components bundled with this product are enumerated, with their
+licenses and required notices, in THIRD-PARTY-NOTICES.md.

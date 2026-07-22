@@ -4,3 +4,4 @@ LICENSE
 THIRD-PARTY-NOTICES.md
 .gitleaks.toml
 resources/build/icon.png
+NOTICE

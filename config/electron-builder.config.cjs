@@ -99,6 +99,14 @@ const thirdPartyLicenseResources = [
   {
     from: 'THIRD-PARTY-NOTICES.md',
     to: 'licenses/THIRD-PARTY-NOTICES.md'
+  },
+  {
+    from: 'LICENSE',
+    to: 'licenses/LICENSE'
+  },
+  {
+    from: 'NOTICE',
+    to: 'licenses/NOTICE'
   }
 ]
 

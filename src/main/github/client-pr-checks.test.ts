@@ -70,6 +70,7 @@ vi.mock('./rate-limit', () => ({
 }))
 
 import { getPRChecks, rerunPRChecks, _resetOwnerRepoCache } from './client'
+import { deriveCheckStatus } from './mappers'
 
 function graphQLChecksResponse({
   contexts = [],
@@ -609,5 +610,35 @@ describe('getPRChecks', () => {
       .mockRejectedValueOnce(new Error('rate limited'))
 
     await expect(getPRChecks('/repo-root', 42)).rejects.toThrow('rate limited')
+  })
+})
+
+describe('deriveCheckStatus', () => {
+  it('rolls up a completed STARTUP_FAILURE run as failure', () => {
+    const rollup = [
+      { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { name: 'boot', status: 'COMPLETED', conclusion: 'STARTUP_FAILURE' }
+    ]
+
+    expect(deriveCheckStatus(rollup)).toBe('failure')
+  })
+
+  it('rolls up a completed STALE run as failure', () => {
+    const rollup = [
+      { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { name: 'old-run', status: 'COMPLETED', conclusion: 'STALE' }
+    ]
+
+    expect(deriveCheckStatus(rollup)).toBe('failure')
+  })
+
+  it('keeps SKIPPED and NEUTRAL conclusions as success', () => {
+    const rollup = [
+      { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { name: 'docs-only', status: 'COMPLETED', conclusion: 'SKIPPED' },
+      { name: 'advisory', status: 'COMPLETED', conclusion: 'NEUTRAL' }
+    ]
+
+    expect(deriveCheckStatus(rollup)).toBe('success')
   })
 })

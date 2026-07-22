@@ -233,7 +233,7 @@ import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
 } from '../../shared/tui-agent-launch-defaults'
-import { resolveLocalWindowsAgentStartupShell } from '../../shared/windows-terminal-shell'
+import { resolveLocalAgentStartupShell } from '../../shared/local-agent-startup-shell'
 import type { AgentStartupShell } from '../../shared/tui-agent-startup-shell'
 import {
   getTuiAgentLaunchCommand,
@@ -909,6 +909,7 @@ type RuntimeStore = {
     agentDefaultArgs?: GlobalSettings['agentDefaultArgs']
     agentDefaultEnv?: GlobalSettings['agentDefaultEnv']
     terminalWindowsShell?: GlobalSettings['terminalWindowsShell']
+    terminalPosixShell?: GlobalSettings['terminalPosixShell']
     agentStatusHooksEnabled?: GlobalSettings['agentStatusHooksEnabled']
     defaultTaskSource?: GlobalSettings['defaultTaskSource']
     defaultTaskViewPreset?: GlobalSettings['defaultTaskViewPreset']
@@ -15444,10 +15445,7 @@ export class OrcaRuntimeService {
           hooks,
           setupRunPolicy: getEffectiveSetupRunPolicy(repo),
           source: hooks ? 'orca.yaml' : null,
-          setupTrust: this.getSharedSetupHookTrustPayload(
-            repo,
-            getSharedCommandTrustContent(hooks)
-          )
+          setupTrust: this.getSharedSetupHookTrustPayload(repo, getSharedCommandTrustContent(hooks))
         }
       } catch {
         return {
@@ -15966,10 +15964,12 @@ export class OrcaRuntimeService {
     // Linux over SSH. Startup command quoting must target the shell that runs it.
     const agentLaunchPlatform = this.getAgentLaunchPlatformForRepo(repo)
     const isRemote = repoIsRemote(repo)
-    const queuedShell = resolveLocalWindowsAgentStartupShell({
+    const queuedShell = resolveLocalAgentStartupShell({
       platform: agentLaunchPlatform,
+      clientPlatform: process.platform,
       isRemote,
-      terminalWindowsShell: settings.terminalWindowsShell
+      terminalWindowsShell: settings.terminalWindowsShell,
+      terminalPosixShell: settings.terminalPosixShell
     })
     const draftLaunchPlan = buildAgentDraftLaunchPlan({
       agent,
@@ -16039,10 +16039,12 @@ export class OrcaRuntimeService {
     // the workspace shell rather than the client shell.
     const agentLaunchPlatform = this.getAgentLaunchPlatformForRepo(repo)
     const isRemote = repoIsRemote(repo)
-    const queuedShell = resolveLocalWindowsAgentStartupShell({
+    const queuedShell = resolveLocalAgentStartupShell({
       platform: agentLaunchPlatform,
+      clientPlatform: process.platform,
       isRemote,
-      terminalWindowsShell: settings.terminalWindowsShell
+      terminalWindowsShell: settings.terminalWindowsShell,
+      terminalPosixShell: settings.terminalPosixShell
     })
     const startupPlan = buildAgentStartupPlan({
       agent,
@@ -16256,10 +16258,12 @@ export class OrcaRuntimeService {
   // Why: local setup commands are typed into the configured Windows terminal
   // shell, so cmd-vs-Git-Bash delivery must follow that setting (#6896).
   private getLocalSetupTerminalShellFamily(): AgentStartupShell | undefined {
-    return resolveLocalWindowsAgentStartupShell({
+    return resolveLocalAgentStartupShell({
       platform: process.platform,
+      clientPlatform: process.platform,
       isRemote: false,
-      terminalWindowsShell: this.store?.getSettings?.().terminalWindowsShell ?? null
+      terminalWindowsShell: this.store?.getSettings?.().terminalWindowsShell ?? null,
+      terminalPosixShell: this.store?.getSettings?.().terminalPosixShell ?? null
     })
   }
 
@@ -19427,10 +19431,12 @@ export class OrcaRuntimeService {
     const settings = this.store.getSettings()
     const platform = this.getAgentLaunchPlatformForWorkspace(workspace)
     const isRemote = repoIsRemote(workspace.repo)
-    const queuedShell = resolveLocalWindowsAgentStartupShell({
+    const queuedShell = resolveLocalAgentStartupShell({
       platform,
+      clientPlatform: process.platform,
       isRemote,
-      terminalWindowsShell: settings.terminalWindowsShell
+      terminalWindowsShell: settings.terminalWindowsShell,
+      terminalPosixShell: settings.terminalPosixShell
     })
     const agent = resolveBareAgentLaunchCommand({
       command: opts.command,
@@ -20093,10 +20099,12 @@ export class OrcaRuntimeService {
     const platform = this.getAgentLaunchPlatformForWorkspace(workspace)
     // Why: SSH runs the CLI through the relay shim (plain `orca`), so the Linux-only `orca-ide` rename must not apply.
     const isRemote = workspace.repo ? repoIsRemote(workspace.repo) : repoIsRemote(workspace)
-    const queuedShell = resolveLocalWindowsAgentStartupShell({
+    const queuedShell = resolveLocalAgentStartupShell({
       platform,
+      clientPlatform: process.platform,
       isRemote,
-      terminalWindowsShell: settings.terminalWindowsShell
+      terminalWindowsShell: settings.terminalWindowsShell,
+      terminalPosixShell: settings.terminalPosixShell
     })
     const startupPlan = buildAgentStartupPlan({
       agent: opts.agent,

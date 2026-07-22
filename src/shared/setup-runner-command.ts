@@ -1,4 +1,5 @@
 import { isWindowsAbsolutePathLike } from './cross-platform-path'
+import { quoteNuDoubleQuoted } from './nushell-shell'
 import type { AgentStartupShell } from './tui-agent-startup-shell'
 
 export type SetupRunnerCommandPlatform = 'windows' | 'posix'
@@ -59,6 +60,14 @@ export function resolveSetupRunnerCommand(
         command: `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c ${quotePosixArg(runnerScriptPath)}`,
         runnerScriptPathForShell: runnerScriptPath.replace(/\\/g, '/'),
         shell: 'posix'
+      }
+    }
+    if (terminalShellFamily === 'nushell') {
+      // Why: nu double-quoted strings treat \ as an escape, so the .cmd path must be nu-escaped or the typed command errors.
+      return {
+        command: `cmd.exe /c ${quoteNuDoubleQuoted(runnerScriptPath)}`,
+        runnerScriptPathForShell: runnerScriptPath,
+        shell: 'windows'
       }
     }
     return {

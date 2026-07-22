@@ -23,7 +23,7 @@ import {
   resolveAgentPersonalizationPrompt
 } from '../../../shared/agent-personalization'
 import { repoIsRemote } from '../../../shared/agent-launch-remote'
-import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
+import { resolveLocalAgentStartupShell } from '../../../shared/local-agent-startup-shell'
 import { resolveNativeChatSessionOptionDefaults } from '../../../shared/native-chat-session-option-defaults'
 import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
 import {
@@ -757,10 +757,12 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   }, [activeRepoId, projects, repos, selectedRepo, settings, worktreesByRepo])
   // Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only `orca-ide` rename must not apply to remote launch commands.
   const selectedRepoIsRemote = selectedRepo ? repoIsRemote(selectedRepo) : false
-  const selectedRepoStartupShell = resolveLocalWindowsAgentStartupShell({
+  const selectedRepoStartupShell = resolveLocalAgentStartupShell({
     platform: selectedRepoAgentLaunchPlatform,
+    clientPlatform: CLIENT_PLATFORM,
     isRemote: selectedRepoIsRemote,
-    terminalWindowsShell: settings?.terminalWindowsShell
+    terminalWindowsShell: settings?.terminalWindowsShell,
+    terminalPosixShell: settings?.terminalPosixShell
   })
   const selectedRepoProjectId =
     selectedWorkspaceTarget.status === 'ready' ? selectedWorkspaceTarget.target.projectId : null
@@ -3224,6 +3226,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
             ? resolveNativeChatSessionOptionDefaults(settings?.nativeChatSessionOptions, agent)
             : undefined,
           terminalWindowsShell: settings?.terminalWindowsShell,
+          terminalPosixShell: settings?.terminalPosixShell,
           isRemote: folderTargetIsRemote,
           launchSource: telemetrySource === 'onboarding' ? 'onboarding' : 'new_workspace_composer',
           runtimeEnvironmentId: folderTargetRuntimeEnvironmentId,
@@ -3281,6 +3284,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       settings?.autoRenameBranchFromWork,
       settings?.nativeChatSessionOptions,
       settings?.terminalWindowsShell,
+      settings?.terminalPosixShell,
       telemetrySource
     ]
   )

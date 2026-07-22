@@ -20,9 +20,7 @@ import { tokenizeStartupCommand } from '../../../../shared/tui-agent-startup-she
 // The plan builders are Rust-backed via the git wasm — init it so the wrapper
 // returns real plans instead of the pre-ready null fallback.
 beforeAll(() => {
-  initGitWasmForTestFromBytes(
-    readFileSync(new URL('./orca_git_wasm_bg.wasm', import.meta.url))
-  )
+  initGitWasmForTestFromBytes(readFileSync(new URL('./orca_git_wasm_bg.wasm', import.meta.url)))
 })
 
 function unwrapPosixShellScript(command: string | undefined): string {
@@ -79,6 +77,25 @@ describe('tui agent startup plans', () => {
   it('invokes fully quoted argv commands in PowerShell', () => {
     expect(buildShellCommandFromArgv(['codex', 'resume', 's1'], 'powershell')).toBe(
       "& 'codex' 'resume' 's1'"
+    )
+  })
+
+  it('uses nushell quoting when the target shell is nu (#8928 PR4)', () => {
+    // Why: this crosses the Rust wasm boundary — proves the regenerated core parses the 'nushell' label.
+    const plan = buildAgentStartupPlan({
+      agent: 'claude',
+      prompt: 'fix Bob\'s "quoted" C:\\branch',
+      cmdOverrides: {},
+      platform: 'darwin',
+      shell: 'nushell'
+    })
+
+    expect(plan?.launchCommand).toBe('claude "fix Bob\'s \\"quoted\\" C:\\\\branch"')
+  })
+
+  it('invokes quoted argv commands with the nushell external caret', () => {
+    expect(buildShellCommandFromArgv(['codex', 'resume', 's1'], 'nushell')).toBe(
+      '^"codex" "resume" "s1"'
     )
   })
 

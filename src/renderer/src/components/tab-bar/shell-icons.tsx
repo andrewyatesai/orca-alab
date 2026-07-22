@@ -1,9 +1,18 @@
 import React from 'react'
-import { WINDOWS_GIT_BASH_SHELL } from '../../../../shared/windows-terminal-shell'
+import {
+  WINDOWS_GIT_BASH_SHELL,
+  WINDOWS_NUSHELL_SHELL
+} from '../../../../shared/windows-terminal-shell'
+import { isNushellExecutableName } from '../../../../shared/nushell-shell'
 import { translate } from '@/i18n/i18n'
 import gitForWindowsLogoUrl from '../../../../../resources/gwindows_logo.svg?url'
 
-export type WindowsShell = 'powershell.exe' | 'cmd.exe' | 'wsl.exe' | typeof WINDOWS_GIT_BASH_SHELL
+export type WindowsShell =
+  | 'powershell.exe'
+  | 'cmd.exe'
+  | 'wsl.exe'
+  | typeof WINDOWS_GIT_BASH_SHELL
+  | typeof WINDOWS_NUSHELL_SHELL
 
 // Why: the "+" dropdown and per-tab tab strip both need a visual distinction
 // between PowerShell, CMD, Git Bash, and WSL sessions. Stock lucide glyphs don't
@@ -92,6 +101,33 @@ function GitBashIcon({ size = 14 }: { size?: number }): React.JSX.Element {
   )
 }
 
+function NushellIcon({ size = 14 }: { size?: number }): React.JSX.Element {
+  // Why: text tile like WslIcon — a brand ellipse is unreadable at 14px; the
+  // green tile keeps nu distinct from the PowerShell/CMD/WSL badges.
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <rect x="1.5" y="3" width="21" height="18" rx="2.5" fill="#3AA675" />
+      <text
+        x="12"
+        y="15.4"
+        textAnchor="middle"
+        fontSize="8"
+        fontWeight="800"
+        fill="#ffffff"
+        fontFamily="system-ui, -apple-system, sans-serif"
+      >
+        {translate('auto.components.tab.bar.shell.icons.nushell', 'Nu')}
+      </text>
+    </svg>
+  )
+}
+
 function GenericTerminalIcon({ size = 14 }: { size?: number }): React.JSX.Element {
   // Why: matches the tile treatment of PowerShell/CMD/WSL so the tab strip
   // reads as a consistent set of badges instead of a flat monochrome chevron.
@@ -146,6 +182,9 @@ export function ShellIcon({
   }
   if (normalized === WINDOWS_GIT_BASH_SHELL || normalizedName === 'bash.exe') {
     return <GitBashIcon size={size} />
+  }
+  if (normalized === WINDOWS_NUSHELL_SHELL || isNushellExecutableName(normalized)) {
+    return <NushellIcon size={size} />
   }
   return <GenericTerminalIcon size={size} />
 }

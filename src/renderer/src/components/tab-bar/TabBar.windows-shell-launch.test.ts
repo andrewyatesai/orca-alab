@@ -370,6 +370,7 @@ describe('TabBar PowerShell launch wiring', () => {
         },
         pwsh: { isAvailable: vi.fn().mockResolvedValue(true) },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -442,6 +443,7 @@ describe('TabBar PowerShell launch wiring', () => {
         },
         pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -509,6 +511,7 @@ describe('TabBar PowerShell launch wiring', () => {
         },
         pwsh: { isAvailable: vi.fn().mockResolvedValue(true) },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(true) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -558,6 +561,7 @@ describe('TabBar PowerShell launch wiring', () => {
         },
         pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -615,6 +619,7 @@ describe('TabBar PowerShell launch wiring', () => {
         },
         pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -670,6 +675,7 @@ describe('TabBar PowerShell launch wiring', () => {
         },
         pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(true) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -711,6 +717,61 @@ describe('TabBar PowerShell launch wiring', () => {
     onSelect?.()
 
     expect(onNewTerminalWithShell).toHaveBeenCalledWith('git-bash')
+  })
+
+  it('shows the Nushell terminal row only when shared Windows capabilities find nu.exe', async () => {
+    vi.stubGlobal('window', {
+      api: {
+        wsl: {
+          isAvailable: vi.fn().mockResolvedValue(false),
+          listDistros: vi.fn().mockResolvedValue([])
+        },
+        pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
+        gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(true) },
+        runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
+      }
+    })
+    const capabilities = await import('@/lib/windows-terminal-capabilities')
+    await capabilities.loadWindowsTerminalCapabilities()
+
+    const tabBarModule = await import('./TabBar')
+    const candidate = tabBarModule.default ?? tabBarModule
+    const TabBar =
+      typeof candidate === 'function'
+        ? candidate
+        : typeof (candidate as { type?: unknown }).type === 'function'
+          ? (candidate as { type: (props: Record<string, unknown>) => unknown }).type
+          : null
+    expect(TabBar).not.toBeNull()
+
+    const onNewTerminalWithShell = vi.fn()
+    const element = TabBar!({
+      tabs: [],
+      activeTabId: null,
+      worktreeId: 'wt-1',
+      expandedPaneByTabId: {},
+      onActivate: () => {},
+      onClose: () => {},
+      onCloseOthers: () => {},
+      onCloseToRight: () => {},
+      onNewTerminalTab: () => {},
+      onNewTerminalWithShell,
+      onNewBrowserTab: () => {},
+      onSetCustomTitle: () => {},
+      onSetTabColor: () => {},
+      onTogglePaneExpand: () => {}
+    })
+
+    // Why: gitBashAvailable is false here, so gating is proven per-capability, not per-menu.
+    expect(findDropdownMenuItemByText(expandNode(element), 'New Terminal: Git Bash')).toBeNull()
+    const item = findDropdownMenuItemByText(expandNode(element), 'New Terminal: Nushell')
+    expect(item).not.toBeNull()
+
+    const onSelect = item?.props.onSelect as (() => void) | undefined
+    onSelect?.()
+
+    expect(onNewTerminalWithShell).toHaveBeenCalledWith('nushell')
   })
 
   it('shows the Windows shell rows for an SSH Windows host', async () => {
@@ -860,6 +921,7 @@ describe('TabBar PowerShell launch wiring', () => {
         },
         pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'linux' }) }
       }
     })

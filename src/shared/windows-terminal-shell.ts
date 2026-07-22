@@ -1,12 +1,17 @@
 import type { AgentStartupShell } from './tui-agent-startup-shell'
+import { WINDOWS_NUSHELL_SHELL, isNushellExecutableName } from './nushell-shell'
 
 export const WINDOWS_GIT_BASH_SHELL = 'git-bash'
+
+// Why: the nushell sentinel lives beside the classification vocabulary in nushell-shell.ts; re-export so Windows shell consumers keep one import site.
+export { WINDOWS_NUSHELL_SHELL } from './nushell-shell'
 
 export type BuiltInWindowsTerminalShell =
   | 'powershell.exe'
   | 'cmd.exe'
   | 'wsl.exe'
   | typeof WINDOWS_GIT_BASH_SHELL
+  | typeof WINDOWS_NUSHELL_SHELL
 
 /**
  * Classifies a configured `terminalWindowsShell` value into the startup-shell
@@ -23,6 +28,10 @@ export function resolveWindowsShellStartupFamily(
   }
   if (trimmed === WINDOWS_GIT_BASH_SHELL) {
     return 'posix'
+  }
+  // Why: nu parses neither POSIX nor PowerShell quoting; queued commands need the nushell dialect.
+  if (trimmed === WINDOWS_NUSHELL_SHELL || isNushellExecutableName(trimmed)) {
+    return 'nushell'
   }
   const basename = trimmed.replaceAll('\\', '/').split('/').pop()?.toLowerCase() ?? ''
   if (basename === 'cmd.exe') {

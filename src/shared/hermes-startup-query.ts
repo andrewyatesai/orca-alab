@@ -94,10 +94,16 @@ function stripOrcaOwnedHermesArgs(args: readonly string[]): string[] {
   return normalized
 }
 
+/** True when the query wrapper runs through `sh -c` (typed into a POSIX or POSIX-host nu terminal). */
+function usesPosixShQueryWrapper(shell: AgentStartupShell, platform: NodeJS.Platform): boolean {
+  // Why: a win32 nu terminal has no `sh`; the PowerShell -EncodedCommand wrapper is bare-token nu-parseable.
+  return shell === 'posix' || (shell === 'nushell' && platform !== 'win32')
+}
+
 function normalizeHermesArgv(
   baseArgv: string[],
   configuredArgv: string[],
-  shell: AgentStartupShell
+  useShWrapper: boolean
 ): string[] | null {
   const executableCandidates: number[] = []
   for (let index = 0; index < baseArgv.length; index += 1) {
@@ -122,7 +128,8 @@ function normalizeHermesArgv(
     assignmentCount += 1
   }
   if (assignmentCount > 0) {
-    if (shell !== 'posix') {
+    // Why: the env-assignment prefix only parses inside the `sh -c` wrapper grammar.
+    if (!useShWrapper) {
       return null
     }
     commandPrefix = ['env', ...commandPrefix]
@@ -146,8 +153,8 @@ function normalizeHermesArgv(
   ]
 }
 
-function buildQueryCommand(argv: string[], shell: AgentStartupShell): string {
-  if (shell !== 'posix') {
+function buildQueryCommand(argv: string[], useShWrapper: boolean): string {
+  if (!useShWrapper) {
     const invocation = buildShellCommandFromArgv(argv, 'powershell').replace(
       quoteStartupArg(QUERY_ARG_PLACEHOLDER, 'powershell'),
       `"--query=$${POWERSHELL_NATIVE_QUERY_VARIABLE}"`
@@ -183,11 +190,12 @@ export function planHermesStartupQuery(args: {
   if (!baseArgv || !configuredArgv) {
     return null
   }
-  const argv = normalizeHermesArgv(baseArgv, configuredArgv, args.shell)
+  const useShWrapper = usesPosixShQueryWrapper(args.shell, args.platform)
+  const argv = normalizeHermesArgv(baseArgv, configuredArgv, useShWrapper)
   if (!argv) {
     return null
   }
-  const command = buildQueryCommand(argv, args.shell)
+  const command = buildQueryCommand(argv, useShWrapper)
   const env = { ...args.agentEnv, [ORCA_HERMES_STARTUP_QUERY_ENV]: args.prompt }
   const envSize = Object.entries(env).reduce((total, [key, value]) => {
     if (args.platform === 'win32') {

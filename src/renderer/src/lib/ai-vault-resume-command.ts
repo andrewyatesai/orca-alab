@@ -13,6 +13,7 @@ import {
 } from '../../../shared/tui-agent-launch-defaults'
 import { parseWslUncPath } from '../../../shared/wsl-paths'
 import { resolveWindowsShellStartupFamily } from '../../../shared/windows-terminal-shell'
+import { resolveLocalPosixAgentStartupShell } from '../../../shared/posix-terminal-shell'
 import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'
 import type { AppState } from '@/store/types'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
@@ -88,7 +89,14 @@ function buildAiVaultResumeForWorktree(args: AiVaultResumeWorktreeArgs): AiVault
       ? isLocalSession
         ? resolveWindowsShellStartupFamily(args.state.settings?.terminalWindowsShell)
         : 'powershell'
-      : undefined
+      : isLocalSession
+        ? resolveLocalPosixAgentStartupShell({
+            platform,
+            clientPlatform: CLIENT_PLATFORM,
+            isRemote: false,
+            terminalPosixShell: args.state.settings?.terminalPosixShell
+          })
+        : undefined
   if (isResumableTuiAgent(args.session.agent)) {
     const startupPlan = buildAgentResumeStartupPlan({
       agent: args.session.agent,

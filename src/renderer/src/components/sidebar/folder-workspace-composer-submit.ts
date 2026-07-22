@@ -17,7 +17,7 @@ import { TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
 import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
 import type { FolderWorkspace, ProjectGroup, TuiAgent } from '../../../../shared/types'
 import { isWslUncPath } from '../../../../shared/wsl-paths'
-import { resolveLocalWindowsAgentStartupShell } from '../../../../shared/windows-terminal-shell'
+import { resolveLocalAgentStartupShell } from '../../../../shared/local-agent-startup-shell'
 import type { AgentStartupShell } from '../../../../shared/tui-agent-startup-shell'
 import type { LaunchSource } from '../../../../shared/telemetry-events'
 import type { SessionOptionValue } from '../../../../shared/native-chat-session-options'
@@ -49,6 +49,7 @@ type SubmitFolderWorkspaceCreateParams = {
   agentEnv?: Record<string, string>
   sessionOptions?: Record<string, SessionOptionValue>
   terminalWindowsShell?: string | null
+  terminalPosixShell?: string | null
   isRemote?: boolean
   launchSource?: LaunchSource
   runtimeEnvironmentId?: string | null
@@ -167,6 +168,7 @@ export async function submitFolderWorkspaceCreate({
   agentEnv,
   sessionOptions,
   terminalWindowsShell,
+  terminalPosixShell,
   launchSource = 'sidebar',
   runtimeEnvironmentId = null,
   createFolderWorkspace,
@@ -182,10 +184,12 @@ export async function submitFolderWorkspaceCreate({
   // Why: an SSH folder group runs the plain `orca` relay shim, so the Linux-only
   // `orca-ide` rename must not be applied for remote launches.
   const launchIsRemote = Boolean(projectGroup.connectionId)
-  const launchShell = resolveLocalWindowsAgentStartupShell({
+  const launchShell = resolveLocalAgentStartupShell({
     platform: launchPlatform,
+    clientPlatform: CLIENT_PLATFORM,
     isRemote: launchIsRemote,
-    terminalWindowsShell
+    terminalWindowsShell,
+    terminalPosixShell
   })
   const startupPlan =
     quickAgent && linkedWorkItem

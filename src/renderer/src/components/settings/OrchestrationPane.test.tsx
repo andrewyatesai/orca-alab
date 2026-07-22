@@ -115,6 +115,9 @@ describe('OrchestrationPane', () => {
         gitBash: {
           isAvailable: vi.fn().mockResolvedValue(false)
         },
+        nushell: {
+          isAvailable: vi.fn().mockResolvedValue(false)
+        },
         runtime: {
           getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' })
         }

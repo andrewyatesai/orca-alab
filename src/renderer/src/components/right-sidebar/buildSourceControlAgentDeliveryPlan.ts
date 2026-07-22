@@ -46,6 +46,7 @@ export function buildSourceControlAgentDeliveryPlan({
     disabledAgents: useAppStore.getState().settings?.disabledTuiAgents,
     cmdOverrides: useAppStore.getState().settings?.agentCmdOverrides,
     terminalWindowsShell: useAppStore.getState().settings?.terminalWindowsShell,
+    terminalPosixShell: useAppStore.getState().settings?.terminalPosixShell,
     platform: launchPlatform,
     isRemote
   })

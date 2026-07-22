@@ -1,4 +1,7 @@
-import { WINDOWS_GIT_BASH_SHELL } from '../../../../shared/windows-terminal-shell'
+import {
+  WINDOWS_GIT_BASH_SHELL,
+  WINDOWS_NUSHELL_SHELL
+} from '../../../../shared/windows-terminal-shell'
 import type { EventProps } from '../../../../shared/telemetry-events'
 import type { GlobalSettings } from '../../../../shared/types'
 
@@ -26,6 +29,9 @@ export function bucketWindowsTerminalShell(
   }
   if (normalized === WINDOWS_GIT_BASH_SHELL || normalizedName === 'bash.exe') {
     return 'git_bash'
+  }
+  if (normalized === WINDOWS_NUSHELL_SHELL || normalizedName === 'nu.exe' || normalized === 'nu') {
+    return 'nushell'
   }
   if (normalized === 'wsl.exe' || normalized.startsWith('wsl')) {
     return 'wsl'

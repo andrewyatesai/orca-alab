@@ -66,8 +66,63 @@ nu -l -e 'source "<userData>/shell-ready/nu/integration.nu"'
   `^'<shell>' -l -c "^sh -c 'command -v node'"` — caret + quoted head, split
   flags, probe body delegated to `sh` so nu's login PATH conversions apply.
 
-## Out of scope (later PRs / Wave 2)
+## Windows (nushell PR3)
 
-- Windows surface (`nu.exe` picker, winget/scoop/choco/cargo resolution) and
-  WSL in-distro gate — nushell PR3.
-- `AgentStartupShell 'nushell'` dialect + bracketed-paste gate — nushell PR4.
+- The `nushell` settings/menu sentinel mirrors `git-bash`: the shell picker,
+  onboarding step, and `+` tab menu offer Nushell only when
+  `nushellAvailable` reports an installed `nu.exe` (a selected-but-missing
+  shell stays visible but disabled; spawn falls back to `powershell.exe`).
+- `nu.exe` resolution order (`src/main/windows-nushell.ts`): winget machine
+  (`%ProgramFiles%\nu\bin`), winget user (`%LOCALAPPDATA%\Programs\nu\bin`),
+  scoop shims, chocolatey, `%USERPROFILE%\.cargo\bin`, PATH segments — and
+  **last** the `WindowsApps` Store execution alias (CreateProcessW-stub risk,
+  same reason as the pwsh fallback chain).
+- Integration-capable nu launches `-l -e 'source "…integration.nu"'` with the
+  same per-path version-gated probe as POSIX; the backslashed Windows path is
+  nu double-quote escaped. Startup commands stay on stdin delivery.
+- SSH Windows hosts report `nushellAvailable` through the relay preflight; an
+  older deployed relay omits the field and the client coerces it to `false`.
+
+## WSL (nushell PR3)
+
+- A WSL user whose login shell is nu gets the integration sourced via split
+  `-l -e` **only when the in-distro version gate passes** — the gate runs
+  `nu --version` inside the distro (host isolation: the local capability
+  cache never answers for WSL), strips the leading numeric token, and
+  compares against 0.96.0 with `sort -V`. Any probe failure degrades to
+  plain `nu -l`.
+- `ORCA_SHELL_READY_MARKER` is registered in WSLENV when set so the
+  integration's OSC 777 marker gate can see it across wsl.exe.
+- The WSL *command* path (`buildWslLoginShellCommand`) deliberately keeps
+  unknown shells (including nu) on `/bin/sh -lc` — its payloads are POSIX
+  text.
+
+## Agent-startup dialect (nushell PR4)
+
+- `AgentStartupShell` gains a `'nushell'` member. Dialect rules: arguments are
+  nu double-quoted (`\` and `"` escaped; `$` is NOT interpolated in plain
+  `"…"`), argv commands carry the `^` external caret on the quoted head, env
+  clearing is `hide-env -i`, chaining is `; ` (nu has no `&&`), and startup
+  templates route through the POSIX tokenizer (nu-specific escapes are a named
+  follow-up — a win32 nu Hermes override containing backslash paths is the
+  known gap).
+- The dialect is implemented twice by design: the TS helpers in
+  `src/shared/tui-agent-startup-shell.ts` and the Rust port in
+  `rust/crates/orca-agents/src/tui_agent_startup_shell.rs` (napi addon + the
+  regenerated `orca_git_wasm` renderer/relay blobs). An older blob simply
+  fails to parse the `'nushell'` label and keeps today's platform default.
+- Resolution: `resolveWindowsShellStartupFamily` maps the `nushell` sentinel
+  and `nu.exe` paths to the family; `resolveLocalPosixAgentStartupShell`
+  (posix-terminal-shell.ts) returns `'nushell'` only when the LOCAL default
+  POSIX shell setting is nu — SSH remotes stay `'posix'` (remote shell kind
+  unknown) and WSL-runtime launches make no claim (the distro login shell is
+  not described by `terminalPosixShell`).
+- Bracketed paste: multiline startup prompts paste literally into nu only at
+  the integration floor (`isBracketedPasteSafeShell`); below-floor or
+  never-probed nu keeps the raw submit path. The daemon path derives the same
+  answer from its nu-aware startup barrier gate.
+- Hermes startup query: POSIX-host nu terminals use the `sh -c` wrapper (the
+  single-quoted script is quote-free by construction, so nu parses it);
+  win32 nu keeps the PowerShell `-EncodedCommand` wrapper (all bare tokens).
+- Setup runners and AI-vault resume commands emit nu-safe text (`cmd.exe /c
+  "C:\\…"` escaping on Windows; `cd "…"; $env.CODEX_HOME = "…"; …` chains).

@@ -12,6 +12,11 @@ import {
 } from '../../shared/wsl-login-shell-command'
 import { resolveSetupRunnerCommand } from '../../shared/setup-runner-command'
 import { resolveWindowsShellLaunchArgs } from './windows-shell-args'
+import {
+  __resetNushellCapabilityProbeCache,
+  __seedNushellIntegrationSupport
+} from '../pty/nushell-capability-probe'
+import { buildNuSourceCommand } from '../../shared/nushell-shell'
 
 function expectedWslArgs(linuxCwd: string, distro?: string): string[] {
   const command = `cd '${linuxCwd}' && export PATH="$HOME/.local/bin:$PATH" && ${buildWslInteractiveLoginShellCommand()}`
@@ -368,6 +373,52 @@ describe('resolveWindowsShellLaunchArgs', () => {
       '-EncodedCommand',
       encodePowerShellCommand(getPowerShellOsc133Bootstrap())
     ])
+  })
+
+  describe('nushell (#8928 §3.3)', () => {
+    const nuPath = 'C:\\Users\\alice\\.cargo\\bin\\nu.exe'
+
+    afterEach(() => {
+      __resetNushellCapabilityProbeCache()
+    })
+
+    it('launches integration-capable nu.exe with split -l -e and native cwd', () => {
+      __seedNushellIntegrationSupport(nuPath, true)
+      const result = resolveWindowsShellLaunchArgs(
+        nuPath,
+        'C:\\Users\\alice\\repo',
+        'C:\\Users\\alice',
+        undefined,
+        'claude "-p" "hi"'
+      )
+      // Why: nu rejects combined short flags, so -l -e must stay split.
+      expect(result.shellArgs).toEqual([
+        '-l',
+        '-e',
+        buildNuSourceCommand(`${userDataPath}/shell-ready/nu/integration.nu`)
+      ])
+      expect(existsSync(join(userDataPath, 'shell-ready', 'nu', 'integration.nu'))).toBe(true)
+      // Startup commands stay on stdin delivery — never embedded in -e (§5).
+      expect(result.startupCommandDeliveredInShellArgs).toBeUndefined()
+      expect(result.effectiveCwd).toBe('C:\\Users\\alice\\repo')
+      expect(result.validationCwd).toBe('C:\\Users\\alice\\repo')
+    })
+
+    it('spawns plain -l when the integration floor is not met', () => {
+      __seedNushellIntegrationSupport(nuPath, false)
+      const result = resolveWindowsShellLaunchArgs(nuPath, 'C:\\Users\\alice', 'C:\\Users\\alice')
+      expect(result.shellArgs).toEqual(['-l'])
+      expect(result.startupCommandDeliveredInShellArgs).toBeUndefined()
+    })
+
+    it('spawns plain -l on a cold capability cache (conservative-first)', () => {
+      const result = resolveWindowsShellLaunchArgs(
+        'C:\\missing\\nu.exe',
+        'C:\\Users\\alice',
+        'C:\\Users\\alice'
+      )
+      expect(result.shellArgs).toEqual(['-l'])
+    })
   })
 })
 

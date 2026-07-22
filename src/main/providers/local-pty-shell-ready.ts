@@ -73,6 +73,11 @@ function shellReadyWrappersExist(root = getShellReadyWrapperRoot()): boolean {
   return getRequiredShellReadyWrapperPaths(root).every((path) => existsSync(path))
 }
 
+// Why: the Windows launch-args builder sources this path into `nu -e`; keep the wrapper layout owned here.
+export function getNushellIntegrationFilePath(): string {
+  return `${getShellReadyWrapperRoot()}/nu/integration.nu`
+}
+
 // Why: an inherited ZDOTDIR pointing at an Orca wrapper dir (`.../shell-ready/zsh`) makes the wrapper source itself recursively (zsh recursion limit); treat it as unset so the caller falls back to HOME.
 function normalizeOriginalZdotdirCandidate(value: string | undefined): string | null {
   if (!value) {
@@ -437,6 +442,20 @@ export function getShellReadyLaunchConfig(shellPath: string): ShellReadyLaunchCo
 
 export function getAttributionShellLaunchConfig(shellPath: string): ShellReadyLaunchConfig {
   return getWrappedShellLaunchConfig(shellPath, { emitReadyMarker: false })
+}
+
+// Why: only shells with bracketed paste armed may take multiline startup prompts as one literal paste;
+// nu qualifies only when the integration floor is met (reedline arms it by default >= 0.96, non-Windows).
+export function isBracketedPasteSafeShell(shellPath: string): boolean {
+  if (process.platform === 'win32') {
+    return false
+  }
+  const shellName = basename(shellPath).toLowerCase()
+  return (
+    shellName === 'bash' ||
+    shellName === 'zsh' ||
+    (isNushellExecutableName(shellName) && getCachedNushellIntegrationSupport(shellPath) === true)
+  )
 }
 
 // ── Startup command writer ──────────────────────────────────────────

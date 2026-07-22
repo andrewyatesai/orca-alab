@@ -185,4 +185,121 @@ describe('wsl login shell command helpers', () => {
     expect(command).toContain('exec "$_orca_wsl_shell" -l')
     expectValidShSyntax(command)
   })
+
+  it('keeps unknown shells on the /bin/sh command path', () => {
+    // Why: nu cannot parse POSIX command payloads; the `*)` fallback dialect must stay /bin/sh (#8928 §7).
+    const command = buildWslLoginShellCommand("printf 'hello'")
+    expect(command).toContain('*) exec /bin/sh -lc')
+    expect(command).not.toContain('nu)')
+  })
+
+  describe('nushell interactive login (#8928 §7)', () => {
+    const buildNuFixture = (versionLine: string): { root: string; env: NodeJS.ProcessEnv } => {
+      const root = mkdtempSync(join(tmpdir(), 'orca-wsl-nu-'))
+      const tools = join(root, 'tools')
+      const userData = join(root, 'user-data')
+      mkdirSync(tools)
+      mkdirSync(join(userData, 'shell-ready', 'nu'), { recursive: true })
+      writeFileSync(join(userData, 'shell-ready', 'nu', 'integration.nu'), '# stub integration\n')
+      const nuShell = join(tools, 'nu')
+      // Why: the fake nu prints its argv so the test can assert the exec'd launch shape without a real nu install.
+      writeFileSync(
+        join(tools, 'getent'),
+        `#!/bin/sh\nprintf '%s\\n' "user:x:1000:1000::/home/user:${nuShell}"\n`
+      )
+      writeFileSync(
+        nuShell,
+        `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '%s\\n' "${versionLine}"; exit 0; fi\nprintf 'NU_ARGS:%s\\n' "$*"\n`
+      )
+      chmodSync(join(tools, 'getent'), 0o755)
+      chmodSync(nuShell, 0o755)
+      return {
+        root,
+        env: {
+          ...process.env,
+          PATH: `${tools}:/usr/bin:/bin`,
+          ORCA_USER_DATA_PATH: userData
+        }
+      }
+    }
+
+    const runInteractive = (env: NodeJS.ProcessEnv): string =>
+      execFileSync('/bin/sh', ['-c', buildWslInteractiveLoginShellCommand()], {
+        encoding: 'utf8',
+        env
+      })
+
+    it.skipIf(process.platform === 'win32')(
+      'sources the integration with split -l -e when the in-distro version gate passes',
+      () => {
+        const { root, env } = buildNuFixture('0.104.0')
+        try {
+          const output = runInteractive(env)
+          expect(output).toContain(
+            `NU_ARGS:-l -e source "${env.ORCA_USER_DATA_PATH}/shell-ready/nu/integration.nu"`
+          )
+        } finally {
+          rmSync(root, { recursive: true, force: true })
+        }
+      }
+    )
+
+    it.skipIf(process.platform === 'win32')(
+      'strips trailing version-line noise before the compare',
+      () => {
+        // Why: a future "0.104.0 (abc)"-style line must not silently fail the gate (Critic note 3).
+        const { root, env } = buildNuFixture('0.104.0 (rev abc123)')
+        try {
+          expect(runInteractive(env)).toContain('NU_ARGS:-l -e source "')
+        } finally {
+          rmSync(root, { recursive: true, force: true })
+        }
+      }
+    )
+
+    it.skipIf(process.platform === 'win32')('falls back to plain nu -l below the floor', () => {
+      const { root, env } = buildNuFixture('0.95.0')
+      try {
+        expect(runInteractive(env)).toContain('NU_ARGS:-l\n')
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+
+    it.skipIf(process.platform === 'win32')(
+      'falls back to plain nu -l when the version probe emits garbage',
+      () => {
+        const { root, env } = buildNuFixture('nu, version unknown')
+        try {
+          expect(runInteractive(env)).toContain('NU_ARGS:-l\n')
+        } finally {
+          rmSync(root, { recursive: true, force: true })
+        }
+      }
+    )
+
+    it.skipIf(process.platform === 'win32')(
+      'falls back to plain nu -l when the integration file is missing',
+      () => {
+        const { root, env } = buildNuFixture('0.104.0')
+        try {
+          rmSync(join(env.ORCA_USER_DATA_PATH as string, 'shell-ready'), {
+            recursive: true,
+            force: true
+          })
+          expect(runInteractive(env)).toContain('NU_ARGS:-l\n')
+        } finally {
+          rmSync(root, { recursive: true, force: true })
+        }
+      }
+    )
+
+    it('keeps the nu case inside valid sh syntax after Windows dollar escaping', () => {
+      const command = buildWslInteractiveLoginShellCommand()
+      expect(command).toContain('nu)')
+      expect(command).toContain('sort -V')
+      expectValidShSyntax(command)
+      expectValidShSyntax(escapeWslShCommandForWindows(command).replaceAll('\\$', '$'))
+    })
+  })
 })

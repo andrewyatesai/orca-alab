@@ -52,7 +52,8 @@ import { getConnectionIdFromState } from '@/lib/connection-context'
 import { useOptionalShortcutLabel, useShortcutLabel } from '@/hooks/useShortcutLabel'
 import {
   type BuiltInWindowsTerminalShell,
-  WINDOWS_GIT_BASH_SHELL
+  WINDOWS_GIT_BASH_SHELL,
+  WINDOWS_NUSHELL_SHELL
 } from '../../../../shared/windows-terminal-shell'
 import {
   DropdownMenu,
@@ -548,6 +549,12 @@ function TabBarInner({
           shell: WINDOWS_GIT_BASH_SHELL
         })
       }
+      if (windowsTerminalCapabilities.nushellAvailable) {
+        allShells.push({
+          label: translate('auto.components.tab.bar.TabBar.nushell', 'Nushell'),
+          shell: WINDOWS_NUSHELL_SHELL
+        })
+      }
     }
     if (includeWslShell && windowsTerminalCapabilities.wslAvailable) {
       allShells.push({
@@ -571,6 +578,7 @@ function TabBarInner({
     projectRuntimeShellMenuMode,
     showWindowsShellMenu,
     windowsTerminalCapabilities.gitBashAvailable,
+    windowsTerminalCapabilities.nushellAvailable,
     windowsTerminalCapabilities.wslAvailable
   ])
   const createMenuOptions = useMemo(

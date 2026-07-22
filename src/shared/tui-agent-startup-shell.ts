@@ -1,12 +1,12 @@
 import { tokenizeCustomCommandTemplate } from './commit-message-prompt'
 
-export type AgentStartupShell = 'posix' | 'powershell' | 'cmd'
+export type AgentStartupShell = 'posix' | 'powershell' | 'cmd' | 'nushell'
 
 export type StartupCommandTokens = { ok: true; tokens: string[] } | { ok: false; error: string }
 
 function tokenizeWindowsStartupCommand(
   value: string,
-  shell: Exclude<AgentStartupShell, 'posix'>
+  shell: 'powershell' | 'cmd'
 ): StartupCommandTokens {
   const tokens: string[] = []
   let token = ''
@@ -62,7 +62,8 @@ export function tokenizeStartupCommand(
   value: string,
   shell: AgentStartupShell
 ): StartupCommandTokens {
-  return shell === 'posix'
+  // Why: nushell templates route through the POSIX tokenizer — single/double-quote splitting is compatible; nu-specific escapes are a named follow-up (#8928 §5).
+  return shell === 'posix' || shell === 'nushell'
     ? tokenizeCustomCommandTemplate(value)
     : tokenizeWindowsStartupCommand(value, shell)
 }
@@ -81,6 +82,10 @@ export function quoteStartupArg(value: string, shell: AgentStartupShell): string
   if (shell === 'cmd') {
     return `"${value.replace(/([\^&|<>()%!"])/g, '^$1')}"`
   }
+  if (shell === 'nushell') {
+    // Why: plain nu "…" does not interpolate $; only \ and " need escaping.
+    return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  }
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
@@ -92,6 +97,10 @@ export function buildShellCommandFromArgv(
   if (shell === 'powershell' && command) {
     return `& ${command}`
   }
+  // Why: nu requires the caret to run a quoted head as an external command.
+  if (shell === 'nushell' && command) {
+    return `^${command}`
+  }
   return command
 }
 
@@ -101,6 +110,10 @@ export function clearEnvCommand(name: string, shell: AgentStartupShell): string 
   }
   if (shell === 'cmd') {
     return `set "${name}="`
+  }
+  if (shell === 'nushell') {
+    // Why: -i ignores a not-set name, matching unset's silent no-op.
+    return `hide-env -i ${name}`
   }
   return `unset ${name}`
 }

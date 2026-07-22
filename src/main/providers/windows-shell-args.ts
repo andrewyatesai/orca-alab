@@ -6,11 +6,16 @@ import {
   escapeWslShCommandForWindows,
   quotePosixShell
 } from '../../shared/wsl-login-shell-command'
-import { ensureShellReadyWrappersAt } from './local-pty-shell-ready'
+import { ensureShellReadyWrappersAt, getNushellIntegrationFilePath } from './local-pty-shell-ready'
 import {
   encodePowerShellCommand,
   getPowerShellOsc133Bootstrap
 } from '../powershell-osc133-bootstrap'
+import { buildNuSourceCommand, isNushellExecutableName } from '../../shared/nushell-shell'
+import {
+  getCachedNushellIntegrationSupport,
+  probeNushellIntegrationSupport
+} from '../pty/nushell-capability-probe'
 
 const CMD_EXE_COMMAND_LINE_MAX_CHARS = 8191
 const STARTUP_COMMAND_TEXT_MAX_CHARS = 6000
@@ -184,6 +189,25 @@ export function resolveWindowsShellLaunchArgs(
   if (isWindowsGitBashShellPath(shellPath)) {
     return {
       shellArgs: ['-c', GIT_BASH_UTF8_LOGIN_COMMAND],
+      effectiveCwd: nativeCwd,
+      validationCwd: nativeCwd
+    }
+  }
+
+  if (isNushellExecutableName(shellBasename)) {
+    if (getCachedNushellIntegrationSupport(shellPath) === true) {
+      ensureShellReadyWrappersAt()
+      return {
+        // Why: nu rejects combined short flags; split -l -e sources the integration after env.nu/config.nu/login.nu. Startup commands stay on stdin delivery (§5).
+        shellArgs: ['-l', '-e', buildNuSourceCommand(getNushellIntegrationFilePath())],
+        effectiveCwd: nativeCwd,
+        validationCwd: nativeCwd
+      }
+    }
+    // Why: conservative-first — below-floor nu must never receive -e "source …"; fire the probe so the next spawn upgrades.
+    void probeNushellIntegrationSupport(shellPath)
+    return {
+      shellArgs: ['-l'],
       effectiveCwd: nativeCwd,
       validationCwd: nativeCwd
     }

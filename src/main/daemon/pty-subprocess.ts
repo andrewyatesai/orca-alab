@@ -48,6 +48,8 @@ import {
 } from '../pty/powerlevel10k-wizard-env'
 import { isWindowsGitBashShellPath, resolveWindowsGitBashShellPath } from '../git-bash'
 import { WINDOWS_GIT_BASH_SHELL } from '../../shared/windows-terminal-shell'
+import { resolveWindowsNushellShellPath } from '../windows-nushell'
+import { WINDOWS_NUSHELL_SHELL, isNushellExecutableName } from '../../shared/nushell-shell'
 import { resolveAgentForegroundProcessWithAvailability } from '../providers/agent-foreground-process'
 import { readWindowsConptyProcessIds } from '../providers/windows-conpty-process-membership'
 import {
@@ -583,6 +585,7 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
   if (process.platform === 'win32') {
     const normalizedShellFamily = pathWin32.basename(shellPath).toLowerCase()
     const resolvedGitBashPath = resolveWindowsGitBashShellPath(shellPath)
+    const resolvedNushellPath = resolveWindowsNushellShellPath(shellPath)
     // Why: normalize concrete PowerShell paths to the family so the resolver can fall back to powershell.exe when pwsh.exe is unavailable.
     const resolvedShellFamily: WindowsPowerShellShellFamily =
       normalizedShellFamily === 'powershell.exe' || normalizedShellFamily === 'pwsh.exe'
@@ -600,6 +603,14 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
     if (resolvedGitBashPath) {
       shellPath = resolvedGitBashPath
     } else if (shellPath === WINDOWS_GIT_BASH_SHELL) {
+      shellPath = 'powershell.exe'
+    } else if (resolvedNushellPath) {
+      shellPath = resolvedNushellPath
+    } else if (
+      // Why: a nushell pick with no installed nu.exe falls back like git-bash, not through PowerShell-family normalization.
+      shellPath === WINDOWS_NUSHELL_SHELL ||
+      isNushellExecutableName(normalizedShellFamily)
+    ) {
       shellPath = 'powershell.exe'
     } else {
       shellPath = shouldResolvePowerShellFamily
@@ -681,6 +692,10 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
       if (env.CLAUDE_CONFIG_DIR) {
         // Why: non-default env vars need WSLENV import to cross Windows wsl.exe into the Linux side.
         addWslEnvKeys(env, ['CLAUDE_CONFIG_DIR'])
+      }
+      if (env.ORCA_SHELL_READY_MARKER !== undefined) {
+        // Why: the in-distro nu/bash integration gates its OSC 777 marker on this var, which wsl.exe drops without WSLENV (§7).
+        addWslEnvKeys(env, ['ORCA_SHELL_READY_MARKER'])
       }
       if (env[ORCA_HERMES_STARTUP_QUERY_ENV] !== undefined) {
         // Why: wsl.exe drops custom Windows env vars unless named in WSLENV.

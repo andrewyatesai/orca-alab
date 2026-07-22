@@ -9,6 +9,7 @@ export type WindowsTerminalCapabilities = {
   wslDistros: string[]
   pwshAvailable: boolean
   gitBashAvailable: boolean
+  nushellAvailable: boolean
   hostPlatform: NodeJS.Platform | null
   isLoading: boolean
 }
@@ -18,6 +19,7 @@ const UNAVAILABLE_CAPABILITIES: WindowsTerminalCapabilities = {
   wslDistros: [],
   pwshAvailable: false,
   gitBashAvailable: false,
+  nushellAvailable: false,
   hostPlatform: null,
   isLoading: false
 }

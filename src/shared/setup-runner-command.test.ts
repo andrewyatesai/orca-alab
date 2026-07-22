@@ -37,10 +37,17 @@ describe('buildSetupRunnerCommand', () => {
     )
   })
 
+  it('nu-escapes the .cmd path for Nushell terminals (#8928 PR4)', () => {
+    // Why: nu double-quoted strings treat \ as an escape; unescaped C:\… errors when typed into nu.
+    expect(
+      buildSetupRunnerCommand('C:\\repo\\.git\\orca\\setup-runner.cmd', 'windows', 'nushell')
+    ).toBe('cmd.exe /c "C:\\\\repo\\\\.git\\\\orca\\\\setup-runner.cmd"')
+  })
+
   it('keeps cmd.exe delivery for cmd and PowerShell terminals', () => {
-    expect(buildSetupRunnerCommand('C:\\repo\\.git\\orca\\setup-runner.cmd', 'windows', 'cmd')).toBe(
-      'cmd.exe /c "C:\\repo\\.git\\orca\\setup-runner.cmd"'
-    )
+    expect(
+      buildSetupRunnerCommand('C:\\repo\\.git\\orca\\setup-runner.cmd', 'windows', 'cmd')
+    ).toBe('cmd.exe /c "C:\\repo\\.git\\orca\\setup-runner.cmd"')
     expect(
       buildSetupRunnerCommand('C:\\repo\\.git\\orca\\setup-runner.cmd', 'windows', 'powershell')
     ).toBe('cmd.exe /c "C:\\repo\\.git\\orca\\setup-runner.cmd"')

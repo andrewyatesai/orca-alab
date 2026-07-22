@@ -26,4 +26,12 @@ describe('resolveWindowsShellStartupFamily', () => {
     expect(resolveWindowsShellStartupFamily('wsl.exe')).toBe('posix')
     expect(resolveWindowsShellStartupFamily('C:\\Program Files\\Git\\bin\\bash.exe')).toBe('posix')
   })
+
+  it('maps the nushell sentinel and nu.exe paths to the nushell family (#8928 PR4)', () => {
+    expect(resolveWindowsShellStartupFamily('nushell')).toBe('nushell')
+    expect(resolveWindowsShellStartupFamily('nu.exe')).toBe('nushell')
+    expect(resolveWindowsShellStartupFamily('C:\\Users\\alice\\.cargo\\bin\\nu.exe')).toBe(
+      'nushell'
+    )
+  })
 })

@@ -33,6 +33,7 @@ import {
   getShellReadyLaunchConfig,
   createShellReadyScanState,
   drainShellReadyHeldBytes,
+  isBracketedPasteSafeShell,
   scanForShellReady,
   writeStartupCommandWhenShellReady,
   STARTUP_COMMAND_READY_MAX_WAIT_MS
@@ -53,6 +54,8 @@ import {
   resolveWindowsGitBashShellPath
 } from '../git-bash'
 import { WINDOWS_GIT_BASH_SHELL } from '../../shared/windows-terminal-shell'
+import { resolveWindowsNushellShellPath } from '../windows-nushell'
+import { WINDOWS_NUSHELL_SHELL, isNushellExecutableName } from '../../shared/nushell-shell'
 import { resolveAgentForegroundProcessWithAvailability } from './agent-foreground-process'
 import { resolveStableForegroundProcess } from './stable-foreground-process'
 import { getAgentForegroundContextPaths } from './agent-foreground-context-paths'
@@ -612,6 +615,7 @@ export class LocalPtyProvider implements IPtyProvider {
       const shellFamily = worktreeWslContext ? 'wsl.exe' : requestedShellFamily
       const normalizedShellFamily = pathWin32.basename(shellFamily).toLowerCase()
       const resolvedGitBashPath = resolveWindowsGitBashShellPath(shellFamily)
+      const resolvedNushellPath = resolveWindowsNushellShellPath(shellFamily)
       // Why: normalize setting-value and path forms to the PowerShell family so the resolver can fall back to inbox powershell.exe.
       const powerShellImplementation = this.opts.getWindowsPowerShellImplementation?.()
       const resolvedShellFamily: WindowsPowerShellShellFamily =
@@ -629,6 +633,14 @@ export class LocalPtyProvider implements IPtyProvider {
       if (resolvedGitBashPath) {
         shellPath = resolvedGitBashPath
       } else if (shellFamily === WINDOWS_GIT_BASH_SHELL) {
+        shellPath = 'powershell.exe'
+      } else if (resolvedNushellPath) {
+        shellPath = resolvedNushellPath
+      } else if (
+        // Why: a nushell pick with no installed nu.exe falls back like git-bash, not through PowerShell-family normalization.
+        shellFamily === WINDOWS_NUSHELL_SHELL ||
+        isNushellExecutableName(normalizedShellFamily)
+      ) {
         shellPath = 'powershell.exe'
       } else {
         shellPath = shouldResolvePowerShellFamily
@@ -769,6 +781,10 @@ export class LocalPtyProvider implements IPtyProvider {
         if (finalEnv.CLAUDE_CONFIG_DIR) {
           // Why: managed WSL Claude passes a Linux CLAUDE_CONFIG_DIR through wsl.exe; non-default vars need WSLENV import.
           addWslEnvKeys(finalEnv, ['CLAUDE_CONFIG_DIR'])
+        }
+        if (finalEnv.ORCA_SHELL_READY_MARKER !== undefined) {
+          // Why: the in-distro nu/bash integration gates its OSC 777 marker on this var, which wsl.exe drops without WSLENV (§7).
+          addWslEnvKeys(finalEnv, ['ORCA_SHELL_READY_MARKER'])
         }
         if (finalEnv[ORCA_HERMES_STARTUP_QUERY_ENV] !== undefined) {
           // Why: wsl.exe drops custom Windows env vars; the startup wrapper needs this imported inside WSL.
@@ -1026,10 +1042,8 @@ export class LocalPtyProvider implements IPtyProvider {
     ptyDisposables.set(id, disposables)
 
     if (args.command && !startupCommandDeliveredInShellArgs) {
-      // Why: only POSIX bash/zsh have bracketed-paste armed so multiline startup prompts paste literally; others use raw submit.
-      const spawnedShellName = getSpawnedShellName(shellPath).toLowerCase()
-      const bracketedPasteSafe =
-        process.platform !== 'win32' && (spawnedShellName === 'bash' || spawnedShellName === 'zsh')
+      // Why: only shells with bracketed-paste armed take multiline startup prompts literally; others use raw submit.
+      const bracketedPasteSafe = isBracketedPasteSafeShell(shellPath)
       writeStartupCommandWhenShellReady(
         shellReadyPromise,
         proc,

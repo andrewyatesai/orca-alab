@@ -758,6 +758,9 @@ function createWebPreloadApi(): Partial<PreloadApi> {
     gitBash: {
       isAvailable: () => callRuntimeResult<boolean>('host.gitBash.isAvailable').catch(() => false)
     },
+    nushell: {
+      isAvailable: () => callRuntimeResult<boolean>('host.nushell.isAvailable').catch(() => false)
+    },
     posixShells: {
       // Why: no catch — callers treat a rejection as "availability unknown", which degrades better than an empty catalog.
       detect: () => callRuntimeResult<PosixTerminalShellDetection>('host.posixShells.detect')
@@ -2633,6 +2636,7 @@ function createPreflightApi(): NonNullable<Partial<PreloadApi>['preflight']> {
     wslDistros: string[]
     pwshAvailable: boolean
     gitBashAvailable: boolean
+    nushellAvailable: boolean
     hostPlatform: NodeJS.Platform | null
   }
   const fallbackWindowsTerminalCapabilities = {
@@ -2640,6 +2644,7 @@ function createPreflightApi(): NonNullable<Partial<PreloadApi>['preflight']> {
     wslDistros: [],
     pwshAvailable: false,
     gitBashAvailable: false,
+    nushellAvailable: false,
     hostPlatform: null
   }
   return {

@@ -127,7 +127,12 @@ function buildSetupCommand(setup: WorktreeSetupLaunch, worktreeId: string): stri
     isWindowsAbsolutePathLike(setup.runnerScriptPath) ? 'windows' : 'posix',
     // Why: the setup command is typed into the pane's interactive shell, so a
     // Git Bash terminal needs POSIX delivery instead of a cmd.exe wrapper (#6896).
-    getWorktreeSetupTerminalShellFamily(state, worktreeId, state.settings?.terminalWindowsShell)
+    getWorktreeSetupTerminalShellFamily(
+      state,
+      worktreeId,
+      state.settings?.terminalWindowsShell,
+      state.settings?.terminalPosixShell
+    )
   )
 }
 

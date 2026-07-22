@@ -24,6 +24,8 @@ export async function readWindowsTerminalCapabilities(
       .then((capabilities) => ({
         ...capabilities,
         wslDistros: capabilities.wslDistros ?? [],
+        // Why: older remote hosts omit nushellAvailable; coerce so gating stays a real boolean.
+        nushellAvailable: capabilities.nushellAvailable ?? false,
         isLoading: false
       }))
       .catch(() => ({
@@ -31,56 +33,75 @@ export async function readWindowsTerminalCapabilities(
         wslDistros: [],
         pwshAvailable: false,
         gitBashAvailable: false,
+        nushellAvailable: false,
         hostPlatform: null,
         isLoading: false
       }))
   }
 
   if (target.kind === 'local') {
-    const [wslAvailable, wslDistros, pwshAvailable, gitBashAvailable, hostPlatform] =
-      await Promise.all([
-        window.api.wsl.isAvailable().catch(() => false),
-        window.api.wsl.listDistros().catch(() => []),
-        window.api.pwsh.isAvailable().catch(() => false),
-        window.api.gitBash.isAvailable().catch(() => false),
-        window.api.runtime
-          .getStatus()
-          .then((status) => status.hostPlatform ?? null)
-          .catch(() => null)
-      ])
+    const [
+      wslAvailable,
+      wslDistros,
+      pwshAvailable,
+      gitBashAvailable,
+      nushellAvailable,
+      hostPlatform
+    ] = await Promise.all([
+      window.api.wsl.isAvailable().catch(() => false),
+      window.api.wsl.listDistros().catch(() => []),
+      window.api.pwsh.isAvailable().catch(() => false),
+      window.api.gitBash.isAvailable().catch(() => false),
+      window.api.nushell.isAvailable().catch(() => false),
+      window.api.runtime
+        .getStatus()
+        .then((status) => status.hostPlatform ?? null)
+        .catch(() => null)
+    ])
     return {
       wslAvailable,
       wslDistros,
       pwshAvailable,
       gitBashAvailable,
+      nushellAvailable,
       hostPlatform,
       isLoading: false
     }
   }
 
-  const [wslAvailable, wslDistros, pwshAvailable, gitBashAvailable, hostPlatform] =
-    await Promise.all([
-      callRuntimeRpc<boolean>(target, 'host.wsl.isAvailable', undefined, {
-        timeoutMs: 15_000
-      }).catch(() => false),
-      callRuntimeRpc<string[]>(target, 'host.wsl.listDistros', undefined, {
-        timeoutMs: 15_000
-      }).catch(() => []),
-      callRuntimeRpc<boolean>(target, 'host.pwsh.isAvailable', undefined, {
-        timeoutMs: 15_000
-      }).catch(() => false),
-      callRuntimeRpc<boolean>(target, 'host.gitBash.isAvailable', undefined, {
-        timeoutMs: 15_000
-      }).catch(() => false),
-      callRuntimeRpc<RuntimeStatus>(target, 'status.get', undefined, { timeoutMs: 15_000 })
-        .then((status) => status.hostPlatform ?? null)
-        .catch(() => null)
-    ])
+  const [
+    wslAvailable,
+    wslDistros,
+    pwshAvailable,
+    gitBashAvailable,
+    nushellAvailable,
+    hostPlatform
+  ] = await Promise.all([
+    callRuntimeRpc<boolean>(target, 'host.wsl.isAvailable', undefined, {
+      timeoutMs: 15_000
+    }).catch(() => false),
+    callRuntimeRpc<string[]>(target, 'host.wsl.listDistros', undefined, {
+      timeoutMs: 15_000
+    }).catch(() => []),
+    callRuntimeRpc<boolean>(target, 'host.pwsh.isAvailable', undefined, {
+      timeoutMs: 15_000
+    }).catch(() => false),
+    callRuntimeRpc<boolean>(target, 'host.gitBash.isAvailable', undefined, {
+      timeoutMs: 15_000
+    }).catch(() => false),
+    callRuntimeRpc<boolean>(target, 'host.nushell.isAvailable', undefined, {
+      timeoutMs: 15_000
+    }).catch(() => false),
+    callRuntimeRpc<RuntimeStatus>(target, 'status.get', undefined, { timeoutMs: 15_000 })
+      .then((status) => status.hostPlatform ?? null)
+      .catch(() => null)
+  ])
   return {
     wslAvailable,
     wslDistros,
     pwshAvailable,
     gitBashAvailable,
+    nushellAvailable,
     hostPlatform,
     isLoading: false
   }

@@ -37,7 +37,7 @@ import type { RuntimeTerminalCreate } from '../../../shared/runtime-types'
 import { createSshBackgroundStartupDelivery } from '@/lib/ssh-background-startup-delivery'
 import { shouldUseShellReadyStartupDelivery } from '../../../shared/codex-startup-delivery'
 import { isMainTerminalSideEffectAuthorityForPty } from '@/components/terminal-pane/terminal-side-effect-facts-handler'
-import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
+import { resolveLocalAgentStartupShell } from '../../../shared/local-agent-startup-shell'
 import { runBestEffortAgentBackgroundCleanups } from '@/lib/agent-background-session-cleanup'
 import { createBackgroundAgentStatusConsumer } from '@/lib/background-agent-status-consumer'
 
@@ -74,10 +74,12 @@ export async function launchAgentBackgroundSession(
   // Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only
   // `orca-ide` rename must not be applied for remote launches.
   const isRemote = repo ? repoIsRemote(repo) : false
-  const startupShell = resolveLocalWindowsAgentStartupShell({
+  const startupShell = resolveLocalAgentStartupShell({
     platform: launchPlatform,
+    clientPlatform: CLIENT_PLATFORM,
     isRemote,
-    terminalWindowsShell: store.settings?.terminalWindowsShell
+    terminalWindowsShell: store.settings?.terminalWindowsShell,
+    terminalPosixShell: store.settings?.terminalPosixShell
   })
   const trimmedPrompt = prompt?.trim() ?? ''
   const hasPrompt = trimmedPrompt.length > 0

@@ -54,6 +54,9 @@ export function attachAtermWorkerRainFacade(
   term.set_effects_visibility = (state: string): void => {
     const normalized = state === 'hidden' || state === 'visible_unfocused' ? state : 'focused'
     post({ type: 'setEffectsVisibility', state: normalized })
+    // Worker QoS (R4): cursor-blink prefers this tri-state over set_effects_focused,
+    // so the scheduler's focus priority must derive here or it never learns focus.
+    post({ type: 'setFocused', focused: normalized === 'focused' })
   }
   term.note_keystroke = (): void => {
     // Typing cadence feeds both rain echo correlation and cursor-comet momentum.

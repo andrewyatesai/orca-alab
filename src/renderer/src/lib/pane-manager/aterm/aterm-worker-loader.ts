@@ -339,9 +339,9 @@ export async function loadAtermWorkerEngine(
   }
   backed.term.set_effects_focused = (focused: boolean): void => {
     post({ type: 'setEffectsFocused', focused })
-    // Worker QoS (R4): the same focus event drives the scheduler's priority — the
-    // focused pane's keystroke echo is serviced ahead of a flooding sibling's bulk
-    // process. Piggybacks the effects-focus signal (one focus source of truth).
+    // Worker QoS (R4): fallback focus source only — cursor-blink prefers the rain
+    // facade's tri-state set_effects_visibility (always present on this path), which
+    // posts the scheduler's setFocused itself. Same-value double posts are idempotent.
     post({ type: 'setFocused', focused })
   }
   backed.term.set_chrome = (pad: number, head: number): void =>

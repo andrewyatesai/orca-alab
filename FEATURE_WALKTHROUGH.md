@@ -2,7 +2,7 @@
 
 This guide covers the source checkout of
 [`andrewyatesai/orc`](https://github.com/andrewyatesai/orc), version
-`1.4.144-fork.1`. Install its developer CLI as `orca-dev`; use that name so
+`1.4.147-fork.1`. Install its developer CLI as `orca-dev`; use that name so
 commands target this checkout rather than a separate production Orca installation.
 
 This is **Orca: ALab Edition**, an experimental downstream edition of Stably's
@@ -61,29 +61,38 @@ Started with Orca** opens the setup checklist.
 
 ## Terminal engine pin and artifact provenance
 
-The `rust/aterm` submodule is pinned to the latest upstream `main` revision as
-verified directly against GitHub on July 21, 2026:
+The `rust/aterm` submodule is pinned to the upstream revision below. The
+canonical record of this provenance is the schema-2 artifact manifest at
+`src/renderer/src/lib/pane-manager/aterm/aterm_wasm_artifact_pin.json`; the
+table restates it as re-verified against the checkout on July 21, 2026.
+Upstream `main` keeps moving, so the pin is a fixed, manifest-bound revision
+rather than a live latest-`main` claim:
 
 | Provenance field                               | Exact value                                                        |
 | ---------------------------------------------- | ------------------------------------------------------------------ |
-| Upstream commit                                | `49d8fd8a7476e9e49b24650a0269328da9716174`                         |
-| `git describe --tags --always`                 | `v0.55-32-g49d8fd8a`                                               |
-| Cargo workspace version / embedded WASM marker | `0.55.0` / `aterm(0.55.0)`                                         |
+| Upstream commit                                | `97b9dcbe5f6cf8619f3228d4367a7dca0ac2ff20`                         |
+| `git describe --tags --always`                 | `v0.56-9-g97b9dcbe`                                                |
+| Cargo workspace version / embedded WASM marker | `0.56.0` / `aterm(0.56.0)`                                         |
 | Artifact manifest                              | schema `2`                                                         |
 | Downstream compatibility patch                 | `config/patches/aterm-gpu-wasm-clock.patch`                        |
 | Patch SHA-256                                  | `af2e17dda30efbbf3666eeed1ac852aa8dff67d4456f2796bc814209be1bd757` |
 
-The commit is 32 commits after the `v0.55` tag and is represented by aterm's
-`[Unreleased]` changelog. Its workspace version is still `0.55.0`; calling it a
-tagged `v0.56` release would be inaccurate.
+The commit is 9 commits after the `v0.56` tag (released July 21, 2026), and the
+post-tag fixes are represented by aterm's `[Unreleased]` changelog. Its
+workspace version is `0.56.0`; the pin is the `v0.56` line plus follow-up
+fixes, so calling it the exact tagged `v0.56` release would still be
+inaccurate.
 
 Schema 2 binds the clean upstream commit and exact compatibility-patch digest to
 all eight generated CPU/GPU files: JavaScript glue, TypeScript declarations,
 WASM binaries, and WASM declarations. It records byte length and SHA-256 for
-each. The current CPU binary is 3,752,165 bytes with SHA-256
-`d73613ee7899ee96c5cfe5b7de73b32a7a54525d0cb96876238b3eb8fc0e3336`;
-the GPU binary is 6,215,431 bytes with SHA-256
-`edc79735b4fa8d68502f535d272cfbdc88aa6e85e3cdaa23010e93996e0975dc`.
+each. The current CPU binary is 3,752,181 bytes with SHA-256
+`8364a197eba293b64283e2eedc7ab23d5cf7d5cae3d482fffca1fa1dcdc0e8a1`;
+the GPU binary is 6,216,384 bytes with SHA-256
+`58c1a81df0cf4c80aa0980b4f47b2b409698dfe03ddc4a35933d546f73058fd9`. These
+figures restate `aterm_wasm_artifact_pin.json`; if this document and the
+manifest ever disagree, the manifest is the value `pnpm check:aterm-pin`
+enforces.
 
 The small downstream patch changes two GPU present-time measurements from
 `std::time::Instant` to the WASM-compatible `web_time::Instant`. The build never
@@ -99,9 +108,12 @@ directory.
 The latest pin carries upstream fixes for Codex protected-footer scrollback,
 flooding-TUI presentation freezes, and cursor-trail gaps under load, plus trail
 crossfades, the nyan-rainbow aterm default, fresh-ink typing effects, feathered
-ribbon ends, per-session matrix rain, and ALab package bundling. Standalone aterm
-window chrome and application-only features are not automatically Orca UI
-features; Orca consumes the shared engine, renderer, addon, and daemon surfaces.
+ribbon ends, per-session matrix rain, and ALab package bundling. It also
+includes the tagged `v0.56` additions — full settings introspection and session
+metadata/timelines — and the post-tag fixes for zoom artifacts, typing ghosts,
+and kitty `:3` key-release event markers. Standalone aterm window chrome and
+application-only features are not automatically Orca UI features; Orca consumes
+the shared engine, renderer, addon, and daemon surfaces.
 
 ## Warning cleanup
 
@@ -144,7 +156,7 @@ blanket quiet mode:
   `-fork` version; it compiles telemetry out without presenting a dark-staging
   warning and is rejected in CI/release contexts.
 
-The final latest-pin install, lint, typecheck, native-helper, desktop, web,
+The final full install, lint, typecheck, native-helper, desktop, web,
 relay, CLI, and local production build completed without compiler or bundler
 warnings; exact results are recorded under **Validation status** below.
 
@@ -408,17 +420,25 @@ match the installed version instead of relying on stale global documentation.
 
 ## Validation status
 
-The latest aterm pin and final ALab Edition source build have been exercised
-through independent unit, native, browser, packaging, and live-app paths:
+The ALab Edition source build and its aterm pin have been exercised through
+independent unit, native, browser, packaging, and live-app paths. The
+pin-identity and artifact-provenance checks below were re-run at the current
+pin on July 21, 2026; lane counts were recorded during the fork's validation
+passes and are carried forward, not relabelled as fresh runs:
 
-- Fresh `HEAD == origin/main` verification for Orca and aterm, with aterm at
-  `49d8fd8a7476e9e49b24650a0269328da9716174` and its submodule checkout clean.
+- Pin identity: the aterm submodule checkout is clean and detached at
+  `97b9dcbe5f6cf8619f3228d4367a7dca0ac2ff20`, matching both the tracked
+  submodule pointer and the manifest's `sourceCommit`.
 - Schema-2 aterm provenance check: all **8/8** generated CPU/GPU artifacts,
   byte lengths, hashes, source commit, and compatibility-patch digest match.
-- Latest upstream aterm Rust validation: **655/655** passed, comprising **602**
+- Upstream aterm Rust validation: **655/655** passed, comprising **602**
   aterm-effects tests and **53** Codex protected-footer, top-anchored conformance,
   grid scroll-region, and core history/scrollback regressions. Fifteen explicit
   performance benchmarks remained intentionally ignored.
+- The two pin advances since that pass — `v0.56` and the kitty `:3`
+  release-marker fix — each landed with `pnpm check:aterm-pin` passing and the
+  fork's engine suites green (**2701** passed at the `v0.56` bump, whose one
+  known-red kitty `:3` release-marker case the current pin's fix closed).
 - Scroll-intent integration unit set: **156/156** passed. The non-vacuous
   rendering golden passed **2/2**, including emoji-table alignment and the
   worktree-switch scroll restoration that exposed the resume race.

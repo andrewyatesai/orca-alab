@@ -56,6 +56,36 @@ describe('deriveTaskPagePRCheckSummary', () => {
     })
   })
 
+  it('counts timed_out and cancelled as failed, never as passed', () => {
+    expect(
+      deriveTaskPagePRCheckSummary([
+        check({ conclusion: 'timed_out' }),
+        check({ conclusion: 'cancelled' })
+      ])
+    ).toEqual({
+      state: 'failure',
+      total: 2,
+      passed: 0,
+      failed: 2,
+      pending: 0
+    })
+  })
+
+  it('counts an explicit pending conclusion as pending even when status is completed', () => {
+    expect(
+      deriveTaskPagePRCheckSummary([
+        check({ conclusion: 'success' }),
+        check({ status: 'completed', conclusion: 'pending' })
+      ])
+    ).toEqual({
+      state: 'pending',
+      total: 2,
+      passed: 1,
+      failed: 0,
+      pending: 1
+    })
+  })
+
   it('counts action_required as failed so a blocked PR never reads as passing', () => {
     expect(
       deriveTaskPagePRCheckSummary([

@@ -4285,19 +4285,29 @@ function getCheckCounts(checks: PRCheckDetail[]): {
 } {
   return checks.reduce(
     (counts, check) => {
-      const conclusion = getCheckConclusion(check)
-      if (conclusion === 'success') {
-        counts.passing += 1
-      } else if (conclusion === 'action_required') {
-        counts.needsAction += 1
-      } else if (['failure', 'cancelled', 'timed_out'].includes(conclusion)) {
-        counts.failing += 1
-      } else if (conclusion === 'skipped') {
-        counts.skipped += 1
-      } else if (conclusion === 'neutral') {
-        counts.neutral += 1
-      } else {
-        counts.pending += 1
+      // Why: exhaustive switch, no default — a new conclusion must fail
+      // lint:switch-exhaustiveness instead of silently landing in a bucket.
+      switch (getCheckConclusion(check)) {
+        case 'success':
+          counts.passing += 1
+          break
+        case 'action_required':
+          counts.needsAction += 1
+          break
+        case 'failure':
+        case 'cancelled':
+        case 'timed_out':
+          counts.failing += 1
+          break
+        case 'skipped':
+          counts.skipped += 1
+          break
+        case 'neutral':
+          counts.neutral += 1
+          break
+        case 'pending':
+          counts.pending += 1
+          break
       }
       return counts
     },

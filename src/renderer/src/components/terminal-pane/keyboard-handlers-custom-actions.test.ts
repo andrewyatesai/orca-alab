@@ -76,6 +76,7 @@ function mountShortcuts(
       persistLayoutSnapshot: noop,
       toggleExpandPane: noop,
       setSearchOpen: noop as never,
+      onToggleComposeBox: noop,
       onSearchSelectedText: noop,
       onRequestClosePane: noop,
       onClearPaneScrollback: noop,

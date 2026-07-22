@@ -73,6 +73,7 @@ export type TerminalShortcutAction =
       fallback: string
     }
   | { type: 'switchInputSource' }
+  | { type: 'toggleComposeBox' }
 
 // Why: the repeat-precedence guard for custom entries must mirror the !repeat ladder in
 // resolveTerminalShortcutAction — keep this list in sync with the keybindingMatchesAction calls there.
@@ -88,7 +89,8 @@ const REPEAT_GATED_TERMINAL_ACTION_IDS: readonly KeybindingActionId[] = [
   'terminal.clearPaneTitle',
   'terminal.closePane',
   'terminal.splitRight',
-  'terminal.splitDown'
+  'terminal.splitDown',
+  'terminal.composeBox'
 ]
 
 /** Un-shifted ASCII character for a physical key code (letters, digits, punctuation map), or undefined. */
@@ -184,6 +186,10 @@ export function resolveTerminalShortcutAction(
 
     if (keybindingMatchesAction('terminal.splitDown', event, platform, keybindings)) {
       return { type: 'splitActivePane', direction: 'horizontal' }
+    }
+
+    if (keybindingMatchesAction('terminal.composeBox', event, platform, keybindings)) {
+      return { type: 'toggleComposeBox' }
     }
   }
 

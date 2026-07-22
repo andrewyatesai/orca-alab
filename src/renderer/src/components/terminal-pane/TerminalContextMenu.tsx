@@ -12,6 +12,7 @@ import {
   PanelsTopLeft,
   PanelRightClose,
   Pencil,
+  PencilLine,
   SquareTerminal,
   X
 } from 'lucide-react'
@@ -41,6 +42,9 @@ type TerminalContextMenuProps = {
   menuPaneIsExpanded: boolean
   onCopy: () => void
   onPaste: () => void
+  // Why: hidden (not disabled) when settings.terminalComposeBox === false — classic input mode shows no trace.
+  canComposeBox: boolean
+  onComposeBox: () => void
   onSplitRight: () => void
   onSplitDown: () => void
   keybindings: KeybindingOverrides
@@ -81,6 +85,8 @@ export default function TerminalContextMenu({
   menuPaneIsExpanded,
   onCopy,
   onPaste,
+  canComposeBox,
+  onComposeBox,
   onSplitRight,
   onSplitDown,
   keybindings,
@@ -121,6 +127,7 @@ export default function TerminalContextMenu({
       setTitle: formatPrimaryShortcutLabel('terminal.setTitle', keybindings),
       clearPaneTitle: formatPrimaryShortcutLabel('terminal.clearPaneTitle', keybindings),
       close: formatPrimaryShortcutLabel('terminal.closePane', keybindings),
+      composeBox: formatPrimaryShortcutLabel('terminal.composeBox', keybindings),
       nativeChat: nativeChatToggleShortcutLabel(isMacPlatform())
     }),
     [keybindings]
@@ -183,6 +190,13 @@ export default function TerminalContextMenu({
           {translate('auto.components.terminal.pane.TerminalContextMenu.0a917b591a', 'Paste')}
           <DropdownMenuShortcut>{shortcuts.paste}</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {canComposeBox ? (
+          <DropdownMenuItem onSelect={onComposeBox}>
+            <PencilLine />
+            {translate('components.terminal-pane.compose-box.contextMenuItem', 'Compose…')}
+            <DropdownMenuShortcut>{shortcuts.composeBox}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        ) : null}
         <TerminalQuickCommandsSubmenu
           repoQuickCommands={repoQuickCommands}
           globalQuickCommands={globalQuickCommands}

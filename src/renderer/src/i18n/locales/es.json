@@ -13958,6 +13958,22 @@
           "githubPullRequestNumber": "PR #{{value0}}"
         }
       }
+    },
+    "terminal-pane": {
+      "compose-box": {
+        "settingTitle": "Compose Box",
+        "settingDescription": "Draft multi-line input in an editor over the terminal, then send it in one go.",
+        "rejectedTooLarge": "Draft is too large to send",
+        "rejectedGeneric": "Send failed — draft kept",
+        "inputLabel": "Compose command",
+        "sequentialRunWarning": "App didn't enable bracketed paste — {count} lines will run one by one",
+        "targetHint": "Drafting for this pane",
+        "newlineHint": "newline",
+        "stageHint": "stage",
+        "sendHint": "send",
+        "sendButton": "Send",
+        "contextMenuItem": "Compose…"
+      }
     }
   },
   "browser": {

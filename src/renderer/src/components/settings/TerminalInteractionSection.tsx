@@ -270,6 +270,29 @@ export function TerminalInteractionSection({
         ) : null}
 
         <SearchableSetting
+          title={translate('components.terminal-pane.compose-box.settingTitle', 'Compose Box')}
+          description={translate(
+            'components.terminal-pane.compose-box.settingDescription',
+            'Draft multi-line input in an editor over the terminal, then send it in one go.'
+          )}
+          keywords={['terminal', 'compose', 'multiline', 'draft', 'editor', 'rich input']}
+        >
+          <SettingsSwitchRow
+            label={translate('components.terminal-pane.compose-box.settingTitle', 'Compose Box')}
+            description={translate(
+              'components.terminal-pane.compose-box.settingDescription',
+              'Draft multi-line input in an editor over the terminal, then send it in one go.'
+            )}
+            checked={settings.terminalComposeBox !== false}
+            onChange={() =>
+              updateSettings({
+                terminalComposeBox: settings.terminalComposeBox === false
+              })
+            }
+          />
+        </SearchableSetting>
+
+        <SearchableSetting
           title={translate(
             'auto.components.settings.TerminalPane.8eefeaa3da',
             'Focus Follows Mouse'

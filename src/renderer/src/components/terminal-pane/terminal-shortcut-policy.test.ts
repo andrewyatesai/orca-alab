@@ -19,6 +19,19 @@ function event(overrides: Partial<TerminalShortcutEvent>): TerminalShortcutEvent
 }
 
 describe('resolveTerminalShortcutAction', () => {
+  it('resolves Mod+Shift+Period to toggleComposeBox once per press', () => {
+    const chord = event({ key: '>', code: 'Period', metaKey: true, shiftKey: true })
+    expect(resolveTerminalShortcutAction(chord, true)).toEqual({ type: 'toggleComposeBox' })
+    // Repeats never re-toggle (matches the other once-per-press pane commands).
+    expect(resolveTerminalShortcutAction({ ...chord, repeat: true }, true)).toBeNull()
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: '>', code: 'Period', ctrlKey: true, shiftKey: true }),
+        false
+      )
+    ).toEqual({ type: 'toggleComposeBox' })
+  })
+
   it('preserves macOS readline ctrl chords for the shell', () => {
     const passthroughCases = [
       event({ key: 'r', code: 'KeyR', ctrlKey: true }),

@@ -71,6 +71,7 @@ type UseTerminalPaneContextMenuDeps = {
   onClearPaneTitle: (paneId: number) => void
   onPasteError: (message: string) => void
   onAgentSessionForkReady: (fork: PreparedAgentSessionFork) => void
+  onOpenComposeBox: () => void
   forceBracketedMultilineTextPaste: boolean
   rightClickToPaste: boolean
 }
@@ -99,6 +100,7 @@ type TerminalMenuState = {
   onToggleExpand: () => void
   onSetTitle: () => void
   onClearPaneTitle: () => void
+  onComposeBox: () => void
   runForPane: <Result>(paneId: number, action: () => Result) => Result
 }
 
@@ -118,6 +120,7 @@ export function useTerminalPaneContextMenu({
   onClearPaneTitle,
   onPasteError,
   onAgentSessionForkReady,
+  onOpenComposeBox,
   forceBracketedMultilineTextPaste,
   rightClickToPaste
 }: UseTerminalPaneContextMenuDeps): TerminalMenuState {
@@ -368,6 +371,17 @@ export function useTerminalPaneContextMenu({
     // tour action aligned with the current focused pane and fallback cwd.
   }, [tabId, splitWithInheritedCwd])
 
+  const onComposeBox = (): void => {
+    const pane = resolveMenuPane()
+    const manager = managerRef.current
+    if (!pane || !manager) {
+      return
+    }
+    // Why: the compose box anchors to the ACTIVE pane's container, so the menu's pane must become active first.
+    manager.setActivePane(pane.id, { focus: false })
+    onOpenComposeBox()
+  }
+
   const onEqualizePaneSizes = (): void => {
     const pane = resolveMenuPane()
     const manager = managerRef.current
@@ -569,6 +583,7 @@ export function useTerminalPaneContextMenu({
     onToggleExpand,
     onSetTitle: handleSetTitle,
     onClearPaneTitle: handleClearPaneTitle,
+    onComposeBox,
     runForPane
   }
 }

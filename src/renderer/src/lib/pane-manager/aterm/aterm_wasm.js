@@ -938,27 +938,35 @@ export class AtermTerminal {
      * CANCEL a superseded query mid-search (drop the cursor; the next call
      * with a different pattern supersedes the in-flight state).
      *
-     * Pass `resume_cursor: None` (or a stale/foreign value) to start; pass
+     * Pass `resume_cursor: None` (or a stale value) to start; pass
      * each step's `cursor` back to continue. A cursor is only valid for the
-     * same pattern/options and unchanged content — any mismatch restarts from
-     * scratch (fresh cursor, progress reset), never stale results. On the
-     * final step (`complete == true`) the matches equal a one-shot
-     * [`AtermTerminal::search`], and — unlike that legacy API, which drops the
-     * flag — `incomplete_index` reports when eviction or the match cap
-     * truncated the results. Empty query or invalid regex: an immediate
-     * empty `complete` result (matches the legacy API's silence on
-     * half-typed regexes).
+     * same engine instance, pattern/options, and unchanged content — any
+     * mismatch restarts from scratch (fresh cursor, progress reset), never
+     * stale results. CPU/GPU wasm modules are separate cursor domains; keep a
+     * token with the engine that issued it. On the
+     * Each response contains a stable match DELTA (at most 4,096 records).
+     * When `reset` is true (or `search_id` changes), clear prior deltas before
+     * appending this step; this makes even a one-turn stale-content restart
+     * unambiguous after the resume cursor disappears. When `complete == true`,
+     * the deltas for that `search_id` equal a one-shot [`AtermTerminal::search`].
+     * Unlike that legacy API,
+     * `incomplete_index` reports eviction or match-cap truncation and
+     * `lowest_retained_line` identifies the searchable suffix. Empty query or
+     * invalid regex: an immediate empty `complete` result (matching the legacy
+     * API's silence on half-typed regexes). `row_budget == 0` is clamped to one
+     * row so a scanning turn always progresses; a turn may instead drain a
+     * bounded delta backlog without scanning another row.
      * @param {string} query
      * @param {boolean} case_sensitive
      * @param {boolean} is_regex
-     * @param {number | null | undefined} resume_cursor
+     * @param {bigint | null | undefined} resume_cursor
      * @param {number} row_budget
      * @returns {BudgetedSearchResult}
      */
     search_budgeted(query, case_sensitive, is_regex, resume_cursor, row_budget) {
         const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.atermterminal_search_budgeted(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex, isLikeNone(resume_cursor) ? 0x100000001 : (resume_cursor) >>> 0, row_budget);
+        const ret = wasm.atermterminal_search_budgeted(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex, !isLikeNone(resume_cursor), isLikeNone(resume_cursor) ? BigInt(0) : resume_cursor, row_budget);
         return BudgetedSearchResult.__wrap(ret);
     }
     /**
@@ -2001,7 +2009,9 @@ export class BudgetedSearchResult {
         wasm.__wbg_budgetedsearchresult_free(ptr, 0);
     }
     /**
-     * Whether the search has covered every retained row.
+     * Whether every retained row has been scanned and every match delta has
+     * been delivered. Dense searches can have `rows_fed == total_rows` while
+     * this remains false for bounded backlog-drain turns.
      * @returns {boolean}
      */
     get complete() {
@@ -2010,11 +2020,11 @@ export class BudgetedSearchResult {
     }
     /**
      * Token to resume with; `undefined` once complete.
-     * @returns {number | undefined}
+     * @returns {bigint | undefined}
      */
     get cursor() {
         const ret = wasm.budgetedsearchresult_cursor(this.__wbg_ptr);
-        return ret === 0x100000001 ? undefined : ret;
+        return ret[0] === 0 ? undefined : BigInt.asUintN(64, ret[1]);
     }
     /**
      * True when the results may be truncated: index eviction dropped old
@@ -2027,10 +2037,20 @@ export class BudgetedSearchResult {
         return ret !== 0;
     }
     /**
-     * Matches accumulated so far as flat `[abs_line, start_col, len]` triplets
-     * (same coordinate contract as [`AtermTerminal::search`]). Partial until
-     * [`complete`](Self::complete); already-reported matches keep their order
-     * and positions across slices of one search.
+     * Final oldest absolute line retained by the completed search index. The
+     * deterministic eviction schedule makes this stable from the first turn.
+     * When nonzero with `incomplete_index`, older history was evicted; a zero
+     * watermark with `incomplete_index` indicates match-cap-only truncation.
+     * @returns {number}
+     */
+    get lowest_retained_line() {
+        const ret = wasm.budgetedsearchresult_lowest_retained_line(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Stable match DELTA as flat `[abs_line, start_col, len]` triplets (same
+     * coordinate contract as [`AtermTerminal::search`]). Append across calls;
+     * already-reported matches keep their order and positions.
      * @returns {Uint32Array}
      */
     get matches() {
@@ -2040,12 +2060,30 @@ export class BudgetedSearchResult {
         return v1;
     }
     /**
+     * Whether this step starts a new logical result stream. Clear previously
+     * accumulated match deltas before appending this step when true.
+     * @returns {boolean}
+     */
+    get reset() {
+        const ret = wasm.budgetedsearchresult_reset(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * Rows scanned so far (progress numerator; restarts reset it).
      * @returns {number}
      */
     get rows_fed() {
         const ret = wasm.budgetedsearchresult_rows_fed(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * Stable identity for the logical search, including its completing step;
+     * `undefined` only for an empty/invalid query result.
+     * @returns {bigint | undefined}
+     */
+    get search_id() {
+        const ret = wasm.budgetedsearchresult_search_id(this.__wbg_ptr);
+        return ret[0] === 0 ? undefined : BigInt.asUintN(64, ret[1]);
     }
     /**
      * Total rows this search will scan (progress denominator).

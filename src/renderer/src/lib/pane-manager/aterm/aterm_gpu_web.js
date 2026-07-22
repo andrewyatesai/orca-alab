@@ -975,18 +975,20 @@ export class AtermGpuTerminal {
      * at most `row_budget` rows per call; the returned cursor resumes; a
      * stale/foreign cursor, a new pattern, or changed content restarts from
      * scratch. Empty query or invalid regex: an immediate empty `complete`
-     * result (and an empty query drops any in-flight state).
+     * result (and an empty query drops any in-flight state). A zero row budget
+     * is clamped to one; backlog-drain turns may deliver deltas without
+     * advancing `rows_fed`.
      * @param {string} query
      * @param {boolean} case_sensitive
      * @param {boolean} is_regex
-     * @param {number | null | undefined} resume_cursor
+     * @param {bigint | null | undefined} resume_cursor
      * @param {number} row_budget
      * @returns {BudgetedSearchResult}
      */
     search_budgeted(query, case_sensitive, is_regex, resume_cursor, row_budget) {
         const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.atermgputerminal_search_budgeted(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex, isLikeNone(resume_cursor) ? 0x100000001 : (resume_cursor) >>> 0, row_budget);
+        const ret = wasm.atermgputerminal_search_budgeted(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex, !isLikeNone(resume_cursor), isLikeNone(resume_cursor) ? BigInt(0) : resume_cursor, row_budget);
         return BudgetedSearchResult.__wrap(ret);
     }
     /**
@@ -2007,7 +2009,8 @@ export class BudgetedSearchResult {
         wasm.__wbg_budgetedsearchresult_free(ptr, 0);
     }
     /**
-     * Whether the search has covered every retained row.
+     * Whether every retained row has been scanned and every match delta has
+     * been delivered. Dense searches may finish scanning before this flips.
      * @returns {boolean}
      */
     get complete() {
@@ -2016,11 +2019,11 @@ export class BudgetedSearchResult {
     }
     /**
      * Token to resume with; `undefined` once complete.
-     * @returns {number | undefined}
+     * @returns {bigint | undefined}
      */
     get cursor() {
         const ret = wasm.budgetedsearchresult_cursor(this.__wbg_ptr);
-        return ret === 0x100000001 ? undefined : ret;
+        return ret[0] === 0 ? undefined : BigInt.asUintN(64, ret[1]);
     }
     /**
      * True when the results may be truncated (eviction or the match cap).
@@ -2031,8 +2034,18 @@ export class BudgetedSearchResult {
         return ret !== 0;
     }
     /**
-     * Matches accumulated so far as flat `[abs_line, start_col, len]` triplets
-     * (same coordinate contract as [`AtermGpuTerminal::search`]).
+     * Final oldest absolute line retained by the completed search index,
+     * stable from the first turn. A nonzero watermark distinguishes history
+     * eviction from match-cap-only truncation.
+     * @returns {number}
+     */
+    get lowest_retained_line() {
+        const ret = wasm.budgetedsearchresult_lowest_retained_line(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Stable match DELTA as flat `[abs_line, start_col, len]` triplets (same
+     * coordinate contract as [`AtermGpuTerminal::search`]); append across calls.
      * @returns {Uint32Array}
      */
     get matches() {
@@ -2042,12 +2055,30 @@ export class BudgetedSearchResult {
         return v1;
     }
     /**
+     * Whether this step starts a new logical result stream. Clear previously
+     * accumulated match deltas before appending this step when true.
+     * @returns {boolean}
+     */
+    get reset() {
+        const ret = wasm.budgetedsearchresult_reset(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * Rows scanned so far (progress numerator; restarts reset it).
      * @returns {number}
      */
     get rows_fed() {
         const ret = wasm.budgetedsearchresult_rows_fed(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * Stable identity for the logical search, including its completing step;
+     * `undefined` only for an empty/invalid query result.
+     * @returns {bigint | undefined}
+     */
+    get search_id() {
+        const ret = wasm.budgetedsearchresult_search_id(this.__wbg_ptr);
+        return ret[0] === 0 ? undefined : BigInt.asUintN(64, ret[1]);
     }
     /**
      * Total rows this search will scan (progress denominator).

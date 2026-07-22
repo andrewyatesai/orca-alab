@@ -391,18 +391,26 @@ export class AtermTerminal {
      * CANCEL a superseded query mid-search (drop the cursor; the next call
      * with a different pattern supersedes the in-flight state).
      *
-     * Pass `resume_cursor: None` (or a stale/foreign value) to start; pass
+     * Pass `resume_cursor: None` (or a stale value) to start; pass
      * each step's `cursor` back to continue. A cursor is only valid for the
-     * same pattern/options and unchanged content — any mismatch restarts from
-     * scratch (fresh cursor, progress reset), never stale results. On the
-     * final step (`complete == true`) the matches equal a one-shot
-     * [`AtermTerminal::search`], and — unlike that legacy API, which drops the
-     * flag — `incomplete_index` reports when eviction or the match cap
-     * truncated the results. Empty query or invalid regex: an immediate
-     * empty `complete` result (matches the legacy API's silence on
-     * half-typed regexes).
+     * same engine instance, pattern/options, and unchanged content — any
+     * mismatch restarts from scratch (fresh cursor, progress reset), never
+     * stale results. CPU/GPU wasm modules are separate cursor domains; keep a
+     * token with the engine that issued it. On the
+     * Each response contains a stable match DELTA (at most 4,096 records).
+     * When `reset` is true (or `search_id` changes), clear prior deltas before
+     * appending this step; this makes even a one-turn stale-content restart
+     * unambiguous after the resume cursor disappears. When `complete == true`,
+     * the deltas for that `search_id` equal a one-shot [`AtermTerminal::search`].
+     * Unlike that legacy API,
+     * `incomplete_index` reports eviction or match-cap truncation and
+     * `lowest_retained_line` identifies the searchable suffix. Empty query or
+     * invalid regex: an immediate empty `complete` result (matching the legacy
+     * API's silence on half-typed regexes). `row_budget == 0` is clamped to one
+     * row so a scanning turn always progresses; a turn may instead drain a
+     * bounded delta backlog without scanning another row.
      */
-    search_budgeted(query: string, case_sensitive: boolean, is_regex: boolean, resume_cursor: number | null | undefined, row_budget: number): BudgetedSearchResult;
+    search_budgeted(query: string, case_sensitive: boolean, is_regex: boolean, resume_cursor: bigint | null | undefined, row_budget: number): BudgetedSearchResult;
     /**
      * Drop any in-flight [`AtermTerminal::search_budgeted`] state (frees the
      * partial index; outstanding cursors go stale and restart if resumed).
@@ -1119,13 +1127,15 @@ export class BudgetedSearchResult {
     free(): void;
     [Symbol.dispose](): void;
     /**
-     * Whether the search has covered every retained row.
+     * Whether every retained row has been scanned and every match delta has
+     * been delivered. Dense searches can have `rows_fed == total_rows` while
+     * this remains false for bounded backlog-drain turns.
      */
     readonly complete: boolean;
     /**
      * Token to resume with; `undefined` once complete.
      */
-    readonly cursor: number | undefined;
+    readonly cursor: bigint | undefined;
     /**
      * True when the results may be truncated: index eviction dropped old
      * rows, or the engine's match cap was reached. (The legacy
@@ -1133,16 +1143,32 @@ export class BudgetedSearchResult {
      */
     readonly incomplete_index: boolean;
     /**
-     * Matches accumulated so far as flat `[abs_line, start_col, len]` triplets
-     * (same coordinate contract as [`AtermTerminal::search`]). Partial until
-     * [`complete`](Self::complete); already-reported matches keep their order
-     * and positions across slices of one search.
+     * Final oldest absolute line retained by the completed search index. The
+     * deterministic eviction schedule makes this stable from the first turn.
+     * When nonzero with `incomplete_index`, older history was evicted; a zero
+     * watermark with `incomplete_index` indicates match-cap-only truncation.
+     */
+    readonly lowest_retained_line: number;
+    /**
+     * Stable match DELTA as flat `[abs_line, start_col, len]` triplets (same
+     * coordinate contract as [`AtermTerminal::search`]). Append across calls;
+     * already-reported matches keep their order and positions.
      */
     readonly matches: Uint32Array;
+    /**
+     * Whether this step starts a new logical result stream. Clear previously
+     * accumulated match deltas before appending this step when true.
+     */
+    readonly reset: boolean;
     /**
      * Rows scanned so far (progress numerator; restarts reset it).
      */
     readonly rows_fed: number;
+    /**
+     * Stable identity for the logical search, including its completing step;
+     * `undefined` only for an empty/invalid query result.
+     */
+    readonly search_id: bigint | undefined;
     /**
      * Total rows this search will scan (progress denominator).
      */
@@ -1332,7 +1358,7 @@ export interface InitOutput {
     readonly atermterminal_scroll_to_bottom: (a: number) => void;
     readonly atermterminal_scroll_to_top: (a: number) => void;
     readonly atermterminal_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly atermterminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly atermterminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => number;
     readonly atermterminal_search_budgeted_cancel: (a: number) => void;
     readonly atermterminal_search_display_origin: (a: number) => number;
     readonly atermterminal_search_meta: (a: number, b: number, c: number, d: number, e: number) => number;
@@ -1413,10 +1439,13 @@ export interface InitOutput {
     readonly atermterminal_title: (a: number) => [number, number];
     readonly atermterminal_width: (a: number) => number;
     readonly budgetedsearchresult_complete: (a: number) => number;
-    readonly budgetedsearchresult_cursor: (a: number) => number;
+    readonly budgetedsearchresult_cursor: (a: number) => [number, bigint];
     readonly budgetedsearchresult_incomplete_index: (a: number) => number;
+    readonly budgetedsearchresult_lowest_retained_line: (a: number) => number;
     readonly budgetedsearchresult_matches: (a: number) => [number, number];
+    readonly budgetedsearchresult_reset: (a: number) => number;
     readonly budgetedsearchresult_rows_fed: (a: number) => number;
+    readonly budgetedsearchresult_search_id: (a: number) => [number, bigint];
     readonly budgetedsearchresult_total_rows: (a: number) => number;
     readonly encode_key_with_mode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly linkhit_end_col: (a: number) => number;

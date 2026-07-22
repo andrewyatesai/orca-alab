@@ -30,11 +30,12 @@ strategy before it can stage.
 
 ## Versioning
 
-The app versions as `X.Y.Z-fork.N` (see `docs/reference/fork-versioning.md`),
-which does not follow the constellation's `major.minor.dev` scheme. The
-attestation records the version as committed in `publish/config.sh`; release
-binaries (dmg/zip) are distributed via GitHub Releases on the dev repo, not via
-this snapshot.
+The public constellation version of this snapshot is `0.1.0` (committed as
+VERSION_DEFAULT in `publish/config.sh`), following the constellation's
+`major.minor.dev` scheme so `promote` accepts it. The app itself versions
+independently as `X.Y.Z-fork.N` (see `docs/reference/fork-versioning.md`);
+release binaries (dmg/zip) are distributed via GitHub Releases on the dev
+repo, not via this snapshot.
 
 ## Verification policy
 

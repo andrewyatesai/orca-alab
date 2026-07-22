@@ -40,6 +40,7 @@ import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
 import {
   collectLeafIdsInOrder,
   EMPTY_LAYOUT,
+  serializePaneFontSizeDeltas,
   serializeTerminalLayout
 } from './layout-serialization'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
@@ -1029,6 +1030,15 @@ export default function TerminalPane({
     if (Object.keys(titlesByLeafId).length > 0) {
       layout.titlesByLeafId = titlesByLeafId
     }
+    // Why: per-pane Cmd+/- zoom lives in a paneId-keyed ref; persist leafId-keyed deltas so zoom survives restart/remount (#8516).
+    const fontSizeDeltasByLeafId = serializePaneFontSizeDeltas(
+      paneFontSizesRef.current,
+      leafIdByPaneId,
+      settingsRef.current?.terminalFontSize ?? 14
+    )
+    if (fontSizeDeltasByLeafId) {
+      layout.fontSizeDeltasByLeafId = fontSizeDeltasByLeafId
+    }
     setTabLayout(tabId, layout)
     // Why: pane geometry is host-authoritative for remote tabs, so push ratios/expand/titles or they revert on the next snapshot.
     const hasRemotePane = Object.values(mergedPtyIds).some(
@@ -1789,7 +1799,14 @@ export default function TerminalPane({
     }
   }, [consumePendingCodexPaneRestart, handleRestartCodexPane, pendingCodexPaneRestartIds])
 
-  useTerminalFontZoom({ isActive, containerRef, managerRef, paneFontSizesRef, settingsRef })
+  useTerminalFontZoom({
+    isActive,
+    containerRef,
+    managerRef,
+    paneFontSizesRef,
+    settingsRef,
+    persistLayoutSnapshot
+  })
 
   useTerminalKeyboardShortcuts({
     tabId,
@@ -2433,6 +2450,8 @@ export default function TerminalPane({
         expandedPaneId: expandedPaneIdRef.current,
         paneTransports: paneTransportsRef.current,
         paneTitlesByPaneId: paneTitlesRef.current,
+        paneFontSizesByPaneId: paneFontSizesRef.current,
+        globalFontSize: settingsRef.current?.terminalFontSize ?? 14,
         existingLayout: existing,
         // Why: beforeunload skips local/floating bytes (session payloads prune them); worktree sleep keeps them as defense-in-depth.
         captureBuffers: shouldCaptureScrollbackBuffers,

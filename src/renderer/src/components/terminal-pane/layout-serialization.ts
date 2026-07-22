@@ -167,6 +167,66 @@ export function serializeTerminalLayout(
   }
 }
 
+// Clamp bounds for per-pane Cmd+/- zoom; restore reuses them so a stale delta can't exceed live zoom limits.
+export const TERMINAL_PANE_MIN_FONT_SIZE = 8
+export const TERMINAL_PANE_MAX_FONT_SIZE = 32
+
+/**
+ * Map live per-pane font sizes (keyed by ephemeral paneId) to deltas from the
+ * global size keyed by stable leaf UUID. Zero deltas are omitted so unzoomed
+ * panes cost nothing in session JSON; returns undefined when nothing differs.
+ */
+export function serializePaneFontSizeDeltas(
+  paneFontSizesByPaneId: ReadonlyMap<number, number>,
+  leafIdByPaneId: ReadonlyMap<number, string>,
+  globalFontSize: number
+): Record<string, number> | undefined {
+  const deltasByLeafId: Record<string, number> = {}
+  for (const [paneId, fontSize] of paneFontSizesByPaneId) {
+    const leafId = leafIdByPaneId.get(paneId)
+    const delta = fontSize - globalFontSize
+    if (leafId && isTerminalLeafId(leafId) && Number.isFinite(delta) && delta !== 0) {
+      deltasByLeafId[leafId] = delta
+    }
+  }
+  return Object.keys(deltasByLeafId).length > 0 ? deltasByLeafId : undefined
+}
+
+/**
+ * Reapply persisted zoom deltas to restored panes. Returns paneId → fontSize
+ * for reseeding the live zoom map so later Cmd+/- steps continue from it.
+ */
+export function restorePaneFontSizes(
+  manager: PaneManager,
+  fontSizeDeltasByLeafId: Record<string, number> | undefined,
+  restoredPaneByLeafId: ReadonlyMap<string, number>,
+  globalFontSize: number
+): Map<number, number> {
+  const fontSizesByPaneId = new Map<number, number>()
+  if (!fontSizeDeltasByLeafId) {
+    return fontSizesByPaneId
+  }
+  const panesById = new Map(manager.getPanes().map((pane) => [pane.id, pane]))
+  for (const [leafId, delta] of Object.entries(fontSizeDeltasByLeafId)) {
+    const paneId = restoredPaneByLeafId.get(leafId)
+    const pane = paneId === undefined ? undefined : panesById.get(paneId)
+    if (!pane || typeof delta !== 'number' || !Number.isFinite(delta)) {
+      continue
+    }
+    // Why: clamp against the current global size — the user may have changed it since the delta was saved.
+    const fontSize = Math.min(
+      TERMINAL_PANE_MAX_FONT_SIZE,
+      Math.max(TERMINAL_PANE_MIN_FONT_SIZE, Math.round(globalFontSize + delta))
+    )
+    if (fontSize === globalFontSize) {
+      continue
+    }
+    fontSizesByPaneId.set(pane.id, fontSize)
+    pane.terminal.options.fontSize = fontSize
+  }
+  return fontSizesByPaneId
+}
+
 /**
  * Write saved scrollback buffers into restored panes so the user sees prior
  * output after a restart. Exits alt-screen first if a buffer ended mid-TUI.

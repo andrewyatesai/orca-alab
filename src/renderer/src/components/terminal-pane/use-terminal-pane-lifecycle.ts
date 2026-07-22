@@ -64,6 +64,7 @@ import {
   normalizeTerminalLayoutSnapshot,
   replayTerminalLayout,
   RESET_KITTY_KEYBOARD_PROTOCOL,
+  restorePaneFontSizes,
   restoreScrollbackBuffers
 } from './layout-serialization'
 import { atermAppKeyProtocolNegotiated } from '@/lib/pane-manager/aterm/aterm-key-encoding'
@@ -1712,6 +1713,17 @@ export function useTerminalPaneLifecycle({
       setPaneTitles((prev) => ({ ...prev, ...restoredTitles }))
       // Why: persist runs right after restore, before React state flushes; sync the ref now so persist keeps restored titles.
       paneTitlesRef.current = { ...paneTitlesRef.current, ...restoredTitles }
+    }
+
+    // Reapply persisted Cmd+/- zoom deltas before the first fit; seed the ref so appearance updates and persists keep them (#8516).
+    const restoredFontSizes = restorePaneFontSizes(
+      manager,
+      initialLayoutRef.current.fontSizeDeltasByLeafId,
+      restoredPaneByLeafId,
+      settingsRef.current?.terminalFontSize ?? 14
+    )
+    for (const [paneId, fontSize] of restoredFontSizes) {
+      paneFontSizesRef.current.set(paneId, fontSize)
     }
 
     const restoredActivePaneId =

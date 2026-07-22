@@ -3,6 +3,10 @@ import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import { dispatchZoomLevelChanged } from '@/lib/zoom-events'
 import { safeFit } from '@/lib/pane-manager/pane-tree-ops'
 import { getPaneOwnedActiveHelperTextarea } from './regular-terminal-focus-ownership'
+import {
+  TERMINAL_PANE_MAX_FONT_SIZE,
+  TERMINAL_PANE_MIN_FONT_SIZE
+} from './layout-serialization'
 
 type FontZoomDeps = {
   isActive: boolean
@@ -10,6 +14,8 @@ type FontZoomDeps = {
   managerRef: React.RefObject<PaneManager | null>
   paneFontSizesRef: React.RefObject<Map<number, number>>
   settingsRef: React.RefObject<{ terminalFontSize?: number } | null>
+  /** Persists the pane layout so zoom deltas survive restart (#8516). */
+  persistLayoutSnapshot?: () => void
 }
 
 export function useTerminalFontZoom({
@@ -17,14 +23,13 @@ export function useTerminalFontZoom({
   containerRef,
   managerRef,
   paneFontSizesRef,
-  settingsRef
+  settingsRef,
+  persistLayoutSnapshot
 }: FontZoomDeps): void {
   useEffect(() => {
     if (!isActive) {
       return
     }
-    const MIN_FONT_SIZE = 8
-    const MAX_FONT_SIZE = 32
     const FONT_SIZE_STEP = 1
 
     return window.api.ui.onTerminalZoom((direction) => {
@@ -49,18 +54,20 @@ export function useTerminalFontZoom({
         nextSize = globalSize
         paneFontSizesRef.current.delete(pane.id)
       } else if (direction === 'in') {
-        nextSize = Math.min(MAX_FONT_SIZE, currentSize + FONT_SIZE_STEP)
+        nextSize = Math.min(TERMINAL_PANE_MAX_FONT_SIZE, currentSize + FONT_SIZE_STEP)
         paneFontSizesRef.current.set(pane.id, nextSize)
       } else {
-        nextSize = Math.max(MIN_FONT_SIZE, currentSize - FONT_SIZE_STEP)
+        nextSize = Math.max(TERMINAL_PANE_MIN_FONT_SIZE, currentSize - FONT_SIZE_STEP)
         paneFontSizesRef.current.set(pane.id, nextSize)
       }
 
       pane.terminal.options.fontSize = nextSize
       safeFit(pane)
+      // Why: the zoom map is a ref, so nothing else re-persists the layout; snapshot now or the delta dies with the mount.
+      persistLayoutSnapshot?.()
 
       const percent = Math.round((nextSize / globalSize) * 100)
       dispatchZoomLevelChanged('terminal', percent)
     })
-  }, [containerRef, isActive, managerRef, paneFontSizesRef, settingsRef])
+  }, [containerRef, isActive, managerRef, paneFontSizesRef, persistLayoutSnapshot, settingsRef])
 }

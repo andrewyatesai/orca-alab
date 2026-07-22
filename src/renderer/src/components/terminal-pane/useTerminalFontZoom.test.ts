@@ -49,6 +49,8 @@ describe('useTerminalFontZoom', () => {
 
   function useMountedTerminalFontZoom(activeElement: HTMLElement): {
     terminal: { options: { fontSize?: number } }
+    paneFontSizes: Map<number, number>
+    persistLayoutSnapshot: ReturnType<typeof vi.fn>
     listener: (direction: 'in' | 'out' | 'reset') => void
   } {
     const container = document.createElement('div')
@@ -56,6 +58,8 @@ describe('useTerminalFontZoom', () => {
     container.appendChild(activeElement)
     activeElement.focus()
     const terminal = { options: { fontSize: 14 } }
+    const paneFontSizes = new Map<number, number>()
+    const persistLayoutSnapshot = vi.fn()
     useTerminalFontZoom({
       isActive: true,
       containerRef: { current: container },
@@ -64,12 +68,18 @@ describe('useTerminalFontZoom', () => {
           getActivePane: () => ({ id: 1, terminal })
         }
       } as never,
-      paneFontSizesRef: { current: new Map() },
-      settingsRef: { current: { terminalFontSize: 14 } }
+      paneFontSizesRef: { current: paneFontSizes },
+      settingsRef: { current: { terminalFontSize: 14 } },
+      persistLayoutSnapshot
     })
     const listener = terminalZoomListeners.at(-1)
     expect(listener).toBeTypeOf('function')
-    return { terminal, listener: listener as (direction: 'in' | 'out' | 'reset') => void }
+    return {
+      terminal,
+      paneFontSizes,
+      persistLayoutSnapshot,
+      listener: listener as (direction: 'in' | 'out' | 'reset') => void
+    }
   }
 
   it('ignores zoom events when terminal input no longer owns focus', () => {
@@ -93,6 +103,21 @@ describe('useTerminalFontZoom', () => {
     expect(terminal.options.fontSize).toBe(15)
     expect(mocks.safeFit).toHaveBeenCalledTimes(1)
     expect(mocks.dispatchZoomLevelChanged).toHaveBeenCalledWith('terminal', 107)
+  })
+
+  it('persists the layout after each zoom change so deltas survive restart', () => {
+    const helper = document.createElement('textarea')
+    helper.className = 'xterm-helper-textarea'
+    const { listener, paneFontSizes, persistLayoutSnapshot } = useMountedTerminalFontZoom(helper)
+
+    listener('in')
+    expect(paneFontSizes.get(1)).toBe(15)
+    expect(persistLayoutSnapshot).toHaveBeenCalledTimes(1)
+
+    // Reset must clear the pane's zoom entry and re-persist so the stored delta is dropped.
+    listener('reset')
+    expect(paneFontSizes.has(1)).toBe(false)
+    expect(persistLayoutSnapshot).toHaveBeenCalledTimes(2)
   })
 
   it('only lets the pane owning the focused helper apply terminal font zoom', () => {

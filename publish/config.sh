@@ -1,5 +1,5 @@
 # Repo-specific configuration for the central publication engine.
-STAGING_REMOTE_DEFAULT="git@gh-andrewyatesai:andrewyatesai/orc-staging.git"
+STAGING_REMOTE_DEFAULT="git@gh-andrewyatesai:andrewyatesai/orca-alab-staging.git"
 CHECK_CMD_DEFAULT="test -s README.md && test -s LICENSE && test -s THIRD-PARTY-NOTICES.md && test -s FEATURE_WALKTHROUGH.md && test -s .gitleaks.toml"
 VERSION_DEFAULT="1.4.147-fork.1"
 # Initial public orc landing snapshot. App-source publication is a separate audit.

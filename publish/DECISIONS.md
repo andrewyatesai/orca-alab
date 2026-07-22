@@ -40,3 +40,22 @@ this snapshot.
 
 The public-clone check validates the landing files exist and are non-empty; no
 build is attempted because the snapshot ships no source.
+
+## Source-publication audit (2026-07-22)
+
+Full-source staging was requested and measured against the central guard
+baseline. It is structurally blocked today on four independent walls:
+
+1. **229 files** under shippable paths contain `/Users/<name>` fixture or
+   comment paths — every one a central `forbidden-content` hit with no
+   exception path.
+2. The **pinned aterm WASM binaries** embed an engine doc-string containing a
+   centrally forbidden term (`ultracode`); the pin system forbids altering
+   these bytes, so clearing it requires an aterm-side source change, wasm
+   rebuild, and re-pin.
+3. Secret-shaped test fixtures (PEM headers, `ghp_`/`xox`/`AKIA`/`sk-` tokens)
+   in ~7 files — gitleaks and the baseline both refuse them, by design.
+4. `rust/` and `native/orca-node` cannot pass the cargo-closure guard until
+   the `rust/aterm` submodule has a public home (`alabsystems/aterm`).
+
+Until those campaigns run, the landing snapshot remains the staged boundary.

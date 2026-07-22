@@ -18,7 +18,7 @@ export { tuiAgentToAgentKind } from './git-wasm/agent-kind'
 // public vendor's (onorca.dev) — the vendor's doc describes a different data
 // recipient than the fork's PostHog project. See G0-4 in the staging audit.
 export const PRIVACY_URL =
-  'https://github.com/andrewyatesai/orc/blob/main/docs/reference/privacy-staging.md'
+  'https://github.com/andrewyatesai/orca-alab/blob/main/docs/reference/privacy-staging.md'
 
 // Why: the IPC boundary is untyped at runtime, so validate before the Privacy pane trusts a payload from main.
 function isTelemetryConsentState(x: unknown): x is TelemetryConsentState {

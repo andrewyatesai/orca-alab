@@ -1,7 +1,7 @@
 # Orca: ALab Edition Feature Walkthrough
 
 This guide covers the source checkout of
-[`andrewyatesai/orc`](https://github.com/andrewyatesai/orc), version
+[`andrewyatesai/orca-alab`](https://github.com/andrewyatesai/orca-alab), version
 `1.4.147-fork.1`. Install its developer CLI as `orca-dev`; use that name so
 commands target this checkout rather than a separate production Orca installation.
 

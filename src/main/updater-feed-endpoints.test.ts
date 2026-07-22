@@ -23,9 +23,7 @@ describe('updater-feed-endpoints', () => {
     expect(getReleasesLatestDownloadUrl()).toBe(
       `https://github.com/${UPDATE_FEED_REPO_SLUG}/releases/latest/download`
     )
-    expect(getUpdateChangelogPageUrl()).toBe(
-      `https://github.com/${UPDATE_FEED_REPO_SLUG}/releases`
-    )
+    expect(getUpdateChangelogPageUrl()).toBe(`https://github.com/${UPDATE_FEED_REPO_SLUG}/releases`)
   })
 
   // Why: audit F1 — one accepted public update replaces the fork build. No
@@ -52,7 +50,7 @@ describe('updater-feed-endpoints', () => {
     expect(isUpdateFeedSlugUsable('StablyAI/Orca')).toBe(false)
     expect(isUpdateFeedSlugUsable('')).toBe(false)
     expect(isUpdateFeedSlugUsable('   ')).toBe(false)
-    expect(isUpdateFeedSlugUsable('andrewyatesai/orc')).toBe(true)
+    expect(isUpdateFeedSlugUsable('andrewyatesai/orca-alab')).toBe(true)
   })
 
   it('mines release tags for the fork repo only', () => {

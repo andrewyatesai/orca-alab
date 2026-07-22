@@ -45,4 +45,12 @@ describe('isCheckJobFailureState', () => {
       '[checks] Unknown check job conclusion/status: some_future_conclusion'
     )
   })
+
+  it('styles unknown failure-looking values as failures (still warning once)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Why: a future GitHub conclusion named like startup_failure must not render
+    // without failure styling again (fail-open regression class from 8d21b42e2).
+    expect(isCheckJobFailureState('some_future_failure')).toBe(true)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
 })

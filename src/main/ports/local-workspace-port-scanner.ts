@@ -176,6 +176,30 @@ export function parseNetstatListeningOutput(output: string): RawListeningPort[] 
   return dedupeRawPorts(ports)
 }
 
+export function parseSsListeningOutput(output: string): RawListeningPort[] {
+  const ports: RawListeningPort[] = []
+  for (const line of output.split('\n')) {
+    const fields = getProcessOutputFields(line, 6)
+    // Why: tolerate builds that ignore -H and still print the header row.
+    if (fields[0]?.toUpperCase() !== 'LISTEN') {
+      continue
+    }
+    const parsed = parseAddressWithPort(fields[3] ?? '')
+    if (!parsed) {
+      continue
+    }
+    // Why: the process column only appears when ss runs with -p; use it when present.
+    const processMatch = fields[5]?.match(/users:\(\("([^"]*)",pid=(\d+)/)
+    const pid = processMatch ? Number.parseInt(processMatch[2], 10) : Number.NaN
+    ports.push({
+      ...parsed,
+      ...(Number.isFinite(pid) ? { pid } : {}),
+      ...(processMatch?.[1] ? { processName: processMatch[1] } : {})
+    })
+  }
+  return dedupeRawPorts(ports)
+}
+
 export function parseProcNetTcp(content: string): { host: string; port: number; inode: number }[] {
   const results: { host: string; port: number; inode: number }[] = []
   const lines = content.split('\n')
@@ -196,7 +220,7 @@ export function parseProcNetTcp(content: string): { host: string; port: number; 
 
 async function scanPlatformListeningPorts(): Promise<RawListeningPort[]> {
   if (process.platform === 'linux') {
-    return scanLinuxProcPorts()
+    return scanLinuxListeningPorts()
   }
   if (process.platform === 'darwin') {
     return scanDarwinLsofPorts()
@@ -225,12 +249,48 @@ async function scanWindowsNetstatPorts(): Promise<RawListeningPort[]> {
   return ports.map((port) => ({ ...metadata.get(port.pid ?? -1), ...port }))
 }
 
+async function scanLinuxListeningPorts(): Promise<RawListeningPort[]> {
+  // Why: /proc/net/tcp[6] can be absent or masked (containers, hardened kernels);
+  // fall back to userland tools instead of silently reporting no listeners.
+  let procPorts: RawListeningPort[] | null
+  try {
+    procPorts = await scanLinuxProcPorts()
+  } catch {
+    procPorts = null
+  }
+  if (procPorts && procPorts.length > 0) {
+    return procPorts
+  }
+
+  try {
+    const ssPorts = await scanLinuxSsPorts()
+    if (ssPorts.length > 0) {
+      return ssPorts
+    }
+  } catch {
+    // Why: ss may be missing or lack -H on older iproute2; lsof is the last resort.
+  }
+
+  try {
+    return await scanLinuxLsofPorts()
+  } catch (error) {
+    if (procPorts) {
+      // Why: /proc was readable, so an empty scan is the true answer, not a failure.
+      return procPorts
+    }
+    throw error
+  }
+}
+
 async function scanLinuxProcPorts(): Promise<RawListeningPort[]> {
   const [tcp4, tcp6] = await Promise.all([
     readProcNet('/proc/net/tcp'),
     readProcNet('/proc/net/tcp6')
   ])
-  const sockets = [...tcp4, ...tcp6]
+  if (tcp4 === null && tcp6 === null) {
+    throw new Error('/proc/net/tcp and /proc/net/tcp6 are unavailable')
+  }
+  const sockets = [...(tcp4 ?? []), ...(tcp6 ?? [])]
   const inodeToPid = await mapLinuxInodesToPids(new Set(sockets.map((socket) => socket.inode)))
   const metadata = new Map<number, ProcessMetadata>()
   const rawPorts: RawListeningPort[] = []
@@ -251,13 +311,41 @@ async function scanLinuxProcPorts(): Promise<RawListeningPort[]> {
   return dedupeRawPorts(rawPorts)
 }
 
+async function scanLinuxSsPorts(): Promise<RawListeningPort[]> {
+  const { stdout } = await runCommand('ss', ['-lntH'])
+  return attachLinuxPidMetadata(parseSsListeningOutput(stdout))
+}
+
+async function scanLinuxLsofPorts(): Promise<RawListeningPort[]> {
+  const { stdout } = await runCommand('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pcn'])
+  return attachLinuxPidMetadata(parseLsofListeningOutput(stdout))
+}
+
+async function attachLinuxPidMetadata(ports: RawListeningPort[]): Promise<RawListeningPort[]> {
+  const metadata = new Map<number, ProcessMetadata>()
+  for (const pid of new Set(ports.flatMap((port) => (port.pid != null ? [port.pid] : [])))) {
+    metadata.set(pid, await loadLinuxProcessMetadata(pid))
+  }
+  return ports.map((port) => {
+    const extra = port.pid != null ? metadata.get(port.pid) : undefined
+    // Why: both sides carry explicit-undefined keys, so a bare spread would clobber values.
+    return {
+      ...port,
+      processName: port.processName ?? extra?.processName,
+      commandLine: port.commandLine ?? extra?.commandLine,
+      cwd: port.cwd ?? extra?.cwd
+    }
+  })
+}
+
 async function readProcNet(
   filePath: string
-): Promise<{ host: string; port: number; inode: number }[]> {
+): Promise<{ host: string; port: number; inode: number }[] | null> {
   try {
     return parseProcNetTcp(await readFile(filePath, 'utf-8'))
   } catch {
-    return []
+    // Why: null distinguishes "unreadable" from "readable with zero listeners".
+    return null
   }
 }
 

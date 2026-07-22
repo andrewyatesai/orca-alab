@@ -2630,7 +2630,9 @@
             "925f49f210": "Expand Pane",
             "df766809e0": "Collapse Pane",
             "cff67afad1": "Copy Context",
-            "openLinkDefaultBrowser": "Open in Default Browser"
+            "openLinkDefaultBrowser": "Open in Default Browser",
+            "projectQuickCommandProvenance": "Defined in orca.yaml",
+            "reviewOrcaYamlTrust": "Review orca.yaml trust…"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "Restart daemon",
@@ -6153,7 +6155,10 @@
           "38d61927e6": "No quick commands saved.",
           "44923dd982": "destructive",
           "ec1ed99e70": "Delete",
-          "d1d0976320": "None"
+          "d1d0976320": "None",
+          "projectSourceBadge": "orca.yaml",
+          "projectCommandsTitle": "Project Commands",
+          "projectCommandsCaption": "Defined in orca.yaml and shared with everyone on the repository. Edit them in the repository, not here."
         },
         "RecentTabOrderControl": {
           "3b17c81ede": "Tab strip order",

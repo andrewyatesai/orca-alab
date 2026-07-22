@@ -2630,7 +2630,9 @@
             "925f49f210": "창 확장",
             "df766809e0": "창 축소",
             "cff67afad1": "컨텍스트 복사",
-            "openLinkDefaultBrowser": "기본 브라우저에서 열기"
+            "openLinkDefaultBrowser": "기본 브라우저에서 열기",
+            "projectQuickCommandProvenance": "Defined in orca.yaml",
+            "reviewOrcaYamlTrust": "Review orca.yaml trust…"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "데몬 재시작",
@@ -6101,7 +6103,10 @@
           "38d61927e6": "저장된 빠른 명령이 없습니다.",
           "44923dd982": "파괴적인",
           "ec1ed99e70": "삭제",
-          "d1d0976320": "없음"
+          "d1d0976320": "없음",
+          "projectSourceBadge": "orca.yaml",
+          "projectCommandsTitle": "Project Commands",
+          "projectCommandsCaption": "Defined in orca.yaml and shared with everyone on the repository. Edit them in the repository, not here."
         },
         "RecentTabOrderControl": {
           "3b17c81ede": "탭 스트립 순서",

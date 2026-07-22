@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TerminalContextMenu from './TerminalContextMenu'
 import type { KeybindingOverrides } from '../../../../shared/keybindings'
 
-type ItemProps = { onSelect?: () => void; children?: React.ReactNode }
+type ItemProps = { onSelect?: () => void; disabled?: boolean; children?: React.ReactNode }
 
 const items = vi.hoisted(() => ({ list: [] as ItemProps[] }))
 const shortcuts = vi.hoisted(() => ({ list: [] as string[] }))
@@ -48,7 +48,22 @@ function childrenText(children: React.ReactNode): string {
     .join('')
 }
 
-function renderMenu(overrides: Record<string, unknown> = {}): void {
+// Why: quick-command labels render inside a truncating <span>, so matching them
+// needs the nested text, not just top-level string children.
+function deepChildrenText(node: React.ReactNode): string {
+  if (typeof node === 'string') {
+    return node
+  }
+  if (Array.isArray(node)) {
+    return node.map(deepChildrenText).join('')
+  }
+  if (React.isValidElement(node)) {
+    return deepChildrenText((node.props as { children?: React.ReactNode }).children)
+  }
+  return ''
+}
+
+function renderMenu(overrides: Record<string, unknown> = {}): string {
   const props = {
     open: true,
     onOpenChange: vi.fn(),
@@ -73,6 +88,9 @@ function renderMenu(overrides: Record<string, unknown> = {}): void {
     onCopyAgentSessionContext: vi.fn(),
     repoQuickCommands: [],
     globalQuickCommands: [],
+    projectQuickCommands: [],
+    projectQuickCommandsTrusted: false,
+    onReviewProjectQuickCommands: vi.fn(),
     quickCommandRepoLabel: null,
     onQuickCommand: vi.fn(),
     onAddQuickCommand: vi.fn(),
@@ -84,7 +102,7 @@ function renderMenu(overrides: Record<string, unknown> = {}): void {
     onCopyPaneId: vi.fn(),
     ...overrides
   }
-  renderToStaticMarkup(React.createElement(TerminalContextMenu, props))
+  return renderToStaticMarkup(React.createElement(TerminalContextMenu, props))
 }
 
 describe('TerminalContextMenu', () => {
@@ -131,5 +149,74 @@ describe('TerminalContextMenu', () => {
     expect(shortcuts.list).toContain('Ctrl+Shift+D')
     expect(shortcuts.list).toContain('Alt+Shift+D')
     expect(shortcuts.list.some((shortcut) => shortcut.includes(','))).toBe(false)
+  })
+
+  const projectCommand = {
+    id: 'orcaYaml:repo-1:0',
+    label: 'Dev server',
+    scope: { type: 'repo', repoId: 'repo-1' },
+    action: 'terminal-command',
+    command: 'npm run dev',
+    appendEnter: true
+  }
+
+  it('renders project quick commands under the repo group with provenance and disables them until trusted (#8481)', () => {
+    const markup = renderMenu({
+      quickCommandRepoLabel: 'My Repo',
+      projectQuickCommands: [projectCommand],
+      projectQuickCommandsTrusted: false
+    })
+
+    const projectItem = items.list.find((item) => deepChildrenText(item.children).includes('Dev server'))
+    expect(projectItem).toBeDefined()
+    expect(projectItem?.disabled).toBe(true)
+    // Why: provenance must be visible — a repo-supplied command may not masquerade as a user-saved one.
+    expect(markup).toContain('Defined in orca.yaml')
+
+    const reviewItem = items.list.find(
+      (item) => deepChildrenText(item.children).includes('Review orca.yaml trust…')
+    )
+    expect(reviewItem).toBeDefined()
+    expect(reviewItem?.disabled).not.toBe(true)
+  })
+
+  it('routes the trust-review hint item to onReviewProjectQuickCommands and closes the menu first', () => {
+    const onOpenChange = vi.fn()
+    const onReviewProjectQuickCommands = vi.fn()
+    const onQuickCommand = vi.fn()
+    renderMenu({
+      quickCommandRepoLabel: 'My Repo',
+      projectQuickCommands: [projectCommand],
+      projectQuickCommandsTrusted: false,
+      onOpenChange,
+      onReviewProjectQuickCommands,
+      onQuickCommand
+    })
+
+    const reviewItem = items.list.find(
+      (item) => deepChildrenText(item.children).includes('Review orca.yaml trust…')
+    )
+    reviewItem?.onSelect?.()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(onReviewProjectQuickCommands).toHaveBeenCalledTimes(1)
+    expect(onQuickCommand).not.toHaveBeenCalled()
+  })
+
+  it('enables project quick commands once trusted and dispatches through onQuickCommand', () => {
+    const onQuickCommand = vi.fn()
+    renderMenu({
+      quickCommandRepoLabel: 'My Repo',
+      projectQuickCommands: [projectCommand],
+      projectQuickCommandsTrusted: true,
+      onQuickCommand
+    })
+
+    expect(
+      items.list.find((item) => deepChildrenText(item.children).includes('Review orca.yaml trust…'))
+    ).toBeUndefined()
+    const projectItem = items.list.find((item) => deepChildrenText(item.children).includes('Dev server'))
+    expect(projectItem?.disabled).not.toBe(true)
+    projectItem?.onSelect?.()
+    expect(onQuickCommand).toHaveBeenCalledWith(projectCommand)
   })
 })

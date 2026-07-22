@@ -1,4 +1,5 @@
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
+import { ATERM_GRID_MIRROR_SETTLE_DELAY_MS } from './aterm-worker-dirty-rows'
 
 const MAX_EFFECTS_TIMER_ELAPSED_MS = 250
 
@@ -28,6 +29,9 @@ type SchedulerTerminal = {
   /** Cross an armed idle deadline on the injected clock (timer-fired frames). */
   advanceEffectsBy: (dtMs: number) => void
   buildState: () => AtermWorkerState
+  /** True when the last buildState withheld the grid-row mirror (P7 churn throttle);
+   *  optional so render-only fixtures need not stub it. */
+  gridMirrorStale?: () => boolean
   dimensions: () => { cols: number; rows: number; cellWidth: number; cellHeight: number }
 }
 
@@ -118,11 +122,22 @@ export function createWorkerFrameScheduler(deps: {
   // One timer covers rain cadence and sparse idle one-shots. Real state changes
   // preempt it, while rAF-only effects receive no finite engine deadline.
   let effectsTimer: ReturnType<typeof setTimeout> | null = null
+  // P7 settle sync: armed after a STATE whose grid-row mirror was churn-throttled,
+  // re-armed on every such post, so ONE render-free post fires after the LAST
+  // churn frame — the mirror's guaranteed final sync.
+  let mirrorSettleTimer: ReturnType<typeof setTimeout> | null = null
 
   const clearEffectsTimer = (): void => {
     if (effectsTimer !== null) {
       clearTimeout(effectsTimer)
       effectsTimer = null
+    }
+  }
+
+  const clearMirrorSettleTimer = (): void => {
+    if (mirrorSettleTimer !== null) {
+      clearTimeout(mirrorSettleTimer)
+      mirrorSettleTimer = null
     }
   }
 
@@ -133,6 +148,13 @@ export function createWorkerFrameScheduler(deps: {
     lastCellW = state.cellWidth
     lastCellH = state.cellHeight
     deps.post(state)
+    clearMirrorSettleTimer()
+    if (term.gridMirrorStale?.() === true) {
+      mirrorSettleTimer = setTimeout(() => {
+        mirrorSettleTimer = null
+        scheduleStatePost()
+      }, ATERM_GRID_MIRROR_SETTLE_DELAY_MS)
+    }
   }
 
   const drawNow = (): void => {
@@ -227,13 +249,13 @@ export function createWorkerFrameScheduler(deps: {
     }
   }
 
-  // STATE-only path: hover and the search trailing re-index change main-thread overlay
-  // state but no engine render state, so post the fresh snapshot WITHOUT
-  // term.render()/tickEffects/arming an effects timer (the framebuffer is byte-identical;
-  // underline/cursor/search highlights are main-thread overlays). ONLY those callers may
-  // skip render — content/effect draws must use schedule(). A real draw already queued
-  // this frame supersedes the post-only frame (its STATE carries the same fresh values),
-  // so defer to it instead of double-posting.
+  // STATE-only path (hover outcome changes, the search trailing re-index, and the P7
+  // mirror settle sync): the engine render state is unchanged, so post the fresh
+  // snapshot WITHOUT term.render()/tickEffects/arming an effects timer (the framebuffer
+  // is byte-identical; underline/cursor/search highlights are main-thread overlays).
+  // ONLY those callers may skip render — content/effect draws must use schedule(). A
+  // real draw already queued this frame supersedes the post-only frame (its STATE
+  // carries the same fresh values), so defer to it instead of double-posting.
   const scheduleStatePost = (): void => {
     if (suspended) {
       // Hidden pane posts nothing (nothing reads its visible mirror; resume re-posts), and a
@@ -321,13 +343,18 @@ export function createWorkerFrameScheduler(deps: {
     setSuspended: (next) => {
       suspended = next
       if (next) {
-        // A hidden pane paints nothing; drop the armed one-shot (resume re-arms).
+        // A hidden pane paints nothing; drop the armed one-shots (resume re-arms /
+        // re-posts, which re-syncs a churn-stale mirror).
         clearEffectsTimer()
+        clearMirrorSettleTimer()
         return
       }
       schedule()
     },
     presentNow,
-    dispose: clearEffectsTimer
+    dispose: () => {
+      clearEffectsTimer()
+      clearMirrorSettleTimer()
+    }
   }
 }

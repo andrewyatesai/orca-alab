@@ -4,6 +4,7 @@ import {
   createWorkerFrameScheduler,
   type WorkerFrameScheduler
 } from './aterm-worker-frame-scheduler'
+import { ATERM_GRID_MIRROR_SETTLE_DELAY_MS } from './aterm-worker-dirty-rows'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
 
 afterEach(() => {
@@ -238,6 +239,113 @@ describe('worker hover STATE-only post', () => {
     h.scheduler.schedule() // genuine content change → must render, not just post
     flushRaf(h.raf)
     expect(h.render).toHaveBeenCalledTimes(1)
+    expect(h.post).toHaveBeenCalledTimes(2)
+  })
+})
+
+// ── P7: the guaranteed final mirror sync after churn-throttled STATE posts ──────────
+function settleHarness(): {
+  scheduler: WorkerFrameScheduler
+  render: ReturnType<typeof vi.fn>
+  post: ReturnType<typeof vi.fn>
+  raf: (() => void)[]
+  setStale: (v: boolean) => void
+} {
+  const raf: (() => void)[] = []
+  const render = vi.fn()
+  const post = vi.fn()
+  let stale = false
+  const state = { cols: 80, rows: 24, cellWidth: 8, cellHeight: 16 } as AtermWorkerState
+  const term = {
+    render,
+    tickEffects: () => false,
+    effectsIdleDeadlineMs: () => undefined,
+    advanceEffectsBy: vi.fn(),
+    buildState: () => state,
+    gridMirrorStale: () => stale,
+    dimensions: () => state
+  }
+  const scheduler = createWorkerFrameScheduler({
+    getTerm: () => term,
+    post,
+    raf: (cb) => raf.push(cb)
+  })
+  return {
+    scheduler,
+    render,
+    post,
+    raf,
+    setStale: (v) => {
+      stale = v
+    }
+  }
+}
+
+describe('worker P7 grid-mirror settle sync', () => {
+  it('a churn-throttled post arms ONE render-free settle post, then goes quiet', () => {
+    vi.useFakeTimers()
+    const h = settleHarness()
+    h.setStale(true)
+    h.scheduler.schedule()
+    flushRaf(h.raf)
+    expect(h.post).toHaveBeenCalledTimes(1)
+    // The settle build exports the mirror in full → the tracker clears stale.
+    h.setStale(false)
+    vi.advanceTimersByTime(ATERM_GRID_MIRROR_SETTLE_DELAY_MS)
+    flushRaf(h.raf)
+    expect(h.post).toHaveBeenCalledTimes(2)
+    expect(h.render).toHaveBeenCalledTimes(1) // settle sync must NOT re-render the engine
+    // A clean settle post owes nothing further.
+    vi.advanceTimersByTime(1000)
+    flushRaf(h.raf)
+    expect(h.post).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-arms per stale post so exactly one sync fires after the LAST churn frame', () => {
+    vi.useFakeTimers()
+    const h = settleHarness()
+    h.setStale(true)
+    for (let i = 0; i < 3; i++) {
+      h.scheduler.schedule()
+      flushRaf(h.raf)
+      vi.advanceTimersByTime(16) // next fling frame lands before the settle delay
+    }
+    expect(h.post).toHaveBeenCalledTimes(3) // no settle post fired mid-fling
+    h.setStale(false)
+    vi.advanceTimersByTime(ATERM_GRID_MIRROR_SETTLE_DELAY_MS)
+    flushRaf(h.raf)
+    expect(h.post).toHaveBeenCalledTimes(4) // the one guaranteed final sync
+    expect(h.render).toHaveBeenCalledTimes(3)
+  })
+
+  it('a clean full-mirror post cancels the pending settle sync', () => {
+    vi.useFakeTimers()
+    const h = settleHarness()
+    h.setStale(true)
+    h.scheduler.schedule()
+    flushRaf(h.raf) // stale post → settle timer armed
+    h.setStale(false)
+    h.scheduler.schedule()
+    flushRaf(h.raf) // a full-mirror draw landed → nothing owed anymore
+    expect(h.post).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(1000)
+    flushRaf(h.raf)
+    expect(h.post).toHaveBeenCalledTimes(2) // no redundant settle post
+  })
+
+  it('suspending drops the armed settle sync; resume re-posts the fresh mirror', () => {
+    vi.useFakeTimers()
+    const h = settleHarness()
+    h.setStale(true)
+    h.scheduler.schedule()
+    flushRaf(h.raf)
+    h.scheduler.setSuspended(true)
+    vi.advanceTimersByTime(1000)
+    flushRaf(h.raf)
+    expect(h.post).toHaveBeenCalledTimes(1) // hidden pane posts nothing
+    h.setStale(false)
+    h.scheduler.setSuspended(false) // resume schedules a draw that carries the mirror
+    flushRaf(h.raf)
     expect(h.post).toHaveBeenCalledTimes(2)
   })
 })

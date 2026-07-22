@@ -443,8 +443,8 @@ export type AtermWorkerState = {
   /** Device-pixel rects of all ON-SCREEN matches for the main-thread overlay (the
    *  worker owns the match set); `active` flags the one painted in the stronger tone. */
   searchMatchRects: { x: number; y: number; width: number; height: number; active: boolean }[]
-  /** Changed visible rows since the last state (empty when content is unchanged or
-   *  when this pane serves content reads via the query channel instead). */
+  /** Changed visible rows since the last state (empty when unchanged or query-channel-served;
+   *  the P7 churn rate-limit may withhold rows mid-fling — a settle STATE re-syncs). */
   dirtyRows: AtermWorkerGridRow[]
   /** Predictive-echo ghost cells for the main-thread overlay to paint dim+underlined
    *  (`[row, col, codepoint]` triples in active-grid display coords), empty when

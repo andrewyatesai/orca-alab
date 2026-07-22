@@ -94,6 +94,7 @@ import { maybeRedirectPackagedCliEntryLaunch } from './startup/packaged-cli-entr
 import { startFirstWindowStartupServices } from './startup/first-window-startup-services'
 import { createWslCliReconciliationStartupBarrier } from './startup/wsl-cli-reconciliation-startup-barrier'
 import { getDevInstanceIdentity } from './startup/dev-instance-identity'
+import { migrateStagingProfile } from './startup/staging-profile-migration'
 import { hydrateShellPath, mergePathSegments } from './startup/hydrate-shell-path'
 import {
   acquireSingleInstanceLock,
@@ -436,6 +437,8 @@ const devAgentHookEndpointNamespace = devInstanceIdentity.isDev
 
 installUncaughtPipeErrorGuard()
 configureDevUserDataPath(is.dev)
+// Why: the productName rename (59574d931) moved userData 'Orca Staging' → 'Orca ALab Edition'; adopt the old profile before the single-instance lock or any other consumer creates the new dir.
+migrateStagingProfile({ isPackaged: app.isPackaged, userDataPath: app.getPath('userData') })
 configureOrcaUserDataPathEnv()
 
 // Why: a launch that races Squirrel's in-flight update install would abort it

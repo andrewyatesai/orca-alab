@@ -10,7 +10,9 @@ import {
 import { buildWindowsPowerShellSpawnAttempts } from './windows-shell-fallback-chain'
 import { resolveProcessCwd } from './process-cwd'
 import { existsSync } from 'node:fs'
-import * as pty from 'node-pty'
+// Why: type-only — the native binding loads lazily per spawn (node-pty-lazy-load.ts), never at main-process startup.
+import type * as pty from 'node-pty'
+import { loadNodePty } from './node-pty-lazy-load'
 import { parseWslPath, isWslAvailable } from '../wsl'
 import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
 import {
@@ -562,6 +564,9 @@ export class LocalPtyProvider implements IPtyProvider {
     }
     const id = allocatePtyId(reattachId ?? undefined)
 
+    // Why: a broken pty.node (ABI mismatch, corrupted install) must fail this spawn, not crash main before app.whenReady.
+    const nodePty = await loadNodePty()
+
     const startupAgentRecognition = args.command
       ? recognizeAgentProcessFromCommandLine(args.command)
       : null
@@ -848,7 +853,7 @@ export class LocalPtyProvider implements IPtyProvider {
       cwd: effectiveCwd,
       env: finalEnv,
       termName: finalEnv.TERM,
-      ptySpawn: pty.spawn,
+      ptySpawn: nodePty.spawn,
       getShellReadyConfig: getFallbackShellReadyConfig,
       // Why: on zsh→bash fallback HISTFILE still points to zsh_history; update before spawn so the child inherits it (design doc §8).
       onBeforeFallbackSpawn: historyResult?.histFile

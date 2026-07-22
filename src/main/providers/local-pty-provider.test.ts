@@ -1916,3 +1916,25 @@ describe('LocalPtyProvider', () => {
     })
   })
 })
+
+// Why: pins the lazy node-pty load — a broken pty.node (ABI mismatch, corrupted install) must
+// reject the spawn, not throw during main-process module evaluation before app.whenReady.
+describe('LocalPtyProvider with a broken node-pty binding', () => {
+  it('module evaluation survives and spawn rejects with the load failure', async () => {
+    vi.resetModules()
+    vi.doMock('node-pty', () => {
+      throw new Error('The module pty.node was compiled against NODE_MODULE_VERSION 118')
+    })
+    try {
+      const mod = await import('./local-pty-provider')
+      const provider = new mod.LocalPtyProvider()
+      // Why: vitest wraps a throwing mock factory in its own error, so pin the loader's stable prefix.
+      await expect(provider.spawn({ cols: 80, rows: 24 })).rejects.toThrow(
+        /node-pty failed to load/
+      )
+    } finally {
+      vi.doUnmock('node-pty')
+      vi.resetModules()
+    }
+  })
+})

@@ -105,7 +105,14 @@ describe('mapGitLabIssueInfo', () => {
   })
 
   it('handles string-only labels', () => {
-    expect(mapGitLabIssueInfo({ iid: 1, title: 'C', state: 'opened', labels: ['bug'] })).toEqual({
+    expect(
+      mapGitLabIssueInfo({
+        iid: 1,
+        title: 'C',
+        state: 'opened',
+        labels: ['bug']
+      })
+    ).toEqual({
       number: 1,
       title: 'C',
       state: 'opened',
@@ -173,7 +180,12 @@ describe('mapMRInfo', () => {
 
   it('marks UNKNOWN when detailed_merge_status is non-mergeable but not a conflict', () => {
     const info = mapMRInfo(
-      { iid: 1, title: 't', state: 'opened', detailed_merge_status: 'checking' },
+      {
+        iid: 1,
+        title: 't',
+        state: 'opened',
+        detailed_merge_status: 'checking'
+      },
       'pending'
     )
     expect(info.mergeable).toBe('UNKNOWN')
@@ -227,7 +239,21 @@ describe('derivePipelineStatus', () => {
     expect(derivePipelineStatus('success')).toBe('success')
     expect(derivePipelineStatus('failed')).toBe('failure')
     expect(derivePipelineStatus('running')).toBe('pending')
-    expect(derivePipelineStatus('manual')).toBe('neutral')
+  })
+
+  // Why: parity with GitHub CANCELLED/ACTION_REQUIRED — these block merge and
+  // must surface as needs-attention, not disappear as a blank neutral badge.
+  it('classifies canceled/manual/blocked pipeline strings as failure', () => {
+    expect(derivePipelineStatus('canceled')).toBe('failure')
+    expect(derivePipelineStatus('canceling')).toBe('failure')
+    expect(derivePipelineStatus('manual')).toBe('failure')
+    expect(derivePipelineStatus('blocked')).toBe('failure')
+    expect(derivePipelineStatus({ status: 'canceled' })).toBe('failure')
+    expect(derivePipelineStatus({ status: 'manual' })).toBe('failure')
+  })
+
+  it('keeps skipped as neutral in the string path', () => {
+    expect(derivePipelineStatus('skipped')).toBe('neutral')
   })
 
   it('rolls up an array of jobs', () => {
@@ -238,6 +264,23 @@ describe('derivePipelineStatus', () => {
 
   it('failure beats pending in the rollup', () => {
     expect(derivePipelineStatus([{ status: 'failed' }, { status: 'running' }])).toBe('failure')
+  })
+
+  // Why: an all-canceled or manual-blocked pipeline must never read green
+  // (same false-green class as the GitHub deriveCheckStatus fixes).
+  it('counts canceled/manual jobs as failure in the rollup', () => {
+    expect(derivePipelineStatus([{ status: 'canceled' }, { status: 'canceled' }])).toBe('failure')
+    expect(derivePipelineStatus([{ status: 'success' }, { status: 'canceled' }])).toBe('failure')
+    expect(derivePipelineStatus([{ status: 'success' }, { status: 'manual' }])).toBe('failure')
+    expect(derivePipelineStatus([{ status: 'running' }, { status: 'canceling' }])).toBe('failure')
+  })
+
+  it('returns neutral, not success, when no job succeeded', () => {
+    expect(derivePipelineStatus([{ status: 'skipped' }, { status: 'skipped' }])).toBe('neutral')
+  })
+
+  it('skipped jobs do not drag a green rollup to neutral', () => {
+    expect(derivePipelineStatus([{ status: 'success' }, { status: 'skipped' }])).toBe('success')
   })
 
   it('handles a single object with status', () => {

@@ -161,9 +161,18 @@ export function derivePipelineStatus(
   }
   let hasFailure = false
   let hasPending = false
+  let hasSuccess = false
   for (const job of rollup) {
     const s = job.status?.toLowerCase()
-    if (s === 'failed') {
+    // Why: canceled/manual/blocked mirror GitHub's CANCELLED/ACTION_REQUIRED —
+    // terminal-not-green states must not read as a pass.
+    if (
+      s === 'failed' ||
+      s === 'canceled' ||
+      s === 'canceling' ||
+      s === 'manual' ||
+      s === 'blocked'
+    ) {
       hasFailure = true
     } else if (
       s === 'created' ||
@@ -174,6 +183,8 @@ export function derivePipelineStatus(
       s === 'scheduled'
     ) {
       hasPending = true
+    } else if (s === 'success') {
+      hasSuccess = true
     }
   }
   if (hasFailure) {
@@ -182,7 +193,9 @@ export function derivePipelineStatus(
   if (hasPending) {
     return 'pending'
   }
-  return 'success'
+  // Why: a rollup with no succeeded job (e.g. all skipped) must not read
+  // green — match classifyPipelineString's neutral for the same inputs.
+  return hasSuccess ? 'success' : 'neutral'
 }
 
 // ── Raw → GitLabWorkItem mapping ────────────────────────────────────
@@ -283,7 +296,16 @@ function classifyPipelineString(status: string): CheckStatus {
   if (s === 'success') {
     return 'success'
   }
-  if (s === 'failed') {
+  // Why: parity with GitHub deriveCheckStatus — CANCELLED and ACTION_REQUIRED
+  // (GitLab: canceled/canceling, manual/blocked) are needs-attention, not a
+  // silent pass; 'neutral' renders as no badge and would hide them.
+  if (
+    s === 'failed' ||
+    s === 'canceled' ||
+    s === 'canceling' ||
+    s === 'manual' ||
+    s === 'blocked'
+  ) {
     return 'failure'
   }
   if (

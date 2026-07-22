@@ -16,17 +16,17 @@ export function mapCheckRunRESTStatus(status: string): PRCheckDetail['status'] {
   return 'completed'
 }
 
-const conclusionMap: Record<string, PRCheckDetail['conclusion']> = {
-  success: 'success',
-  failure: 'failure',
-  cancelled: 'cancelled',
-  timed_out: 'timed_out',
-  skipped: 'skipped',
-  neutral: 'neutral',
-  action_required: 'action_required',
-  stale: 'failure',
-  startup_failure: 'failure'
-}
+// Why: REST check-runs conclusion domain (GitHub API) — the switch below must stay exhaustive over it.
+type CheckRunRESTConclusion =
+  | 'success'
+  | 'failure'
+  | 'cancelled'
+  | 'timed_out'
+  | 'skipped'
+  | 'neutral'
+  | 'action_required'
+  | 'stale'
+  | 'startup_failure'
 
 export function mapCheckRunRESTConclusion(
   status: string,
@@ -38,7 +38,31 @@ export function mapCheckRunRESTConclusion(
   if (!conclusion) {
     return null
   }
-  return conclusionMap[conclusion.toLowerCase()] ?? null
+  // Why: (string & {}) keeps the switch lint-exhaustive over the declared union while the API input stays open.
+  const c = conclusion.toLowerCase() as CheckRunRESTConclusion | (string & {})
+  switch (c) {
+    case 'success':
+      return 'success'
+    case 'failure':
+    case 'stale':
+    case 'startup_failure':
+      return 'failure'
+    case 'cancelled':
+      return 'cancelled'
+    case 'timed_out':
+      return 'timed_out'
+    case 'skipped':
+      return 'skipped'
+    case 'neutral':
+      return 'neutral'
+    case 'action_required':
+      return 'action_required'
+    default: {
+      // Why: unknown-completed counts failed (deriveWorkItemCheckSummary rule) — a silent null renders as perpetual Pending.
+      console.warn(`[github:checks] unmapped REST check-run conclusion: ${c}`)
+      return 'failure'
+    }
+  }
 }
 
 // ── REST API commit status mapping ──────────────────────────────────────
@@ -76,36 +100,67 @@ export function mapCheckStatus(state: string): PRCheckDetail['status'] {
   return 'completed'
 }
 
+// Why: gh pr checks flattens CheckRun conclusion/status and commit-status StatusContext
+// state into one string; this is the known domain the switch must stay exhaustive over.
+type GhPrChecksState =
+  | 'SUCCESS'
+  | 'PASS'
+  | 'FAILURE'
+  | 'FAIL'
+  | 'ERROR'
+  | 'ACTION_REQUIRED'
+  | 'STALE'
+  | 'STARTUP_FAILURE'
+  | 'CANCELLED'
+  | 'TIMED_OUT'
+  | 'SKIPPED'
+  | 'PENDING'
+  | 'QUEUED'
+  | 'IN_PROGRESS'
+  | 'EXPECTED'
+  | 'NEUTRAL'
+
 export function mapCheckConclusion(state: string): PRCheckDetail['conclusion'] {
-  const s = state?.toUpperCase()
-  if (s === 'SUCCESS' || s === 'PASS') {
-    return 'success'
+  const raw = state?.toUpperCase()
+  if (!raw) {
+    return null
   }
-  if (s === 'FAILURE' || s === 'FAIL') {
-    return 'failure'
+  // Why: (string & {}) keeps the switch lint-exhaustive over the declared union while the gh input stays open.
+  const s = raw as GhPrChecksState | (string & {})
+  switch (s) {
+    case 'SUCCESS':
+    case 'PASS':
+      return 'success'
+    case 'FAILURE':
+    case 'FAIL':
+    // Why: commit-status contexts (Jenkins/Prow) report ERROR as their terminal failure — keep in sync with mapCommitStatusRESTConclusion.
+    case 'ERROR':
+    case 'STALE':
+    case 'STARTUP_FAILURE':
+      return 'failure'
+    case 'ACTION_REQUIRED':
+      return 'action_required'
+    case 'CANCELLED':
+      return 'cancelled'
+    case 'TIMED_OUT':
+      return 'timed_out'
+    case 'SKIPPED':
+      return 'skipped'
+    case 'PENDING':
+    case 'QUEUED':
+    case 'IN_PROGRESS':
+    // Why: EXPECTED is a required context that hasn't reported yet — pending, not done.
+    case 'EXPECTED':
+      return 'pending'
+    case 'NEUTRAL':
+      return 'neutral'
+    default: {
+      // Why: mapCheckStatus buckets anything outside its pending set as completed; an
+      // unknown completed state must read failed (deriveWorkItemCheckSummary rule), never a silent null→Pending.
+      console.warn(`[github:checks] unmapped gh pr checks state: ${s}`)
+      return mapCheckStatus(state) === 'completed' ? 'failure' : 'pending'
+    }
   }
-  if (s === 'ACTION_REQUIRED') {
-    return 'action_required'
-  }
-  if (s === 'STALE' || s === 'STARTUP_FAILURE') {
-    return 'failure'
-  }
-  if (s === 'CANCELLED') {
-    return 'cancelled'
-  }
-  if (s === 'TIMED_OUT') {
-    return 'timed_out'
-  }
-  if (s === 'SKIPPED') {
-    return 'skipped'
-  }
-  if (s === 'PENDING' || s === 'QUEUED' || s === 'IN_PROGRESS') {
-    return 'pending'
-  }
-  if (s === 'NEUTRAL') {
-    return 'neutral'
-  }
-  return null
 }
 
 export function mapPRState(state: string, isDraft?: boolean): PRInfo['state'] {
@@ -143,6 +198,97 @@ export function mapIssueInfo(data: {
   }
 }
 
+// Why: GraphQL enum domains for statusCheckRollup entries — CheckStatusState /
+// CheckConclusionState (check runs) and StatusState (commit-status contexts).
+// The switches below must stay exhaustive over them; unknown values log and never read green.
+type RollupCheckRunStatus =
+  | 'QUEUED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'WAITING'
+  | 'PENDING'
+  | 'REQUESTED'
+type RollupCheckRunConclusion =
+  | 'SUCCESS'
+  | 'FAILURE'
+  | 'TIMED_OUT'
+  | 'CANCELLED'
+  | 'ACTION_REQUIRED'
+  | 'STARTUP_FAILURE'
+  | 'STALE'
+  | 'SKIPPED'
+  | 'NEUTRAL'
+type RollupStatusContextState = 'EXPECTED' | 'ERROR' | 'FAILURE' | 'PENDING' | 'SUCCESS'
+
+type RollupEntryVerdict = 'failure' | 'pending' | 'success' | 'none'
+
+function classifyStatusContextState(state: string): RollupEntryVerdict {
+  const s = state as RollupStatusContextState | (string & {})
+  switch (s) {
+    case 'SUCCESS':
+      return 'success'
+    case 'FAILURE':
+    case 'ERROR':
+      return 'failure'
+    case 'PENDING':
+    // Why: EXPECTED is a required context that hasn't reported yet — it blocks merge, so it must not read green.
+    case 'EXPECTED':
+      return 'pending'
+    default: {
+      console.warn(`[github:checks] unknown rollup status-context state: ${s}`)
+      return 'none'
+    }
+  }
+}
+
+function classifyCheckRunEntry(
+  status: string | undefined,
+  conclusion: string | undefined
+): RollupEntryVerdict {
+  if (conclusion) {
+    const c = conclusion as RollupCheckRunConclusion | (string & {})
+    switch (c) {
+      case 'SUCCESS':
+        return 'success'
+      case 'FAILURE':
+      case 'TIMED_OUT':
+      case 'CANCELLED':
+      // Why: action_required (e.g. an unapproved workflow run) blocks merge until
+      // someone acts; treat it as needs-attention rather than a silent pass.
+      case 'ACTION_REQUIRED':
+      // Why: keep in sync with mapCheckConclusion — both are terminal failures (upstream #4605).
+      case 'STARTUP_FAILURE':
+      case 'STALE':
+        return 'failure'
+      case 'SKIPPED':
+      case 'NEUTRAL':
+        return 'none'
+      default: {
+        console.warn(`[github:checks] unknown rollup conclusion: ${c}`)
+        return 'none'
+      }
+    }
+  }
+  const s = status as RollupCheckRunStatus | (string & {}) | undefined
+  switch (s) {
+    case 'QUEUED':
+    case 'IN_PROGRESS':
+    case 'PENDING':
+    // Why: WAITING (deployment protection) and REQUESTED are not-yet-complete — they must not read green.
+    case 'WAITING':
+    case 'REQUESTED':
+      return 'pending'
+    // Why: COMPLETED with no conclusion is an API edge with no verdict to derive.
+    case 'COMPLETED':
+    case undefined:
+      return 'none'
+    default: {
+      console.warn(`[github:checks] unknown rollup check-run status: ${s}`)
+      return 'none'
+    }
+  }
+}
+
 export function deriveCheckStatus(rollup: unknown[] | null | undefined): CheckStatus {
   if (!rollup || !Array.isArray(rollup) || rollup.length === 0) {
     return 'neutral'
@@ -150,35 +296,21 @@ export function deriveCheckStatus(rollup: unknown[] | null | undefined): CheckSt
 
   let hasFailure = false
   let hasPending = false
+  let hasSuccess = false
 
   // Collapse superseded runs first so a stale CANCELLED/FAILURE doesn't outvote a later SUCCESS.
   const latest = latestRollupEntriesByName(rollup)
   for (const check of latest as { status?: string; conclusion?: string; state?: string }[]) {
-    const conclusion = check.conclusion?.toUpperCase()
-    const status = check.status?.toUpperCase()
     const state = check.state?.toUpperCase()
-
-    if (
-      conclusion === 'FAILURE' ||
-      conclusion === 'TIMED_OUT' ||
-      conclusion === 'CANCELLED' ||
-      // Why: action_required (e.g. an unapproved workflow run) blocks merge until
-      // someone acts; treat it as needs-attention rather than a silent pass.
-      conclusion === 'ACTION_REQUIRED' ||
-      // Why: keep in sync with mapCheckConclusion — both are terminal failures (upstream #4605).
-      conclusion === 'STARTUP_FAILURE' ||
-      conclusion === 'STALE' ||
-      state === 'FAILURE' ||
-      state === 'ERROR'
-    ) {
+    const verdict = state
+      ? classifyStatusContextState(state)
+      : classifyCheckRunEntry(check.status?.toUpperCase(), check.conclusion?.toUpperCase())
+    if (verdict === 'failure') {
       hasFailure = true
-    } else if (
-      status === 'IN_PROGRESS' ||
-      status === 'QUEUED' ||
-      status === 'PENDING' ||
-      state === 'PENDING'
-    ) {
+    } else if (verdict === 'pending') {
       hasPending = true
+    } else if (verdict === 'success') {
+      hasSuccess = true
     }
   }
 
@@ -188,5 +320,7 @@ export function deriveCheckStatus(rollup: unknown[] | null | undefined): CheckSt
   if (hasPending) {
     return 'pending'
   }
-  return 'success'
+  // Why: a rollup with no succeeded run (e.g. all skipped) must not read green —
+  // match GitLab derivePipelineStatus's neutral for the same inputs.
+  return hasSuccess ? 'success' : 'neutral'
 }

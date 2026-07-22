@@ -70,7 +70,7 @@ vi.mock('./rate-limit', () => ({
 }))
 
 import { getPRChecks, rerunPRChecks, _resetOwnerRepoCache } from './client'
-import { deriveCheckStatus } from './mappers'
+import { deriveCheckStatus, mapCheckConclusion, mapCheckRunRESTConclusion } from './mappers'
 
 function graphQLChecksResponse({
   contexts = [],
@@ -640,5 +640,76 @@ describe('deriveCheckStatus', () => {
     ]
 
     expect(deriveCheckStatus(rollup)).toBe('success')
+  })
+
+  it('rolls up an EXPECTED status context as pending, not success', () => {
+    const rollup = [
+      { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { name: 'required-gate', state: 'EXPECTED' }
+    ]
+
+    expect(deriveCheckStatus(rollup)).toBe('pending')
+  })
+
+  it('rolls up WAITING and REQUESTED statuses as pending', () => {
+    expect(deriveCheckStatus([{ name: 'deploy', status: 'WAITING' }])).toBe('pending')
+    expect(deriveCheckStatus([{ name: 'suite', status: 'REQUESTED' }])).toBe('pending')
+  })
+
+  it('does not read a rollup with no succeeded run as green', () => {
+    const rollup = [
+      { name: 'docs-only', status: 'COMPLETED', conclusion: 'SKIPPED' },
+      { name: 'advisory', status: 'COMPLETED', conclusion: 'NEUTRAL' }
+    ]
+
+    expect(deriveCheckStatus(rollup)).toBe('neutral')
+  })
+
+  it('logs unknown conclusion/state values and never counts them as success', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(
+        deriveCheckStatus([{ name: 'x', status: 'COMPLETED', conclusion: 'SOME_NEW_VALUE' }])
+      ).toBe('neutral')
+      expect(deriveCheckStatus([{ name: 'y', state: 'SOME_NEW_STATE' }])).toBe('neutral')
+      expect(warnSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+})
+
+describe('mapCheckConclusion', () => {
+  it('maps commit-status ERROR to failure and EXPECTED to pending', () => {
+    expect(mapCheckConclusion('ERROR')).toBe('failure')
+    expect(mapCheckConclusion('error')).toBe('failure')
+    expect(mapCheckConclusion('EXPECTED')).toBe('pending')
+  })
+
+  it('logs an unmapped completed state and returns failure, never null', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(mapCheckConclusion('SOME_NEW_STATE')).toBe('failure')
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+})
+
+describe('mapCheckRunRESTConclusion', () => {
+  it('logs an unknown completed conclusion and returns failure, never null', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(mapCheckRunRESTConclusion('completed', 'some_new_conclusion')).toBe('failure')
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('keeps completed-with-null-conclusion as null and in-flight as pending', () => {
+    expect(mapCheckRunRESTConclusion('completed', null)).toBeNull()
+    expect(mapCheckRunRESTConclusion('in_progress', null)).toBe('pending')
   })
 })

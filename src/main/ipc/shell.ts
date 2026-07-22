@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process'
 import { constants, copyFile, readFile, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Store } from '../persistence'
+import { resolveAuthorizedPath } from './filesystem-auth'
 import type { ShellOpenLocalPathResult } from '../../shared/shell-open-types'
 import { MAX_REPO_ICON_UPLOAD_BYTES } from '../../shared/repo-icon'
 import { getSpawnArgsForWindows } from '../win32-utils'
@@ -127,7 +129,7 @@ async function openWithSystemDefault(pathValue: string): Promise<boolean> {
   }
 }
 
-export function registerShellHandlers(): void {
+export function registerShellHandlers(store: Store): void {
   ipcMain.handle('shell:openPath', async (_event, path: string): Promise<void> => {
     // Why: keep the legacy fire-and-forget renderer contract while reusing the
     // same absolute/existing path validation as the explicit file-manager API.
@@ -291,11 +293,14 @@ export function registerShellHandlers(): void {
   ipcMain.handle(
     'shell:copyFile',
     async (_event, args: { srcPath: string; destPath: string }): Promise<void> => {
-      const src = normalize(args.srcPath)
-      const dest = normalize(args.destPath)
-      if (!isAbsolute(src) || !isAbsolute(dest)) {
+      if (!isAbsolute(normalize(args.srcPath)) || !isAbsolute(normalize(args.destPath))) {
         throw new Error('Both source and destination must be absolute paths')
       }
+      // Why: confine both ends like fs:* handlers — a bare copyFile here would
+      // hand a compromised renderer an arbitrary read/copy primitive. Every
+      // live caller copies within authorized roots, so no exceptions needed.
+      const src = await resolveAuthorizedPath(args.srcPath, store)
+      const dest = await resolveAuthorizedPath(args.destPath, store)
       // Why: COPYFILE_EXCL prevents silently overwriting an existing file.
       // The renderer-side deconfliction loop already picks a unique name, so
       // the dest should never exist — if it does, something is wrong and we

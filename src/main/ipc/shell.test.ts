@@ -3,18 +3,22 @@ import { normalize, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const {
+  copyFileMock,
   getSpawnArgsForWindowsMock,
   handleMock,
   openPathMock,
+  realpathMock,
   resolveCliCommandMock,
   showItemInFolderMock,
   showOpenDialogMock,
   spawnMock,
   statMock
 } = vi.hoisted(() => ({
+  copyFileMock: vi.fn(),
   getSpawnArgsForWindowsMock: vi.fn(),
   handleMock: vi.fn(),
   openPathMock: vi.fn(),
+  realpathMock: vi.fn(),
   resolveCliCommandMock: vi.fn(),
   showItemInFolderMock: vi.fn(),
   showOpenDialogMock: vi.fn(),
@@ -38,7 +42,9 @@ vi.mock('electron', () => ({
 
 vi.mock('node:fs/promises', () => ({
   constants: { COPYFILE_EXCL: 1 },
-  copyFile: vi.fn(),
+  copyFile: copyFileMock,
+  // Why: filesystem-auth canonicalizes via realpath; identity keeps test paths stable.
+  realpath: realpathMock,
   stat: statMock
 }))
 
@@ -57,6 +63,18 @@ vi.mock('../win32-utils', () => ({
 
 import { EXTERNAL_EDITOR_CLI_COMMAND, registerShellHandlers } from './shell'
 import { resolveExternalEditorLaunchSpec } from '../external-editor-launch'
+
+// Why: paths are resolved via path.resolve() in production code, so test
+// data must use resolved paths to avoid Unix-vs-Windows mismatches.
+const REPO_PATH = resolve('/workspace/repo')
+const WORKSPACE_DIR = resolve('/workspace')
+
+const store = {
+  getRepos: () => [
+    { id: 'repo-1', path: REPO_PATH, displayName: 'repo', badgeColor: '#000', addedAt: 0 }
+  ],
+  getSettings: () => ({ workspaceDir: WORKSPACE_DIR })
+}
 
 function createSpawnedProcess(result: 'spawn' | 'error' = 'spawn'): {
   once: ReturnType<typeof vi.fn>
@@ -80,14 +98,18 @@ function createSpawnedProcess(result: 'spawn' | 'error' = 'spawn'): {
 
 describe('registerShellHandlers', () => {
   beforeEach(() => {
+    copyFileMock.mockReset()
     handleMock.mockReset()
     getSpawnArgsForWindowsMock.mockReset()
     openPathMock.mockReset()
+    realpathMock.mockReset()
     resolveCliCommandMock.mockReset()
     showItemInFolderMock.mockReset()
     showOpenDialogMock.mockReset()
     spawnMock.mockReset()
     statMock.mockReset()
+    copyFileMock.mockResolvedValue(undefined)
+    realpathMock.mockImplementation(async (p: string) => p)
     openPathMock.mockResolvedValue('')
     resolveCliCommandMock.mockReturnValue('editor-cli')
     getSpawnArgsForWindowsMock.mockImplementation((command: string, args: string[]) => ({
@@ -99,7 +121,7 @@ describe('registerShellHandlers', () => {
   })
 
   function getHandler(channel: string): (event: unknown, ...args: unknown[]) => Promise<unknown> {
-    registerShellHandlers()
+    registerShellHandlers(store as never)
     const call = handleMock.mock.calls.find((c: unknown[]) => c[0] === channel)
     if (!call) {
       throw new Error(`${channel} handler not registered`)
@@ -494,6 +516,61 @@ describe('registerShellHandlers', () => {
 
       await expect(handler({}, pathToFileURL(filePath).toString())).resolves.toBeUndefined()
       expect(openPathMock).toHaveBeenCalledWith(normalize(filePath))
+    })
+  })
+
+  describe('shell:copyFile', () => {
+    it('rejects relative paths', async () => {
+      const handler = getHandler('shell:copyFile')
+
+      await expect(
+        handler({}, { srcPath: 'relative/image.png', destPath: `${REPO_PATH}/notes/image.png` })
+      ).rejects.toThrow('Both source and destination must be absolute paths')
+      expect(copyFileMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects a source outside allowed roots', async () => {
+      const handler = getHandler('shell:copyFile')
+
+      await expect(
+        handler(
+          {},
+          { srcPath: resolve('/etc/secret.key'), destPath: `${REPO_PATH}/notes/secret.key` }
+        )
+      ).rejects.toThrow('Access denied')
+      expect(copyFileMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects a destination outside allowed roots', async () => {
+      const handler = getHandler('shell:copyFile')
+
+      await expect(
+        handler({}, { srcPath: `${REPO_PATH}/notes/image.png`, destPath: resolve('/etc/leak.png') })
+      ).rejects.toThrow('Access denied')
+      expect(copyFileMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects a source symlink that escapes allowed roots', async () => {
+      const srcPath = resolve(`${REPO_PATH}/notes/link.png`)
+      realpathMock.mockImplementation(async (p: string) =>
+        p === srcPath ? resolve('/private/secret.png') : p
+      )
+      const handler = getHandler('shell:copyFile')
+
+      await expect(
+        handler({}, { srcPath, destPath: `${REPO_PATH}/notes/copy.png` })
+      ).rejects.toThrow('Access denied')
+      expect(copyFileMock).not.toHaveBeenCalled()
+    })
+
+    it('copies between authorized worktree paths without overwriting', async () => {
+      const srcPath = resolve(`${REPO_PATH}/screenshots/shot.png`)
+      const destPath = resolve(`${REPO_PATH}/notes/shot.png`)
+      const handler = getHandler('shell:copyFile')
+
+      await expect(handler({}, { srcPath, destPath })).resolves.toBeUndefined()
+      // Why: COPYFILE_EXCL is mocked as 1; the flag must survive the auth rewrite.
+      expect(copyFileMock).toHaveBeenCalledWith(srcPath, destPath, 1)
     })
   })
 })

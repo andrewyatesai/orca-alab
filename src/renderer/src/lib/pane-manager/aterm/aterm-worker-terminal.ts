@@ -62,6 +62,9 @@ export function createWorkerTerminal(
    *  no frames run), right before the timer-fired frame renders. */
   advanceEffectsBy: (dtMs: number) => void
   buildState: () => AtermWorkerState
+  /** True when the last buildState withheld the grid-row mirror (P7 fling throttle);
+   *  the frame scheduler arms the render-free settle sync from this. */
+  gridMirrorStale: () => boolean
   /** Cheap grid dimensions (no buildState) — lets a suspended pane skip output-frame
    *  STATE posts while still posting on a dimension change (gridSize must stay correct). */
   dimensions: () => { cols: number; rows: number; cellWidth: number; cellHeight: number }
@@ -179,6 +182,8 @@ export function createWorkerTerminal(
     buildState: () => {
       const fb = handle.framebuffer()
       const chrome = getChrome()
+      // One wasm-boundary read serves both the STATE scalar and the mirror throttle.
+      const displayOffset = e.display_offset
       const range = e.selection_range()
       // Re-materialize + clone the selection text ONLY when the range changed; otherwise
       // omit it (undefined) and the main side keeps the prior value. A large active
@@ -204,7 +209,7 @@ export function createWorkerTerminal(
         rows,
         cellWidth: e.cell_width,
         cellHeight: e.cell_height,
-        displayOffset: e.display_offset,
+        displayOffset,
         displayOriginAbsolute: e.display_origin_absolute,
         cursorX: e.cursor_x,
         cursorY: e.cursor_y,
@@ -234,13 +239,14 @@ export function createWorkerTerminal(
         searchActiveRect: search.activeRect(),
         searchMatchRects: search.visibleRects(),
         spillExportCapable,
-        dirtyRows: dirtyRowTracker.build(rows, cols),
+        dirtyRows: dirtyRowTracker.build(rows, cols, displayOffset),
         // The ghost cells + glitch deadline for the main-thread overlay; both inert while
         // off, and the deadline is read after overlay()'s expiry self-heal (see predictor).
         predictOverlay: predictor.overlay(),
         predictDeadlineMs: predictor.deadlineMs()
       }
     },
+    gridMirrorStale: dirtyRowTracker.stale,
     dimensions: () => ({ cols, rows, cellWidth: e.cell_width, cellHeight: e.cell_height }),
     resize: (r, c) => {
       rows = r

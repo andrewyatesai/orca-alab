@@ -7,15 +7,40 @@ import type { AtermWorkerGridRow } from './aterm-render-worker-protocol'
 // concatenated per-row signature string, so an unchanged row costs three compares — not a
 // fresh full-row string allocation every frame. Extracted to keep the worker terminal
 // under the line cap.
+//
+// P7 fling decoupling: while display_offset churns (scroll fling / streaming-while-
+// scrolled), EVERY visible row changes every frame, making the per-row wasm export
+// (row_text/row_len/row_is_wrapped per row) the dominant buildState cost. Sustained
+// churn is rate-limited to one full export per ATERM_GRID_MIRROR_CHURN_SYNC_INTERVAL_MS;
+// stale() tells the frame scheduler a render-free settle sync is owed. ONLY this mirror
+// is throttled — offset/cursor/selection/search scalars stay live in every STATE.
+// A single batched row-range export would also drop the per-row wasm-boundary cost, but
+// the engine has no such export yet (E9 dependency) — until then this is JS-side only.
 
 type DirtyRowEngine = Pick<WorkerEngine, 'row_text' | 'row_is_wrapped' | 'row_len' | 'cell_is_wide'>
 
-export function createAtermDirtyRowTracker(e: DirtyRowEngine): {
-  build: (rows: number, cols: number) => AtermWorkerGridRow[]
+/** Cap the full row export to one sync per this window while the offset churns (~20Hz). */
+export const ATERM_GRID_MIRROR_CHURN_SYNC_INTERVAL_MS = 50
+/** Settle-sync delay: must outlast one frame gap at 30Hz (~33ms) so it only fires once
+ *  the fling truly stopped, while keeping worst-case mirror staleness bounded. */
+export const ATERM_GRID_MIRROR_SETTLE_DELAY_MS = 48
+
+export function createAtermDirtyRowTracker(
+  e: DirtyRowEngine,
+  nowMs: () => number = () => performance.now()
+): {
+  build: (rows: number, cols: number, displayOffset: number) => AtermWorkerGridRow[]
+  /** True when the last build withheld the row export (throttled mid-churn) — the
+   *  frame scheduler owes the mirror a settle sync. */
+  stale: () => boolean
 } {
   let lastText: string[] = []
   let lastWrapped: boolean[] = []
   let lastLen: number[] = []
+  let lastOffset: number | null = null
+  let lastFullScanMs = -Infinity
+  let churnFrames = 0
+  let stale = false
   // Cached all-'1' width string for ASCII rows, rebuilt only on a cols change,
   // so the fast path allocates nothing per frame. Per-tracker (per pane) to
   // avoid thrash when the worker hosts panes of different widths.
@@ -23,7 +48,23 @@ export function createAtermDirtyRowTracker(e: DirtyRowEngine): {
   let asciiWidths = ''
 
   return {
-    build: (rows, cols) => {
+    stale: () => stale,
+    build: (rows, cols, displayOffset) => {
+      const offsetChurned = lastOffset !== null && displayOffset !== lastOffset
+      lastOffset = displayOffset
+      churnFrames = offsetChurned ? churnFrames + 1 : 0
+      // Throttle only SUSTAINED churn (2+ consecutive offset-change frames) so a single
+      // wheel notch mirrors instantly; a rows change is a resize, never throttled.
+      if (
+        churnFrames >= 2 &&
+        rows === lastText.length &&
+        nowMs() - lastFullScanMs < ATERM_GRID_MIRROR_CHURN_SYNC_INTERVAL_MS
+      ) {
+        stale = true
+        return []
+      }
+      stale = false
+      lastFullScanMs = nowMs()
       const dirty: AtermWorkerGridRow[] = []
       if (lastText.length !== rows) {
         lastText = Array.from({ length: rows }, () => '')

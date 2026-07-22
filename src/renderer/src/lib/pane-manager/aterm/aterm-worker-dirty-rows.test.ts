@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
+import {
+  ATERM_GRID_MIRROR_CHURN_SYNC_INTERVAL_MS,
+  createAtermDirtyRowTracker
+} from './aterm-worker-dirty-rows'
 
 // A minimal engine stub: `rows` of text, wide-cell columns per row.
 function makeEngine(rows: string[], wideCols: Record<number, Set<number>> = {}) {
@@ -17,7 +20,7 @@ describe('aterm-worker-dirty-rows ASCII fast-path', () => {
     const engine = makeEngine(['hello', 'world'])
     const tracker = createAtermDirtyRowTracker(engine)
 
-    const dirty = tracker.build(2, cols)
+    const dirty = tracker.build(2, cols, 0)
 
     expect(dirty.map((r) => r.widths)).toEqual(['11111111', '11111111'])
     // The fast path must NOT cross the wasm boundary for width per cell.
@@ -30,7 +33,7 @@ describe('aterm-worker-dirty-rows ASCII fast-path', () => {
     const engine = makeEngine(['a漢b'], { 0: new Set([1]) })
     const tracker = createAtermDirtyRowTracker(engine)
 
-    const dirty = tracker.build(1, cols)
+    const dirty = tracker.build(1, cols, 0)
 
     expect(dirty[0].widths).toBe('1211')
     expect(engine.cell_is_wide).toHaveBeenCalled()
@@ -40,7 +43,7 @@ describe('aterm-worker-dirty-rows ASCII fast-path', () => {
     const cols = 6
     const engine = makeEngine(['abc'])
     const tracker = createAtermDirtyRowTracker(engine)
-    const fast = tracker.build(1, cols)[0].widths
+    const fast = tracker.build(1, cols, 0)[0].widths
     // What the old per-cell walk would produce for an all-ASCII row: all '1'.
     const perCell = Array.from({ length: cols }, () => '1').join('')
     expect(fast).toBe(perCell)
@@ -50,9 +53,125 @@ describe('aterm-worker-dirty-rows ASCII fast-path', () => {
     const rows = ['x']
     const engine = makeEngine(rows)
     const tracker = createAtermDirtyRowTracker(engine)
-    expect(tracker.build(1, 3)[0].widths).toBe('111')
+    expect(tracker.build(1, 3, 0)[0].widths).toBe('111')
     // Change the row text so it re-emits at the wider grid → cached string grows.
     rows[0] = 'xy'
-    expect(tracker.build(1, 5)[0].widths).toBe('11111')
+    expect(tracker.build(1, 5, 0)[0].widths).toBe('11111')
+  })
+})
+
+// ── P7: rate-limit the row export during rapid display_offset churn ──────────────
+// Only the grid-row mirror is throttled (the caller keeps all STATE scalars live);
+// stale() flags a withheld export so the frame scheduler owes a settle sync.
+describe('aterm-worker-dirty-rows churn rate limit (P7)', () => {
+  const INTERVAL = ATERM_GRID_MIRROR_CHURN_SYNC_INTERVAL_MS
+
+  function makeClock(): { now: () => number; advance: (ms: number) => void } {
+    let t = 0
+    return {
+      now: () => t,
+      advance: (ms) => {
+        t += ms
+      }
+    }
+  }
+
+  it('a single offset step (one wheel notch) is never throttled', () => {
+    const rows = ['a', 'b']
+    const engine = makeEngine(rows)
+    const clock = makeClock()
+    const tracker = createAtermDirtyRowTracker(engine, clock.now)
+    tracker.build(2, 4, 0)
+    clock.advance(16)
+    rows[0] = 'scrolled'
+    // First churn frame: full export (streak of 1 is a notch, not a fling).
+    expect(tracker.build(2, 4, 5).map((r) => r.text)).toEqual(['scrolled'])
+    expect(tracker.stale()).toBe(false)
+  })
+
+  it('sustained churn within the window withholds the export entirely and flags stale', () => {
+    const rows = ['a', 'b']
+    const engine = makeEngine(rows)
+    const clock = makeClock()
+    const tracker = createAtermDirtyRowTracker(engine, clock.now)
+    tracker.build(2, 4, 0)
+    clock.advance(16)
+    tracker.build(2, 4, 5) // churn frame 1 → full export, resets the window
+    engine.row_text.mockClear()
+    clock.advance(16)
+    rows[0] = 'fling-a'
+    expect(tracker.build(2, 4, 10)).toEqual([]) // churn frame 2 → throttled
+    clock.advance(16)
+    rows[0] = 'fling-b'
+    expect(tracker.build(2, 4, 15)).toEqual([]) // churn frame 3 → throttled
+    // The throttled frames must not touch the wasm boundary at all.
+    expect(engine.row_text).not.toHaveBeenCalled()
+    expect(tracker.stale()).toBe(true)
+  })
+
+  it('churning past the sync window re-exports (rate-limited, not suppressed)', () => {
+    const rows = ['a']
+    const engine = makeEngine(rows)
+    const clock = makeClock()
+    const tracker = createAtermDirtyRowTracker(engine, clock.now)
+    tracker.build(1, 4, 0)
+    clock.advance(16)
+    tracker.build(1, 4, 5)
+    clock.advance(16)
+    rows[0] = 'mid-fling'
+    expect(tracker.build(1, 4, 10)).toEqual([])
+    // Cross the window while still churning → the next frame syncs in full.
+    clock.advance(INTERVAL)
+    expect(tracker.build(1, 4, 15).map((r) => r.text)).toEqual(['mid-fling'])
+    expect(tracker.stale()).toBe(false)
+  })
+
+  it('the settle frame (offset unchanged) always exports in full and clears stale', () => {
+    const rows = ['a', 'b']
+    const engine = makeEngine(rows)
+    const clock = makeClock()
+    const tracker = createAtermDirtyRowTracker(engine, clock.now)
+    tracker.build(2, 4, 0)
+    clock.advance(16)
+    tracker.build(2, 4, 5)
+    clock.advance(16)
+    rows[0] = 'final-a'
+    rows[1] = 'final-b'
+    expect(tracker.build(2, 4, 10)).toEqual([])
+    expect(tracker.stale()).toBe(true)
+    // Settle: same offset, still inside the window — must sync regardless.
+    clock.advance(1)
+    expect(tracker.build(2, 4, 10).map((r) => r.text)).toEqual(['final-a', 'final-b'])
+    expect(tracker.stale()).toBe(false)
+  })
+
+  it('a rows-count change mid-churn forces a full export (resize is not a fling)', () => {
+    const rows = ['a', 'b', 'c']
+    const engine = makeEngine(rows)
+    const clock = makeClock()
+    const tracker = createAtermDirtyRowTracker(engine, clock.now)
+    tracker.build(2, 4, 0)
+    clock.advance(16)
+    tracker.build(2, 4, 5)
+    clock.advance(16)
+    expect(tracker.build(2, 4, 10)).toEqual([])
+    clock.advance(1)
+    // Still churning + inside the window, but the viewport grew → full export.
+    expect(tracker.build(3, 4, 15)).toHaveLength(3)
+    expect(tracker.stale()).toBe(false)
+  })
+
+  it('non-churn frames (typing at a fixed offset) are never throttled', () => {
+    const rows = ['a']
+    const engine = makeEngine(rows)
+    const clock = makeClock()
+    const tracker = createAtermDirtyRowTracker(engine, clock.now)
+    tracker.build(1, 4, 0)
+    for (const text of ['ab', 'abc', 'abcd']) {
+      clock.advance(8)
+      rows[0] = text
+      expect(tracker.build(1, 4, 0).map((r) => r.text)).toEqual([text])
+      expect(tracker.stale()).toBe(false)
+    }
   })
 })

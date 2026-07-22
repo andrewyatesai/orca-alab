@@ -11217,14 +11217,15 @@
             "25ec5356d6": "Setup"
           },
           "FeatureWallModal": {
-            "33dca8bbbe": "A short, workflow-by-workflow tour of Orca.",
-            "3567e147c8": "Get to know Orca"
+            "33dca8bbbe": "11 guided screens · about 4 minutes",
+            "3567e147c8": "Explore Orca: ALab Edition",
+            "a120000001": "Return to Orca"
           },
           "FeatureWallPreview": {
             "a666384798": "Also in this workflow"
           },
           "FeatureWallRail": {
-            "69ea857689": "Completed",
+            "69ea857689": "Viewed",
             "7593d15f94": "Workflows"
           },
           "FeatureWallSetupChecklist": {
@@ -11246,7 +11247,12 @@
             "522cce9e33": "Add project"
           },
           "FeatureWallTourPanel": {
-            "af7d622f6f": "Optional"
+            "af7d622f6f": "Optional",
+            "a120000001": "{{value0}} of {{value1}}",
+            "a120000002": "Learn more",
+            "a120000004": "Step {{value0}} of {{value1}}: {{value2}}",
+            "a120000003": "Tour progress",
+            "a120000005": "Learn more about {{value0}}"
           },
           "KeepAwakeCard": {
             "209713d3c7": "Optional"
@@ -11335,7 +11341,14 @@
             "16877e038d": "splits down",
             "a2b114dad0": "splits right ·",
             "0bc9ad0cd1": "Same pane:",
-            "fc84f17fe7": "Codex session started"
+            "fc84f17fe7": "Codex session started",
+            "h130000001": "› renders metrics",
+            "h130000002": "› updates avatar",
+            "h130000003": "› exports CSV",
+            "h130000004": "› toggles dark mode",
+            "h130000005": "review src/auth for missing error handling",
+            "h130000006": "fix failing checkout test",
+            "h130000007": "timeout checkout"
           },
           "agent": {
             "capability": {
@@ -11402,14 +11415,30 @@
             "orchestration": {
               "OrchestrationPage": {
                 "30b509a467": "2 children",
-                "862605d066": "2 child workspaces"
+                "862605d066": "2 child workspaces",
+                "h130000001": "Splitting auth rewrite into 2 PRs…",
+                "h130000002": "Writing the users table migration…",
+                "h130000003": "Sketching withSession middleware…",
+                "h130000004": "Adding the email_verified column…",
+                "h130000005": "Wiring withSession middleware…",
+                "h130000006": "PR 1/2 ready",
+                "h130000007": "PR 2/2 ready",
+                "h130000008": "redesign auth flow",
+                "h130000009": "PR 1/2: migrate users.sql",
+                "h130000010": "PR 2/2: withSession middleware"
               },
               "StatusesPage": {
                 "2f549fc0ba": "src/auth/session.test.ts",
                 "139e3d7458": "Updated",
                 "7b26349cb2": "pnpm migrate latest",
                 "78f0318ac1": "Wants to run",
-                "79971d1539": "redesign auth flow"
+                "79971d1539": "redesign auth flow",
+                "h130000001": "Edit",
+                "h130000002": "Bash",
+                "h130000003": "Read",
+                "h130000004": "Looking at the session middleware now…",
+                "h130000005": "Typecheck passes. Pulling on the login route next.",
+                "h130000006": "Adding tests for the redirect path."
               },
               "UsageAccountsCard": {
                 "6986b36708": "Surface rate limits and swap accounts inline.",
@@ -11430,7 +11459,14 @@
                 "0470aaed99": "Weekly",
                 "f421abf962": "Session",
                 "5e45fb1238": "Updated 1m ago",
-                "6a4b1d3c38": "Codex"
+                "6a4b1d3c38": "Codex",
+                "h130000001": "0% used",
+                "h130000002": "96% used",
+                "h130000003": "Resets in 5h",
+                "h130000004": "Resets in 47m",
+                "h130000005": "Team",
+                "h130000006": "0% used 5h · 4% used wk",
+                "h130000007": "96% used 47m"
               },
               "orchestration": {
                 "cards": {
@@ -11493,6 +11529,175 @@
             "0d6efe9cf4": "Recommended on macOS when projects or worktrees live in protected folders.",
             "dac08ec03e": "Opening...",
             "6e3d62b816": "Open Full Disk Access"
+          },
+          "AnywhereWorkflowVisuals": {
+            "e110000001": "Orca desktop",
+            "e110000002": "Choose and guide work",
+            "e110000003": "Orca runtime",
+            "e110000004": "This computer or a paired remote runtime",
+            "e110000005": "Orca Mobile",
+            "e110000006": "Monitor and reply",
+            "e110000007": "Desktop source of truth",
+            "e110000008": "Agent attention",
+            "e110000009": "Safe reconnects",
+            "e110000010": "Visible app scope",
+            "e110000011": "macOS permissions",
+            "e110000012": "Terminal",
+            "e110000013": "Editor",
+            "e110000014": "Accessibility snapshot",
+            "e110000015": "window “Terminal”",
+            "e110000016": "group “Session controls”",
+            "e110000017": "button “Reconnect”",
+            "e110000018": "text “Agent waiting”",
+            "e110000019": "Inspect, click, type, scroll, and drag when the selected app advertises them.",
+            "e110000020": "Full client",
+            "e110000021": "Runtime",
+            "e110000022": "Optional downstream",
+            "e110000023": "SSH project host",
+            "e110000024": "Runs Git, files, and terminals",
+            "e110000025": "Access",
+            "e110000026": "Accessibility + Screen Recording",
+            "e110000027": "Advertised actions only",
+            "e110000028": "Companion",
+            "e110000029": "Beta"
+          },
+          "FeatureWallTourSurface": {
+            "a110000001": "Continue",
+            "a110000002": "Back",
+            "a120000003": "Done",
+            "a120000004": "Reopen any time from Help > Explore Orca."
+          },
+          "ReviewShipWorkflowVisual": {
+            "c110000001": "src/terminal/session.ts",
+            "c110000002": "Revision · 3 changes",
+            "c110000003": "export async function restoreSession(id: string) {",
+            "c110000004": "return reconnect(id)",
+            "c110000005": "const session = await reconnect(id)",
+            "c110000006": "return verifyScrollback(session)",
+            "c110000007": "Review note",
+            "c110000008": "Preserve restored scrollback before the pane becomes visible.",
+            "c110000009": "Review to publish",
+            "c110000010": "Annotate",
+            "c110000011": "Revise",
+            "c110000012": "Run checks",
+            "c110000013": "Publish",
+            "c110000014": "Pull / merge request",
+            "c110000015": "Checks passing"
+          },
+          "ScaleWorkflowVisuals": {
+            "d110000001": "Automations",
+            "d110000002": "Saved work, on demand or on schedule",
+            "d110000003": "2 saved workflows",
+            "d110000004": "Regression triage",
+            "d110000005": "Scheduled · Weekdays at 9:00 AM UTC",
+            "d110000006": "Dependency review",
+            "d110000007": "Manual · Fresh workspace",
+            "d110000008": "Recent runs",
+            "d110000009": "Completed",
+            "d110000010": "2 minutes ago",
+            "d110000011": "Scheduled",
+            "d110000012": "Tomorrow at 9:00 AM UTC"
+          },
+          "WorkspacesAnimatedVisual": {
+            "f110000001": "Base branch",
+            "f110000002": "Isolated worktree + branch",
+            "f110000003": "Agent activity in isolated workspaces",
+            "f110000004": "set up orca.yaml",
+            "f110000005": "fix login race condition",
+            "f110000006": "speed up CI pipeline"
+          },
+          "TerminalProjectWorkflowVisuals": {
+            "b110000001": "Shell",
+            "b110000002": "Codex",
+            "b110000003": "Last login: today on console",
+            "b110000004": "codex",
+            "b110000005": "Agent session attached",
+            "b110000006": "Ready in the active workspace terminal.",
+            "b110000008": "Session",
+            "b110000009": "Persistence",
+            "b110000010": "Sessions survive reconnects",
+            "b110000011": "Layout",
+            "b110000012": "Tabs and nested splits",
+            "b110000013": "Engine",
+            "b110000014": "aterm · Rust",
+            "b110000015": "This computer",
+            "b110000016": "Use Orca on this device",
+            "b110000017": "SSH host",
+            "b110000018": "Connect to an existing machine over SSH",
+            "b110000019": "Paired Orca runtime",
+            "b110000020": "Pair with Orca running on another computer",
+            "b110000021": "Add project",
+            "b110000022": "Choose where work runs, then how the codebase gets there.",
+            "b110000023": "1 · Location",
+            "b110000024": "Where project operations run",
+            "b110000025": "2 · Codebase",
+            "b110000026": "How code gets there",
+            "b110000027": "Open existing folder",
+            "b110000028": "Keep the current checkout and branch",
+            "b110000029": "Clone repository",
+            "b110000030": "Clone into the chosen location",
+            "b110000031": "Create project",
+            "b110000032": "Start from an empty folder"
+          },
+          "feature-wall-step-localization": {
+            "g120000001": "Terminal first",
+            "g120000002": "Resume in the active workspace terminal",
+            "g120000003": "When a workspace is active, Orca opens its terminal by default. Run any CLI agent, split tabs and panes, and return to persistent sessions after reconnecting.",
+            "g120000004": "Add a project",
+            "g120000005": "Bring in a codebase",
+            "g120000006": "Choose where project operations run—this computer, an SSH host, or a paired Orca runtime—then open an existing folder, clone a repository, or create a project. Existing checkouts stay on their current branch.",
+            "g120000007": "Tasks",
+            "g120000008": "Turn tasks into ready-to-run work",
+            "g120000009": "Connect the providers you use, browse GitHub, GitLab, Linear, and Jira work, then carry an issue or review into a workspace as linked context.",
+            "g120000010": "Workspaces",
+            "g120000011": "Keep every task isolated",
+            "g120000012": "Each Git workspace gets its own worktree, branch, terminals, files, browser state, and agent sessions so parallel work does not collide.",
+            "g120000013": "Agent fleet",
+            "g120000014": "See every agent at a glance",
+            "g120000015": "Run any terminal-based agent. For supported agents, see which sessions are working, waiting, blocked, or done without opening every terminal.",
+            "g120000016": "Workbench",
+            "g120000017": "Keep implementation context together",
+            "g120000018": "Move between terminal splits, the editor, files, ports, and the embedded browser; send selected UI context to agents with Design Mode.",
+            "g120000019": "Review & ship",
+            "g120000020": "Review, revise, then publish",
+            "g120000021": "Annotate local diffs and send one focused revision bundle to the agent. With a connected Git provider, inspect hosted checks and prepare a commit plus pull or merge request.",
+            "g120000022": "Orchestration",
+            "g120000023": "Coordinate work that needs a team",
+            "g120000024": "Give a coordinator dependent tasks, let workers report progress or blockers, and collect their results into one accountable run.",
+            "g120000025": "Automations",
+            "g120000026": "Make recurring work repeatable",
+            "g120000027": "Save a prompt and target, then run it manually or on a schedule. Remote targets must be reachable; each run can use a fresh or existing workspace and stays visible in history.",
+            "g120000028": "Remote & mobile",
+            "g120000029": "Keep work moving away from this machine",
+            "g120000030": "After one-time pairing, Orca Mobile acts as a companion for monitoring and follow-ups while the desktop/runtime remains the source of truth. Projects can run there or on a separate SSH host.",
+            "g120000031": "Computer Use",
+            "g120000032": "Operate desktop apps with guardrails",
+            "g120000033": "Computer Use ships native helpers per platform. On macOS, grant Accessibility and Screen Recording; on every platform, check capabilities before inspecting a visible app and invoking advertised actions. Use Orca's browser tools for pages inside Orca.",
+            "g120000034": "Beta",
+            "g120000035": "Mobile beta"
+          },
+          "feature-wall-workflow-localization": {
+            "f120000001": "Start",
+            "f120000002": "Terminal · Projects",
+            "f120000003": "Resume in the active workspace terminal, then add another codebase and runtime when you need one.",
+            "f120000004": "Plan",
+            "f120000005": "Tasks · Workspaces",
+            "f120000006": "Turn incoming work into an isolated environment with its context attached.",
+            "f120000007": "Build",
+            "f120000008": "Agents · Workbench",
+            "f120000009": "Run the agents you already use and keep implementation context in one place.",
+            "f120000010": "Ship",
+            "f120000011": "Review · Checks · Publish",
+            "f120000012": "Turn an agent result into a reviewed, provider-ready change.",
+            "f120000013": "Scale",
+            "f120000014": "Orchestration · Automations",
+            "f120000015": "Coordinate dependent work and make repeatable jobs run on demand or on schedule.",
+            "f120000016": "Anywhere",
+            "f120000017": "SSH · Mobile · Computer Use",
+            "f120000018": "Connect the desktop and its mobile companion through an Orca runtime, reach separate project hosts over SSH, and, where supported, operate visible desktop apps."
+          },
+          "feature-wall-terminal-shell": {
+            "h130000001": "Persistent shell session ready"
           }
         },
         "tips": {

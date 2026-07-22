@@ -3,9 +3,9 @@
 // Bump the aterm terminal engine. aterm is a PINNED git submodule at rust/aterm
 // (github.com/andrewyatesai/aterm) — the previous source-vendoring is gone. This
 // updates the submodule to the latest origin/main (or a given --rev) and rebuilds
-// the wasm bindings + the native terminal addon so the regenerated artifacts match
-// the new pin. The offline dependency vendor (rust/vendor) is kept; if a bump pulls
-// a new crate the build will say so and you re-vendor it (see docs).
+// the wasm bindings, native terminal addon, and Rust daemon so generated artifacts
+// and both Cargo locks match the new pin. The offline dependency vendor (rust/vendor)
+// is kept; if a bump pulls a new crate the build will say so and you re-vendor it.
 //
 // Usage: node config/scripts/bump-aterm.mjs [--rev <sha|ref>]
 //   default: origin/main (latest)
@@ -40,16 +40,18 @@ const rev =
   'unknown'
 console.log(`[bump-aterm] aterm submodule pinned to ${rev}`)
 
-// Regenerate the engine artifacts so the committed wasm + native addon match the pin.
+// Regenerate every consumer so committed artifacts and workspace locks move together.
 run('node', ['config/scripts/build-aterm-wasm.mjs'])
 run('node', ['config/scripts/build-terminal-addon.mjs', '--force'])
+run('node', ['config/scripts/build-rust-daemon.mjs'])
 
 console.log('[bump-aterm] done.')
 console.log(
   // Stage the pin AND the full glue (binary + JS + .d.ts) so both ABI halves move
   // together; the JS/.d.ts are git-tracked via .gitignore negations but skipped by the
   // formatter (.prettierignore) so they stay byte-exact with wasm-bindgen output.
-  '[bump-aterm] stage the pin + regenerated wasm + glue:\n' +
-    '  git add rust/aterm src/renderer/src/lib/pane-manager/aterm/aterm_wasm* ' +
+  '[bump-aterm] stage the pin + locks + regenerated wasm + glue:\n' +
+    '  git add rust/aterm rust/Cargo.lock native/orca-node/Cargo.lock ' +
+    'src/renderer/src/lib/pane-manager/aterm/aterm_wasm* ' +
     'src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web*'
 )

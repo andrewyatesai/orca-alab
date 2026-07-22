@@ -21,6 +21,10 @@ import {
 import { arrowPathFromCoordTo, bubblePathBetweenRows } from './orchestration-bubble-path'
 import { AgentRow, WorkspaceCard } from './orchestration-cards'
 import { translate } from '@/i18n/i18n'
+import {
+  getOrchestrationMessage,
+  getOrchestrationWorkspaceName
+} from './orchestration-storyboard-copy'
 
 // Children start pending (no agent row visible) and reveal as the orchestrator
 // dispatches a message to them. This mirrors the "agents arrive when assigned"
@@ -61,7 +65,9 @@ export function OrchestrationPage(props: {
   const [rowFlash, setRowFlash] = useState<RowFlash>({})
   const [rowPending, setRowPending] = useState<RowPending>(INITIAL_CHILD_PENDING)
   const [createdChildCount, setCreatedChildCount] = useState(0)
-  const displayedChildCount = controlledCreatedChildCount ?? createdChildCount
+  const showSettledReducedState = active && reducedMotion
+  const displayedChildCount =
+    controlledCreatedChildCount ?? (showSettledReducedState ? 2 : createdChildCount)
 
   // Why: bubbles measure the recipient row at fire-time, so the pending flag
   // has to flip *before* the path is computed. React state updates are async,
@@ -204,8 +210,8 @@ export function OrchestrationPage(props: {
           setRowPending((p) => ({ ...p, [beat.to]: false }))
         }
         const replacement =
-          beat.to === 'coord-claude' && beat.coordMsg ? beat.coordMsg : (beat.recipientMsg ?? '')
-        if (replacement) {
+          beat.to === 'coord-claude' && beat.coordMsg ? beat.coordMsg : beat.recipientMsg
+        if (replacement !== undefined) {
           setRowMessages((m) => ({ ...m, [beat.to]: replacement }))
           setRowFlash((f) => ({ ...f, [beat.to]: (f[beat.to] ?? 0) + 1 }))
         }
@@ -292,7 +298,7 @@ export function OrchestrationPage(props: {
       <div className="relative flex min-w-0 flex-col gap-1.5">
         <WorkspaceCard
           variant="coordinator"
-          name="redesign auth flow"
+          name={getOrchestrationWorkspaceName('coordinator')}
           dataCard="coord"
           rows={[
             <AgentRow
@@ -300,7 +306,7 @@ export function OrchestrationPage(props: {
               agentKey="coord-claude"
               icon={<ClaudeIcon size={13} />}
               state={rowState['coord-claude']}
-              message={rowMessages['coord-claude']}
+              message={getOrchestrationMessage(rowMessages['coord-claude'])}
               flashKey={rowFlash['coord-claude'] ?? 0}
               registerRef={(node) => {
                 rowRefs.current['coord-claude'] = node
@@ -344,14 +350,24 @@ export function OrchestrationPage(props: {
             marginLeft: 'auto',
             display: 'flex',
             flexDirection: 'column',
-            gap: 8
+            gap: 8,
+            ...(showSettledReducedState
+              ? { opacity: 1, transform: 'none', transition: 'none' }
+              : {})
           }}
         >
           {displayedChildCount >= 1 ? (
-            <div className="feature-wall-child-card-shell">
+            <div
+              className="feature-wall-child-card-shell"
+              style={
+                showSettledReducedState
+                  ? { animation: 'none', opacity: 1, transform: 'none' }
+                  : undefined
+              }
+            >
               <WorkspaceCard
                 variant="default"
-                name="PR 1/2: migrate users.sql"
+                name={getOrchestrationWorkspaceName('migration')}
                 dataCard="child"
                 childPadding
                 rows={[
@@ -360,9 +376,9 @@ export function OrchestrationPage(props: {
                     agentKey="child-codex"
                     icon={<OpenAIIcon size={13} />}
                     state={rowState['child-codex']}
-                    message={rowMessages['child-codex']}
+                    message={getOrchestrationMessage(rowMessages['child-codex'])}
                     flashKey={rowFlash['child-codex'] ?? 0}
-                    pending={rowPending['child-codex']}
+                    pending={showSettledReducedState ? false : rowPending['child-codex']}
                     spawnRow
                     registerRef={(node) => {
                       rowRefs.current['child-codex'] = node
@@ -373,10 +389,17 @@ export function OrchestrationPage(props: {
             </div>
           ) : null}
           {displayedChildCount >= 2 ? (
-            <div className="feature-wall-child-card-shell">
+            <div
+              className="feature-wall-child-card-shell"
+              style={
+                showSettledReducedState
+                  ? { animation: 'none', opacity: 1, transform: 'none' }
+                  : undefined
+              }
+            >
               <WorkspaceCard
                 variant="default"
-                name="PR 2/2: withSession middleware"
+                name={getOrchestrationWorkspaceName('middleware')}
                 dataCard="child-claude"
                 childPadding
                 rows={[
@@ -385,9 +408,9 @@ export function OrchestrationPage(props: {
                     agentKey="child-claude"
                     icon={<ClaudeIcon size={13} />}
                     state={rowState['child-claude']}
-                    message={rowMessages['child-claude']}
+                    message={getOrchestrationMessage(rowMessages['child-claude'])}
                     flashKey={rowFlash['child-claude'] ?? 0}
-                    pending={rowPending['child-claude']}
+                    pending={showSettledReducedState ? false : rowPending['child-claude']}
                     spawnRow
                     registerRef={(node) => {
                       rowRefs.current['child-claude'] = node

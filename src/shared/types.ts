@@ -3361,10 +3361,8 @@ export type TopLevelView =
 export type PersistedUIState = {
   lastActiveRepoId: string | null
   lastActiveWorktreeId: string | null
-  /** Active top-level view at save time, restored on reload/relaunch so the app
-   *  reopens where the user left off instead of snapping back to the terminal.
-   *  Sanitized on hydration (unknown value or a now-gated view falls back to
-   *  'terminal'). */
+  /** Active top-level view at save time. Retained in the persisted schema for
+   *  compatibility; startup intentionally opens the terminal workbench. */
   activeView: TopLevelView
   sidebarWidth: number
   rightSidebarOpen: boolean

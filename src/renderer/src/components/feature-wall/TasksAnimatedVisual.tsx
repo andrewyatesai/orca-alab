@@ -125,7 +125,9 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
   const rowRefs = useRef<(HTMLDivElement | null)[]>([])
   const buttonRefs = useRef<(HTMLButtonElement | null)[]>([])
 
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  const [phase, setPhase] = useState<Phase>(() =>
+    reducedMotion ? { kind: 'ready', issueIdx: 0 } : { kind: 'idle' }
+  )
   const [cursorTarget, setCursorTarget] = useState<CursorTarget>({ kind: 'hidden' })
   const [rippleKey, setRippleKey] = useState(0)
 
@@ -133,7 +135,7 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
   // self-contained so reduced-motion can short-circuit the entire effect.
   useEffect(() => {
     if (reducedMotion) {
-      setPhase({ kind: 'idle' })
+      setPhase({ kind: 'ready', issueIdx: 0 })
       setCursorTarget({ kind: 'hidden' })
       return
     }
@@ -313,7 +315,11 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
         {workspaceIssue ? (
           <div
             key={workspaceIssue.number}
-            className="animate-[tasks-workspace-in_320ms_cubic-bezier(.2,.8,.2,1)_both] rounded-[10px] bg-foreground/[0.05] px-2 py-2.5 shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]"
+            className={`${
+              reducedMotion
+                ? ''
+                : 'animate-[tasks-workspace-in_320ms_cubic-bezier(.2,.8,.2,1)_both]'
+            } rounded-[10px] bg-foreground/[0.05] px-2 py-2.5 shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]`}
           >
             <div className="grid grid-cols-[14px_minmax(0,1fr)] items-center gap-3 px-1.5">
               <span className="inline-block size-[9px] rounded-full bg-emerald-500" />

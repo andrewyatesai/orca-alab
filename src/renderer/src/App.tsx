@@ -927,7 +927,7 @@ function App(): React.JSX.Element {
         )
         onboardingPromise.catch(() => {})
         // Why: hydrate persisted UI immediately after ui.get() so first paint
-        // reflects saved view settings before the catalog scans below. ui.get()
+        // reflects saved UI preferences before the catalog scans below. ui.get()
         // is awaited (not overlapped) because the hydrate must land before the
         // local-first catalog/session steps run.
         const persistedUI = await timeRendererStartupStep('ui-get', () => window.api.ui.get())
@@ -1449,9 +1449,8 @@ function App(): React.JSX.Element {
         hideAutomationGeneratedWorkspaces,
         showDotfilesByWorktree,
         filterRepoIds,
-        // Why: persist the active view so a reload restores it. openTaskPage etc.
-        // mutate activeView directly (not via setActiveView), so the value-keyed
-        // writer is what catches every transition.
+        // Why: keep the persisted schema current for compatibility even though
+        // startup intentionally opens terminal. Some actions mutate this field directly.
         activeView,
         // Why: rides the same debounced save so dashboard auto-acks (which fire
         // on focus/visibility) and the in-memory ack cleanup paths in

@@ -31,7 +31,12 @@ export function AgentsOrchestrationVisual(props: {
   return (
     <div
       className="relative flex flex-col text-foreground"
-      style={{ width: widthPx ?? PANEL_WIDTH_PX, height: heightPx ?? PANEL_HEIGHT_PX }}
+      data-feature-wall-agents-visual={activeStepId}
+      style={{
+        width: '100%',
+        maxWidth: widthPx ?? PANEL_WIDTH_PX,
+        height: heightPx ?? PANEL_HEIGHT_PX
+      }}
     >
       <Page active={activeStepId === 'statuses'}>
         <StatusesPage active={activeStepId === 'statuses'} reducedMotion={reducedMotion} />

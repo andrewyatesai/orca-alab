@@ -124,6 +124,6 @@ aterm is a git submodule at `rust/aterm` and is built to wasm by the orc scripts
 
 ```
 pnpm bump:aterm              # bump the aterm submodule to latest + rebuild
-pnpm run build:aterm-wasm    # build aterm-wasm (CPU) + aterm-gpu-web (GPU), wasm-opt -Oz
+pnpm run build:aterm-wasm    # build aterm-wasm (CPU) + aterm-gpu-web (GPU), wasm-opt -O3
 pnpm run build:terminal-addon --force
 ```

@@ -117,9 +117,9 @@ export const validateGitPushTargetRules: (
   f: number,
   g: number
 ) => void
-export const __wasm_bindgen_func_elem_1619: (a: number, b: number) => void
-export const __wasm_bindgen_func_elem_1708: (a: number, b: number, c: number, d: number) => void
-export const __wasm_bindgen_func_elem_1633: (a: number, b: number, c: number) => void
+export const __wasm_bindgen_func_elem_1625: (a: number, b: number) => void
+export const __wasm_bindgen_func_elem_1704: (a: number, b: number, c: number, d: number) => void
+export const __wasm_bindgen_func_elem_1640: (a: number, b: number, c: number) => void
 export const __wbindgen_export: (a: number, b: number) => number
 export const __wbindgen_export2: (a: number, b: number, c: number, d: number) => number
 export const __wbindgen_export3: (a: number) => void

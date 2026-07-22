@@ -248,11 +248,12 @@ export const featureWallOpenSourceSchema = z.enum(['help_menu', 'popup', 'onboar
 export type FeatureWallOpenSourceTelemetry = z.infer<typeof featureWallOpenSourceSchema>
 
 export const featureWallWorkflowIdSchema = z.enum([
-  'tasks',
-  'workspaces',
-  'agents-orchestration',
-  'workbench',
-  'review'
+  'start',
+  'plan',
+  'build',
+  'ship',
+  'scale',
+  'anywhere'
 ])
 export type FeatureWallWorkflowIdTelemetry = z.infer<typeof featureWallWorkflowIdSchema>
 
@@ -526,10 +527,10 @@ const featureWallClosedSchema = z
     exit_action: featureWallExitActionSchema.optional(),
     furthest_step: featureWallTourDepthStepSchema.optional(),
     last_group_id: featureWallWorkflowIdSchema.optional(),
-    visited_workflow_count: z.number().int().min(0).max(5).optional(),
-    visited_substep_count: z.number().int().min(0).max(9).optional(),
-    completed_workflow_count: z.number().int().min(0).max(5).optional(),
-    completed_substep_count: z.number().int().min(0).max(9).optional()
+    visited_workflow_count: z.number().int().min(0).max(6).optional(),
+    visited_substep_count: z.number().int().min(0).max(11).optional(),
+    completed_workflow_count: z.number().int().min(0).max(6).optional(),
+    completed_substep_count: z.number().int().min(0).max(11).optional()
   })
   .strict()
 const featureWallTileFocusedSchema = z
@@ -1049,10 +1050,10 @@ const onboardingTourOutcomeEventSchema = z
     intro_duration_ms: z.number().int().min(0).max(FEATURE_WALL_MAX_DWELL_MS).optional(),
     tour_dwell_ms: z.number().int().min(0).max(FEATURE_WALL_MAX_DWELL_MS).optional(),
     furthest_step: featureWallTourDepthStepSchema.optional(),
-    visited_workflow_count: z.number().int().min(0).max(5).optional(),
-    visited_substep_count: z.number().int().min(0).max(9).optional(),
-    completed_workflow_count: z.number().int().min(0).max(5).optional(),
-    completed_substep_count: z.number().int().min(0).max(9).optional(),
+    visited_workflow_count: z.number().int().min(0).max(6).optional(),
+    visited_substep_count: z.number().int().min(0).max(11).optional(),
+    completed_workflow_count: z.number().int().min(0).max(6).optional(),
+    completed_substep_count: z.number().int().min(0).max(11).optional(),
     advanced_via: advancedViaSchema,
     cohort: cohortSchema
   })

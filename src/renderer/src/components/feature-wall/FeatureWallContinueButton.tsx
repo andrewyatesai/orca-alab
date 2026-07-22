@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import { CornerDownLeft } from 'lucide-react'
+import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
 import { Button } from '@/components/ui/button'
 
 export function FeatureWallContinueButton(props: {
@@ -8,14 +8,23 @@ export function FeatureWallContinueButton(props: {
   shortcutModifierLabel: string
   onClick: () => void
 }): JSX.Element {
+  const ariaKeyShortcut = navigator.userAgent.includes('Mac') ? 'Meta+Enter' : 'Control+Enter'
   return (
-    <Button type="button" variant="default" className="gap-2 px-5" onClick={props.onClick}>
+    <Button
+      type="button"
+      variant="default"
+      className="gap-2 px-5"
+      aria-keyshortcuts={props.enableKeyboardShortcut ? ariaKeyShortcut : undefined}
+      onClick={props.onClick}
+    >
       {props.label}
       {props.enableKeyboardShortcut ? (
-        <span className="ml-1 inline-flex items-center gap-0.5 rounded border border-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-medium leading-none text-current/80">
-          <span>{props.shortcutModifierLabel}</span>
-          <CornerDownLeft className="size-3" />
-        </span>
+        <ShortcutKeyCombo
+          keys={[props.shortcutModifierLabel, 'Enter']}
+          className="ml-1 gap-0.5"
+          separatorClassName="mx-0 text-[10px] text-primary-foreground/70"
+          keyCapClassName="min-w-0 border-primary-foreground/20 bg-primary-foreground/10 px-1 py-0.5 text-[10px] leading-none text-primary-foreground shadow-none"
+        />
       ) : null}
     </Button>
   )

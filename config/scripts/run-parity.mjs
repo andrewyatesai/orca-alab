@@ -12,14 +12,14 @@
 // matching config/scripts/build-aterm-wasm.mjs.
 //
 // Fully offline: the workspace resolves against rust/vendor (which carries the
-// complete lockfile closure, web-time included). A prebuilt
-// rust/target/{debug,release}/orca-parity binary is still preferred to skip
-// the cargo invocation entirely.
+// complete lockfile closure, web-time included). A prebuilt binary is only a
+// fallback when rustup is unavailable; preferring it can silently run stale code.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
+import { orcaParityExecutablePaths } from './rust-host-executable-paths.mjs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -42,21 +42,12 @@ function run(cmd, args, opts = {}) {
 }
 
 // Leg 1: regenerate the Rust outputs.
-const prebuilt = ['debug', 'release']
-  .map((profile) => resolve(projectDir, `rust/target/${profile}/orca-parity`))
-  .find((path) => existsSync(path))
+const prebuilt = orcaParityExecutablePaths(projectDir).find((path) => existsSync(path))
 
 let rustStatus
-if (prebuilt) {
-  console.log(`[parity] using prebuilt ${prebuilt} (skips cargo — works offline)`)
-  rustStatus = run(prebuilt, [vectorsDir, outputsFile])
-} else {
-  const cargoBin = rustupBin('cargo')
-  const rustcBin = rustupBin('rustc')
-  if (!cargoBin || !rustcBin) {
-    console.error('[parity] no prebuilt orca-parity and rustup stable is unavailable')
-    process.exit(1)
-  }
+const cargoBin = rustupBin('cargo')
+const rustcBin = rustupBin('rustc')
+if (cargoBin && rustcBin) {
   console.log('[parity] building + running orca-parity (rustup stable, offline via rust/vendor)')
   rustStatus = run(
     cargoBin,
@@ -73,6 +64,12 @@ if (prebuilt) {
     ],
     { env: { ...process.env, RUSTC: rustcBin } }
   )
+} else if (prebuilt) {
+  console.warn(`[parity] rustup stable unavailable; using prebuilt ${prebuilt}`)
+  rustStatus = run(prebuilt, [vectorsDir, outputsFile])
+} else {
+  console.error('[parity] no prebuilt orca-parity and rustup stable is unavailable')
+  process.exit(1)
 }
 
 if (rustStatus !== 0) {

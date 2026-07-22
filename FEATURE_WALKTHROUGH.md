@@ -7,8 +7,8 @@ commands target this checkout rather than a separate production Orca installatio
 
 This is **Orca: ALab Edition**, an experimental downstream edition of Stably's
 Orca. It retains Orca's product workflow while concentrating on the Rust/aterm
-terminal stack, native hot paths, recovery behavior, reproducible artifacts, and
-evidence-driven compatibility. It is still an Electron and React application,
+terminal stack, native hot paths, recovery behavior, provenance-bound artifacts,
+and evidence-driven compatibility. It is still an Electron and React application,
 not a ground-up native rewrite.
 
 ## Launch it and confirm readiness
@@ -59,6 +59,14 @@ launches reuse it.
 Inside Orca, **Help → Explore Orca** opens the visual tour and **Help → Getting
 Started with Orca** opens the setup checklist.
 
+The four-minute visual tour follows the product lifecycle in six chapters and
+eleven screens: **Start** (terminal and project setup), **Plan** (tasks and
+isolated workspaces), **Build** (agent fleet and workbench), **Ship** (review,
+checks, and provider-ready publishing), **Scale** (orchestration and
+automations), and **Anywhere** (SSH/remote runtimes, beta Orca Mobile, and beta
+Computer Use). It demonstrates outcomes without implying that integrations or
+host permissions are already configured.
+
 ## Terminal engine pin and artifact provenance
 
 The `rust/aterm` submodule is pinned to the latest upstream `main` revision as
@@ -66,24 +74,31 @@ verified directly against GitHub on July 21, 2026:
 
 | Provenance field                               | Exact value                                                        |
 | ---------------------------------------------- | ------------------------------------------------------------------ |
-| Upstream commit                                | `49d8fd8a7476e9e49b24650a0269328da9716174`                         |
-| `git describe --tags --always`                 | `v0.55-32-g49d8fd8a`                                               |
-| Cargo workspace version / embedded WASM marker | `0.55.0` / `aterm(0.55.0)`                                         |
+| Upstream commit                                | `44813dd62353dc7bc749c213376c5b2db221deb1`                         |
+| `git describe --tags --always`                 | `v0.56-1-g44813dd6`                                                |
+| Cargo workspace version / embedded WASM marker | `0.56.0` / `aterm(0.56.0)`                                         |
 | Artifact manifest                              | schema `2`                                                         |
 | Downstream compatibility patch                 | `config/patches/aterm-gpu-wasm-clock.patch`                        |
 | Patch SHA-256                                  | `af2e17dda30efbbf3666eeed1ac852aa8dff67d4456f2796bc814209be1bd757` |
+| WASM Rust compiler                             | `rustc 1.97.1 (8bab26f4f 2026-07-14)`                              |
+| `wasm-bindgen` CLI                             | `0.2.108`                                                          |
+| Binaryen optimizer                             | `wasm-opt version 131`                                             |
 
-The commit is 32 commits after the `v0.55` tag and is represented by aterm's
-`[Unreleased]` changelog. Its workspace version is still `0.55.0`; calling it a
-tagged `v0.56` release would be inaccurate.
+The commit is one packaging-only revision after the `v0.56` tag. The terminal
+engine source matches that release; the additional commit pins the v0.56 cask.
 
 Schema 2 binds the clean upstream commit and exact compatibility-patch digest to
 all eight generated CPU/GPU files: JavaScript glue, TypeScript declarations,
 WASM binaries, and WASM declarations. It records byte length and SHA-256 for
-each. The current CPU binary is 3,752,165 bytes with SHA-256
-`d73613ee7899ee96c5cfe5b7de73b32a7a54525d0cb96876238b3eb8fc0e3336`;
-the GPU binary is 6,215,431 bytes with SHA-256
-`edc79735b4fa8d68502f535d272cfbdc88aa6e85e3cdaa23010e93996e0975dc`.
+each. The current CPU binary is 3,752,173 bytes with SHA-256
+`090a70f0ac497daaebe59ae1ea2ff9b89d5a60978ae74b4b5ef4bec2b5f4a10b`;
+the GPU binary is 6,215,484 bytes with SHA-256
+`f4e65fc7b31637a5b3d3c626b32a1b1b7c4843511eda86549eb3b6fc9efa3274`.
+
+The manifest makes the shipped files auditable and fail-closed, but rebuilding
+them byte-for-byte also requires the recorded Rust and Binaryen versions. Orca
+pins `wasm-bindgen`; rustup `stable` and the system `wasm-opt` remain explicit
+maintainer prerequisites rather than hermetically downloaded tools.
 
 The small downstream patch changes two GPU present-time measurements from
 `std::time::Instant` to the WASM-compatible `web_time::Instant`. The build never
@@ -370,11 +385,11 @@ orca-dev skills get orca-emulator-android --full
 
 ## 9. Use Computer Use for desktop apps
 
-Computer Use lets an agent inspect visible macOS apps through accessibility
-snapshots and operate them with clicks, text input, key presses, scrolling,
-dragging, and advertised accessibility actions. Use the built-in browser CLI for
-pages inside Orca; use Computer Use for Orca's own UI, browser windows outside
-Orca, and other desktop applications.
+Computer Use ships native helpers per platform. It lets an agent inspect visible
+desktop apps through accessibility snapshots and operate them with clicks, text
+input, key presses, scrolling, dragging, and advertised accessibility actions.
+Use the built-in browser CLI for pages inside Orca; use Computer Use for Orca's
+own UI, browser windows outside Orca, and other desktop applications.
 
 ```bash
 orca-dev computer capabilities --json
@@ -383,10 +398,10 @@ orca-dev computer list-apps --json
 orca-dev computer get-app-state --app <app-selector> --json
 ```
 
-macOS may require Accessibility and Screen Recording permission before every
-capability is available. `computer permissions` reports the current state and
-can open the relevant System Settings pages. Read the safety and action guidance
-with:
+On macOS, Computer Use requires Accessibility and Screen Recording permissions;
+Linux and Windows do not use that macOS permission flow. `computer permissions`
+reports permission state, while `computer capabilities` verifies the available
+native helper on every platform. Read the safety and action guidance with:
 
 ```bash
 orca-dev skills get computer-use --full
@@ -411,8 +426,9 @@ match the installed version instead of relying on stale global documentation.
 The latest aterm pin and final ALab Edition source build have been exercised
 through independent unit, native, browser, packaging, and live-app paths:
 
-- Fresh `HEAD == origin/main` verification for Orca and aterm, with aterm at
-  `49d8fd8a7476e9e49b24650a0269328da9716174` and its submodule checkout clean.
+- Orca was fast-forwarded to its `origin/main` baseline before this work; aterm's
+  latest `origin/main` resolved to `44813dd62353dc7bc749c213376c5b2db221deb1`,
+  with the submodule checkout clean.
 - Schema-2 aterm provenance check: all **8/8** generated CPU/GPU artifacts,
   byte lengths, hashes, source commit, and compatibility-patch digest match.
 - Latest upstream aterm Rust validation: **655/655** passed, comprising **602**
@@ -451,7 +467,9 @@ above; they are not relabelled as a newly repeated full-suite run.
 
 Prerequisites are Node.js 24, pnpm, and a rustup-managed stable Rust toolchain
 version 1.96 or newer. The checkout vendors its Rust crates and WASM artifacts;
-it does not require a separate `CARGO_HOME` workaround.
+it does not require a separate `CARGO_HOME` workaround. Regenerating aterm also
+requires the stable `wasm32-unknown-unknown` target and Binaryen's `wasm-opt` on
+`PATH` (`brew install binaryen` on macOS).
 
 To update and rebuild:
 
@@ -481,9 +499,10 @@ pnpm check:aterm-pin
 
 `bump:aterm` fetches and detaches at the requested/latest upstream revision,
 rebuilds CPU and GPU artifacts through the isolated compatibility-patch
-worktree, and writes the schema-2 manifest. The subsequent pin check is offline
-and fail-closed. Review and stage the submodule pointer, patch (if changed),
-generated glue/types/WASM, and artifact manifest together.
+worktree, rebuilds the native addon and Rust daemon, refreshes both Cargo locks,
+and writes the schema-2 manifest. The subsequent pin check is offline and
+fail-closed. Review and stage the submodule pointer, both Cargo locks, patch (if
+changed), generated glue/types/WASM, and artifact manifest together.
 
 For active development with rebuilds and hot reload, use:
 

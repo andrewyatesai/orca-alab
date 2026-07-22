@@ -6,10 +6,9 @@ import {
 } from '../../../../shared/feature-wall-workflows'
 import {
   getFeatureWallRailNavigationTarget,
-  type FeatureWallRailNavigationKey
+  normalizeFeatureWallRailNavigationKey,
+  type FeatureWallRailOrientation
 } from './feature-wall-rail-navigation'
-
-const FEATURE_WALL_TOUR_NAVIGATION_KEYS = new Set<string>(['ArrowUp', 'ArrowDown', 'Home', 'End'])
 
 export function useFeatureWallTourRailKeydown({
   railRefs,
@@ -17,16 +16,25 @@ export function useFeatureWallTourRailKeydown({
 }: {
   railRefs: RefObject<(HTMLButtonElement | null)[]>
   onSelectWorkflow: (workflow: FeatureWallWorkflow) => void
-}): (event: KeyboardEvent<HTMLButtonElement>, index: number) => void {
+}): (
+  event: KeyboardEvent<HTMLButtonElement>,
+  index: number,
+  orientation: FeatureWallRailOrientation
+) => void {
   return useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
-      if (!FEATURE_WALL_TOUR_NAVIGATION_KEYS.has(event.key)) {
+    (
+      event: KeyboardEvent<HTMLButtonElement>,
+      index: number,
+      orientation: FeatureWallRailOrientation
+    ): void => {
+      const navigationKey = normalizeFeatureWallRailNavigationKey(event.key, orientation)
+      if (!navigationKey) {
         return
       }
       event.preventDefault()
       const nextIndex = getFeatureWallRailNavigationTarget({
         currentIndex: index,
-        key: event.key as FeatureWallRailNavigationKey,
+        key: navigationKey,
         itemCount: FEATURE_WALL_WORKFLOWS.length
       })
       const nextWorkflow = FEATURE_WALL_WORKFLOWS[nextIndex]

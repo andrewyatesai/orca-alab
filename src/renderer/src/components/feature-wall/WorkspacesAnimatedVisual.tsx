@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
+import { ArrowRight, FolderGit2, GitBranch } from 'lucide-react'
 import { AgentStateDot } from '@/components/AgentStateDot'
+import { translate } from '@/i18n/i18n'
 import { ClaudeIcon, OpenCodeGoIcon } from '../status-bar/icons'
 
 type AgentKind = 'claude' | 'codex' | 'opencode'
@@ -12,9 +14,36 @@ type WorkspaceMock = {
 }
 
 const WORKSPACES: readonly WorkspaceMock[] = [
-  { id: 'a', name: 'set up orca.yaml', agents: ['claude'] },
-  { id: 'b', name: 'fix login race condition', agents: ['claude', 'opencode', 'codex'] },
-  { id: 'c', name: 'speed up CI pipeline', agents: ['claude', 'codex'] }
+  {
+    id: 'a',
+    get name() {
+      return translate(
+        'auto.components.feature.wall.WorkspacesAnimatedVisual.f110000004',
+        'set up orca.yaml'
+      )
+    },
+    agents: ['claude']
+  },
+  {
+    id: 'b',
+    get name() {
+      return translate(
+        'auto.components.feature.wall.WorkspacesAnimatedVisual.f110000005',
+        'fix login race condition'
+      )
+    },
+    agents: ['claude', 'opencode', 'codex']
+  },
+  {
+    id: 'c',
+    get name() {
+      return translate(
+        'auto.components.feature.wall.WorkspacesAnimatedVisual.f110000006',
+        'speed up CI pipeline'
+      )
+    },
+    agents: ['claude', 'codex']
+  }
 ]
 
 const SELECTED_ID = WORKSPACES[0].id
@@ -106,6 +135,35 @@ export function WorkspacesAnimatedVisual(props: { reducedMotion: boolean }): JSX
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card p-2.5 text-foreground">
+      <div className="mb-2.5 grid grid-cols-[minmax(0,0.8fr)_auto_minmax(0,1.4fr)] items-stretch gap-2 rounded-lg border border-border bg-muted/30 p-2.5">
+        <BranchContext
+          icon={GitBranch}
+          label={translate(
+            'auto.components.feature.wall.WorkspacesAnimatedVisual.f110000001',
+            'Base branch'
+          )}
+          primary="main"
+        />
+        <ArrowRight className="size-3.5 self-center text-muted-foreground" aria-hidden />
+        <BranchContext
+          icon={FolderGit2}
+          label={translate(
+            'auto.components.feature.wall.WorkspacesAnimatedVisual.f110000002',
+            'Isolated worktree + branch'
+          )}
+          primary=".orca/worktrees/orca-yaml"
+          secondary="feature/orca-yaml"
+        />
+      </div>
+      <div className="mb-2 flex items-center gap-2 px-1">
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+          {translate(
+            'auto.components.feature.wall.WorkspacesAnimatedVisual.f110000003',
+            'Agent activity in isolated workspaces'
+          )}
+        </span>
+        <span className="h-px min-w-0 flex-1 bg-border" />
+      </div>
       <div className="relative" style={{ height: VISUAL_HEIGHT_PX }}>
         {WORKSPACES.map((ws) => {
           const isSelected = ws.id === SELECTED_ID
@@ -158,6 +216,33 @@ export function WorkspacesAnimatedVisual(props: { reducedMotion: boolean }): JSX
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+function BranchContext(props: {
+  icon: typeof GitBranch
+  label: string
+  primary: string
+  secondary?: string
+}): JSX.Element {
+  const Icon = props.icon
+  return (
+    <div className="flex min-w-0 items-start gap-2">
+      <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+        <Icon className="size-3" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+          {props.label}
+        </p>
+        <p className="truncate font-mono text-[11px] leading-4 text-foreground">{props.primary}</p>
+        {props.secondary ? (
+          <p className="truncate font-mono text-[10px] leading-4 text-muted-foreground">
+            {props.secondary}
+          </p>
+        ) : null}
       </div>
     </div>
   )

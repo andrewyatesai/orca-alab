@@ -4,13 +4,15 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   KEYCHAIN_COPY_MARKER_FILE,
+  MAX_KEYCHAIN_COPY_ATTEMPTS,
   NEW_PROFILE_DIR_NAME,
   OLD_PROFILE_DIR_NAME,
   copyStagingSafeStorageKeychainItem,
   decideStagingProfileMigration,
   migrateStagingProfile,
   oldStagingProfilePath,
-  readProfileDirState
+  readProfileDirState,
+  removeVerifiedEmptyProfileDir
 } from './staging-profile-migration'
 
 describe('staging-profile-migration', () => {
@@ -114,6 +116,28 @@ describe('staging-profile-migration', () => {
     })
   })
 
+  describe('removeVerifiedEmptyProfileDir', () => {
+    it('removes a dir that is empty apart from .DS_Store', () => {
+      mkdirSync(newProfilePath)
+      writeFileSync(join(newProfilePath, '.DS_Store'), '')
+      removeVerifiedEmptyProfileDir(newProfilePath)
+      expect(existsSync(newProfilePath)).toBe(false)
+    })
+
+    it('throws on a populated dir and leaves its contents intact (two-instance race)', () => {
+      // A racing instance renamed the old profile into place after this instance's state read.
+      mkdirSync(newProfilePath)
+      writeFileSync(join(newProfilePath, 'config.json'), '{"repos":["a"]}')
+      mkdirSync(join(newProfilePath, 'ai-vault'))
+      writeFileSync(join(newProfilePath, 'ai-vault', 'secrets.bin'), 'encrypted')
+      expect(() => removeVerifiedEmptyProfileDir(newProfilePath)).toThrow()
+      expect(readFileSync(join(newProfilePath, 'config.json'), 'utf-8')).toBe('{"repos":["a"]}')
+      expect(readFileSync(join(newProfilePath, 'ai-vault', 'secrets.bin'), 'utf-8')).toBe(
+        'encrypted'
+      )
+    })
+  })
+
   describe('migrateStagingProfile', () => {
     it('moves the old profile into place when the new dir is missing', () => {
       seedOldProfile()
@@ -147,6 +171,21 @@ describe('staging-profile-migration', () => {
       expect(readFileSync(join(newProfilePath, 'config.json'), 'utf-8')).toBe('{"repos":["a"]}')
     })
 
+    it('moves the old profile over a new dir holding only .DS_Store', () => {
+      seedOldProfile()
+      mkdirSync(newProfilePath)
+      writeFileSync(join(newProfilePath, '.DS_Store'), '')
+      const decision = migrateStagingProfile({
+        isPackaged: true,
+        userDataPath: newProfilePath,
+        platform: 'linux',
+        log: vi.fn(),
+        warn: vi.fn()
+      })
+      expect(decision.action).toBe('rename')
+      expect(readFileSync(join(newProfilePath, 'config.json'), 'utf-8')).toBe('{"repos":["a"]}')
+    })
+
     it('leaves a populated new profile untouched', () => {
       seedOldProfile()
       mkdirSync(newProfilePath)
@@ -173,6 +212,61 @@ describe('staging-profile-migration', () => {
       })
       expect(decision).toEqual({ action: 'skip', reason: 'no-old-profile-data' })
       expect(existsSync(newProfilePath)).toBe(false)
+    })
+
+    it('still runs the Keychain copy when a prior launch renamed but crashed before the marker write', () => {
+      // Crash-recovery state: profile already adopted (old dir gone), marker absent.
+      mkdirSync(newProfilePath)
+      writeFileSync(join(newProfilePath, 'config.json'), '{"repos":["a"]}')
+      const execFileSyncFn = vi.fn((_file: string, args: string[]) => {
+        if (
+          args[0] === 'find-generic-password' &&
+          args.includes('Orca ALab Edition Safe Storage')
+        ) {
+          throw new Error('item not found')
+        }
+        return 'old-secret\n'
+      })
+      const decision = migrateStagingProfile({
+        isPackaged: true,
+        userDataPath: newProfilePath,
+        platform: 'darwin',
+        execFileSyncFn,
+        log: vi.fn(),
+        warn: vi.fn()
+      })
+      expect(decision).toEqual({ action: 'skip', reason: 'no-old-profile-data' })
+      const addCall = execFileSyncFn.mock.calls.find(
+        ([, args]) => args[0] === 'add-generic-password'
+      )
+      expect(addCall?.[1]).toContain('old-secret')
+      const marker = JSON.parse(
+        readFileSync(join(newProfilePath, KEYCHAIN_COPY_MARKER_FILE), 'utf-8')
+      )
+      expect(marker.outcome).toBe('copied')
+    })
+
+    it('never probes the Keychain on unpackaged runs or before the profile dir exists', () => {
+      const execFileSyncFn = vi.fn()
+      mkdirSync(newProfilePath)
+      migrateStagingProfile({
+        isPackaged: false,
+        userDataPath: newProfilePath,
+        platform: 'darwin',
+        execFileSyncFn,
+        log: vi.fn(),
+        warn: vi.fn()
+      })
+      rmSync(newProfilePath, { recursive: true, force: true })
+      migrateStagingProfile({
+        isPackaged: true,
+        userDataPath: newProfilePath,
+        platform: 'darwin',
+        execFileSyncFn,
+        log: vi.fn(),
+        warn: vi.fn()
+      })
+      expect(execFileSyncFn).not.toHaveBeenCalled()
     })
 
     it('copies the safeStorage Keychain item after a successful rename on darwin', () => {
@@ -220,29 +314,117 @@ describe('staging-profile-migration', () => {
       expect(execFileSyncFn).not.toHaveBeenCalled()
     })
 
-    it('attempts at most once: a marker from a failed attempt blocks retries', () => {
+    it('retries transient failures up to the attempt bound, then blocks', () => {
       mkdirSync(newProfilePath)
       const execFileSyncFn = vi.fn(() => {
         throw new Error('keychain locked')
       })
       const warn = vi.fn()
-      expect(
+      const copy = (): string =>
         copyStagingSafeStorageKeychainItem({
           newProfilePath,
           platform: 'darwin',
           execFileSyncFn,
           warn
         })
-      ).toBe('old-item-missing')
-      expect(existsSync(join(newProfilePath, KEYCHAIN_COPY_MARKER_FILE))).toBe(true)
+      for (let attempt = 1; attempt <= MAX_KEYCHAIN_COPY_ATTEMPTS; attempt++) {
+        expect(copy()).toBe('old-item-missing')
+        const marker = JSON.parse(
+          readFileSync(join(newProfilePath, KEYCHAIN_COPY_MARKER_FILE), 'utf-8')
+        )
+        expect(marker.attempts).toBe(attempt)
+      }
+      expect(copy()).toBe('skipped-marker-present')
+    })
+
+    it('a transient-failure marker does not wedge: the copy succeeds on a later launch', () => {
+      mkdirSync(newProfilePath)
+      const failing = vi.fn(() => {
+        throw new Error('keychain locked')
+      })
+      copyStagingSafeStorageKeychainItem({
+        newProfilePath,
+        platform: 'darwin',
+        execFileSyncFn: failing,
+        warn: vi.fn()
+      })
+      // Next launch: keychain unlocked again.
+      const working = vi.fn((_file: string, args: string[]) => {
+        if (
+          args[0] === 'find-generic-password' &&
+          args.includes('Orca ALab Edition Safe Storage')
+        ) {
+          throw new Error('item not found')
+        }
+        return 'old-secret\n'
+      })
       expect(
         copyStagingSafeStorageKeychainItem({
           newProfilePath,
           platform: 'darwin',
-          execFileSyncFn,
-          warn
+          execFileSyncFn: working,
+          warn: vi.fn()
+        })
+      ).toBe('copied')
+    })
+
+    it('a terminal-outcome marker blocks retries permanently', () => {
+      mkdirSync(newProfilePath)
+      writeFileSync(
+        join(newProfilePath, KEYCHAIN_COPY_MARKER_FILE),
+        JSON.stringify({ schemeVersion: 2, attemptedAt: 0, outcome: 'copied', attempts: 1 })
+      )
+      const execFileSyncFn = vi.fn()
+      expect(
+        copyStagingSafeStorageKeychainItem({
+          newProfilePath,
+          platform: 'darwin',
+          execFileSyncFn
         })
       ).toBe('skipped-marker-present')
+      expect(execFileSyncFn).not.toHaveBeenCalled()
+    })
+
+    it('retries after a legacy schemeVersion-1 failed marker (counts as one attempt)', () => {
+      mkdirSync(newProfilePath)
+      writeFileSync(
+        join(newProfilePath, KEYCHAIN_COPY_MARKER_FILE),
+        JSON.stringify({ schemeVersion: 1, attemptedAt: 0, outcome: 'failed' })
+      )
+      const execFileSyncFn = vi.fn((_file: string, args: string[]) => {
+        if (
+          args[0] === 'find-generic-password' &&
+          args.includes('Orca ALab Edition Safe Storage')
+        ) {
+          throw new Error('item not found')
+        }
+        return 'old-secret\n'
+      })
+      expect(
+        copyStagingSafeStorageKeychainItem({
+          newProfilePath,
+          platform: 'darwin',
+          execFileSyncFn
+        })
+      ).toBe('copied')
+      const marker = JSON.parse(
+        readFileSync(join(newProfilePath, KEYCHAIN_COPY_MARKER_FILE), 'utf-8')
+      )
+      expect(marker.attempts).toBe(2)
+    })
+
+    it('an unreadable marker fails closed and never re-prompts', () => {
+      mkdirSync(newProfilePath)
+      writeFileSync(join(newProfilePath, KEYCHAIN_COPY_MARKER_FILE), 'not json')
+      const execFileSyncFn = vi.fn()
+      expect(
+        copyStagingSafeStorageKeychainItem({
+          newProfilePath,
+          platform: 'darwin',
+          execFileSyncFn
+        })
+      ).toBe('skipped-marker-present')
+      expect(execFileSyncFn).not.toHaveBeenCalled()
     })
 
     it('does not overwrite an existing new-name Keychain item', () => {

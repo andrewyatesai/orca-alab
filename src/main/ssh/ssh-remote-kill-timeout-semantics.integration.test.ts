@@ -258,18 +258,24 @@ describePosix(
           cwd: fixture.dir,
           env: fixture.env,
           maxBuffer: 1024 * 1024,
-          timeout: 1_500
+          timeout: 5_000
         })
         const settledError = pending.then(
           () => null,
           (error: Error) => error
         )
-        const { pgid, leaderPid } = await readStartedGroup(fixture)
-        expect(pgid, `under ${shellCase.label}`).toBe(leaderPid)
+        // Why: the timeout timer runs from spawn and can kill the tree before the
+        // deep chain writes the pgid file under sweep load (gate flake); gate on the
+        // shim's own pid write. The abort test pins pgid===leaderPid race-free.
+        await waitFor(() => existsSync(fixture.leaderPidFile), 10_000, 'relay transport shim start')
+        const leaderPid = Number(readFileSync(fixture.leaderPidFile, 'utf8').trim())
+        lingeringPgids.push(leaderPid)
         const error = await settledError
         expect(error?.message).toBe('git timed out.')
+        // Why: detached spawn makes the shim the group leader, so -leaderPid is the
+        // group the production timeout path signals.
         await waitFor(
-          () => !processGroupAlive(pgid),
+          () => !processGroupAlive(leaderPid),
           5_000,
           `${shellCase.label} group teardown after timeout`
         )
@@ -398,15 +404,23 @@ describePosix(
         const fixture = buildSystemSshExecFixture(shellCase)
         process.env.ORCA_SYSTEM_SSH_PATH = fixture.sshShimPath
         const conn = createConnectedSystemSshConnection()
-        const pending = execCommand(conn, fixture.inner, { timeoutMs: 1_000 })
+        const pending = execCommand(conn, fixture.inner, { timeoutMs: 5_000 })
         const settledError = pending.then(
           () => null,
           (error: Error) => error
         )
-        const { sshPid } = await readStartedSystemSshTree(fixture)
+        // Why: the timeout races the shim→login-shell→sh chain under sweep load;
+        // gate startup on the shim's own pid write only (1 spawn deep).
+        await waitFor(() => existsSync(fixture.sshPidFile), 10_000, 'system-ssh shim start')
+        const sshPid = Number(readFileSync(fixture.sshPidFile, 'utf8').trim())
+        lingeringPids.push(sshPid)
         const error = await settledError
+        // Best-effort orphan cleanup if the inner sh got far enough to record itself.
+        if (existsSync(fixture.shPidFile)) {
+          lingeringPids.push(Number(readFileSync(fixture.shPidFile, 'utf8').trim()))
+        }
         expect(error?.message, `under ${shellCase.label}`).toBe(
-          `Command "${fixture.inner}" timed out after 1s`
+          `Command "${fixture.inner}" timed out after 5s`
         )
         expect(isUnconfirmedSshCommandTermination(error), `under ${shellCase.label}`).toBe(true)
         await waitFor(
@@ -439,7 +453,9 @@ describePosix(
             args: ['-lc', script],
             cwd: dir,
             stdin: null,
-            timeoutMs: 1_000,
+            // Why: the timeout runs from spawn; keep it wide enough that the hook
+            // shell's pid write (1 spawn deep) cannot lose the race under load.
+            timeoutMs: 5_000,
             env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir }
           },
           requestContext()

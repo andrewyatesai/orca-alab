@@ -6,12 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ResolvedCustomKeybinding } from '../../../../shared/custom-keybindings'
 import type { PtyTransport } from './pty-transport'
 
-const { recordTerminalUserInputForLeafMock, sendTerminalQuickCommandToPaneMock } = vi.hoisted(
-  () => ({
-    recordTerminalUserInputForLeafMock: vi.fn(),
-    sendTerminalQuickCommandToPaneMock: vi.fn(() => true)
-  })
-)
+const {
+  recordTerminalUserInputForLeafMock,
+  sendTerminalQuickCommandToPaneMock,
+  copyTerminalTextVerifiedMock
+} = vi.hoisted(() => ({
+  recordTerminalUserInputForLeafMock: vi.fn(),
+  sendTerminalQuickCommandToPaneMock: vi.fn(() => true),
+  copyTerminalTextVerifiedMock: vi.fn(() => Promise.resolve(true))
+}))
 
 vi.mock('./terminal-input-activity', () => ({
   recordTerminalUserInputForLeaf: recordTerminalUserInputForLeafMock
@@ -21,15 +24,22 @@ vi.mock('./terminal-quick-command-dispatch', () => ({
   sendTerminalQuickCommandToPane: sendTerminalQuickCommandToPaneMock
 }))
 
+vi.mock('./terminal-copy-outcome', () => ({
+  copyTerminalTextVerified: copyTerminalTextVerifiedMock,
+  reportTerminalCopyOutcome: vi.fn(),
+  copyTerminalSelectionThenClear: vi.fn(),
+  resetTerminalCopyOutcomeLatchesForTest: vi.fn()
+}))
+
 import { useTerminalKeyboardShortcuts } from './keyboard-handlers'
 import { useAppStore } from '@/store'
 
-function createPane() {
+function createPane(selection = '') {
   return {
     id: 1,
     leafId: 'leaf-1',
     terminal: {
-      getSelection: () => '',
+      getSelection: () => selection,
       focus: vi.fn(),
       element: document.createElement('div')
     },
@@ -191,6 +201,83 @@ describe('useTerminalKeyboardShortcuts — custom keybinding dispatch', () => {
     })
 
     expect(sendTerminalQuickCommandToPaneMock).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(true)
+    unmount()
+  })
+})
+
+// Cross-track composition pins (Wave-1 ownership waivers): 1B's custom-binding
+// precedence and 1D's verified-copy pathway share keyboard-handlers.ts, and 1B's
+// keyboard quick-command dispatch borders 1E's trust-gated project commands.
+describe('useTerminalKeyboardShortcuts — custom bindings compose with the verified copy path', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { userAgent: 'Macintosh' })
+    recordTerminalUserInputForLeafMock.mockClear()
+    sendTerminalQuickCommandToPaneMock.mockClear()
+    copyTerminalTextVerifiedMock.mockClear()
+    useAppStore.setState({
+      settings: {
+        terminalQuickCommands: [{ id: 'qc-rebuild', name: 'rebuild', command: 'make' }]
+      } as never
+    })
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const copyChordClash: ResolvedCustomKeybinding = {
+    id: 'custom.copyclash001',
+    title: 'Copy-chord macro',
+    action: { type: 'sendText', text: 'CLASH' },
+    bindings: ['Mod+Shift+C'],
+    decodedText: 'CLASH'
+  }
+
+  it('same-chord custom sendText stays shadowed and the chord runs the verified copy seam', () => {
+    const sendInput = vi.fn(() => true)
+    const { unmount } = mountShortcuts(createPane('picked text'), sendInput, [copyChordClash])
+
+    const event = dispatchKeydown({ key: 'c', code: 'KeyC', metaKey: true, shiftKey: true })
+
+    // 1B precedence intact: the built-in wins the shared chord, custom bytes never sent.
+    expect(sendInput).not.toHaveBeenCalled()
+    // 1D pathway intact: the winning copySelection routes through the verified-copy seam.
+    expect(copyTerminalTextVerifiedMock).toHaveBeenCalledWith('picked text', 'shortcut')
+    expect(event.defaultPrevented).toBe(true)
+    unmount()
+  })
+
+  it('empty selection declines the copy without falling through to the same-chord custom entry', () => {
+    const sendInput = vi.fn(() => true)
+    const { unmount } = mountShortcuts(createPane(''), sendInput, [copyChordClash])
+
+    const event = dispatchKeydown({ key: 'c', code: 'KeyC', metaKey: true, shiftKey: true })
+
+    // Why: the policy already resolved copySelection, so a no-selection decline must
+    // leave the key unconsumed rather than re-enter custom dispatch.
+    expect(copyTerminalTextVerifiedMock).not.toHaveBeenCalled()
+    expect(sendInput).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(false)
+    unmount()
+  })
+
+  it('a custom binding naming a project (orcaYaml:) quick-command id fails closed on the keyboard path', () => {
+    const projectQuickCommandEntry: ResolvedCustomKeybinding = {
+      id: 'custom.projectqc01',
+      title: 'Project deploy',
+      action: { type: 'runQuickCommand', quickCommandId: 'orcaYaml:repo-1:0' },
+      bindings: ['Mod+Alt+P']
+    }
+    const sendInput = vi.fn(() => true)
+    const { unmount } = mountShortcuts(createPane(), sendInput, [projectQuickCommandEntry])
+
+    const event = dispatchKeydown({ key: 'p', code: 'KeyP', metaKey: true, altKey: true })
+
+    // Why: project commands live only in the per-repo hooks cache; the keyboard path
+    // resolves ids against local Settings commands only, so repo-controlled orca.yaml
+    // bytes can never reach a shell without TerminalPane's dispatch-time trust gate.
+    expect(sendTerminalQuickCommandToPaneMock).not.toHaveBeenCalled()
+    expect(sendInput).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(true)
     unmount()
   })

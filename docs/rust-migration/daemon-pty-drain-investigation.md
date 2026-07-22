@@ -181,6 +181,28 @@ socket writer is the bottleneck — under host contention the ~1 KiB PTY reads
 are, so the quiet-machine +58% ceiling was not reproducible here and remains
 unclaimed for the writer form.
 
+**Quiet-machine rerun (2026-07-22):** same harness, same 500 MB corpus, ABBA
+(B A A B B A per format), on the M5 Max at loadavg 4.2–5.0 / 18 cores (the
+quietest window available; variance was the tight sub-±1% of the quiet runs
+above, unlike the loaded run's spread). Baseline = HEAD with only the P2
+writer commit (8d00f83b2) reverse-applied, so the delta isolates the writer
+change. NDJSON 142.9 → 160.4 MB/s median (+12%; before 141.6–143.6, after
+160.2–160.4), binary 152.9 → 154.4 MB/s (+1%, all six runs within 152.3–154.9
+— at or below noise). Honest conclusion: writer-side coalescing buys a real
+but modest NDJSON win (per-line encode+write amortization) and roughly nothing
+for binary on a fast local Unix socket; the pump-side +58% ceiling is NOT
+reached by the writer form even quiet, and stays unclaimed.
+
+**Measurement limitation (WSL / SSH): not benchmarked.** These numbers cover
+the native local-socket writer only. The roadmap asked for WSL and SSH writer
+measurements too; neither exists yet — this is a macOS dev host (no WSL), and
+no end-to-end SSH-transport run of this harness has been done. The coalescing
+itself is transport-agnostic (one drain loop per stream socket regardless of
+who consumes it), and fewer, larger frames should help more where per-frame
+cost is higher (WSL's 9P/vsock seams, SSH channel framing) — but that is a
+hypothesis, not a measurement, and the WSL/SSH deltas remain unclaimed until
+someone runs `stream_flood_bench` on those hosts.
+
 ## Reproduce
 
 `rust/crates/orca-daemon/examples/pump_bench.rs` (self-contained; measures

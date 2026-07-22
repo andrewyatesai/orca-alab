@@ -3,8 +3,8 @@
 # Wiring aterm natively into orca: a unified terminal-settings architecture
 
 **Status:** Approved design (lead-architect synthesis)
-**Repo root:** `/Users/ayates/orc` — paths below are repo-relative unless prefixed.
-**aterm submodule:** `/Users/ayates/orc/rust/aterm` (workspace at `rust/aterm/crates/*`)
+**Repo root:** `<repo-root>` — paths below are repo-relative unless prefixed.
+**aterm submodule:** `<repo-root>/rust/aterm` (workspace at `rust/aterm/crates/*`)
 
 ---
 

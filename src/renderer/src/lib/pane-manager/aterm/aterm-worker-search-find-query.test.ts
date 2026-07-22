@@ -13,6 +13,7 @@ import {
   SEARCH_FIND_FLAG_CASE_SENSITIVE,
   SEARCH_FIND_FLAG_REGEX
 } from './aterm-worker-search'
+import { SEARCH_FULL_PASS_ROW_BUDGET } from './aterm-worker-search-sliced-find'
 import type { EngineBudgetedSearchStep, EngineHandle } from './aterm-worker-engine-build'
 import type { WorkerFrameScheduler } from './aterm-worker-frame-scheduler'
 
@@ -198,6 +199,62 @@ describe('budgeted sliced find (P1.1)', () => {
     expect(JSON.parse(respond.mock.calls[0][0] as string)).toEqual({ count: 2, activeIndex: 2 })
     expect(search.generation()).toBe(3)
     expect(scrollIntoView).toHaveBeenCalledWith(9) // LAST match scrolled into view
+  })
+
+  it('escalates to a full-pass budget after repeated engine restarts — never the blocking one-shot', () => {
+    vi.useFakeTimers()
+    // rowsFed DROPS on calls 2-4 (content changed between slices; the engine
+    // restarted from row zero) — three restarts trip the full-pass escalation.
+    const { handle, searchBudgeted } = makeBudgetedHandle([
+      step({ cursor: 5, rowsFed: 4096, totalRows: 50000 }),
+      step({ cursor: 6, rowsFed: 2000, totalRows: 50000 }),
+      step({ cursor: 7, rowsFed: 1500, totalRows: 50000 }),
+      step({ cursor: 8, rowsFed: 1000, totalRows: 50000 }),
+      step({ matches: new Uint32Array([3, 0, 4]), complete: true, rowsFed: 50000, totalRows: 50000 })
+    ])
+    const search = createWorkerSearch(handle, () => 24)
+    const respond = vi.fn()
+    answerSearchFindQuery(search, 0, 'ab', 5, () => false, respond)
+
+    vi.runAllTimers()
+
+    expect(searchBudgeted).toHaveBeenCalledTimes(5)
+    // The escalated call stays on the budgeted (cancellable-between-slices) path
+    // with a budget covering the whole buffer, so it completes in one call.
+    expect(searchBudgeted.mock.calls[4][4]).toBe(SEARCH_FULL_PASS_ROW_BUDGET)
+    expect(handle.search).not.toHaveBeenCalled()
+    expect(JSON.parse(respond.mock.calls[0][0] as string)).toEqual({ count: 1, activeIndex: 1 })
+    expect(search.generation()).toBe(5)
+  })
+
+  it('a newer find id observed after restart escalation still cancels before the full pass runs', () => {
+    vi.useFakeTimers()
+    const { handle, searchBudgeted, searchBudgetedCancel } = makeBudgetedHandle([
+      step({ cursor: 5, rowsFed: 4096, totalRows: 50000 }),
+      step({ cursor: 6, rowsFed: 2000, totalRows: 50000 }),
+      step({ cursor: 7, rowsFed: 1500, totalRows: 50000 }),
+      step({ cursor: 8, rowsFed: 1000, totalRows: 50000 }),
+      step({ matches: new Uint32Array([3, 0, 4]), complete: true, rowsFed: 50000, totalRows: 50000 })
+    ])
+    const search = createWorkerSearch(handle, () => 24)
+    const respond = vi.fn()
+    let latestFindId = 6
+    answerSearchFindQuery(search, 0, 'ab', 6, () => 6 < latestFindId, respond)
+
+    // Run the first four slices (the fourth trips full-pass escalation), then a
+    // newer find arrives BEFORE the escalated full pass executes.
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersToNextTimer()
+    }
+    expect(searchBudgeted).toHaveBeenCalledTimes(4)
+    latestFindId = 7
+    vi.runAllTimers()
+
+    expect(searchBudgeted).toHaveBeenCalledTimes(4) // the full pass never ran
+    expect(searchBudgetedCancel).toHaveBeenCalled()
+    expect(handle.search).not.toHaveBeenCalled()
+    expect(respond).toHaveBeenCalledWith(null)
+    expect(search.count()).toBe(0)
   })
 })
 

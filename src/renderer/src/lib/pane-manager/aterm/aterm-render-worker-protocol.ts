@@ -134,6 +134,10 @@ export type AtermWorkerSetEffectsFocused = { type: 'setEffectsFocused'; focused:
  *  superseded by the rain tri-state on the worker path); this is pure QoS priority. */
 export type AtermWorkerSetFocused = { type: 'setFocused'; focused: boolean }
 export type AtermWorkerScrollLines = { type: 'scrollLines'; delta: number }
+/** Sub-row scrollback input in device PIXELS (DOM_DELTA_PIXEL wheel; positive reveals
+ *  older lines, the scrollLines sign convention). Crosses the seam UNROUNDED: the
+ *  engine banks the fractional residual and presents it as a pixel band shift. */
+export type AtermWorkerScrollPx = { type: 'scrollPx'; deltaPx: number }
 export type AtermWorkerScrollToBottom = { type: 'scrollToBottom' }
 export type AtermWorkerScrollToTop = { type: 'scrollToTop' }
 export type AtermWorkerScrollToLine = { type: 'scrollToLine'; line: number }
@@ -279,6 +283,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetEffectsFocused
   | AtermWorkerSetFocused
   | AtermWorkerScrollLines
+  | AtermWorkerScrollPx
   | AtermWorkerScrollToBottom
   | AtermWorkerScrollToTop
   | AtermWorkerScrollToLine

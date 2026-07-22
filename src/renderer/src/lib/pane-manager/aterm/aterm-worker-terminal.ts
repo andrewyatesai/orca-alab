@@ -13,6 +13,7 @@ import { hasAtermSpillExports } from './aterm-spill-engine-read'
 import { answerSearchFindQuery, createWorkerSearch } from './aterm-worker-search'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
 import { createAtermWorkerEffectsTick } from './aterm-worker-effects-tick'
+import { createWorkerScrollPx } from './aterm-worker-scroll-px'
 import { decodeMouseReport, decodeReply } from './aterm-worker-reply-decode'
 import type { AtermWorkerState, AtermWorkerThemeSet } from './aterm-render-worker-protocol'
 import { hoverLinkOutcomeEqual } from './aterm-worker-hover-outcome'
@@ -84,6 +85,8 @@ export function createWorkerTerminal(
   setCursorBlinkPhase: (on: boolean) => void
   setCursorHollow: (hollow: boolean) => void
   scrollLines: (delta: number) => void
+  /** Sub-row pixel scroll (positive = older, the scrollLines sign convention). */
+  scrollPx: (deltaPx: number) => void
   scrollToBottom: () => void
   scrollToTop: () => void
   scrollToLine: (line: number) => void
@@ -277,6 +280,7 @@ export function createWorkerTerminal(
     setCursorBlinkPhase: (on) => e.set_cursor_blink_phase(on),
     setCursorHollow: (hollow) => e.set_cursor_hollow(hollow),
     scrollLines: (delta) => e.scroll_lines(delta),
+    scrollPx: createWorkerScrollPx(e),
     scrollToBottom: () => e.scroll_to_bottom(),
     scrollToTop: () => e.scroll_to_top(),
     scrollToLine: (line) => e.scroll_search_line_into_view(line),

@@ -12,6 +12,7 @@ import {
 } from './aterm-worker-rain-dispatch'
 import { dispatchAtermWorkerPredictCommand } from './aterm-worker-predictor'
 import { answerPaneQuery } from './aterm-worker-pane-query'
+import { dispatchAtermWorkerScrollCommand } from './aterm-worker-scroll-dispatch'
 import type {
   AtermWorkerPaneEvent,
   AtermWorkerPaneRuntimeCommand
@@ -238,20 +239,11 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       return
     }
     case 'scrollLines':
-      term?.scrollLines(msg.delta)
-      scheduleDraw()
-      return
+    case 'scrollPx':
     case 'scrollToBottom':
-      term?.scrollToBottom()
-      scheduleDraw()
-      return
     case 'scrollToTop':
-      term?.scrollToTop()
-      scheduleDraw()
-      return
     case 'scrollToLine':
-      term?.scrollToLine(msg.line)
-      scheduleDraw()
+      dispatchAtermWorkerScrollCommand(term, scheduleDraw, msg)
       return
     case 'selectionStart':
       term?.selectionStart(msg.row, msg.col)

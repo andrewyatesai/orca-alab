@@ -73,6 +73,7 @@ export type WorkerEngine = Pick<
   | 'selection_line'
   | 'link_at'
   | 'scroll_lines'
+  | 'scroll_px'
   | 'scroll_to_bottom'
   | 'scroll_to_top'
   | 'scroll_search_line_into_view'

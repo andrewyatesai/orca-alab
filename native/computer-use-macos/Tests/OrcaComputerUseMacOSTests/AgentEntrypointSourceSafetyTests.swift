@@ -23,6 +23,15 @@ final class AgentEntrypointSourceSafetyTests: XCTestCase {
         XCTAssertTrue(source.contains("bundleId == \"com.stablyai.orca.dev\""))
     }
 
+    func testAgentPeerAllowsThePackagedForkBundleIdentity() throws {
+        let source = try agentSource()
+
+        // Why: packaged fork builds use the .staging appId; an exact match (not a
+        // broad prefix) keeps untrusted com.stablyai.orca.* ids out of the allowlist.
+        XCTAssertTrue(source.contains("bundleId == \"com.stablyai.orca.staging\""))
+        XCTAssertFalse(source.contains("hasPrefix(\"com.stablyai.orca.staging"))
+    }
+
     private func agentSource() throws -> String {
         let testFile = URL(fileURLWithPath: #filePath)
         let packageRoot = testFile

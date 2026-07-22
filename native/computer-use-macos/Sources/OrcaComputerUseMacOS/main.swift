@@ -3605,6 +3605,8 @@ private func isTrustedOrcaApplication(_ pid: pid_t) -> Bool {
     // Why: dev validation runs from per-worktree wrapper apps with stable
     // Orca-owned bundle ids; the sidecar peer check must still authorize them.
     return bundleId == "com.stablyai.orca" ||
+        // Why: packaged fork builds ship as .staging (electron-builder appId); without it every sidecar request is permission_denied.
+        bundleId == "com.stablyai.orca.staging" ||
         bundleId == "com.stablyai.orca.dev" ||
         bundleId.hasPrefix("com.stablyai.orca.dev.") ||
         bundleId == "com.github.Electron"

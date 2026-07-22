@@ -1314,6 +1314,22 @@ describe('PtyHandler', () => {
     expect(handler.activePtyCount).toBe(0)
   })
 
+  // Why: node-pty reports exitCode 0 for signaled children; without 128+signal a SIGKILL/OOM death reads as a clean exit downstream.
+  it('notifies a signal-terminated exit as 128+signal, not a clean exit', async () => {
+    let exitCallback: ((info: { exitCode: number; signal?: number }) => void) | undefined
+    mockPtySpawn.mockReturnValue({
+      ...mockPtyInstance,
+      onData: vi.fn(),
+      onExit: vi.fn((cb: (info: { exitCode: number; signal?: number }) => void) => {
+        exitCallback = cb
+      })
+    })
+
+    await dispatcher.callRequest('pty.spawn', {})
+    exitCallback!({ exitCode: 0, signal: 9 })
+    expect(dispatcher.notify).toHaveBeenCalledWith('pty.exit', { id: 'pty-1', code: 137 })
+  })
+
   it('flushes pending PTY output before notifying exit', async () => {
     let dataCallback: ((data: string) => void) | undefined
     let exitCallback: ((info: { exitCode: number }) => void) | undefined

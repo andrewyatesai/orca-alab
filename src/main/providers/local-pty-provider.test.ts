@@ -128,7 +128,7 @@ describe('LocalPtyProvider', () => {
     process: string
     pid: number
   }
-  let exitCb: ((info: { exitCode: number }) => void) | undefined
+  let exitCb: ((info: { exitCode: number; signal?: number }) => void) | undefined
   let origShell: string | undefined
   let origPowerlevelWizardDisable: string | undefined
   let origHistFile: string | undefined
@@ -168,7 +168,7 @@ describe('LocalPtyProvider', () => {
     exitCb = undefined
     mockProc = {
       onData: vi.fn(() => ({ dispose: vi.fn() })),
-      onExit: vi.fn((cb: (info: { exitCode: number }) => void) => {
+      onExit: vi.fn((cb: (info: { exitCode: number; signal?: number }) => void) => {
         exitCb = cb
         return {
           dispose: () => {
@@ -1260,6 +1260,15 @@ describe('LocalPtyProvider', () => {
       const { id } = await provider.spawn({ cols: 80, rows: 24 })
       await provider.shutdown(id, { immediate: true })
       expect(onExit).toHaveBeenCalledWith(id, -1)
+    })
+
+    // Why: node-pty reports exitCode 0 for signaled children; without 128+signal a SIGKILL/OOM death reads as a deliberate clean exit downstream.
+    it('reports a signal-terminated exit as 128+signal, not a clean exit', async () => {
+      const onExit = vi.fn()
+      provider.configure({ onExit })
+      const { id } = await provider.spawn({ cols: 80, rows: 24 })
+      exitCb?.({ exitCode: 0, signal: 9 })
+      expect(onExit).toHaveBeenCalledWith(id, 137)
     })
 
     it('does not destroy after an intentional Windows shutdown kill', async () => {

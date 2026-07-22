@@ -10,6 +10,7 @@ import {
   resolvePtyShellPath
 } from './shell-ready'
 import { isValidPtySize, normalizePtySize } from './daemon-pty-size'
+import { resolvePtyExitCode } from '../../shared/pty-signal-exit-code'
 import {
   ensureNodePtySpawnHelperExecutable,
   getNodePtySpawnHelperCandidates,
@@ -391,7 +392,8 @@ function runSinglePtySpawnHealthProbe(): Promise<void> {
     }, PTY_SPAWN_HEALTH_TIMEOUT_MS)
 
     // Why: ping only proves the protocol is alive; a real spawn catches stale node-pty helper paths.
-    exitDisposable = proc.onExit(({ exitCode }) => {
+    exitDisposable = proc.onExit((exit) => {
+      const exitCode = resolvePtyExitCode(exit)
       if (exitCode === 0) {
         finish()
         return
@@ -825,7 +827,8 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
       bufferPreListenerData(data)
     }
   })
-  proc.onExit(({ exitCode }) => {
+  proc.onExit((exit) => {
+    const exitCode = resolvePtyExitCode(exit)
     if (onExitCb) {
       flushPreListenerData()
       onExitCb(exitCode)

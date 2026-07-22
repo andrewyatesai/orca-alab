@@ -15,6 +15,7 @@ import type * as pty from 'node-pty'
 import { loadNodePty } from './node-pty-lazy-load'
 import { parseWslPath, isWslAvailable } from '../wsl'
 import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
+import { resolvePtyExitCode } from '../../shared/pty-signal-exit-code'
 import {
   injectHistoryEnv,
   updateHistFileForFallback,
@@ -996,7 +997,8 @@ export class LocalPtyProvider implements IPtyProvider {
       disposables.push(onDataDisposable)
     }
 
-    const onExitDisposable = proc.onExit(({ exitCode }) => {
+    const onExitDisposable = proc.onExit((exit) => {
+      const exitCode = resolvePtyExitCode(exit)
       const wasTerminationRequested = ptyTerminationMode.has(id)
       ptyPhysicalExits.get(id)?.markExited()
       // Why: neutralize proc.kill before destroy — node-pty SIGHUPs on socket 'close', which can race here and signal a reaped/recycled pid.

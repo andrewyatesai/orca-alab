@@ -95,7 +95,7 @@ const itOnPosixHost = process.platform === 'win32' ? it.skip : it
 
 function mockPtyProcess(pid = 12345) {
   const onDataListeners: ((data: string) => void)[] = []
-  const onExitListeners: ((e: { exitCode: number }) => void)[] = []
+  const onExitListeners: ((e: { exitCode: number; signal?: number }) => void)[] = []
   return {
     pid,
     write: vi.fn(),
@@ -106,12 +106,13 @@ function mockPtyProcess(pid = 12345) {
       onDataListeners.push(cb)
       return { dispose: vi.fn() }
     }),
-    onExit: vi.fn((cb: (e: { exitCode: number }) => void) => {
+    onExit: vi.fn((cb: (e: { exitCode: number; signal?: number }) => void) => {
       onExitListeners.push(cb)
       return { dispose: vi.fn() }
     }),
     _simulateData: (data: string) => onDataListeners.forEach((cb) => cb(data)),
-    _simulateExit: (code: number) => onExitListeners.forEach((cb) => cb({ exitCode: code }))
+    _simulateExit: (code: number, signal?: number) =>
+      onExitListeners.forEach((cb) => cb({ exitCode: code, ...(signal ? { signal } : {}) }))
   }
 }
 
@@ -1670,6 +1671,19 @@ describe('createPtySubprocess', () => {
     expect(codes).toEqual([42])
   })
 
+  // Why: node-pty reports exitCode 0 for signaled children; a SIGKILL/OOM death must not read as a clean exit downstream.
+  it('encodes a signal-terminated exit as 128+signal', () => {
+    const proc = mockPtyProcess()
+    spawnMock.mockReturnValue(proc)
+
+    const handle = createPtySubprocess({ sessionId: 'test', cols: 80, rows: 24 })
+    const codes: number[] = []
+    handle.onExit((code) => codes.push(code))
+
+    proc._simulateExit(0, 9)
+    expect(codes).toEqual([137])
+  })
+
   it('replays pre-listener data before a pre-listener exit', () => {
     const proc = mockPtyProcess()
     spawnMock.mockReturnValue(proc)
@@ -3140,6 +3154,19 @@ describe('checkPtySpawnHealth (retry on transient failure)', () => {
 
     await expect(checkPtySpawnHealth()).rejects.toThrow(/exited with code 1/)
     expect(spawnMock).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  // Why: node-pty reports exitCode 0 for signaled probes; a signal-killed probe must fail the health check, not read as healthy.
+  itOnPosixHost('treats a signal-terminated probe as a failed health check', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    spawnMock.mockImplementation(() => {
+      const proc = mockPtyProcess()
+      queueMicrotask(() => proc._simulateExit(0, 9))
+      return proc
+    })
+
+    await expect(checkPtySpawnHealth()).rejects.toThrow(/exited with code 137/)
     warn.mockRestore()
   })
 })

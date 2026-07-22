@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { resolveWindowsGitBashShellPath } from '../main/git-bash'
 import { cloneInheritedSpawnEnv } from '../main/pty/inherited-spawn-env'
 import { WINDOWS_GIT_BASH_SHELL } from '../shared/windows-terminal-shell'
+import { resolvePtyExitCode } from '../shared/pty-signal-exit-code'
 import type { RelayDispatcher, RequestContext } from './dispatcher'
 import {
   resolveDefaultShell,
@@ -534,7 +535,8 @@ export class PtyHandler {
       }
       managed.startupIngress?.accept(data)
     })
-    managed.pty.onExit(({ exitCode }: { exitCode: number }) => {
+    managed.pty.onExit((exit: { exitCode: number; signal?: number }) => {
+      const exitCode = resolvePtyExitCode(exit)
       managed.physicalExit?.markExited()
       if (managed.disposed) {
         return

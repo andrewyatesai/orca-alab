@@ -151,6 +151,10 @@ export function createSlicedFindRunner(
       if (cursor !== undefined && step.rowsFed <= rowsSeen) {
         restarts++
         if (restarts >= SEARCH_FIND_MAX_RESTARTS) {
+          // Report cost EXTRAPOLATED to full-buffer scale: engineMs only covers
+          // the scanned prefix, and an underestimate would let the cost gate
+          // eagerly run the blocking one-shot on the very next reply read.
+          engineMs = (engineMs * step.totalRows) / Math.max(step.rowsFed, 1)
           finish(decodeMatches(step.matches), false)
           return
         }

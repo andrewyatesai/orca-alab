@@ -214,11 +214,13 @@ describe('budgeted sliced find (P1.1)', () => {
     ])
     const search = createWorkerSearch(handle, () => 24)
     const respond = vi.fn()
-    // Make each mocked slice read as ~40ms of engine work so the settled cost
-    // (~160ms) exceeds the refresh tick — the cost gate then KEEPS the partial
-    // results stale instead of eagerly re-indexing on the reply read.
+    // Each mocked slice reads as ~2ms of engine work (realistic for the 7ms
+    // budget). The settle must EXTRAPOLATE that prefix cost to full-buffer
+    // scale (~8ms * 50000/1000 = ~400ms > tick), so the cost gate keeps the
+    // partial results stale instead of eagerly one-shot re-indexing on the
+    // reply read — the exact residual the gate previously failed.
     let clock = 0
-    vi.spyOn(performance, 'now').mockImplementation(() => (clock += 40))
+    vi.spyOn(performance, 'now').mockImplementation(() => (clock += 2))
     answerSearchFindQuery(search, 0, 'ab', 5, () => false, respond)
 
     // Advance only the 0ms slice timers — the trailing refresh (>=100ms) stays
@@ -233,9 +235,11 @@ describe('budgeted sliced find (P1.1)', () => {
     }
     expect(handle.search).not.toHaveBeenCalled()
     // The prefix's matches surface immediately but flagged STALE, with the
-    // trailing refresh armed to deliver the final answer.
+    // trailing refresh armed to deliver the final answer, and the engine's
+    // partial index freed at settle.
     expect(JSON.parse(respond.mock.calls[0][0] as string)).toEqual({ count: 1, activeIndex: 1 })
     expect(search.resultsStale()).toBe(true)
+    expect(handle.searchBudgetedCancel).toHaveBeenCalled()
     expect(search.generation()).toBe(5)
 
     // The armed trailing refresh then delivers the FINAL answer through the

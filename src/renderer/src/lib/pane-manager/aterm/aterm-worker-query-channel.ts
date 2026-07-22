@@ -6,9 +6,16 @@
 // Promise.all at quit (save/hydrate/fork).
 
 import type { AtermWorkerPaneCommand, AtermWorkerQuery } from './aterm-render-worker-protocol'
+import {
+  SEARCH_FIND_FLAG_CASE_SENSITIVE,
+  SEARCH_FIND_FLAG_REGEX
+} from './aterm-worker-search'
 
 /** A detected link span returned by the async linkAt query. */
 export type AtermWorkerLinkHit = { url: string; kind: number; start_col: number; end_col: number }
+
+/** What a completed searchFind round-trip reports (the worker's post-find state). */
+export type AtermWorkerSearchFindResult = { count: number; activeIndex: number }
 
 /** Worker-only capabilities the worker-backed term facade adds on top of the sync
  *  AtermTerminal surface. Absent on the in-process engine, so the shared selection/link
@@ -24,13 +31,23 @@ export type AtermWorkerAsyncFacade = {
   /** Clear the worker's hover so its next STATE reports no hoverLink/hoverCursor (the
    *  loader drives the canvas cursor from that state on the worker path). */
   clearHover: () => void
-  /** Latest search match count / 1-based active index / active-match device rect from the
-   *  worker snapshot. The worker owns the engine, so term.search() can't return matches
-   *  synchronously; the count UI reads this instead of the (empty) main-thread controller. */
+  /** Run a find via the id-correlated query channel; resolves `{count, activeIndex}`
+   *  once the worker executed it, or null when superseded by a newer find (cancelled
+   *  instantly — never blocks on a busy worker), timed out, or disposed. */
+  searchFindAsync: (
+    query: string,
+    caseSensitive: boolean,
+    isRegex: boolean
+  ) => Promise<AtermWorkerSearchFindResult | null>
+  /** Latest search match count / 1-based active index / active-match device rect /
+   *  cost-gate stale flag from the worker snapshot. The worker owns the engine, so
+   *  term.search() can't return matches synchronously; the count UI reads this instead
+   *  of the (empty) main-thread controller. */
   searchStateSnapshot: () => {
     count: number
     activeIndex: number
     activeRect: { x: number; y: number; width: number; height: number } | null
+    stale: boolean
   }
   /** Advance / step back / clear the worker's active match (the worker owns the match set;
    *  the main-thread searchController is empty on this path, so next/prev/clear must post). */
@@ -52,6 +69,15 @@ export type AtermWorkerQueryChannel = {
   serializeScrollbackAsync: (maxRows?: number) => Promise<string>
   selectionTextAsync: () => Promise<string>
   linkAtAsync: (row: number, col: number) => Promise<AtermWorkerLinkHit | null>
+  /** Find via the query channel with request-generation semantics: issuing a new find
+   *  settles the previous in-flight one to null IMMEDIATELY (superseded queries never
+   *  block newer ones), and its stale result — if the worker still answers — is
+   *  discarded by id. Resolves null on supersede/timeout/dispose. */
+  searchFindAsync: (
+    query: string,
+    caseSensitive: boolean,
+    isRegex: boolean
+  ) => Promise<AtermWorkerSearchFindResult | null>
   /** Parse fence: resolves TRUE once the worker has handled every message posted
    *  before it — all prior 'process' bytes parsed AND their auto-replies already
    *  delivered (postMessage ordering). Resolves FALSE when the fence itself timed
@@ -98,23 +124,37 @@ export function createAtermWorkerQueryChannel(
     entry.resolve({ value, byReply })
   }
 
-  const send = (
+  // send + the query id it claimed — searchFindAsync needs the id so a NEWER find can
+  // settle (cancel) this one by id while it's still in flight.
+  const sendTracked = (
     kind: AtermWorkerQuery['kind'],
     arg?: number,
-    arg2?: number
-  ): Promise<QuerySettlement> =>
-    new Promise((resolve) => {
-      if (disposed) {
-        resolve({ value: null, byReply: false })
-        return
-      }
-      const id = nextQueryId++
+    arg2?: number,
+    text?: string
+  ): { id: number; promise: Promise<QuerySettlement> } => {
+    if (disposed) {
+      return { id: 0, promise: Promise.resolve({ value: null, byReply: false }) }
+    }
+    const id = nextQueryId++
+    const promise = new Promise<QuerySettlement>((resolve) => {
       // Per-query timeout: a never-arriving reply settles to null (byReply=false)
       // rather than hang — NOT a real reply, so the fence stays uncertified.
       const timer = setTimeout(() => settle(id, null, false), QUERY_TIMEOUT_MS)
       pending.set(id, { resolve, timer })
-      post({ type: 'query', id, kind, arg, arg2 })
+      post({ type: 'query', id, kind, arg, arg2, text })
     })
+    return { id, promise }
+  }
+
+  const send = (
+    kind: AtermWorkerQuery['kind'],
+    arg?: number,
+    arg2?: number
+  ): Promise<QuerySettlement> => sendTracked(kind, arg, arg2).promise
+
+  // The in-flight find's query id, or null. ONE slot: the newest find always wins,
+  // whichever caller (search UI / addon facade) issued the older one.
+  let pendingFindId: number | null = null
 
   const asString = async (kind: AtermWorkerQuery['kind'], arg?: number): Promise<string> => {
     const { value } = await send(kind, arg)
@@ -135,6 +175,30 @@ export function createAtermWorkerQueryChannel(
     serializeAsync: (scrollbackRows) => asString('serialize', scrollbackRows),
     serializeScrollbackAsync: (maxRows) => asString('serializeScrollback', maxRows),
     selectionTextAsync: () => asString('selectionText'),
+    searchFindAsync: async (query, caseSensitive, isRegex) => {
+      // Cancel the superseded in-flight find NOW: its awaiter resolves null instantly
+      // (stale result discarded) instead of waiting out a busy worker or the timeout.
+      if (pendingFindId !== null) {
+        settle(pendingFindId, null, false)
+      }
+      const flags =
+        (caseSensitive ? SEARCH_FIND_FLAG_CASE_SENSITIVE : 0) |
+        (isRegex ? SEARCH_FIND_FLAG_REGEX : 0)
+      const { id, promise } = sendTracked('searchFind', flags, undefined, query)
+      pendingFindId = id
+      const { value } = await promise
+      if (pendingFindId === id) {
+        pendingFindId = null
+      }
+      if (typeof value !== 'string') {
+        return null
+      }
+      try {
+        return JSON.parse(value) as AtermWorkerSearchFindResult
+      } catch {
+        return null
+      }
+    },
     settleAsync: async () => {
       // Discriminant: TRUE only when the worker's real 'flush' queryResult arrives —
       // postMessage FIFO then proves every prior 'process' byte parsed AND its

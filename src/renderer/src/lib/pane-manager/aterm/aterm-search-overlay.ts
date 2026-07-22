@@ -1,5 +1,6 @@
 import type { AtermTerminal } from './aterm_wasm.js'
 import type { AtermSearchMatch } from './aterm-search'
+import { visibleMatchRange } from './aterm-search-visible-range'
 
 // Search-highlight overlay tones — reuse the EXACT yellow/orange the xterm search
 // path uses (TerminalSearch.tsx decorations) so aterm search looks identical; the
@@ -52,12 +53,13 @@ export function paintAtermSearchHighlights(
   const { term, cellWidth, cellHeight, rows } = geometry
   const origin = term.search_display_origin
   const offset = term.display_offset
-  for (let i = 0; i < matches.length; i++) {
+  // Matches are line-sorted (engine emission order): probe only the on-screen band —
+  // a per-frame linear scan of ALL matches (possibly 100k) was the P6 hot spot.
+  const firstLine = origin - offset
+  const { start, end } = visibleMatchRange(matches, firstLine, firstLine + rows)
+  for (let i = start; i < end; i++) {
     const m = matches[i]
     const displayRow = m.line - origin + offset
-    if (displayRow < 0 || displayRow >= rows) {
-      continue
-    }
     ctx.fillStyle = i === activeIndex ? SEARCH_ACTIVE_FILL : SEARCH_MATCH_FILL
     ctx.fillRect(m.startCol * cellWidth, displayRow * cellHeight, m.length * cellWidth, cellHeight)
   }

@@ -227,12 +227,13 @@ export function createWorkerFrameScheduler(deps: {
     }
   }
 
-  // Hover STATE-only path: setHover changed the link/cursor OUTCOME but no engine render
-  // state, so post the fresh snapshot WITHOUT term.render()/tickEffects/arming an effects
-  // timer (the framebuffer is byte-identical; the underline + cursor are main-thread
-  // overlays). This is the ONLY caller that skips render — content/effect draws must use
-  // schedule(). A real draw already queued this frame supersedes the post-only frame (its
-  // STATE carries the same fresh hover), so defer to it instead of double-posting.
+  // STATE-only path: hover and the search trailing re-index change main-thread overlay
+  // state but no engine render state, so post the fresh snapshot WITHOUT
+  // term.render()/tickEffects/arming an effects timer (the framebuffer is byte-identical;
+  // underline/cursor/search highlights are main-thread overlays). ONLY those callers may
+  // skip render — content/effect draws must use schedule(). A real draw already queued
+  // this frame supersedes the post-only frame (its STATE carries the same fresh values),
+  // so defer to it instead of double-posting.
   const scheduleStatePost = (): void => {
     if (suspended) {
       // Hidden pane posts nothing (nothing reads its visible mirror; resume re-posts), and a

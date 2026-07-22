@@ -10,7 +10,7 @@ import { workerWasmHeapBytes, type EngineHandle } from './aterm-worker-engine-bu
 import { createWorkerPredictor, type WorkerPredictor } from './aterm-worker-predictor'
 import { applyAtermWorkerThemeSet } from './aterm-worker-theme-apply'
 import { hasAtermSpillExports } from './aterm-spill-engine-read'
-import { createWorkerSearch } from './aterm-worker-search'
+import { answerSearchFindQuery, createWorkerSearch } from './aterm-worker-search'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
 import { createAtermWorkerEffectsTick } from './aterm-worker-effects-tick'
 import { decodeMouseReport, decodeReply } from './aterm-worker-reply-decode'
@@ -47,7 +47,11 @@ export function createWorkerTerminal(
   handle: EngineHandle,
   /** The pane's stored window-space chrome (device px), echoed into every STATE so
    *  the main side can offset the canvas box + pointer math; default = none. */
-  getChrome: () => { pad: number; head: number } = () => ({ pad: 0, head: 0 })
+  getChrome: () => { pad: number; head: number } = () => ({ pad: 0, head: 0 }),
+  /** Fired after the search cost gate's trailing timer re-indexed (the guaranteed
+   *  final refresh): no frame may follow the last content change, so the owner must
+   *  post a fresh STATE (render-free — highlights are main-thread overlays). */
+  onSearchAsyncRefresh?: () => void
 ): {
   processBytes: (data: string) => WorkerSideChannels
   render: () => void
@@ -96,7 +100,6 @@ export function createWorkerTerminal(
   /** Update the hover link/cursor; returns whether the OUTCOME (STATE hoverLink/hoverCursor)
    *  changed, so the caller can post a render-free STATE only when it did. */
   setHover: (pos: { row: number; col: number } | null) => boolean
-  searchFind: (query: string, caseSensitive: boolean, isRegex: boolean) => void
   searchNext: () => void
   searchPrev: () => void
   searchClear: () => void
@@ -113,7 +116,8 @@ export function createWorkerTerminal(
   query: (
     kind: string,
     arg: number | undefined,
-    arg2: number | undefined
+    arg2: number | undefined,
+    text?: string
   ) => string | number | boolean | null
   /** Capped serialize for the debounced shutdown cache (full + scrollback-only). */
   serializedCache: () => { full: string; scrollback: string }
@@ -128,7 +132,7 @@ export function createWorkerTerminal(
 
   // Search runs in the worker (it owns the engine); the main search API posts commands
   // and reads count/active/rect from the snapshot.
-  const search = createWorkerSearch(handle, () => rows)
+  const search = createWorkerSearch(handle, () => rows, onSearchAsyncRefresh)
 
   // Hover (link detection) for the snapshot; the underline is painted in the overlay stage.
   let hoverLink: AtermWorkerState['hoverLink'] = null
@@ -232,6 +236,10 @@ export function createWorkerTerminal(
         searchCount: search.count(),
         searchActiveIndex: search.activeIndex(),
         searchActiveRect: search.activeRect(),
+        // Read AFTER count/activeIndex/activeRect: their ensureFresh may have just
+        // set the cost-gate stale flag / bumped the version for THIS frame.
+        searchResultsVersion: search.resultsVersion(),
+        searchResultsStale: search.resultsStale(),
         searchMatchRects: search.visibleRects(),
         spillExportCapable,
         dirtyRows: dirtyRowTracker.build(rows, cols),
@@ -303,7 +311,6 @@ export function createWorkerTerminal(
       // link/cursor actually changed — a sweep through the same link/blank posts nothing.
       return hoverCursor !== prevCursor || !hoverLinkOutcomeEqual(prevLink, hoverLink)
     },
-    searchFind: (q, cs, regex) => search.find(q, cs, regex),
     searchNext: () => search.next(),
     searchPrev: () => search.prev(),
     searchClear: () => search.clear(),
@@ -324,8 +331,12 @@ export function createWorkerTerminal(
       // (legacy modes emit bytes ≥ 0x80) so the report isn't truncated.
       return decodeMouseReport(bytes)
     },
-    query: (kind, arg, arg2) => {
+    query: (kind, arg, arg2, text) => {
       switch (kind) {
+        case 'searchFind':
+          // Run the find NOW (user-initiated — never cost-gated); the query id
+          // correlates the answer to the request generation.
+          return answerSearchFindQuery(search, arg, text)
         case 'serialize':
           return e.serialize(arg ?? undefined)
         case 'serializeScrollback':
@@ -364,6 +375,10 @@ export function createWorkerTerminal(
       full: e.serialize(SHUTDOWN_CACHE_ROWS),
       scrollback: e.serialize_scrollback(SHUTDOWN_CACHE_ROWS)
     }),
-    dispose: () => handle.dispose()
+    dispose: () => {
+      // Cancel the search trailing timer BEFORE freeing the engine (no late re-index).
+      search.dispose()
+      handle.dispose()
+    }
   }
 }

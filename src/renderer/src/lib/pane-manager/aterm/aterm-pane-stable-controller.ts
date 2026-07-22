@@ -30,11 +30,14 @@ export function createStableAtermPaneController(
     linkAt: (row, col) => current().linkAt(row, col),
     findMatches: (query, caseSensitive, isRegex) =>
       current().findMatches(query, caseSensitive, isRegex),
+    findMatchesAsync: (query, caseSensitive, isRegex) =>
+      current().findMatchesAsync(query, caseSensitive, isRegex),
     findNextMatch: () => current().findNextMatch(),
     findPreviousMatch: () => current().findPreviousMatch(),
     clearSearch: () => current().clearSearch(),
     searchMatchCount: () => current().searchMatchCount(),
     searchActiveMatchIndex: () => current().searchActiveMatchIndex(),
+    searchResultsStale: () => current().searchResultsStale(),
     onSearchStateChange: (handler) => current().onSearchStateChange(handler),
     searchActiveMatchRect: () => current().searchActiveMatchRect(),
     setFileLinkOpener: (fn) => current().setFileLinkOpener(fn),

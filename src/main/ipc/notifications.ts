@@ -28,6 +28,7 @@ import { readNotificationAuthorizationStatus } from './notification-authorizatio
 import { parsePaneKey } from '../../shared/stable-pane-id'
 import { setTrayAttention } from '../tray/system-tray'
 import { isMainWindowVisible } from '../window/main-window-visibility'
+import { getDevInstanceIdentity } from '../startup/dev-instance-identity'
 
 const NOTIFICATION_COOLDOWN_MS = 5000
 const MAX_RECENT_NOTIFICATION_KEYS = 50
@@ -186,8 +187,16 @@ function probeNotificationDelivery(): Promise<NotificationDeliveryProbeResult> {
   return deliveryProbeInFlight
 }
 
+function getPackagedMacBundleId(): string {
+  // Why: fork packaged builds ship '.staging' as CFBundleIdentifier (electron-builder appId); reuse the shared fork-identity split (appUserModelId == packaged appId) so the deep link opens this build's pane, not public Orca's (fork-identity class, cf. 41b7afef2). Bare-dev is covered by ORCA_DEV_MACOS_BUNDLE_ID above.
+  if (app.isPackaged) {
+    return getDevInstanceIdentity(false).appUserModelId
+  }
+  return MACOS_PACKAGED_BUNDLE_ID
+}
+
 function getMacNotificationSettingsUrl(): string {
-  const bundleId = process.env.ORCA_DEV_MACOS_BUNDLE_ID ?? MACOS_PACKAGED_BUNDLE_ID
+  const bundleId = process.env.ORCA_DEV_MACOS_BUNDLE_ID ?? getPackagedMacBundleId()
   return `${MACOS_NOTIFICATION_SETTINGS_URL}?id=${encodeURIComponent(bundleId)}`
 }
 

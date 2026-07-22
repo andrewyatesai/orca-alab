@@ -15,7 +15,8 @@ const {
   notificationCtorMock,
   notificationIsSupportedMock,
   getAllWindowsMock,
-  shellOpenExternalMock
+  shellOpenExternalMock,
+  appMock
 } = vi.hoisted(() => {
   const removeHandlerMock = vi.fn()
   const handleMock = vi.fn()
@@ -36,6 +37,10 @@ const {
   const notificationIsSupportedMock = vi.fn(() => true)
   const getAllWindowsMock = vi.fn(() => [])
   const shellOpenExternalMock = vi.fn()
+  const appMock = {
+    focus: vi.fn(),
+    isPackaged: false
+  }
   return {
     removeHandlerMock,
     handleMock,
@@ -47,7 +52,8 @@ const {
     notificationCtorMock,
     notificationIsSupportedMock,
     getAllWindowsMock,
-    shellOpenExternalMock
+    shellOpenExternalMock,
+    appMock
   }
 })
 
@@ -62,9 +68,7 @@ vi.mock('electron', () => ({
   BrowserWindow: {
     getAllWindows: getAllWindowsMock
   },
-  app: {
-    focus: vi.fn()
-  },
+  app: appMock,
   shell: {
     openExternal: shellOpenExternalMock
   }
@@ -87,6 +91,13 @@ vi.mock('./notification-authorization-status', () => ({
 const setTrayAttentionMock = vi.hoisted(() => vi.fn())
 vi.mock('../tray/system-tray', () => ({
   setTrayAttention: setTrayAttentionMock
+}))
+
+const getDevInstanceIdentityMock = vi.hoisted(() =>
+  vi.fn(() => ({ appUserModelId: 'com.stablyai.orca' }))
+)
+vi.mock('../startup/dev-instance-identity', () => ({
+  getDevInstanceIdentity: getDevInstanceIdentityMock
 }))
 
 import {
@@ -123,6 +134,10 @@ describe('registerNotificationHandlers', () => {
     getAllWindowsMock.mockReturnValue([])
     shellOpenExternalMock.mockClear()
     setTrayAttentionMock.mockClear()
+    appMock.focus.mockClear()
+    appMock.isPackaged = false
+    getDevInstanceIdentityMock.mockReset()
+    getDevInstanceIdentityMock.mockReturnValue({ appUserModelId: 'com.stablyai.orca' })
   })
 
   afterEach(() => {
@@ -227,6 +242,74 @@ describe('registerNotificationHandlers', () => {
 
       expect(shellOpenExternalMock).toHaveBeenCalledWith(
         'x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.stablyai.orca.dev.fb5a47066f08'
+      )
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+      if (originalBundleId === undefined) {
+        delete process.env.ORCA_DEV_MACOS_BUNDLE_ID
+      } else {
+        process.env.ORCA_DEV_MACOS_BUNDLE_ID = originalBundleId
+      }
+    }
+  })
+
+  it('deep-links the live CFBundleIdentifier in packaged builds so fork builds open their own pane', async () => {
+    const originalPlatform = process.platform
+    const originalBundleId = process.env.ORCA_DEV_MACOS_BUNDLE_ID
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    delete process.env.ORCA_DEV_MACOS_BUNDLE_ID
+    appMock.isPackaged = true
+    getDevInstanceIdentityMock.mockReturnValue({ appUserModelId: 'com.stablyai.orca.staging' })
+    try {
+      registerNotificationHandlers({
+        getSettings: () => ({
+          notifications: {
+            enabled: true,
+            agentTaskComplete: true,
+            terminalBell: true,
+            suppressWhenFocused: true
+          }
+        })
+      } as never)
+
+      const handler = getOpenSystemSettingsHandler()
+      handler({})
+
+      expect(shellOpenExternalMock).toHaveBeenCalledWith(
+        'x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.stablyai.orca.staging'
+      )
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+      if (originalBundleId === undefined) {
+        delete process.env.ORCA_DEV_MACOS_BUNDLE_ID
+      } else {
+        process.env.ORCA_DEV_MACOS_BUNDLE_ID = originalBundleId
+      }
+    }
+  })
+
+  it('falls back to the upstream bundle id when unpackaged with no dev override', async () => {
+    const originalPlatform = process.platform
+    const originalBundleId = process.env.ORCA_DEV_MACOS_BUNDLE_ID
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    delete process.env.ORCA_DEV_MACOS_BUNDLE_ID
+    try {
+      registerNotificationHandlers({
+        getSettings: () => ({
+          notifications: {
+            enabled: true,
+            agentTaskComplete: true,
+            terminalBell: true,
+            suppressWhenFocused: true
+          }
+        })
+      } as never)
+
+      const handler = getOpenSystemSettingsHandler()
+      handler({})
+
+      expect(shellOpenExternalMock).toHaveBeenCalledWith(
+        'x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.stablyai.orca'
       )
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })

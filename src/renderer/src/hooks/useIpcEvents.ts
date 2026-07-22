@@ -74,6 +74,7 @@ import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
 import { focusRuntimeTerminalSurface } from '@/runtime/sync-runtime-graph'
 import { setFitOverride, hydrateOverrides } from '@/lib/pane-manager/mobile-fit-overrides'
 import { setDriverForPty, hydrateDrivers } from '@/lib/pane-manager/mobile-driver-state'
+import { setQueryReplyAuthorityForPty } from '@/lib/pane-manager/query-reply-authority-state'
 import {
   hydrateBrowserDrivers,
   setDriverForBrowserPage
@@ -3345,6 +3346,16 @@ export function useIpcEvents(): void {
         }
         setDriverForBrowserPage(event.browserPageId, event.driver)
       })
+    )
+
+    unsubs.push(
+      // Why: mirror the #9156 reply-authority verdict so pty-connection's query-reply gate knows whether this host view answers. No hydration gating: absence fails open (host answers), and any live event is newer than a snapshot could be.
+      window.api.runtime.onTerminalQueryReplyAuthorityChanged?.((event) => {
+        if (isRuntimeEnvironmentActive()) {
+          return
+        }
+        setQueryReplyAuthorityForPty(event.ptyId, event.authority)
+      }) ?? (() => {})
     )
 
     // Why: subscribe before the snapshot round trip and buffer live events; otherwise an older snapshot could overwrite a newer live lock and hide the overlay.

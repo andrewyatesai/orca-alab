@@ -1122,6 +1122,70 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(transport.isConnected()).toBe(false)
   })
 
+  it('applies the subscribe-ack query-reply authority and clears it on stream end (#9156)', async () => {
+    const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+    const {
+      getQueryReplyAuthorityForPty,
+      isQueryReplyAuthorityForThisView,
+      _resetQueryReplyAuthorityStateForTest
+    } = await import('@/lib/pane-manager/query-reply-authority-state')
+    try {
+      const transport = createRemoteRuntimePtyTransport('env-1', {
+        worktreeId: 'wt-1',
+        tabId: 'tab-1',
+        leafId: 'pane:1'
+      })
+      transport.attach({
+        existingPtyId: 'remote:terminal-1',
+        cols: 120,
+        rows: 40,
+        callbacks: {}
+      })
+      await vi.waitFor(() => latestSubscribePayload())
+      const payload = latestSubscribePayload()
+      const ptyId = 'remote:env-1@@terminal-1'
+      // The gate matches this view against the clientId the election names.
+      expect(transport.getQueryReplyViewerClientId?.()).toBe(payload.client.id)
+
+      // Critic note: the verdict rides the subscribe ack, so a headless-serve
+      // viewer knows it answers before the first drained query (no zero-answerer window).
+      subscriptionCallbacks?.onResponse({
+        ok: true,
+        result: {
+          type: 'subscribed',
+          streamId: payload.streamId,
+          queryReplyAuthority: { kind: 'remote-viewer', clientId: payload.client.id }
+        }
+      })
+      expect(getQueryReplyAuthorityForPty(ptyId)).toEqual({
+        kind: 'remote-viewer',
+        clientId: payload.client.id
+      })
+      expect(isQueryReplyAuthorityForThisView(ptyId, payload.client.id)).toBe(true)
+
+      // A re-election event (host pane revealed) silences this viewer.
+      subscriptionCallbacks?.onResponse({
+        ok: true,
+        result: {
+          type: 'query-reply-authority-changed',
+          streamId: payload.streamId,
+          authority: { kind: 'host-renderer' }
+        }
+      })
+      expect(isQueryReplyAuthorityForThisView(ptyId, payload.client.id)).toBe(false)
+
+      // Stream end clears the stale verdict so the next attach fails open.
+      subscriptionCallbacks?.onResponse({
+        ok: true,
+        result: { type: 'end', streamId: payload.streamId }
+      })
+      await vi.waitFor(() => expect(getQueryReplyAuthorityForPty(ptyId)).toBeNull())
+      expect(isQueryReplyAuthorityForThisView(ptyId, payload.client.id)).toBe(true)
+    } finally {
+      _resetQueryReplyAuthorityStateForTest()
+    }
+  })
+
   it('drops pending input when attaching a different remote terminal handle', async () => {
     vi.useFakeTimers()
     runtimeSubscribe.mockImplementation(

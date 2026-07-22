@@ -9956,6 +9956,41 @@ describe('registerPtyHandlers', () => {
       }
     })
 
+    it('re-elects the query-reply authority on hidden mark and unmark (#9156)', async () => {
+      const runtime = {
+        setPtyController: vi.fn(),
+        registerPty: vi.fn(),
+        noteTerminalSpawnCommand: vi.fn(),
+        onPtySpawned: vi.fn(),
+        onPtyExit: vi.fn(),
+        onPtyData: vi.fn(() => 42),
+        getPtyOutputSequence: vi.fn(() => 42),
+        notifyTerminalQueryReplyAuthorityMayHaveChanged: vi.fn(),
+        createPreAllocatedTerminalHandle: vi.fn(() => 'terminal-handle-1'),
+        registerPreAllocatedHandleForPty: vi.fn()
+      }
+      installObservableDaemonTestProvider()
+      registerPtyHandlers(mainWindow as never, runtime as never)
+      const result = (await handlers.get('pty:spawn')!(null, {
+        cols: 80,
+        rows: 24,
+        sessionId: 'daemon-session'
+      })) as { id: string }
+      const setHidden = getPtySetHiddenRendererPtyListener()
+
+      // Why: hiding/revealing the host pane flips the visible-host precedence rung; the runtime cannot see gate marks itself.
+      setHidden(null, { id: result.id, hidden: true })
+      expect(runtime.notifyTerminalQueryReplyAuthorityMayHaveChanged).toHaveBeenCalledWith(
+        result.id
+      )
+
+      runtime.notifyTerminalQueryReplyAuthorityMayHaveChanged.mockClear()
+      setHidden(null, { id: result.id, hidden: false })
+      expect(runtime.notifyTerminalQueryReplyAuthorityMayHaveChanged).toHaveBeenCalledWith(
+        result.id
+      )
+    })
+
     it('surfaces the hidden-yet-visible contradiction in the snapshot and warns on drop', async () => {
       // Why: field snapshot v1.4.124-rc.2.perf — aggregates couldn't tell if the visible pane was hidden-gated; overlap counter + warn makes it decisive.
       vi.useFakeTimers()

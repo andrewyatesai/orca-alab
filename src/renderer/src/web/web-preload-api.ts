@@ -1270,6 +1270,8 @@ function createRuntimeApi(): NonNullable<Partial<PreloadApi>['runtime']> {
     reclaimBrowserForDesktop: () => Promise.resolve({ reclaimed: false }),
     onTerminalFitOverrideChanged: () => noopUnsubscribe,
     onTerminalDriverChanged: () => noopUnsubscribe,
+    // Why noop: web clients get authority via the remote multiplex stream, not local runtime IPC.
+    onTerminalQueryReplyAuthorityChanged: () => noopUnsubscribe,
     onBrowserDriverChanged: () => noopUnsubscribe
   }
 }

@@ -58,6 +58,14 @@ export type RuntimeTerminalDriverState =
 
 export type RuntimeBrowserDriverState = RuntimeTerminalDriverState
 
+// Why: exactly-one-answerer election for embedded terminal queries (#9156).
+// Crosses main/preload/renderer IPC and the remote terminal stream protocol.
+export type RuntimeTerminalQueryReplyAuthority =
+  | { kind: 'mobile'; clientId: string }
+  | { kind: 'host-renderer' }
+  | { kind: 'remote-viewer'; clientId: string }
+  | { kind: 'model' }
+
 export type RuntimeStatus = {
   runtimeId: string
   rendererGraphEpoch: number

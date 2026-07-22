@@ -8,7 +8,8 @@ type CopyTerminalHandleDeps = {
     method: 'terminal.resolvePane'
     params: { paneKey: string }
   }) => Promise<RuntimeRpcResponse<unknown>>
-  writeClipboardText: (text: string) => Promise<void>
+  // Why: the production seam resolves a verified boolean; this caller only awaits.
+  writeClipboardText: (text: string) => Promise<boolean | void>
 }
 
 export async function copyTerminalHandleForPane({

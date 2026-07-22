@@ -113,4 +113,66 @@ describe('handleOsc52ClipboardRequest', () => {
 
     expect(onBlockedWrite).not.toHaveBeenCalled()
   })
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('reports onWriteResult(true) for a verified allowed write', async () => {
+    const onWriteResult = vi.fn()
+    handleOsc52ClipboardRequest(`c;${b64('landed')}`, {
+      allowClipboardWrite: true,
+      writeClipboardText: vi.fn().mockResolvedValue(true),
+      onWriteResult
+    })
+    await settle()
+    expect(onWriteResult).toHaveBeenCalledWith(true)
+  })
+
+  it('an allowed write failure invokes onWriteResult(false) — rejection and verified-false alike', async () => {
+    const onRejected = vi.fn()
+    handleOsc52ClipboardRequest(`c;${b64('lost')}`, {
+      allowClipboardWrite: true,
+      writeClipboardText: vi.fn().mockRejectedValue(new Error('ipc down')),
+      onWriteResult: onRejected
+    })
+
+    const onUnverified = vi.fn()
+    handleOsc52ClipboardRequest(`c;${b64('lost')}`, {
+      allowClipboardWrite: true,
+      writeClipboardText: vi.fn().mockResolvedValue(false),
+      onWriteResult: onUnverified
+    })
+
+    await settle()
+    expect(onRejected).toHaveBeenCalledWith(false)
+    expect(onUnverified).toHaveBeenCalledWith(false)
+  })
+
+  it('a legacy void resolution still reads as success (only explicit false fails)', async () => {
+    const onWriteResult = vi.fn()
+    handleOsc52ClipboardRequest(`c;${b64('legacy')}`, {
+      allowClipboardWrite: true,
+      writeClipboardText: vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined),
+      onWriteResult
+    })
+    await settle()
+    expect(onWriteResult).toHaveBeenCalledWith(true)
+  })
+
+  it('a blocked write still fires onBlockedWrite and never onWriteResult', async () => {
+    const onBlockedWrite = vi.fn()
+    const onWriteResult = vi.fn()
+    const writeClipboardText = vi.fn().mockResolvedValue(true)
+
+    handleOsc52ClipboardRequest(`c;${b64('blocked')}`, {
+      allowClipboardWrite: false,
+      writeClipboardText,
+      onBlockedWrite,
+      onWriteResult
+    })
+
+    await settle()
+    expect(onBlockedWrite).toHaveBeenCalledTimes(1)
+    expect(writeClipboardText).not.toHaveBeenCalled()
+    expect(onWriteResult).not.toHaveBeenCalled()
+  })
 })

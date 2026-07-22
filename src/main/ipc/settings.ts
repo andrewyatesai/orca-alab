@@ -218,7 +218,9 @@ export function registerSettingsHandlers(
   // only when the engine reports a glyph miss for it (E1 lazy fonts), so an
   // ASCII-only session never pays the ~183MB emoji read. Omitted = both.
   ipcMain.handle('fonts:getTerminalFallbackFonts', (_event, classes?: ('text' | 'emoji')[]) => {
-    return getTerminalFallbackFonts(classes)
+    // Why: the user fallback stack is read live so a settings change reaches the
+    // next pane / worker generation (the resolved half is memoized per list).
+    return getTerminalFallbackFonts(classes, store.getSettings().terminalFontFallbackFamilies)
   })
 
   // Resolve the user's terminalFontFamily to face bytes: the primary face closest

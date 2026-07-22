@@ -37,6 +37,7 @@ import {
 } from './clipboard-remote-file-copy'
 import { saveClipboardImageBufferInRuntime } from './clipboard-runtime-image-upload'
 import { readWindowsClipboardImageFileAsPng } from './clipboard-windows-image-file'
+import { writeClipboardTextVerified } from './clipboard-write-verification'
 
 let trustedClipboardRendererWebContentsId: number | null = null
 
@@ -177,16 +178,24 @@ export function registerClipboardHandlers(store: Store): void {
     assertTrustedClipboardSender(event)
     return readClipboardFilePaths(makeClipboardFileReadDeps())
   })
-  ipcMain.handle('clipboard:writeText', async (event, text: string) => {
+  // Both text writes verify by read-back and return whether the write landed
+  // (PC-5611/8977: silent clipboard failures must be visible to the renderer).
+  ipcMain.handle('clipboard:writeText', async (event, text: string): Promise<boolean> => {
     assertTrustedClipboardSender(event)
-    return clipboard.writeText(await assertClipboardTextWriteWithinLimitWithYield(text))
+    const payload = await assertClipboardTextWriteWithinLimitWithYield(text)
+    return writeClipboardTextVerified(payload, 'clipboard', {
+      write: (value) => clipboard.writeText(value),
+      read: () => clipboard.readText()
+    })
   })
-  ipcMain.handle('clipboard:writeSelectionText', async (event, text: string) => {
+  ipcMain.handle('clipboard:writeSelectionText', async (event, text: string): Promise<boolean> => {
     assertTrustedClipboardSender(event)
-    return clipboard.writeText(
-      await assertClipboardTextWriteWithinLimitWithYield(text),
-      'selection'
-    )
+    const payload = await assertClipboardTextWriteWithinLimitWithYield(text)
+    return writeClipboardTextVerified(payload, 'selection', {
+      write: (value) => clipboard.writeText(value, 'selection'),
+      // Why: verification must read the SAME buffer the write targeted.
+      read: () => clipboard.readText('selection')
+    })
   })
   ipcMain.handle('clipboard:writeImage', (event, dataUrl: string) => {
     assertTrustedClipboardSender(event)

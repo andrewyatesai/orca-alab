@@ -292,12 +292,21 @@ async function loadSharedWorkerFonts(): Promise<SharedWorkerFonts> {
 
 // One missed class from the main process (per-class cached there); the bytes are
 // transferred straight into the worker — the renderer keeps no copy.
-async function loadSharedWorkerFontClass(cls: AtermFontClass): ReturnType<LoadFontClass> {
-  const { cjk, emoji, symbol, chain } = await window.api.fonts.getTerminalFallbackFonts([cls])
+// Exported for tests: the text-class ordering (user stack before CJK) is the
+// contract the worker registry applies in array order.
+export async function loadSharedWorkerFontClass(cls: AtermFontClass): ReturnType<LoadFontClass> {
+  const { user, cjk, emoji, symbol, chain } = await window.api.fonts.getTerminalFallbackFonts([cls])
   if (cls === 'emoji') {
     return { emoji: emoji ? new Uint8Array(emoji) : undefined }
   }
   const fallbacks: Uint8Array[] = []
+  // User-configured stack precedes the CJK face. Ordering hazard: the worker
+  // registry (aterm-worker-font-registry) appends incrementally by index, so a
+  // CHANGED stack cannot reorder an already-delivered class within a live worker
+  // generation — a new stack takes effect from the next generation.
+  for (const face of user ?? []) {
+    fallbacks.push(new Uint8Array(face.bytes))
+  }
   if (cjk) {
     fallbacks.push(new Uint8Array(cjk.bytes))
   }

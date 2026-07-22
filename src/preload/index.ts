@@ -1817,14 +1817,16 @@ const api = {
   },
 
   fonts: {
-    // Local OS fallback fonts for the aterm terminal renderer: region-aware CJK
-    // face (first) + emoji + a monochrome symbol face + an ordered non-Latin chain
-    // (Arabic/Hebrew/Indic/Thai + broad catch-all) appended via add_fallback_font.
+    // Local OS fallback fonts for the aterm terminal renderer: the user's
+    // configured fallback stack (ordered, first) + region-aware CJK face + emoji
+    // + a monochrome symbol face + an ordered non-Latin chain (Arabic/Hebrew/
+    // Indic/Thai + broad catch-all) appended via add_fallback_font.
     // `classes` scopes the read to the face class the engine actually reported
-    // missing ('text' = CJK+chain+symbol, 'emoji') — E1 lazy fonts; omitted = both.
+    // missing ('text' = user+CJK+chain+symbol, 'emoji') — E1 lazy fonts; omitted = both.
     getTerminalFallbackFonts: (
       classes?: ('text' | 'emoji')[]
     ): Promise<{
+      user: { family: string; bytes: Uint8Array }[]
       cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
       emoji?: Uint8Array
       symbol?: Uint8Array
@@ -3719,9 +3721,11 @@ const api = {
       connectionId?: string | null
       runtimeEnvironmentId?: string | null
     }): Promise<string | null> => ipcRenderer.invoke('clipboard:saveImageAsTempFile', args),
-    writeClipboardText: (text: string): Promise<void> =>
+    // Resolve to whether the write VERIFIED by read-back (false = the clipboard
+    // could not be confirmed changed); void-callers keep compiling unchanged.
+    writeClipboardText: (text: string): Promise<boolean> =>
       ipcRenderer.invoke('clipboard:writeText', text),
-    writeSelectionClipboardText: (text: string): Promise<void> =>
+    writeSelectionClipboardText: (text: string): Promise<boolean> =>
       ipcRenderer.invoke('clipboard:writeSelectionText', text),
     writeClipboardImage: (dataUrl: string): Promise<void> =>
       ipcRenderer.invoke('clipboard:writeImage', dataUrl),

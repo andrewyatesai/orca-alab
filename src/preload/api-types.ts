@@ -2147,6 +2147,9 @@ export type PreloadApi = {
      *  missing ('text' = CJK+chain+symbol, 'emoji') — E1 lazy fonts; omitted =
      *  both. */
     getTerminalFallbackFonts: (classes?: ('text' | 'emoji')[]) => Promise<{
+      /** User-configured fallback families (terminalFontFallbackFamilies) resolved
+       *  to face bytes, in the user's order — injected before the CJK face. */
+      user: { family: string; bytes: Uint8Array }[]
       cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
       emoji?: Uint8Array
       symbol?: Uint8Array
@@ -3017,8 +3020,10 @@ export type PreloadApi = {
       connectionId?: string | null
       runtimeEnvironmentId?: string | null
     }) => Promise<string | null>
-    writeClipboardText: (text: string) => Promise<void>
-    writeSelectionClipboardText: (text: string) => Promise<void>
+    /** Resolves to whether the write verified by read-back (false = the
+     *  clipboard could not be confirmed changed — surface it, don't ignore). */
+    writeClipboardText: (text: string) => Promise<boolean>
+    writeSelectionClipboardText: (text: string) => Promise<boolean>
     writeClipboardImage: (dataUrl: string) => Promise<void>
     performNativePaste: (options?: { mode?: 'paste' | 'paste-and-match-style' }) => void
     writeClipboardFile: (

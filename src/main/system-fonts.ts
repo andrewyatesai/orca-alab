@@ -113,6 +113,9 @@ let macFontFaceIndex: Map<string, FontFaceCandidate[]> | null = null
 export type TerminalFontFaceBytes = {
   primary: Uint8Array | null
   bold: Uint8Array | null
+  // Why: the fallback-stack assembler de-dups faces by resolved file, so the
+  // primary face's path travels with the bytes. Null whenever primary is null.
+  primaryPath: string | null
 }
 
 export async function resolveTerminalFontFaceBytes(
@@ -121,7 +124,7 @@ export async function resolveTerminalFontFaceBytes(
 ): Promise<TerminalFontFaceBytes> {
   const name = family?.trim()
   if (!name) {
-    return { primary: null, bold: null }
+    return { primary: null, bold: null, primaryPath: null }
   }
   try {
     const faces = selectTerminalFontFaces(await listFamilyFaces(name), fontWeight)
@@ -129,9 +132,9 @@ export async function resolveTerminalFontFaceBytes(
     // No primary bytes → keep the bundled family whole; a foreign bold face would
     // mismatch the bundled primary's metrics.
     const bold = primary && faces.bold ? await readFontFileBytes(faces.bold.path) : null
-    return { primary, bold }
+    return { primary, bold, primaryPath: primary && faces.primary ? faces.primary.path : null }
   } catch {
-    return { primary: null, bold: null }
+    return { primary: null, bold: null, primaryPath: null }
   }
 }
 

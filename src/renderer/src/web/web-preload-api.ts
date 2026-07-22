@@ -2481,7 +2481,17 @@ function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
     },
     writeClipboardText: async (text) => {
       await assertClipboardTextWriteWithinLimitWithYield(text)
-      await (navigator.clipboard?.writeText?.(text) ?? Promise.resolve())
+      // Why: the desktop seam reports a verified boolean; in the browser the
+      // closest truth is whether the async Clipboard API accepted the write.
+      if (!navigator.clipboard?.writeText) {
+        return false
+      }
+      try {
+        await navigator.clipboard.writeText(text)
+        return true
+      } catch {
+        return false
+      }
     },
     writeSelectionClipboardText: () =>
       Promise.reject(new Error('Selection clipboard is unavailable in the web client')),

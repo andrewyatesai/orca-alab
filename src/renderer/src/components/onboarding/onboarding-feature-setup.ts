@@ -83,7 +83,8 @@ export type OnboardingFeatureSetupDeps = {
   getCliStatus: () => Promise<CliInstallStatus>
   showCliRegistrationPrompt?: () => Promise<void>
   installCli: () => Promise<CliInstallStatus>
-  writeClipboardText: (text: string) => Promise<void>
+  // Why: the production seam resolves a verified boolean; this caller only awaits.
+  writeClipboardText: (text: string) => Promise<boolean | void>
   getComputerUsePermissionStatus: () => Promise<ComputerUsePermissionStatusResult>
   openComputerUsePermissionSetup: () => Promise<ComputerUsePermissionSetupResult>
   setStorageItem: (key: string, value: string) => void

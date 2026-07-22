@@ -12,6 +12,7 @@ import { isTerminalAgentQuickCommand } from '@/lib/git-wasm/terminal-quick-comma
 import { sendTerminalQuickCommandToPane } from './terminal-quick-command-dispatch'
 import { pasteTerminalText } from './terminal-bracketed-paste'
 import { pasteTerminalClipboard } from './terminal-clipboard-paste'
+import { copyTerminalSelectionThenClear, copyTerminalTextVerified } from './terminal-copy-outcome'
 import { resolveTerminalPasteTargetShell } from './terminal-paste-target-shell'
 import {
   executeTerminalPastePlan,
@@ -158,7 +159,8 @@ export function useTerminalPaneContextMenu({
     // read the controller's selection text when this pane is aterm-rendered.
     const selection = pane.atermController?.selectionText() ?? pane.terminal.getSelection()
     if (selection) {
-      await window.api.ui.writeClipboardText(selection)
+      // Verified write: a failure surfaces via the copy-outcome seam.
+      await copyTerminalTextVerified(selection, 'context-menu')
     }
     // Why: Radix returns focus to the menu trigger (the pane container) on
     // close, but xterm.js only accepts input when its own helper textarea is
@@ -495,10 +497,10 @@ export function useTerminalPaneContextMenu({
       const selection =
         clickedPane.atermController?.selectionText() ?? clickedPane.terminal.getSelection()
       if (selection) {
-        void window.api.ui.writeClipboardText(selection)
-        if (!clickedPane.atermController) {
-          clickedPane.terminal.clearSelection()
-        }
+        void copyTerminalSelectionThenClear(
+          selection,
+          clickedPane.atermController ? null : () => clickedPane.terminal.clearSelection()
+        )
       } else {
         void pasteResolvedPane('right-click')
       }

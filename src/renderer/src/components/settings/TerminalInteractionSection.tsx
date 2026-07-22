@@ -363,8 +363,8 @@ export function TerminalInteractionSection({
               'Allow TUI Clipboard Writes (OSC 52)'
             )}
             description={translate(
-              'auto.components.settings.TerminalPane.6e6480a7df',
-              'Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard.'
+              'auto.components.settings.TerminalPane.osc52DescriptionWithToastNote',
+              'Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here.'
             )}
             checked={settings.terminalAllowOsc52Clipboard}
             onChange={() =>

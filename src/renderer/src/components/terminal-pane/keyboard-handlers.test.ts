@@ -1,7 +1,16 @@
 // src/renderer/src/components/terminal-pane/keyboard-handlers.test.ts
 import { describe, it, expect, vi } from 'vitest'
 import { FIND_QUERY_MAX_BYTES } from '@/lib/find-query-bounds'
+
+// The copy-outcome seam toasts through sonner + deep-links through the store;
+// mock both so the copySelection test can observe the surfaced failure.
+const { toastErrorMock } = vi.hoisted(() => ({ toastErrorMock: vi.fn() }))
+vi.mock('sonner', () => ({
+  toast: { error: toastErrorMock, success: vi.fn() }
+}))
+
 import {
+  copyPaneSelectionViaShortcut,
   matchFileSearchShortcut,
   matchSearchNavigate,
   resolveTerminalKeyboardShortcutAction,
@@ -207,5 +216,33 @@ describe('matchFileSearchShortcut', () => {
         'sidebar.search.toggle': []
       })
     ).toBe(false)
+  })
+})
+
+describe('copyPaneSelectionViaShortcut (Cmd/Ctrl+Shift+C)', () => {
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+  function makePane(selection: string): Parameters<typeof copyPaneSelectionViaShortcut>[0] {
+    return { terminal: { getSelection: () => selection } } as unknown as Parameters<
+      typeof copyPaneSelectionViaShortcut
+    >[0]
+  }
+
+  it('surfaces a failed clipboard write instead of swallowing it', async () => {
+    const write = vi.fn().mockResolvedValue(false)
+    vi.stubGlobal('window', { api: { ui: { writeClipboardText: write } } })
+    try {
+      expect(copyPaneSelectionViaShortcut(makePane('copied text'))).toBe(true)
+      await settle()
+      expect(write).toHaveBeenCalledWith('copied text')
+      expect(toastErrorMock).toHaveBeenCalledTimes(1)
+      expect(String(toastErrorMock.mock.calls[0]?.[0])).toContain('Copy failed')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('reports no shortcut consumption without a selection', () => {
+    expect(copyPaneSelectionViaShortcut(makePane(''))).toBe(false)
   })
 })

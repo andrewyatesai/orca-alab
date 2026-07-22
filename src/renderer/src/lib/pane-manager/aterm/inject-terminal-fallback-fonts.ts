@@ -29,7 +29,12 @@ type FallbackFontInjectable = Pick<
 const MISSING_TEXT = 1
 const MISSING_EMOJI = 2
 
-type TextClassHandles = { cjk: number | null; chain: number[]; symbol: number | null }
+type TextClassHandles = {
+  user: number[]
+  cjk: number | null
+  chain: number[]
+  symbol: number | null
+}
 
 function moduleRegister(engine: 'cpu' | 'gpu'): (bytes: Uint8Array) => number {
   return engine === 'cpu' ? registerCpuFont : registerGpuFont
@@ -48,8 +53,9 @@ const emojiHandles: Record<'cpu' | 'gpu', Promise<number | null> | null> = {
 
 async function registerTextClass(engine: 'cpu' | 'gpu'): Promise<TextClassHandles> {
   const register = moduleRegister(engine)
-  const { cjk, symbol, chain } = await window.api.fonts.getTerminalFallbackFonts(['text'])
+  const { user, cjk, symbol, chain } = await window.api.fonts.getTerminalFallbackFonts(['text'])
   return {
+    user: (user ?? []).map((face) => register(new Uint8Array(face.bytes))),
     cjk: cjk ? register(new Uint8Array(cjk.bytes)) : null,
     chain: (chain ?? []).map((face) => register(new Uint8Array(face.bytes))),
     symbol: symbol ? register(new Uint8Array(symbol)) : null
@@ -61,26 +67,38 @@ async function registerEmojiClass(engine: 'cpu' | 'gpu'): Promise<number | null>
   return emoji ? moduleRegister(engine)(new Uint8Array(emoji)) : null
 }
 
-/** Apply the monochrome 'text' class. Order matters: the locale-aware CJK face is
- *  the primary fallback (the set RESETS the chain to it), then each chain face
- *  (Arabic/Hebrew/Devanagari/Thai/broad-coverage) is APPENDED so a glyph the CJK
- *  face lacks falls through to a later face; the symbol tier (⏸⏹⏺) rides the same
- *  class. Tolerant per face: parsing happens at set-time, so an unparseable OS
- *  face throws a catchable error here — Latin + the other faces still render. */
+/** Apply the monochrome 'text' class. Order matters: the user-configured stack
+ *  leads (set RESETS the chain to its first face; the rest APPEND), then the
+ *  locale-aware CJK face (set when no user stack — exactly the prior behavior —
+ *  else appended), then each chain face (Arabic/Hebrew/Devanagari/Thai/broad-
+ *  coverage) so a glyph an earlier face lacks falls through; the symbol tier
+ *  (⏸⏹⏺) rides the same class. Tolerant per face: parsing happens at set-time,
+ *  so an unparseable face throws a catchable error here — Latin + the other
+ *  faces still render. */
 function applyTextClass(term: FallbackFontInjectable, h: TextClassHandles): void {
-  if (h.cjk != null) {
+  // Why: track whether a set landed so a face that fails to parse never leaves
+  // the chain un-reset (the next face takes the set slot instead).
+  let chainStarted = false
+  const applyFallbackFace = (handle: number): void => {
     try {
-      term.set_fallback_font_registered(h.cjk)
+      if (chainStarted) {
+        term.add_fallback_font_registered(handle)
+      } else {
+        term.set_fallback_font_registered(handle)
+        chainStarted = true
+      }
     } catch {
-      // Unparseable CJK face — keep going; the chain + Latin still render.
+      // Unparseable face — skip it; later faces still apply.
     }
   }
+  for (const face of h.user) {
+    applyFallbackFace(face)
+  }
+  if (h.cjk != null) {
+    applyFallbackFace(h.cjk)
+  }
   for (const face of h.chain) {
-    try {
-      term.add_fallback_font_registered(face)
-    } catch {
-      // Unparseable chain face — skip it; later faces still apply.
-    }
+    applyFallbackFace(face)
   }
   if (h.symbol != null) {
     try {

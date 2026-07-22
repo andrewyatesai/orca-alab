@@ -22,6 +22,7 @@
     "**/out",
     "**/aterm_wasm*",
     "**/aterm_gpu_web*",
-    "**/orca_git_wasm*"
+    "**/orca_git_wasm*",
+    ".claude/worktrees"
   ]
 }

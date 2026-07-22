@@ -108,6 +108,7 @@
     "**/orca_git_wasm*",
     "**/orca_crypto_wasm*",
     "rust/vendor",
-    "rust/aterm"
+    "rust/aterm",
+    ".claude/worktrees"
   ]
 }

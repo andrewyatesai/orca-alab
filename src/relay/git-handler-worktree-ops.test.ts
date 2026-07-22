@@ -100,7 +100,16 @@ describe('addWorktreeOp', () => {
     })
 
     expect(git.mock.calls.map((call) => call[0])).toEqual([
-      ['-c', 'checkout.workers=0', 'worktree', 'add', '--no-track', '-b', 'feature/no-base', '/repo-feature'],
+      [
+        '-c',
+        'checkout.workers=0',
+        'worktree',
+        'add',
+        '--no-track',
+        '-b',
+        'feature/no-base',
+        '/repo-feature'
+      ],
       ['config', '--get', 'push.autoSetupRemote']
     ])
   })
@@ -134,6 +143,116 @@ describe('addWorktreeOp', () => {
       'branch.feature/test.base'
     ])
     warnSpy.mockRestore()
+  })
+
+  function failingAddGitMock(
+    addError: Error,
+    listStdout: string
+  ): ReturnType<typeof vi.fn<GitExec>> {
+    return vi.fn<GitExec>(async (args) => {
+      if (args.includes('worktree') && args.includes('add')) {
+        throw addError
+      }
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        return { stdout: listStdout, stderr: '' }
+      }
+      return { stdout: '', stderr: '' }
+    })
+  }
+
+  it('rolls back the registered worktree and fresh branch after a killed SSH add', async () => {
+    const addError = new Error('git worktree add timed out')
+    const git = failingAddGitMock(
+      addError,
+      worktreeList(
+        { path: '/repo', branch: 'main' },
+        { path: '/repo-feature', branch: 'feature/test' }
+      )
+    )
+
+    await expect(
+      addWorktreeOp(git, {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature'
+      })
+    ).rejects.toBe(addError)
+
+    const calls = git.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'remove', '--force', '/repo-feature'])
+    expect(calls).toContainEqual(['worktree', 'prune'])
+    expect(calls).toContainEqual(['branch', '-D', '--', 'feature/test'])
+  })
+
+  it('never deletes a pre-existing branch when a checkout-existing-branch SSH add fails', async () => {
+    const addError = new Error('git worktree add timed out')
+    const git = failingAddGitMock(
+      addError,
+      worktreeList(
+        { path: '/repo', branch: 'main' },
+        { path: '/repo-feature', branch: 'feature/test' }
+      )
+    )
+
+    await expect(
+      addWorktreeOp(git, {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature',
+        checkoutExistingBranch: true
+      })
+    ).rejects.toBe(addError)
+
+    const calls = git.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'remove', '--force', '/repo-feature'])
+    expect(calls).toContainEqual(['worktree', 'prune'])
+    expect(calls.some((args) => args[0] === 'branch')).toBe(false)
+  })
+
+  it('rethrows unchanged without rollback when the SSH add failed before registering the worktree', async () => {
+    const addError = new Error("fatal: a branch named 'feature/test' already exists")
+    const git = failingAddGitMock(addError, worktreeList({ path: '/repo', branch: 'main' }))
+
+    await expect(
+      addWorktreeOp(git, {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature'
+      })
+    ).rejects.toBe(addError)
+
+    expect(addError.message).not.toContain('cleanup also failed')
+    const calls = git.mock.calls.map((call) => call[0])
+    expect(calls.some((args) => args[0] === 'worktree' && args[1] === 'remove')).toBe(false)
+    expect(calls.some((args) => args[0] === 'branch')).toBe(false)
+  })
+
+  it('errs toward rollback when the post-failure registration probe itself fails', async () => {
+    const addError = new Error('git worktree add timed out')
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args.includes('worktree') && args.includes('add')) {
+        throw addError
+      }
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        throw new Error('remote connection dropped')
+      }
+      return { stdout: '', stderr: '' }
+    })
+
+    await expect(
+      addWorktreeOp(git, {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature'
+      })
+    ).rejects.toBe(addError)
+
+    expect(git.mock.calls.map((call) => call[0])).toContainEqual([
+      'worktree',
+      'remove',
+      '--force',
+      '/repo-feature'
+    ])
   })
 })
 

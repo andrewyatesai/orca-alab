@@ -952,6 +952,10 @@ describe('addWorktree', () => {
     // after worktree add succeeds.
     resolveRemoteBase()
     gitExecFileAsyncMock.mockRejectedValueOnce(new Error('worktree add failed'))
+    // Rollback registration probe: the worktree never got registered, so no cleanup runs.
+    gitExecFileAsyncMock.mockResolvedValueOnce({
+      stdout: 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n'
+    })
 
     await expect(
       addWorktree('/repo', '/repo-feature', 'feature/test', 'origin/main')
@@ -971,7 +975,8 @@ describe('addWorktree', () => {
           'refs/remotes/origin/main'
         ],
         { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
-      ]
+      ],
+      [['worktree', 'list', '--porcelain', '-z'], { cwd: '/repo' }]
     ])
   })
 

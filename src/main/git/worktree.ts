@@ -820,7 +820,8 @@ async function rollbackDeferredWorktreeCreate(
   repoPath: string,
   worktreePath: string,
   options: AddWorktreeOptions,
-  error: unknown
+  error: unknown,
+  knownRemovedWorktree?: RemoveWorktreeOptions['knownRemovedWorktree']
 ): Promise<never> {
   const wrapped: SparseWorktreeCreateError =
     error instanceof Error ? (error as SparseWorktreeCreateError) : new Error(String(error))
@@ -828,6 +829,7 @@ async function rollbackDeferredWorktreeCreate(
     await removeWorktree(repoPath, worktreePath, true, {
       deleteBranch: !options.checkoutExistingBranch,
       forceBranchDelete: !options.checkoutExistingBranch,
+      ...(knownRemovedWorktree ? { knownRemovedWorktree } : {}),
       ...(options.wslDistro ? { wslDistro: options.wslDistro } : {})
     })
   } catch {
@@ -932,11 +934,29 @@ async function performAddWorktree(
       args.push(effectiveBase)
     }
   }
-  await gitExecFileAsync(args, {
-    ...gitExecOptions(repoPath, options),
-    // Why: bound the checkout so a OneDrive cloud-placeholder stall (STA-1292) fails fast instead of hanging.
-    timeout: WORKTREE_ADD_TIMEOUT_MS
-  })
+  try {
+    await gitExecFileAsync(args, {
+      ...gitExecOptions(repoPath, options),
+      // Why: bound the checkout so a OneDrive cloud-placeholder stall (STA-1292) fails fast instead of hanging.
+      timeout: WORKTREE_ADD_TIMEOUT_MS
+    })
+  } catch (error) {
+    // Why: a killed add (e.g. timeout mid-checkout, #7410) can leave a registered worktree + fresh branch; roll back only state this add created.
+    const registeredWorktree = (await listWorktreesUnshared(repoPath, options)).find((worktree) =>
+      areWorktreePathsEqual(worktree.path, worktreePath)
+    )
+    if (!registeredWorktree) {
+      // Why: add failed before registering anything (e.g. branch/path already exists) — nothing to roll back.
+      throw error
+    }
+    return rollbackDeferredWorktreeCreate(
+      repoPath,
+      worktreePath,
+      options,
+      error,
+      registeredWorktree
+    )
+  }
 
   if (gitCryptDir) {
     try {

@@ -29,6 +29,24 @@ async function rollbackRelayWorktreeCreate(
   throw wrapped
 }
 
+async function relayWorktreeAddRegistered(
+  git: GitExec,
+  repoPath: string,
+  targetDir: string
+): Promise<boolean> {
+  try {
+    // Why: plain --porcelain (no -z) keeps this probe Git 2.25-safe; a registration check doesn't need newline-exact paths.
+    const { stdout } = await git(['worktree', 'list', '--porcelain'], repoPath)
+    return stdout
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .some((line) => areRelayWorktreePathsEqual(line.slice('worktree '.length), targetDir))
+  } catch {
+    // Why: state unknown after the failed add — err toward rollback so a registered orphan isn't silently kept.
+    return true
+  }
+}
+
 async function persistRelayWorktreeCreationBase(
   git: GitExec,
   targetDir: string,
@@ -108,7 +126,22 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
     args.push(effectiveBase)
   }
 
-  await git(args, repoPath)
+  try {
+    await git(args, repoPath)
+  } catch (error) {
+    // Why: a killed add (e.g. timeout mid-checkout, #7410) can leave a registered worktree + fresh branch; roll back only state this add created.
+    if (!(await relayWorktreeAddRegistered(git, repoPath, targetDir))) {
+      throw error
+    }
+    return rollbackRelayWorktreeCreate(
+      git,
+      repoPath,
+      targetDir,
+      branchName,
+      !checkoutExistingBranch,
+      error
+    )
+  }
 
   if (gitCryptDir) {
     try {

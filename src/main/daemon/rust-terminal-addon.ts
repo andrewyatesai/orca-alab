@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
+import { isPackagedElectronProcess, orcaNodeAddonCandidatePaths } from './orca-node-addon-paths'
 
 // Typed surface of the napi addon built from native/orca-node (the Rust
 // `orca_terminal::HeadlessTerminal`). Node-API is ABI-stable, so the same
@@ -47,21 +47,16 @@ export type RustTerminalBinding = {
 }
 
 function candidatePaths(): string[] {
-  const paths: string[] = []
-  const override = process.env.ORCA_RUST_TERMINAL_ADDON
-  if (override) {
-    paths.push(override)
-  }
-  // Dev tree layout: <repo>/native/orca-node/orca_node.node. process.cwd() is
-  // the repo root under `pnpm dev`.
-  paths.push(join(process.cwd(), 'native', 'orca-node', 'orca_node.node'))
-  // Packaged layout: alongside other unpacked native resources. resourcesPath
-  // is Electron-only, so read it defensively rather than via the global type.
-  const resourcesPath = (process as { resourcesPath?: string }).resourcesPath
-  if (resourcesPath) {
-    paths.push(join(resourcesPath, 'orca_node.node'))
-  }
-  return paths
+  return orcaNodeAddonCandidatePaths({
+    override: process.env.ORCA_RUST_TERMINAL_ADDON,
+    // Why: packaged builds must never probe cwd — a stale dev addon under the
+    // launch directory would silently replace the shipped engine.
+    isPackaged: isPackagedElectronProcess(),
+    cwd: process.cwd(),
+    // resourcesPath is Electron-only, so read it defensively rather than via
+    // the global type.
+    resourcesPath: (process as { resourcesPath?: string }).resourcesPath
+  })
 }
 
 let cached: RustTerminalBinding | null | undefined

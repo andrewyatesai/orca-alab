@@ -69,6 +69,24 @@ export class AtermTerminal {
         wasm.atermterminal_authorize_clipboard_write(this.__wbg_ptr);
     }
     /**
+     * Mint an EXTRA OSC 8 URI scheme onto the engine's safe allowlist (orca
+     * deep-links §7) — e.g. `authorize_hyperlink_scheme("orca")` so
+     * host-emitted `orca://` OSC-8 hyperlinks linkify. Returns `false`
+     * (refused, nothing changes) for a malformed / over-long scheme, a
+     * never-allow scheme (`javascript`/`data`/`file`/…, however cased), or
+     * when the bounded set (4) is full; `true` when live (idempotent).
+     * Every other OSC-8 guard — byte cap, control-char and BiDi filters,
+     * the OSC-8 capability gate — still applies to extra-scheme URIs.
+     * @param {string} scheme
+     * @returns {boolean}
+     */
+    authorize_hyperlink_scheme(scheme) {
+        const ptr0 = passStringToWasm0(scheme, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_authorize_hyperlink_scheme(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
      * Authorize (`true`) or revoke (`false`) OSC 9 / 99 / 777 desktop
      * notifications. The engine is fail-closed by default: until the host
      * authorizes, the notification handlers return before any dispatch, so
@@ -444,6 +462,33 @@ export class AtermTerminal {
         return ret >>> 0;
     }
     /**
+     * The last completed OSC-133 block's output as JSON, following the
+     * `take_osc_events` JSON-drain convention (CM-A3, "Copy Last Command
+     * Output"):
+     *   `{"status":"ok","text":"…","exitCode":0}` — output read in full
+     *     (`exitCode` is `null` when the block was finalized without OSC 133 D,
+     *     e.g. an interrupted command whose next prompt closed it);
+     *   `{"status":"evicted"}` — the block's rows scrolled past the scrollback
+     *     cap (DL-1: an honest marker, never silently-shifted/empty text);
+     *   `undefined` — nothing to copy: no shell integration, no finished block
+     *     yet (incl. a snapshot-rehydrated pane — blocks are excluded from
+     *     checkpoints), or the block never reached its output phase.
+     *
+     * `&self` — the read rides `Terminal::last_completed_block`, which was added
+     * alongside this binding precisely so the facade does not need the `&mut`
+     * `output_blocks()` (`make_contiguous`) path.
+     * @returns {string | undefined}
+     */
+    last_command_output() {
+        const ret = wasm.atermterminal_last_command_output(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
      * Detect a link under display `row`/`col`. Prefers an OSC-8 hyperlink, then
      * falls back to smart-selection rules (url/file_path). Returns `None` for
      * plain words. `kind`: 0=osc8, 1=url, 2=file_path, 3=other.
@@ -769,6 +814,16 @@ export class AtermTerminal {
      */
     revoke_clipboard_write() {
         wasm.atermterminal_revoke_clipboard_write(this.__wbg_ptr);
+    }
+    /**
+     * Remove a host-minted extra scheme (case-insensitive), restoring the
+     * engine's default allowlist posture for it.
+     * @param {string} scheme
+     */
+    revoke_hyperlink_scheme(scheme) {
+        const ptr0 = passStringToWasm0(scheme, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_revoke_hyperlink_scheme(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * Copy of the last-rendered RGBA8 framebuffer (`width*height*4` bytes),

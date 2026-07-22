@@ -11,6 +11,7 @@ export const atermgputerminal_add_fallback_font: (a: number, b: number, c: numbe
 export const atermgputerminal_add_fallback_font_registered: (a: number, b: number) => [number, number];
 export const atermgputerminal_advance_effects: (a: number, b: number) => void;
 export const atermgputerminal_authorize_clipboard_write: (a: number) => void;
+export const atermgputerminal_authorize_hyperlink_scheme: (a: number, b: number, c: number) => number;
 export const atermgputerminal_authorize_notifications: (a: number, b: number) => void;
 export const atermgputerminal_base_y: (a: number) => number;
 export const atermgputerminal_bracketed_paste_mode: (a: number) => number;
@@ -71,6 +72,7 @@ export const atermgputerminal_render: (a: number) => [number, number];
 export const atermgputerminal_render_offscreen: (a: number) => [number, number];
 export const atermgputerminal_resize: (a: number, b: number, c: number) => void;
 export const atermgputerminal_revoke_clipboard_write: (a: number) => void;
+export const atermgputerminal_revoke_hyperlink_scheme: (a: number, b: number, c: number) => void;
 export const atermgputerminal_rgba: (a: number) => [number, number];
 export const atermgputerminal_row_is_wrapped: (a: number, b: number) => number;
 export const atermgputerminal_row_len: (a: number, b: number) => number;

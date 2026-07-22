@@ -91,6 +91,20 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_authorize_clipboard_write(this.__wbg_ptr);
     }
     /**
+     * Mint an EXTRA OSC 8 URI scheme onto the engine's safe allowlist (orca
+     * deep-links §7; see aterm-wasm — kept in parity). The grid is shared, so
+     * this covers both the GPU and CPU-fallback paths. Returns `false` when
+     * refused (malformed / never-allow / bounded set full), `true` when live.
+     * @param {string} scheme
+     * @returns {boolean}
+     */
+    authorize_hyperlink_scheme(scheme) {
+        const ptr0 = passStringToWasm0(scheme, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermgputerminal_authorize_hyperlink_scheme(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
      * Authorize (`true`) or revoke (`false`) OSC 9 / 99 / 777 desktop
      * notifications. The engine is fail-closed by default: until the host
      * authorizes, the notification handlers return before any dispatch, so
@@ -828,6 +842,16 @@ export class AtermGpuTerminal {
      */
     revoke_clipboard_write() {
         wasm.atermgputerminal_revoke_clipboard_write(this.__wbg_ptr);
+    }
+    /**
+     * Remove a host-minted extra scheme (case-insensitive), restoring the
+     * engine's default allowlist posture for it (parity with aterm-wasm).
+     * @param {string} scheme
+     */
+    revoke_hyperlink_scheme(scheme) {
+        const ptr0 = passStringToWasm0(scheme, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermgputerminal_revoke_hyperlink_scheme(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * Copy of the last [`render_offscreen`](Self::render_offscreen) RGBA8

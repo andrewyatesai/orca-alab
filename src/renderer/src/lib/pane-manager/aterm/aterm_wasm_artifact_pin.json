@@ -1,42 +1,42 @@
 {
   "schema": 2,
-  "sourceCommit": "adb8e73bd56ca9fcb128d147dbe377b7a890c7da",
+  "sourceCommit": "7c9bf149533f527e83b12dd71ae779235a331644",
   "sourcePatch": {
     "path": "config/patches/aterm-gpu-wasm-clock.patch",
     "sha256": "af2e17dda30efbbf3666eeed1ac852aa8dff67d4456f2796bc814209be1bd757"
   },
   "artifacts": {
     "aterm_wasm.js": {
-      "bytes": 110994,
-      "sha256": "5130a4b881184f5ffca18905a6ad2f133f2ad83e35cab21904d45513e2342e69"
+      "bytes": 113744,
+      "sha256": "769a29968621cf4b7ca53a1a0e159edb402002cf87defc45e196bb9933a6224e"
     },
     "aterm_wasm.d.ts": {
-      "bytes": 80299,
-      "sha256": "6bb9f3fb30647be0561791147cdc1c1e4c389b498873b5fa5c2ef22eeb5baece"
+      "bytes": 82494,
+      "sha256": "1faad2209d7e1ffef742f1fdfe5da4b5d64116f32856ec1d46d091753227162f"
     },
     "aterm_wasm_bg.wasm": {
-      "bytes": 3759059,
-      "sha256": "786897c49fd945a675ee0508f118edeb5ab13073037ab55a01379c6a5e0eb49e"
+      "bytes": 3765210,
+      "sha256": "2108a70b7c50057f96f6b3d68ab97c74c35bc4cb0660ffac411cacba03cb59db"
     },
     "aterm_wasm_bg.wasm.d.ts": {
-      "bytes": 15576,
-      "sha256": "8c5ce8fab76b9dbeaad539e26b8da64777fab03400480545b97c719d4e4a4aed"
+      "bytes": 15852,
+      "sha256": "612657ea524f7ea5a8a01bb544f9d0e6228156b95f6292e48fca81a0c2b5bd52"
     },
     "aterm_gpu_web.js": {
-      "bytes": 167670,
-      "sha256": "19a35bc31c1173262f30d42f0442b6218a5469a3d81108832a1aa0cb76f36597"
+      "bytes": 168821,
+      "sha256": "ad7cc47127a856070128be399b6c8826731037bb110ee6deb42426cde2be665c"
     },
     "aterm_gpu_web.d.ts": {
-      "bytes": 78714,
-      "sha256": "6756d92ccaf53039f0f242d4a94241eaca241194b1898d79faaf9ba7f0d015d7"
+      "bytes": 79520,
+      "sha256": "9628072b3cd8d2aa04fcfc3be06bb25b5d3c0842962ca5f497d72a86df543839"
     },
     "aterm_gpu_web_bg.wasm": {
-      "bytes": 6224235,
-      "sha256": "bd33d76ba92aae91740043ecfa3dd7f34b937a188742460a092fb48cafdb7911"
+      "bytes": 6227180,
+      "sha256": "d9ef4b08c2765371ee3a51c4583022bd27ae1d4ab402781359b6be3afbd612a0"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
-      "bytes": 16844,
-      "sha256": "7c21f9a3488f74bc2e43f00a18bb6287e67bf8696d6c0c29e426fb518b3076b2"
+      "bytes": 17045,
+      "sha256": "b3cb6df642542965b57377286f05e2780459b7d2495bddc3921138927687276a"
     }
   }
 }

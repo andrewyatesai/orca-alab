@@ -68,7 +68,10 @@ export function createSlicedFindRunner(
     found: WorkerMatch[],
     generation: number,
     costMs: number,
-    complete: boolean
+    complete: boolean,
+    /** The settling step's incomplete_index (E9a): eviction / the engine match cap
+     *  truncated the results, so the count UI must render "N+". */
+    incompleteIndex: boolean
   ) => void
 ): SlicedFindRunner {
   // In-flight sliced find: its cancel() clears the slice timer and settles the run's
@@ -106,14 +109,14 @@ export function createSlicedFindRunner(
       }
     }
     activeRun = me
-    const finish = (found: WorkerMatch[], complete: boolean): void => {
+    const finish = (found: WorkerMatch[], complete: boolean, incompleteIndex: boolean): void => {
       activeRun = null
       if (!complete) {
         // Streaming-restart settle: the partial index is dead weight (the next
         // trailing refresh rebuilds); free it like a cancel would.
         handle.searchBudgetedCancel?.()
       }
-      adoptCompleted(found, gen, engineMs, complete)
+      adoptCompleted(found, gen, engineMs, complete, incompleteIndex)
       run?.onDone?.(true)
     }
     const slice = (): void => {
@@ -140,7 +143,7 @@ export function createSlicedFindRunner(
         )
       )
       if (step.complete) {
-        finish(decodeMatches(step.matches), true)
+        finish(decodeMatches(step.matches), true, step.incompleteIndex)
         return
       }
       // A rows-scanned DROP means the engine restarted (content changed between
@@ -155,7 +158,7 @@ export function createSlicedFindRunner(
           // the scanned prefix, and an underestimate would let the cost gate
           // eagerly run the blocking one-shot on the very next reply read.
           engineMs = (engineMs * step.totalRows) / Math.max(step.rowsFed, 1)
-          finish(decodeMatches(step.matches), false)
+          finish(decodeMatches(step.matches), false, step.incompleteIndex)
           return
         }
       }

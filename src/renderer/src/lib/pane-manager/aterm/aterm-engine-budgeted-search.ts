@@ -21,12 +21,13 @@ export type EngineBudgetedSearchStep = {
   totalRows: number
 }
 
-/** The getter surface both modules' `BudgetedSearchResult` steps expose. */
+/** The getter surface both modules' `BudgetedSearchResult` steps expose.
+ *  `incomplete_index` is optional: blobs older than the E9a export lack the getter. */
 export type WasmBudgetedStep = {
   matches: Uint32Array
   complete: boolean
   cursor: number | undefined
-  incomplete_index: boolean
+  incomplete_index?: boolean
   rows_fed: number
   total_rows: number
   free: () => void
@@ -40,7 +41,8 @@ export function copyBudgetedStep(step: WasmBudgetedStep): EngineBudgetedSearchSt
     matches: step.matches,
     complete: step.complete,
     cursor: step.cursor,
-    incompleteIndex: step.incomplete_index,
+    // Feature-detect: pre-E9a blobs have no incomplete_index getter → false (current behavior).
+    incompleteIndex: step.incomplete_index === true,
     rowsFed: step.rows_fed,
     totalRows: step.total_rows
   }

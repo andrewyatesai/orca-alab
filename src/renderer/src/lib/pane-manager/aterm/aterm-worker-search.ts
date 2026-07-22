@@ -100,6 +100,10 @@ export type WorkerSearch = {
   resultsVersion: () => number
   /** True while the cost gate is serving results older than the buffer content. */
   resultsStale: () => boolean
+  /** True when the last sliced find's engine step reported incomplete_index (E9a):
+   *  eviction / the match cap truncated the results, so the count is a floor ("N+").
+   *  Always false on the legacy one-shot path, which drops the engine's signal. */
+  resultsIncomplete: () => boolean
   /** Echo of the last find's request generation (0 before any find). */
   generation: () => number
   /** Scrollbar marker model from the FULL sorted match list (bounded buckets);
@@ -125,6 +129,7 @@ export function createWorkerSearch(
   let dirty = false
   let resultsVersion = 0
   let stale = false
+  let incomplete = false
   let lastRebuildMs = 0
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
   let generation = 0
@@ -145,6 +150,8 @@ export function createWorkerSearch(
     resultsVersion++
     dirty = false
     stale = false
+    // The legacy one-shot API drops the engine's incomplete-results signal.
+    incomplete = false
   }
   const reindexPreservingActive = (): void => {
     if (!query) {
@@ -202,13 +209,15 @@ export function createWorkerSearch(
     found: WorkerMatch[],
     gen: number,
     costMs: number,
-    complete: boolean
+    complete: boolean,
+    incompleteIndex: boolean
   ): void => {
     matches = found
     lastRebuildMs = costMs
     resultsVersion++
     dirty = !complete
     stale = !complete
+    incomplete = incompleteIndex
     generation = gen
     // Select the LAST match (closest to the live bottom), matching the main path.
     active = matches.length > 0 ? matches.length - 1 : -1
@@ -239,6 +248,7 @@ export function createWorkerSearch(
         matches = []
         active = -1
         stale = false
+        incomplete = false
         resultsVersion++
         handle.searchBudgetedCancel?.()
         run?.onDone?.(true)
@@ -282,6 +292,7 @@ export function createWorkerSearch(
       isRegex = false
       dirty = false
       stale = false
+      incomplete = false
       resultsVersion++
       cancelRefreshTimer()
     },
@@ -324,6 +335,7 @@ export function createWorkerSearch(
     },
     resultsVersion: () => resultsVersion,
     resultsStale: () => stale,
+    resultsIncomplete: () => incomplete,
     generation: () => generation,
     markerModel: () => {
       ensureFresh()

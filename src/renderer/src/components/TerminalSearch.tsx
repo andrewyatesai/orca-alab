@@ -31,6 +31,9 @@ export type AtermSearchSurface = {
   /** True while streaming's cost gate serves results older than the buffer content
    *  (worker path) — rendered as the ~approximate-count indicator. */
   searchResultsStale: () => boolean
+  /** True when the engine reported a truncated match index (eviction / match cap,
+   *  E9a) — the count is a floor, rendered "N+" (with stale it composes to "~N+"). */
+  searchResultsIncomplete: () => boolean
   /** True while an issued find's results haven't landed (worker path): the count is
    *  still the previous query's, so the label shows "~N, searching…" instead. */
   searchIsPending: () => boolean
@@ -99,6 +102,8 @@ export default function TerminalSearch({
   const [pending, setPending] = useState(false)
   // Streaming cost gate serving results older than the content — "~" approximate label.
   const [resultsStale, setResultsStale] = useState(false)
+  // Engine index truncated (eviction / match cap) — the count is a floor, "+" suffix.
+  const [resultsIncomplete, setResultsIncomplete] = useState(false)
   // Monotonic find generation: only the NEWEST request may clear pending / set the
   // label, so a slow superseded find can never overwrite fresher results.
   const findSeqRef = useRef(0)
@@ -121,10 +126,12 @@ export default function TerminalSearch({
       const searching = translate('auto.components.TerminalSearch.searchingPending', 'searching…')
       setMatchLabel(total === 0 ? searching : `~${total}, ${searching}`)
       setResultsStale(false)
+      setResultsIncomplete(false)
       return
     }
     setMatchLabel(total === 0 ? '0' : `${atermSearch.searchActiveMatchIndex()} / ${total}`)
     setResultsStale(atermSearch.searchResultsStale())
+    setResultsIncomplete(atermSearch.searchResultsIncomplete())
   }, [atermSearch])
 
   // Issue the find NOW; pending shows until THIS request's result lands. A null
@@ -144,6 +151,7 @@ export default function TerminalSearch({
         if (result) {
           setMatchLabel(result.count === 0 ? '0' : `${result.activeIndex} / ${result.count}`)
           setResultsStale(atermSearch.searchResultsStale())
+          setResultsIncomplete(atermSearch.searchResultsIncomplete())
         } else {
           // Timed-out/disposed round-trip: fall back to the snapshot-backed label
           // (onSearchStateChange re-syncs it when the worker's state lands).
@@ -201,6 +209,7 @@ export default function TerminalSearch({
       findSeqRef.current++
       setPending(false)
       setResultsStale(false)
+      setResultsIncomplete(false)
       atermSearch?.clearSearch()
       setMatchLabel('')
       return
@@ -300,10 +309,12 @@ export default function TerminalSearch({
             className="shrink-0 px-1 text-xs tabular-nums text-muted-foreground"
             data-terminal-search-count
             data-stale={resultsStale || undefined}
+            data-incomplete={resultsIncomplete || undefined}
           >
-            {/* "~" = approximate: streaming's cost gate is serving results older than
-                the buffer; the guaranteed trailing re-index removes it when it lands. */}
-            {resultsStale ? `~${matchLabel}` : matchLabel}
+            {/* "~" = approximate (streaming's cost gate serves results older than the
+                buffer; the trailing re-index removes it). "+" = incomplete index (the
+                engine truncated matches — the count is a floor). Both compose: "~N+". */}
+            {`${resultsStale ? '~' : ''}${matchLabel}${resultsIncomplete ? '+' : ''}`}
           </span>
         )
       )}

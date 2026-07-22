@@ -107,4 +107,30 @@ describe('buildAiVaultResumeCommand', () => {
       })
     ).toBe("cd '/Users/ada/repo' && omp --resume '019f27cd-4268-7000-96e7-62f42a55c144'")
   })
+
+  it('resumes pi by absolute transcript path since bare session ids are not resumable', () => {
+    expect(
+      buildAiVaultResumeCommand({
+        agent: 'pi',
+        sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
+        resumeFilePath: '/Users/ada/.pi/agent/sessions/repo/2026-07-03T11-30-29-357Z.jsonl',
+        cwd: '/Users/ada/repo',
+        platform: 'darwin'
+      })
+    ).toBe(
+      "cd '/Users/ada/repo' && pi --session '/Users/ada/.pi/agent/sessions/repo/2026-07-03T11-30-29-357Z.jsonl'"
+    )
+  })
+
+  it('falls back to the session id when no pi transcript path is known', () => {
+    expect(
+      buildAiVaultResumeCommand({
+        agent: 'pi',
+        sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
+        resumeFilePath: null,
+        cwd: '/Users/ada/repo',
+        platform: 'darwin'
+      })
+    ).toBe("cd '/Users/ada/repo' && pi --session '019f27cd-4268-7000-96e7-62f42a55c144'")
+  })
 })

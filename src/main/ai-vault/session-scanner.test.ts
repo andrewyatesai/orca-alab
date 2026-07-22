@@ -573,9 +573,10 @@ describe('scanAiVaultSessions', () => {
       ])
     )
 
+    const piSessionFile = join(roots.piSessionsDir, 'pi-session.jsonl')
     await mkdir(roots.piSessionsDir, { recursive: true })
     await writeFile(
-      join(roots.piSessionsDir, 'pi-session.jsonl'),
+      piSessionFile,
       jsonLines([
         {
           type: 'session',
@@ -760,7 +761,8 @@ describe('scanAiVaultSessions', () => {
     expect(commandByAgent.get('openclaw')).toBe(
       "cd '/tmp/openclaw' && openclaw --resume 'openclaw-session'"
     )
-    expect(commandByAgent.get('pi')).toBe("cd '/tmp/pi' && pi --session 'pi-session'")
+    // pi resumes by absolute transcript path; a bare session id is not resumable.
+    expect(commandByAgent.get('pi')).toBe(`cd '/tmp/pi' && pi --session '${piSessionFile}'`)
     // OMP resumes by absolute transcript path, not by internal session id.
     expect(commandByAgent.get('omp')).toBe(`cd '/tmp/omp' && omp --resume '${ompSessionFile}'`)
     expect(commandByAgent.get('devin')).toBe("cd '/tmp/devin' && devin --resume 'devin-session'")

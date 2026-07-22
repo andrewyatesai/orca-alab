@@ -45,8 +45,9 @@ describe('dev-instance-identity', () => {
     const a = getDevInstanceIdentity(true, { ORCA_DEV_BRANCH: 'feature/a' })
     const b = getDevInstanceIdentity(true, { ORCA_DEV_BRANCH: 'feature/b' })
 
-    // Per-branch label differs (window title / app menu)...
-    expect(a.name).not.toBe(b.name)
+    // Per-branch identity differs via devLabel (name is the pinned edition dock title)...
+    expect(a.devLabel).not.toBe(b.devLabel)
+    expect(a.name).toBe('Orca: ALab Edition')
     // ...but the Keychain-driving appName is identical and distinct from prod.
     expect(a.appName).toBe('Orca Dev')
     expect(b.appName).toBe('Orca Dev')

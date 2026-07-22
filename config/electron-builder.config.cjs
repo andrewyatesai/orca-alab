@@ -22,7 +22,11 @@ const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
 // ORCA_PUBLIC_IDENTITY=1 restores the upstream identity for diff builds only.
 const isPublicIdentity = process.env.ORCA_PUBLIC_IDENTITY === '1'
 const appId = isPublicIdentity ? 'com.stablyai.orca' : 'com.stablyai.orca.staging'
-const productName = isPublicIdentity ? 'Orca' : 'Orca Staging'
+// Why: packaged fork builds present the ALab Edition identity; appId stays .staging
+// so AUMID/installer namespaces are unchanged. No colon (unlike the orca-dev bundle):
+// electron-builder strips ':' from bundle filenames but not CFBundleName, and Electron
+// resolves helpers as "<CFBundleName> Helper.app" — a colon FATALs at launch.
+const productName = isPublicIdentity ? 'Orca' : 'Orca ALab Edition'
 // Why: release/CI builds ship both Intel + Apple-silicon slices — Intel Macs
 // need a native x64 app (see the npmRebuild note below). A local dev build only
 // needs the host arch; emitting a foreign-arch app would force the developer

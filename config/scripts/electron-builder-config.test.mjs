@@ -50,10 +50,14 @@ describe('electron-builder config', () => {
   // the single-instance lock, and the installer namespace with the public app.
   it('defaults to the staging fork identity', () => {
     expect(electronBuilderConfig.appId).toBe('com.stablyai.orca.staging')
-    expect(electronBuilderConfig.productName).toBe('Orca Staging')
+    expect(electronBuilderConfig.productName).toBe('Orca ALab Edition')
     // Why: Electron derives app.name/userData from the packaged package.json,
     // so the fork productName must be injected there via extraMetadata.
-    expect(electronBuilderConfig.extraMetadata).toEqual({ productName: 'Orca Staging' })
+    expect(electronBuilderConfig.extraMetadata).toEqual({ productName: 'Orca ALab Edition' })
+    // Why: Electron resolves helper bundles as "<CFBundleName> Helper.app", but
+    // electron-builder strips ':' from bundle filenames only — a colon in the
+    // fork productName crashes packaged launches with "Unable to find helper app".
+    expect(electronBuilderConfig.productName).not.toContain(':')
   })
 
   it('keeps mac zip asset names space-free for the fork identity', () => {

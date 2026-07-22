@@ -147,7 +147,11 @@ export function wrapRemoteCommandForPosixShell(command: string): string {
     'decoded=$(printf %b "$@" && printf _) || exit $?; ' +
     'decoded=${decoded%_}; exec /bin/sh -c "$decoded"'
   const chunkArguments = encodedChunks.map(shellEscape).join(' ')
-  return `exec /bin/sh -c ${shellEscape(decodeAndRun)} orca-command ${chunkArguments}`
+  // Why no leading `exec` (#7715): exec is a nu builtin whose flag parsing intercepts -c,
+  // while a bare absolute path is an external call in every login shell. The surviving
+  // login-shell parent keeps the sh child in its process group, so remote kill/timeout
+  // group signals still reach the command (pinned in ssh-remote-command-wrapper.integration.test.ts).
+  return `/bin/sh -c ${shellEscape(decodeAndRun)} orca-command ${chunkArguments}`
 }
 
 export type SshExecOptions = {

@@ -10,9 +10,15 @@ export const getTerminalPosixShellSearchEntry = createLocalizedCatalog(() => [
       'Choose the default shell for new terminal panes on macOS and Linux.'
     ),
     keywords: [
-      ...translateSearchKeyword('auto.components.settings.terminal.posix.search.terminal', 'terminal'),
+      ...translateSearchKeyword(
+        'auto.components.settings.terminal.posix.search.terminal',
+        'terminal'
+      ),
       ...translateSearchKeyword('auto.components.settings.terminal.posix.search.shell', 'shell'),
-      ...translateSearchKeyword('auto.components.settings.terminal.posix.search.default', 'default'),
+      ...translateSearchKeyword(
+        'auto.components.settings.terminal.posix.search.default',
+        'default'
+      ),
       ...translateSearchKeyword(
         'auto.components.settings.terminal.posix.search.loginShell',
         'login shell'
@@ -27,7 +33,14 @@ export const getTerminalPosixShellSearchEntry = createLocalizedCatalog(() => [
       }),
       ...translateSearchKeyword('auto.components.settings.terminal.posix.search.fish', 'fish', {
         englishOnly: true
-      })
+      }),
+      ...translateSearchKeyword(
+        'auto.components.settings.terminal.posix.search.nushell',
+        'nushell',
+        {
+          englishOnly: true
+        }
+      )
     ]
   }
 ])

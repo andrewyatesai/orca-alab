@@ -6,7 +6,7 @@
  * terminals always keep the remote login shell.
  */
 
-export const POSIX_TERMINAL_SHELL_CHOICES = ['zsh', 'bash', 'fish'] as const
+export const POSIX_TERMINAL_SHELL_CHOICES = ['zsh', 'bash', 'fish', 'nu'] as const
 export type PosixTerminalShellChoice = (typeof POSIX_TERMINAL_SHELL_CHOICES)[number]
 
 export type PosixTerminalShellOption = {

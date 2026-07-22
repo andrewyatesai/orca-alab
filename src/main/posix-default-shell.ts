@@ -16,6 +16,7 @@ export type PosixShellProbeOptions = {
 
 // Why: /etc/shells misses Homebrew/Nix installs and PATH misses login-shell-only entries; the static dirs backstop a minimal env.
 const POSIX_SHELL_STATIC_DIRS = ['/bin', '/usr/bin', '/usr/local/bin', '/opt/homebrew/bin']
+const HOME_RELATIVE_SHELL_DIRS = ['.cargo/bin', '.local/bin']
 
 function defaultIsExecutable(path: string): boolean {
   try {
@@ -58,6 +59,13 @@ function getPosixShellCandidatePaths(shellName: string, options: PosixShellProbe
     // Why: only rooted PATH entries — a relative segment would resolve against an arbitrary cwd.
     if (dir.startsWith('/')) {
       push(pathPosix.join(dir, shellName))
+    }
+  }
+  // Why: cargo/user-local installs (nu especially) are often absent from both /etc/shells and a GUI-launched PATH.
+  const home = env.HOME
+  if (home?.startsWith('/')) {
+    for (const dir of HOME_RELATIVE_SHELL_DIRS) {
+      push(pathPosix.join(home, dir, shellName))
     }
   }
   for (const dir of POSIX_SHELL_STATIC_DIRS) {

@@ -10,6 +10,7 @@ import {
   statSync
 } from 'node:fs'
 import { app } from 'electron'
+import { isNushellExecutableName } from '../shared/nushell-shell'
 import { parseWslPath, toLinuxPath } from './wsl'
 import { sweepWorktreeDaemonSessionHistory } from './daemon/history-retention'
 
@@ -18,7 +19,7 @@ import { sweepWorktreeDaemonSessionHistory } from './daemon/history-retention'
 const HISTORY_DIR_NAME = 'terminal-history'
 const HISTORY_DIR_NAME_WSL = 'terminal-history-wsl'
 
-type ShellKind = 'zsh' | 'bash' | 'fish' | 'pwsh' | 'powershell' | 'cmd' | 'unknown'
+type ShellKind = 'zsh' | 'bash' | 'fish' | 'nu' | 'pwsh' | 'powershell' | 'cmd' | 'unknown'
 
 let scheduledHistoryGcTimer: ReturnType<typeof setTimeout> | null = null
 let historyGcRunning = false
@@ -38,6 +39,9 @@ export function resolveShellKind(shellPath: string): ShellKind {
   }
   if (name.startsWith('fish')) {
     return 'fish'
+  }
+  if (isNushellExecutableName(name)) {
+    return 'nu'
   }
   if (name === 'pwsh' || name === 'pwsh.exe') {
     return 'pwsh'
@@ -67,6 +71,8 @@ function historyFilename(shell: ShellKind): string | null {
       return 'bash_history'
     // Phase 2: fish and PowerShell use different mechanisms
     case 'fish':
+    // Why: deliberate — nu's history path is not env-overridable, so no HISTFILE injection.
+    case 'nu':
     case 'pwsh':
     case 'powershell':
     case 'cmd':

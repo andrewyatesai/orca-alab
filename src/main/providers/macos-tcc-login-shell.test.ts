@@ -240,6 +240,30 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
     })
   })
 
+  it('login(1) wrap preserves nu -l -e argv (#8928 PR1)', async () => {
+    setPlatform('darwin')
+    await prepareMacosTccLoginShell()
+    expect(
+      wrapShellSpawnForMacosTccAttribution('/usr/local/bin/nu', [
+        '-l',
+        '-e',
+        'source "/orca/nu/integration.nu"'
+      ])
+    ).toEqual({
+      file: '/usr/bin/login',
+      args: [
+        '-flpq',
+        'ada',
+        '/usr/bin/env',
+        'SHELL=/usr/local/bin/nu',
+        '/usr/local/bin/nu',
+        '-l',
+        '-e',
+        'source "/orca/nu/integration.nu"'
+      ]
+    })
+  })
+
   it('re-asserts the spawn env SHELL that login(1) would overwrite', async () => {
     setPlatform('darwin')
     await prepareMacosTccLoginShell()

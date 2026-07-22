@@ -118,3 +118,59 @@ describe('resolveLocalPosixShellOverride', () => {
     expect(resolveLocalPosixShellOverride(undefined, null, probe())).toBeUndefined()
   })
 })
+
+describe('nu detection (#8928 PR1)', () => {
+  it('detects nu from PATH and ~/.cargo/bin candidates', () => {
+    const fromPath = detectPosixTerminalShells(
+      probe({
+        env: { PATH: '/usr/local/bin:/usr/bin', SHELL: '/bin/zsh' },
+        isExecutable: (candidate) => candidate === '/usr/local/bin/nu'
+      })
+    )
+    expect(fromPath.shells).toContainEqual({ shell: 'nu', path: '/usr/local/bin/nu' })
+
+    // Why: cargo installs live outside PATH for GUI-launched Electron; the HOME-relative candidates cover them.
+    const fromCargo = detectPosixTerminalShells(
+      probe({
+        env: { PATH: '/usr/bin', HOME: '/home/tester', SHELL: '/bin/zsh' },
+        isExecutable: (candidate) => candidate === '/home/tester/.cargo/bin/nu'
+      })
+    )
+    expect(fromCargo.shells).toContainEqual({ shell: 'nu', path: '/home/tester/.cargo/bin/nu' })
+
+    const fromLocalBin = detectPosixTerminalShells(
+      probe({
+        env: { PATH: '/usr/bin', HOME: '/home/tester', SHELL: '/bin/zsh' },
+        isExecutable: (candidate) => candidate === '/home/tester/.local/bin/nu'
+      })
+    )
+    expect(fromLocalBin.shells).toContainEqual({ shell: 'nu', path: '/home/tester/.local/bin/nu' })
+  })
+
+  it('ignores a relative HOME for candidate construction', () => {
+    const checked: string[] = []
+    resolvePosixShellSettingPath(
+      'nu',
+      probe({
+        env: { PATH: '/usr/bin', HOME: 'relative-home' },
+        isExecutable: (candidate) => {
+          checked.push(candidate)
+          return false
+        }
+      })
+    )
+    expect(checked.some((candidate) => candidate.startsWith('relative-home'))).toBe(false)
+  })
+
+  it('nu choice resolves an explicit path setting', () => {
+    const opts = probe({ isExecutable: (candidate) => candidate === '/opt/nu/bin/nu' })
+    expect(resolvePosixShellSettingPath('/opt/nu/bin/nu', opts)).toBe('/opt/nu/bin/nu')
+    expect(
+      resolveLocalPosixShellOverride(
+        undefined,
+        'nu',
+        probe({ isExecutable: (candidate) => candidate === '/usr/local/bin/nu' })
+      )
+    ).toBe('/usr/local/bin/nu')
+  })
+})

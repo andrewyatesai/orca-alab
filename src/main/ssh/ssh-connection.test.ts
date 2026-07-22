@@ -702,7 +702,8 @@ describe('SshConnection', () => {
     // Why: sshd lets the login shell parse this first, so raw newlines let
     // csh/tcsh split the command before /bin/sh receives it (issue #8701).
     expect(wrapped).not.toContain('\n')
-    expect(wrapped).toMatch(/^exec \/bin\/sh -c '.*printf %b .*' orca-command /)
+    // Why no exec prefix: `exec` is a nu builtin that intercepts -c (#7715); a bare path stays an external everywhere.
+    expect(wrapped).toMatch(/^\/bin\/sh -c '.*printf %b .*' orca-command /)
     expect(wrapped).not.toContain('base64')
   })
 

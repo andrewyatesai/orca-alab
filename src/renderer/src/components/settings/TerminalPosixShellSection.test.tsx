@@ -82,3 +82,30 @@ describe('TerminalPosixShellSection', () => {
     expect(screen.getByRole('radio', { name: 'fish' })).toBeChecked()
   })
 })
+
+describe('nu choice (#8928 PR1)', () => {
+  it('offers nu when detected', async () => {
+    detectMock.mockResolvedValue({
+      shells: [
+        { shell: 'zsh', path: '/bin/zsh' },
+        { shell: 'nu', path: '/usr/local/bin/nu' }
+      ],
+      systemShellName: 'zsh'
+    })
+    const user = userEvent.setup()
+    const updateSettings = vi.fn()
+    render(<TerminalPosixShellSection updateSettings={updateSettings} posixShell={null} />)
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'nu' })).toBeEnabled())
+    await user.click(screen.getByRole('radio', { name: 'nu' }))
+    expect(updateSettings).toHaveBeenCalledWith({ terminalPosixShell: 'nu' })
+  })
+
+  it('hides nu when not installed', async () => {
+    detectMock.mockResolvedValue(ZSH_BASH_DETECTION)
+    render(<TerminalPosixShellSection updateSettings={vi.fn()} posixShell={null} />)
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'zsh' })).toBeEnabled())
+    expect(screen.queryByRole('radio', { name: 'nu' })).not.toBeInTheDocument()
+  })
+})

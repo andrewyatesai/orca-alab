@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type * as ShellReadyModule from './shell-ready'
+import type * as NushellCapabilityProbeModule from '../pty/nushell-capability-probe'
 import { getZshShellReadyMarkerRegistrationBlock } from '../shell-templates'
 
 async function importFreshShellReady(): Promise<typeof ShellReadyModule> {
@@ -733,5 +734,104 @@ describePosix('daemon shell-ready launch config', () => {
 
     // Fallback chain: discovered → normalized spawn-env path → HOME
     expect(zshenv).toContain('${_orca_discovered_zdotdir:-${_orca_user_zdotdir:-$HOME}}')
+  })
+})
+
+describePosix('daemon nu launch config (#8928 PR1)', () => {
+  let previousUserDataPath: string | undefined
+  let userDataPath: string
+
+  async function importFreshShellReadyWithProbe(): Promise<{
+    shellReady: typeof ShellReadyModule
+    probe: typeof NushellCapabilityProbeModule
+  }> {
+    vi.resetModules()
+    // Why: import the probe AFTER resetModules so the seeded cache instance is the one shell-ready consumes.
+    const probe = await import('../pty/nushell-capability-probe')
+    const shellReady = await import('./shell-ready')
+    return { shellReady, probe }
+  }
+
+  beforeEach(() => {
+    previousUserDataPath = process.env.ORCA_USER_DATA_PATH
+    userDataPath = mkdtempSync(join(tmpdir(), 'daemon-shell-ready-nu-'))
+    process.env.ORCA_USER_DATA_PATH = userDataPath
+  })
+
+  afterEach(() => {
+    if (previousUserDataPath === undefined) {
+      delete process.env.ORCA_USER_DATA_PATH
+    } else {
+      process.env.ORCA_USER_DATA_PATH = previousUserDataPath
+    }
+    rmSync(userDataPath, { recursive: true, force: true })
+  })
+
+  it('nu launch config uses split -l -e flags and sources the integration file (copy 2)', async () => {
+    const { shellReady, probe } = await importFreshShellReadyWithProbe()
+    probe.__seedNushellIntegrationSupport('/usr/bin/nu', true)
+
+    const config = shellReady.getShellReadyLaunchConfig('/usr/bin/nu')
+
+    expect(config.args).toEqual([
+      '-l',
+      '-e',
+      `source "${join(userDataPath, 'shell-ready', 'nu', 'integration.nu')}"`
+    ])
+    expect(config.env).toEqual({ ORCA_SHELL_READY_MARKER: '1' })
+    expect(config.supportsReadyMarker).toBe(true)
+    expect(existsSync(join(userDataPath, 'shell-ready', 'nu', 'integration.nu'))).toBe(true)
+  })
+
+  it('nu below the floor gets no wrapper args from the daemon copy', async () => {
+    const { shellReady, probe } = await importFreshShellReadyWithProbe()
+    probe.__seedNushellIntegrationSupport('/usr/bin/nu', false)
+
+    const config = shellReady.getShellReadyLaunchConfig('/usr/bin/nu')
+
+    expect(config.args).toBeNull()
+    expect(config.supportsReadyMarker).toBe(false)
+  })
+
+  it('startup barrier engages for nu only when the integration gate passes', async () => {
+    const { shellReady, probe } = await importFreshShellReadyWithProbe()
+
+    // Cold cache: no barrier (the daemon must not wait for a marker a plain -l nu never emits).
+    expect(shellReady.shellPathSupportsPtyStartupBarrier('/usr/bin/nu')).toBe(false)
+
+    probe.__seedNushellIntegrationSupport('/usr/bin/nu', true)
+    expect(shellReady.shellPathSupportsPtyStartupBarrier('/usr/bin/nu')).toBe(true)
+
+    probe.__seedNushellIntegrationSupport('/opt/old/nu', false)
+    expect(shellReady.shellPathSupportsPtyStartupBarrier('/opt/old/nu')).toBe(false)
+
+    // zsh/bash keep their unconditional barrier.
+    expect(shellReady.shellPathSupportsPtyStartupBarrier('/bin/zsh')).toBe(true)
+    expect(shellReady.shellPathSupportsPtyStartupBarrier('/bin/bash')).toBe(true)
+  })
+
+  it('daemon and local nu integration files are byte-identical', async () => {
+    vi.resetModules()
+    const probe = await import('../pty/nushell-capability-probe')
+    probe.__seedNushellIntegrationSupport('/usr/bin/nu', true)
+    const daemon = await import('./shell-ready')
+    const local = await import('../providers/local-pty-shell-ready')
+
+    const daemonRoot = mkdtempSync(join(tmpdir(), 'nu-parity-daemon-'))
+    const localRoot = mkdtempSync(join(tmpdir(), 'nu-parity-local-'))
+    try {
+      process.env.ORCA_USER_DATA_PATH = daemonRoot
+      daemon.getShellReadyLaunchConfig('/usr/bin/nu')
+      process.env.ORCA_USER_DATA_PATH = localRoot
+      local.getShellReadyLaunchConfig('/usr/bin/nu')
+
+      const daemonBytes = readFileSync(join(daemonRoot, 'shell-ready', 'nu', 'integration.nu'))
+      const localBytes = readFileSync(join(localRoot, 'shell-ready', 'nu', 'integration.nu'))
+      expect(daemonBytes.length).toBeGreaterThan(0)
+      expect(daemonBytes.equals(localBytes)).toBe(true)
+    } finally {
+      rmSync(daemonRoot, { recursive: true, force: true })
+      rmSync(localRoot, { recursive: true, force: true })
+    }
   })
 })

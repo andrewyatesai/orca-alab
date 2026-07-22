@@ -17,11 +17,17 @@ import {
 import { getPosixOmpShellWrapper } from '../pty/omp-shell-wrapper'
 import { buildStartupCommandSubmission } from '../../shared/startup-command-submission'
 import {
+  getNuShellReadyIntegrationContent,
   getZshEnvTemplate,
   getZshFinalZdotdirRestoreBlock,
   getZshShellReadyMarkerRegistrationBlock,
   getZshStartupFileSourceBlock
 } from '../shell-templates'
+import { buildNuSourceCommand, isNushellExecutableName } from '../../shared/nushell-shell'
+import {
+  getCachedNushellIntegrationSupport,
+  probeNushellIntegrationSupport
+} from '../pty/nushell-capability-probe'
 export {
   createShellReadyScanState,
   drainShellReadyHeldBytes,
@@ -58,7 +64,8 @@ function getRequiredShellReadyWrapperPaths(root = getShellReadyWrapperRoot()): s
     `${root}/zsh/.zprofile`,
     `${root}/zsh/.zshrc`,
     `${root}/zsh/.zlogin`,
-    `${root}/bash/rcfile`
+    `${root}/bash/rcfile`,
+    `${root}/nu/integration.nu`
   ]
 }
 
@@ -279,6 +286,7 @@ export function ensureShellReadyWrappersAt(root = getShellReadyWrapperRoot()): v
 
   const zshDir = `${root}/zsh`
   const bashDir = `${root}/bash`
+  const nuDir = `${root}/nu`
 
   const zshEnv = getZshEnvTemplate(zshDir)
   const zshProfile = `# Orca zsh shell-ready wrapper
@@ -318,7 +326,8 @@ ${getZshFinalZdotdirRestoreBlock()}
     [`${zshDir}/.zprofile`, zshProfile],
     [`${zshDir}/.zshrc`, zshRc],
     [`${zshDir}/.zlogin`, zshLogin],
-    [`${bashDir}/rcfile`, bashRc]
+    [`${bashDir}/rcfile`, bashRc],
+    [`${nuDir}/integration.nu`, getNuShellReadyIntegrationContent()]
   ] as const
 
   try {
@@ -385,6 +394,21 @@ function getWrappedShellLaunchConfig(
       },
       supportsReadyMarker: options.emitReadyMarker
     }
+  }
+
+  if (isNushellExecutableName(shellName)) {
+    if (getCachedNushellIntegrationSupport(shellPath) === true) {
+      ensureShellReadyWrappers()
+      return {
+        // Why: nu rejects combined short flags (-le); split -l -e sources the integration AFTER env.nu/config.nu/login.nu — the zsh .zlogin slot.
+        args: ['-l', '-e', buildNuSourceCommand(`${getShellReadyWrapperRoot()}/nu/integration.nu`)],
+        env: { ORCA_SHELL_READY_MARKER: options.emitReadyMarker ? '1' : '0' },
+        supportsReadyMarker: options.emitReadyMarker
+      }
+    }
+    // Why: conservative-first — a below-floor nu must never receive -e "source …" (a parse error aborts startup); probe so the next spawn upgrades.
+    void probeNushellIntegrationSupport(shellPath)
+    return { args: null, env: {}, supportsReadyMarker: false }
   }
 
   if (isPowerShellExecutableName(shellName)) {

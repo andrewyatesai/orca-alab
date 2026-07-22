@@ -108,6 +108,12 @@ describe('terminal-history', () => {
       expect(resolveShellKind('/bin/dash')).toBe('unknown')
       expect(resolveShellKind('/bin/elvish')).toBe('unknown')
     })
+
+    it('classifies nu explicitly (#8928 PR1)', () => {
+      expect(resolveShellKind('/usr/local/bin/nu')).toBe('nu')
+      expect(resolveShellKind('nu.exe')).toBe('nu')
+      expect(resolveShellKind('/home/u/.cargo/bin/nu-0.104')).toBe('nu')
+    })
   })
 
   describe('hashWorktreeId', () => {
@@ -216,6 +222,16 @@ describe('terminal-history', () => {
 
       expect(env.HISTFILE).toBeUndefined()
       expect(result.shell).toBe('fish')
+    })
+
+    it('classifies nu and deliberately receives no HISTFILE (#8928 PR1)', () => {
+      const env: Record<string, string> = {}
+      const result = injectHistoryEnv(env, 'repo-1::/path/wt', '/usr/local/bin/nu', '/path/wt')
+
+      // Why: nu's history path is not env-overridable, so injection is intentionally skipped — not an 'unknown' accident.
+      expect(result.shell).toBe('nu')
+      expect(env.HISTFILE).toBeUndefined()
+      expect(result.histFile).toBeNull()
     })
 
     it('degrades gracefully when directory creation fails', () => {

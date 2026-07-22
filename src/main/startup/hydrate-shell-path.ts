@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { delimiter } from 'node:path'
 import type { ShellHydrationFailureReason } from '../../shared/types'
+import { isNushellExecutableName } from '../../shared/nushell-shell'
 import { applyShellStartupPathFiles } from './shell-startup-path'
 
 // Why: GUI-launched Electron on macOS/Linux inherits a minimal PATH from launchd
@@ -92,18 +93,28 @@ function addStaticStartupPathSegments(shell: string, result: HydrationResult): H
   return result
 }
 
+/** @internal - exported so tests can pin the per-dialect probe argv. */
+export function buildShellPathProbeArgv(shell: string): string[] {
+  // Why: printing $PATH between delimiters is resilient to rc-file banners,
+  // MOTDs, and `echo` invocations that shells like fish print unprompted.
+  // Why: use login-but-non-interactive (`-lc`, not `-ilc`) so login PATH
+  // files run without spawn-heavy interactive init wedging macOS ES agents.
+  if (isNushellExecutableName(shell)) {
+    // Why: nu rejects combined -lc, and the sh child sees nu's ENV_CONVERSIONS-converted
+    // PATH; the sh body avoids single quotes because nu single-quoted strings have no escapes.
+    return ['-l', '-c', `^sh -c 'printf %s%s%s ${DELIMITER} "$PATH" ${DELIMITER}'`]
+  }
+  const command = `printf '%s' '${DELIMITER}'; printf '%s' "$PATH"; printf '%s' '${DELIMITER}'`
+  return ['-lc', command]
+}
+
 function spawnShellAndReadPath(shell: string): Promise<HydrationResult> {
   return new Promise((resolve) => {
-    // Why: printing $PATH between delimiters is resilient to rc-file banners,
-    // MOTDs, and `echo` invocations that shells like fish print unprompted.
-    // Why: use login-but-non-interactive (`-lc`, not `-ilc`) so login PATH
-    // files run without spawn-heavy interactive init wedging macOS ES agents.
-    const command = `printf '%s' '${DELIMITER}'; printf '%s' "$PATH"; printf '%s' '${DELIMITER}'`
     let finished = false
     let stdout = ''
     let timer: ReturnType<typeof setTimeout> | null = null
 
-    const child = spawn(shell, ['-lc', command], {
+    const child = spawn(shell, buildShellPathProbeArgv(shell), {
       // Why: inherit current env so the shell sees the same baseline, then let
       // it layer its own rc files on top. Do NOT forward stdio — some shells
       // (oh-my-zsh setups, powerlevel10k) print a lot to stderr on startup,

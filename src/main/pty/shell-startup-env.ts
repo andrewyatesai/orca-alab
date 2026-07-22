@@ -61,9 +61,10 @@ function shellStartupFilePaths(home: string, shell: string | undefined): readonl
   if (name === 'bash') {
     return BASH_LOGIN_FILES.map((file) => posix.join(home, file))
   }
-  // Why: unsupported explicit shells (fish, nushell, custom wrappers) do not
-  // use Orca's zsh/bash shell-ready startup files, so scanning those files
-  // would mirror values the live PTY shell never sees.
+  // Why: other explicit shells scan nothing on purpose — fish/custom wrappers
+  // don't use Orca's zsh/bash startup files, and nu intentionally has none to
+  // scan (nu env edits are code, not `export X=` assignments a static reader
+  // could mirror).
   return []
 }
 

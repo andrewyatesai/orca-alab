@@ -84,7 +84,17 @@ export function TerminalPosixShellSection({
             'auto.components.settings.TerminalPosixShellSection.searchDescription',
             'Choose the default shell for new terminal panes on macOS and Linux.'
           )}
-          keywords={['terminal', 'shell', 'default', 'zsh', 'bash', 'fish', 'login shell']}
+          keywords={[
+            'terminal',
+            'shell',
+            'default',
+            'zsh',
+            'bash',
+            'fish',
+            'nu',
+            'nushell',
+            'login shell'
+          ]}
         >
           <SettingsRow
             label={translate(

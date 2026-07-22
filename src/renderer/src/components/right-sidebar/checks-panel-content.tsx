@@ -74,6 +74,7 @@ import {
   type PRCommentGroupActionState
 } from '@/lib/pr-comment-action-state'
 import { formatPrCommentRelativeTime } from '@/lib/pr-comment-time'
+import { isCheckJobFailureState } from '@/lib/check-run-failure-conclusions'
 import {
   getPRCommentPresentationClasses,
   getPRCommentGroupSurfaceClasses,
@@ -551,10 +552,6 @@ function isFailedCheck(check: PRCheckDetail): boolean {
   )
 }
 
-function isFailureState(state: string | null | undefined): boolean {
-  return state === 'failure' || state === 'failed' || state === 'cancelled' || state === 'timed_out'
-}
-
 function getCheckStatusLabel(check: PRCheckDetail): string {
   const conclusion = getCheckConclusion(check)
   if (conclusion === 'success') {
@@ -659,7 +656,7 @@ function CheckRunDetails({
   const failedJobs =
     details?.jobs.filter((job) => {
       const state = job.conclusion ?? job.status
-      return isFailureState(state)
+      return isCheckJobFailureState(state)
     }) ?? []
   const jobs = failedJobs.length > 0 ? failedJobs : (details?.jobs ?? [])
   const hasOutput = Boolean(details?.title || details?.summary || details?.text)
@@ -879,7 +876,7 @@ function CheckRunDetails({
                         {job.steps
                           .filter((step) => {
                             const state = step.conclusion ?? step.status
-                            return isFailureState(state)
+                            return isCheckJobFailureState(state)
                           })
                           .map((step) => (
                             <div

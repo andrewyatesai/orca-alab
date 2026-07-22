@@ -6,6 +6,7 @@ import CommentMarkdown from '@/components/sidebar/CommentMarkdown'
 import type { PRCheckDetail, PRCheckRunDetails } from '../../../../shared/types'
 import { SourceControlFixSplitButton } from '@/components/right-sidebar/source-control-fix-split-button'
 import { translate } from '@/i18n/i18n'
+import { isCheckJobFailureState } from '@/lib/check-run-failure-conclusions'
 import { useCheckRunDetailsFixWithAI } from './check-run-details-fix-with-ai'
 import { CheckRunAnnotations } from './CheckRunAnnotations'
 import { CheckRunJobs } from './CheckRunJobs'
@@ -54,22 +55,10 @@ function getCheckStatusLabel(check: CheckStatusLike): string {
     case 'pending':
       return translate('auto.components.editor.CheckRunDetailsPanel.3d9f2b8e14', 'Pending')
     default:
-      return isFailureState(conclusion)
+      return isCheckJobFailureState(conclusion)
         ? translate('auto.components.editor.CheckRunDetailsPanel.4c8e1b2d73', 'Failed')
         : translate('auto.components.editor.CheckRunDetailsPanel.3d9f2b8e14', 'Pending')
   }
-}
-
-function isFailureState(state: string | null | undefined): boolean {
-  return (
-    state === 'failure' ||
-    state === 'failed' ||
-    state === 'action_required' ||
-    state === 'cancelled' ||
-    state === 'stale' ||
-    state === 'startup_failure' ||
-    state === 'timed_out'
-  )
 }
 
 export function CheckRunDetailsPanel({
@@ -118,7 +107,7 @@ export function CheckRunDetailsPanel({
   const failedJobs =
     details?.jobs.filter((job) => {
       const state = job.conclusion ?? job.status
-      return isFailureState(state)
+      return isCheckJobFailureState(state)
     }) ?? []
   const jobs = failedJobs.length > 0 ? failedJobs : (details?.jobs ?? [])
   const hasOutput = Boolean(details?.title || details?.summary || details?.text)

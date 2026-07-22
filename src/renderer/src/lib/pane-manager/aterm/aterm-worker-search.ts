@@ -192,20 +192,31 @@ export function createWorkerSearch(
     reindexPreservingActive()
   }
 
-  // Adopt a COMPLETED find (sliced or one-shot). Everything the legacy synchronous
+  // Adopt a settled find (sliced or one-shot). Everything the legacy synchronous
   // find published lands here in one step, so a cancelled sliced run — which never
-  // reaches this — leaves state untouched and its partial matches never surface.
-  const completeFind = (found: WorkerMatch[], gen: number, costMs: number): void => {
+  // reaches this — leaves state untouched and its matches never surface.
+  // `complete=false` is a streaming-restart settle: matches cover only the scanned
+  // prefix, so they publish FLAGGED STALE with the trailing refresh armed — the
+  // refresh timer owns the final answer once output calms.
+  const completeFind = (
+    found: WorkerMatch[],
+    gen: number,
+    costMs: number,
+    complete: boolean
+  ): void => {
     matches = found
     lastRebuildMs = costMs
     resultsVersion++
-    dirty = false
-    stale = false
+    dirty = !complete
+    stale = !complete
     generation = gen
     // Select the LAST match (closest to the live bottom), matching the main path.
     active = matches.length > 0 ? matches.length - 1 : -1
     if (active >= 0) {
       e.scroll_search_line_into_view(matches[active].line)
+    }
+    if (!complete) {
+      armRefreshTimer()
     }
   }
 

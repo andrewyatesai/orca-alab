@@ -13,7 +13,6 @@ import {
   SEARCH_FIND_FLAG_CASE_SENSITIVE,
   SEARCH_FIND_FLAG_REGEX
 } from './aterm-worker-search'
-import { SEARCH_FULL_PASS_ROW_BUDGET } from './aterm-worker-search-sliced-find'
 import type { EngineBudgetedSearchStep, EngineHandle } from './aterm-worker-engine-build'
 import type { WorkerFrameScheduler } from './aterm-worker-frame-scheduler'
 
@@ -116,6 +115,7 @@ function makeBudgetedHandle(steps: EngineBudgetedSearchStep[]): {
 describe('budgeted sliced find (P1.1)', () => {
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('cancels between slices when a newer find id is observed — cursor dropped, partial matches never surface', () => {
@@ -201,56 +201,73 @@ describe('budgeted sliced find (P1.1)', () => {
     expect(scrollIntoView).toHaveBeenCalledWith(9) // LAST match scrolled into view
   })
 
-  it('escalates to a full-pass budget after repeated engine restarts — never the blocking one-shot', () => {
+  it('settles with the scanned prefix flagged stale after repeated engine restarts — every call slice-budgeted', () => {
     vi.useFakeTimers()
     // rowsFed DROPS on calls 2-4 (content changed between slices; the engine
-    // restarted from row zero) — three restarts trip the full-pass escalation.
+    // restarted from row zero) — the third restart settles the run with the
+    // step's partial matches instead of escalating to an unbounded call.
     const { handle, searchBudgeted } = makeBudgetedHandle([
       step({ cursor: 5, rowsFed: 4096, totalRows: 50000 }),
       step({ cursor: 6, rowsFed: 2000, totalRows: 50000 }),
       step({ cursor: 7, rowsFed: 1500, totalRows: 50000 }),
-      step({ cursor: 8, rowsFed: 1000, totalRows: 50000 }),
-      step({ matches: new Uint32Array([3, 0, 4]), complete: true, rowsFed: 50000, totalRows: 50000 })
+      step({ matches: new Uint32Array([3, 0, 4]), cursor: 8, rowsFed: 1000, totalRows: 50000 })
     ])
     const search = createWorkerSearch(handle, () => 24)
     const respond = vi.fn()
+    // Make each mocked slice read as ~40ms of engine work so the settled cost
+    // (~160ms) exceeds the refresh tick — the cost gate then KEEPS the partial
+    // results stale instead of eagerly re-indexing on the reply read.
+    let clock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => (clock += 40))
     answerSearchFindQuery(search, 0, 'ab', 5, () => false, respond)
 
-    vi.runAllTimers()
+    // Advance only the 0ms slice timers — the trailing refresh (>=100ms) stays
+    // armed so the settled-stale state is observable.
+    vi.advanceTimersByTime(50)
 
-    expect(searchBudgeted).toHaveBeenCalledTimes(5)
-    // The escalated call stays on the budgeted (cancellable-between-slices) path
-    // with a budget covering the whole buffer, so it completes in one call.
-    expect(searchBudgeted.mock.calls[4][4]).toBe(SEARCH_FULL_PASS_ROW_BUDGET)
+    // Settled on the 4th call — no 5th call, and no call ever exceeded the
+    // adaptive slice bound (the unbounded-budget path no longer exists).
+    expect(searchBudgeted).toHaveBeenCalledTimes(4)
+    for (const call of searchBudgeted.mock.calls) {
+      expect(call[4]).toBeLessThanOrEqual(262144)
+    }
     expect(handle.search).not.toHaveBeenCalled()
+    // The prefix's matches surface immediately but flagged STALE, with the
+    // trailing refresh armed to deliver the final answer.
     expect(JSON.parse(respond.mock.calls[0][0] as string)).toEqual({ count: 1, activeIndex: 1 })
+    expect(search.resultsStale()).toBe(true)
     expect(search.generation()).toBe(5)
+
+    // The armed trailing refresh then delivers the FINAL answer through the
+    // cost-gated re-index path and clears the stale flag.
+    vi.runAllTimers()
+    expect(handle.search).toHaveBeenCalledTimes(1)
+    expect(search.resultsStale()).toBe(false)
   })
 
-  it('a newer find id observed after restart escalation still cancels before the full pass runs', () => {
+  it('a newer find id observed between slices cancels a restarting run before it settles', () => {
     vi.useFakeTimers()
     const { handle, searchBudgeted, searchBudgetedCancel } = makeBudgetedHandle([
       step({ cursor: 5, rowsFed: 4096, totalRows: 50000 }),
       step({ cursor: 6, rowsFed: 2000, totalRows: 50000 }),
       step({ cursor: 7, rowsFed: 1500, totalRows: 50000 }),
-      step({ cursor: 8, rowsFed: 1000, totalRows: 50000 }),
-      step({ matches: new Uint32Array([3, 0, 4]), complete: true, rowsFed: 50000, totalRows: 50000 })
+      step({ matches: new Uint32Array([3, 0, 4]), cursor: 8, rowsFed: 1000, totalRows: 50000 })
     ])
     const search = createWorkerSearch(handle, () => 24)
     const respond = vi.fn()
     let latestFindId = 6
     answerSearchFindQuery(search, 0, 'ab', 6, () => 6 < latestFindId, respond)
 
-    // Run the first four slices (the fourth trips full-pass escalation), then a
-    // newer find arrives BEFORE the escalated full pass executes.
-    for (let i = 0; i < 3; i++) {
+    // Run three slices (two restarts observed), then a newer find arrives
+    // BEFORE the next slice executes.
+    for (let i = 0; i < 2; i++) {
       vi.advanceTimersToNextTimer()
     }
-    expect(searchBudgeted).toHaveBeenCalledTimes(4)
+    expect(searchBudgeted).toHaveBeenCalledTimes(3)
     latestFindId = 7
     vi.runAllTimers()
 
-    expect(searchBudgeted).toHaveBeenCalledTimes(4) // the full pass never ran
+    expect(searchBudgeted).toHaveBeenCalledTimes(3) // the 4th slice never ran
     expect(searchBudgetedCancel).toHaveBeenCalled()
     expect(handle.search).not.toHaveBeenCalled()
     expect(respond).toHaveBeenCalledWith(null)

@@ -29,14 +29,10 @@ const SEARCH_SLICE_MIN_ROWS = 256
 const SEARCH_SLICE_MAX_ROWS = 262144
 // A content change between slices makes the engine restart the search from row zero
 // (its cursor staleness contract). Under sustained streaming that could re-restart
-// forever, so after this many restarts the find escalates to full-pass slices.
+// forever, so after this many restarts the find SETTLES with the scanned prefix's
+// matches flagged stale — the trailing-refresh machinery re-runs once output calms,
+// so no code path ever issues an unbounded synchronous engine call.
 export const SEARCH_FIND_MAX_RESTARTS = 3
-// Row budget of the escalated full pass: far above any policy-capped buffer, so the
-// next budgeted call scans EVERY row inside one synchronous call — content cannot
-// change mid-call (the worker is single-threaded), so it completes regardless of
-// streaming. Same worst case as a blocking one-shot search, but reached through the
-// budgeted path with the newer-query cancel check still run at the slice boundary.
-export const SEARCH_FULL_PASS_ROW_BUDGET = 1 << 30
 
 /** How a sliced find run talks back to its query: `isCancelled` is polled between
  *  slices (a newer find OBSERVED mid-run cancels this one), `onDone(false)` settles a
@@ -64,9 +60,16 @@ export type SlicedFindRunner = {
 
 export function createSlicedFindRunner(
   handle: EngineHandle,
-  /** Adopt a COMPLETED find (matches + generation + engine cost) into search state —
-   *  a cancelled run never reaches this, so its partial matches never surface. */
-  adoptCompleted: (found: WorkerMatch[], generation: number, costMs: number) => void
+  /** Adopt a settled find into search state — a cancelled run never reaches this,
+   *  so its matches never surface. `complete=false` means a streaming-restart
+   *  settle: the matches cover only the scanned prefix and MUST be flagged stale
+   *  so the trailing refresh delivers the final answer. */
+  adoptCompleted: (
+    found: WorkerMatch[],
+    generation: number,
+    costMs: number,
+    complete: boolean
+  ) => void
 ): SlicedFindRunner {
   // In-flight sliced find: its cancel() clears the slice timer and settles the run's
   // query to null. Exactly one run can be live; find/clear/dispose supersede it.
@@ -89,7 +92,6 @@ export function createSlicedFindRunner(
     let cursor: number | undefined
     let rowsSeen = 0
     let restarts = 0
-    let fullPass = false
     let engineMs = 0
     let sliceTimer: ReturnType<typeof setTimeout> | null = null
     const me = {
@@ -104,9 +106,14 @@ export function createSlicedFindRunner(
       }
     }
     activeRun = me
-    const finish = (found: WorkerMatch[]): void => {
+    const finish = (found: WorkerMatch[], complete: boolean): void => {
       activeRun = null
-      adoptCompleted(found, gen, engineMs)
+      if (!complete) {
+        // Streaming-restart settle: the partial index is dead weight (the next
+        // trailing refresh rebuilds); free it like a cancel would.
+        handle.searchBudgetedCancel?.()
+      }
+      adoptCompleted(found, gen, engineMs, complete)
       run?.onDone?.(true)
     }
     const slice = (): void => {
@@ -121,38 +128,31 @@ export function createSlicedFindRunner(
         return
       }
       const t0 = performance.now()
-      const step = searchBudgeted(
-        q,
-        cs,
-        regex,
-        cursor,
-        fullPass ? SEARCH_FULL_PASS_ROW_BUDGET : sliceRows
-      )
+      const step = searchBudgeted(q, cs, regex, cursor, sliceRows)
       const dt = performance.now() - t0
       engineMs += dt
-      if (!fullPass) {
-        // Adapt rows-per-slice toward the wall-clock budget (bounded both ways).
-        sliceRows = Math.min(
-          SEARCH_SLICE_MAX_ROWS,
-          Math.max(
-            SEARCH_SLICE_MIN_ROWS,
-            Math.round((sliceRows * SEARCH_SLICE_BUDGET_MS) / Math.max(dt, 0.5))
-          )
+      // Adapt rows-per-slice toward the wall-clock budget (bounded both ways).
+      sliceRows = Math.min(
+        SEARCH_SLICE_MAX_ROWS,
+        Math.max(
+          SEARCH_SLICE_MIN_ROWS,
+          Math.round((sliceRows * SEARCH_SLICE_BUDGET_MS) / Math.max(dt, 0.5))
         )
-      }
+      )
       if (step.complete) {
-        finish(decodeMatches(step.matches))
+        finish(decodeMatches(step.matches), true)
         return
       }
       // A rows-scanned DROP means the engine restarted (content changed between
       // slices; the stale cursor started over). Bounded: sustained streaming would
-      // restart forever, so escalate to full-pass slices — the NEXT budgeted call
-      // covers the whole buffer in one synchronous call and thus completes (still
-      // preceded by the isCancelled check, unlike a blocking one-shot fallback).
+      // restart forever, so after the restart cap the run SETTLES with the scanned
+      // prefix's matches flagged stale — every engine call stays slice-budgeted,
+      // and the trailing refresh owns the final answer once output calms.
       if (cursor !== undefined && step.rowsFed <= rowsSeen) {
         restarts++
         if (restarts >= SEARCH_FIND_MAX_RESTARTS) {
-          fullPass = true
+          finish(decodeMatches(step.matches), false)
+          return
         }
       }
       rowsSeen = step.rowsFed

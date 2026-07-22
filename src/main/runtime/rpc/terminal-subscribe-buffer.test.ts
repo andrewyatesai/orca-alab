@@ -141,7 +141,8 @@ describe('terminal subscribe buffering', () => {
 
     await vi.waitFor(() => expect(runtime.handleMobileSubscribe).toHaveBeenCalled())
     expect(dataListener).toBeDefined()
-    expect(registerRemoteTerminalViewSubscriber).toHaveBeenCalledWith('pty-1')
+    // Why: mobile viewers register identity-less (#9156) — they suppress the model responder but stay governed by the mobile floor election.
+    expect(registerRemoteTerminalViewSubscriber).toHaveBeenCalledWith('pty-1', null)
     dataListener?.('\x1b[6n', { seq: 4, rawLength: 4 })
     resolveMobileSubscribe()
 

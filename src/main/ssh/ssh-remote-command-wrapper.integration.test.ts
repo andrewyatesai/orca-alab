@@ -129,13 +129,28 @@ describePosix('wrapped remote command kill/timeout semantics (Critic note 1)', (
       expect(typeof child.pid).toBe('number')
       const sessionPgid = child.pid!
 
-      await waitFor(() => existsSync(pgidFile), 10_000, `${shell} wrapped command start`)
-      const innerPgid = Number(readFileSync(pgidFile, 'utf8').trim())
+      // Why: the shell truncates pgidFile before `ps` writes — wait for CONTENT, not existence.
+      const readPgidFile = (): string =>
+        existsSync(pgidFile) ? readFileSync(pgidFile, 'utf8').trim() : ''
+      await waitFor(() => readPgidFile() !== '', 10_000, `${shell} wrapped command start`)
+      const innerPgid = Number(readPgidFile())
       // Pin: the decoded command runs inside the SAME process group as the login shell.
       expect(innerPgid, `under ${shell}`).toBe(sessionPgid)
 
-      process.kill(-sessionPgid, 'SIGTERM')
-      await waitFor(() => !processGroupAlive(sessionPgid), 5_000, `${shell} process group teardown`)
+      // Why: a group member can be mid-fork when the first signal lands (csh family); re-send
+      // each poll so every member is eventually signaled — sshd teardown also signals repeatedly.
+      await waitFor(
+        () => {
+          try {
+            process.kill(-sessionPgid, 'SIGTERM')
+          } catch {
+            /* group already gone */
+          }
+          return !processGroupAlive(sessionPgid)
+        },
+        5_000,
+        `${shell} process group teardown`
+      )
       // The long-running command was killed mid-flight — it never completed.
       expect(existsSync(doneFile), `under ${shell}`).toBe(false)
     }

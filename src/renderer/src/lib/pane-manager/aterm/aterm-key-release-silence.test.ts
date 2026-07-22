@@ -64,30 +64,50 @@ describe('key releases are silent without kitty REPORT_EVENT_TYPES (real wasm)',
     )
   })
 
-  it('with REPORT_EVENT_TYPES negotiated, releases carry the :3 marker', () => {
-    // Kitty's reference impl (key_encoding.c: release + flag 2 disables text
-    // encoding, serializes CSI-u) and ghostty both report text-key releases;
-    // only the reset-hatch keys below stay silent without report-all.
-    expect(encode('a', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe(
-      '\x1b[97;1:3u'
-    )
+  it('with REPORT_EVENT_TYPES negotiated, only escape-represented releases carry :3', () => {
+    // Engine 74f0413f (Codex fix): REPORT_EVENT_TYPES decorates key events
+    // ALREADY represented as escape sequences; text-producing keys gain no
+    // release report without REPORT_ALL_KEYS_AS_ESC. Codex's 1|2|4 mode
+    // therefore no longer sees phantom ESC[97;1:3u after each character.
+    expect(encode('a', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe('')
+    expect(
+      encode('a', ATERM_KEY_MOD_SHIFT, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)
+    ).toBe('')
+    // Chords that disambiguate already encodes as CSI-u DO report their release.
     expect(
       encode('a', ATERM_KEY_MOD_CTRL, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)
     ).toBe('\x1b[97;5:3u')
+    // Report-all opts text releases in.
+    expect(
+      encode(
+        'a',
+        0,
+        ATERM_KEY_EVENT_RELEASE,
+        MODE_DISAMBIGUATE_AND_EVENT_TYPES | MODE_REPORT_ALL_KEYS_AS_ESC
+      )
+    ).toBe('\x1b[97;1:3u')
   })
 
-  it('reset escape hatch: bare Enter/Tab/Backspace releases stay silent even with :3 reporting', () => {
-    // Kitty spec (Report event types): these three keys get no release events
-    // without REPORT_ALL_KEYS_AS_ESC, so `reset` still works at a stuck shell.
+  it('reset escape hatch: Enter/Tab/Backspace releases stay silent even with :3 reporting', () => {
+    // Kitty spec "type reset" clause (engine 74f0413f): releases of the legacy
+    // recovery keys are silent in EVERY modifier form without report-all, so
+    // `reset` still works at a stuck shell.
     expect(encode('Enter', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe('')
     expect(encode('Tab', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe('')
     expect(encode('Backspace', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe(
       ''
     )
-    // Chord-modified forms DO report (kitty reference impl: mods bypass the
-    // silent SIMPLE() paths), keeping Shift+Tab back-tab semantics intact.
     expect(
       encode('Tab', ATERM_KEY_MOD_SHIFT, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)
+    ).toBe('')
+    // Report-all crosses the explicit boundary: the release IS then reported.
+    expect(
+      encode(
+        'Tab',
+        ATERM_KEY_MOD_SHIFT,
+        ATERM_KEY_EVENT_RELEASE,
+        MODE_DISAMBIGUATE_AND_EVENT_TYPES | MODE_REPORT_ALL_KEYS_AS_ESC
+      )
     ).toBe('\x1b[9;2:3u')
   })
 })

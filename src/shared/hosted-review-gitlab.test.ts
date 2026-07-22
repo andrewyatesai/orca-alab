@@ -69,4 +69,16 @@ describe('hostedReviewSummaryFromGitLabInfo', () => {
     expect(summary.threadSummary).toEqual({ unresolvedCount: 1, dataCompleteness: 'partial' })
     expect(summary.checksStatus).toBe('failure')
   })
+
+  it('treats a cancelled check as failure even alongside successes', () => {
+    const summary = hostedReviewSummaryFromGitLabInfo({
+      review: { ...review, status: 'success' },
+      checks: [
+        { name: 'build', status: 'completed', conclusion: 'success', url: null },
+        { name: 'deploy', status: 'completed', conclusion: 'cancelled', url: null }
+      ]
+    })
+
+    expect(summary.checksStatus).toBe('failure')
+  })
 })

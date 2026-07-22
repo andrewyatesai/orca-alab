@@ -62,7 +62,12 @@ function deriveChecksStatus(
     return reviewStatus
   }
   const hasFailure = checks.some(
-    (check) => check.conclusion === 'failure' || check.conclusion === 'timed_out'
+    (check) =>
+      check.conclusion === 'failure' ||
+      check.conclusion === 'timed_out' ||
+      // Why: GitLab maps canceled/canceling jobs to 'cancelled'; without this a
+      // [success, cancelled] pipeline reads as green (parity with GitHub twin).
+      check.conclusion === 'cancelled'
   )
   if (hasFailure) {
     return 'failure'

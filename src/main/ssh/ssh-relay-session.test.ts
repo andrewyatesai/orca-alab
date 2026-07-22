@@ -86,7 +86,7 @@ vi.mock('../providers/ssh-git-dispatch', () => ({
 const { deployAndLaunchRelay } = await import('./ssh-relay-deploy')
 // Why: the hidden-delivery gate module is intentionally real (pure state, no
 // electron deps) so the SSH parity tests exercise the same gate main uses.
-const { markHiddenRendererPty, setRendererPtyDeliveryInterest } =
+const { markHiddenRendererPty, setRendererPtyDeliveryInterest, unmarkHiddenRendererPty } =
   await import('../ipc/pty-hidden-delivery-gate')
 const { _resetHiddenRendererPtyDeliveryGateForTest } =
   await import('../ipc/pty-hidden-delivery-gate')
@@ -180,6 +180,19 @@ describe('SshRelaySession', () => {
       seq: 99,
       rawLength: 'visible ssh output'.length
     })
+
+    // Park-cycle parity (ssh-pane-parking.md §6): a reveal (unmark) consumes the
+    // one-shot latch, so the next park cycle's first drop latches a fresh marker
+    // — else the second reveal would skip the model restore.
+    const restoreMarkerSends = (): unknown[][] =>
+      vi
+        .mocked(mockWindow.webContents.send)
+        .mock.calls.filter((call: unknown[]) => call[0] === 'pty:modelRestoreNeeded')
+    setRendererPtyDeliveryInterest('ssh-pty-1', false)
+    expect(unmarkHiddenRendererPty('ssh-pty-1')).toEqual({ droppedWhileHidden: true })
+    markHiddenRendererPty('ssh-pty-1')
+    onData({ id: 'ssh-pty-1', data: 'parked again' })
+    expect(restoreMarkerSends()).toHaveLength(2)
   })
 
   it('keeps hidden SSH delivery when the gate kill switch is off', async () => {

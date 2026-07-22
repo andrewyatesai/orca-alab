@@ -19398,6 +19398,153 @@ describe('connectPanePty', () => {
     expect(mockStoreState.removeAgentStatus).not.toHaveBeenCalled()
   })
 
+  describe('parked ssh pane reveal restores the model snapshot (w1-1F ordering gate)', () => {
+    // Why these tests exist (ssh-pane-parking.md Critic note 2): the gate-ON reveal
+    // "no new code" claim rested on the unhide restore marker arriving AFTER the
+    // remounted pane registered its pty:modelRestoreNeeded handler. That ordering is
+    // racy (the marker can beat the reattach round trip and markers are not buffered
+    // pre-registration), so the reveal restore must not be marker-load-bearing.
+    const SSH_PTY_ID = 'ssh:target-1@@pty-9'
+    const RELAY_ATTACH_TAIL = 'relay-100kb-attach-tail'
+    const MODEL_SNAPSHOT = 'main-model-5000-row-snapshot'
+    const CLEAR_SEQUENCE = '\x1b[2J\x1b[3J\x1b[H'
+
+    function seedSshWorkspaceState(overrides: Record<string, unknown> = {}): void {
+      mockStoreState = {
+        ...mockStoreState,
+        tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: SSH_PTY_ID }] },
+        ptyIdsByTabId: { 'tab-1': [SSH_PTY_ID] },
+        terminalLayoutsByTabId: {
+          'tab-1': {
+            root: { type: 'leaf', leafId: LEAF_1 },
+            activeLeafId: LEAF_1,
+            expandedLeafId: null,
+            ptyIdsByLeafId: { [LEAF_1]: SSH_PTY_ID }
+          }
+        },
+        repos: [{ id: 'repo1', connectionId: 'target-1', displayName: 'orca' }],
+        sshConnectionStates: new Map([['target-1', { status: 'connected' }]]),
+        ...overrides
+      } as StoreState
+    }
+
+    function queueSshReattachTransport(): MockTransport {
+      const transport = createMockTransport(SSH_PTY_ID)
+      transport.connect.mockImplementation(async ({ sessionId }: { sessionId?: string }) => {
+        if (sessionId) {
+          return { id: sessionId, replay: RELAY_ATTACH_TAIL, isReattach: true }
+        }
+        return null
+      })
+      transportFactoryQueue.push(transport)
+      return transport
+    }
+
+    async function mountRevealedSshPane(): Promise<{
+      pane: ReturnType<typeof createPane>
+      writes: () => string[]
+    }> {
+      const { connectPanePty } = await import('./pty-connection')
+      const pane = createPane(1)
+      const deps = createDeps({
+        restoredLeafId: LEAF_1,
+        restoredPtyIdByLeafId: { [LEAF_1]: SSH_PTY_ID }
+      })
+      connectPanePty(pane as never, createManager(1) as never, deps as never)
+      await flushAsyncTicks(40)
+      return {
+        pane,
+        writes: () => pane.terminal.write.mock.calls.map((call) => String(call[0]))
+      }
+    }
+
+    function mockModelSnapshot(): ReturnType<typeof vi.fn> {
+      const getMainBufferSnapshot = window.api.pty.getMainBufferSnapshot as unknown as ReturnType<
+        typeof vi.fn
+      >
+      getMainBufferSnapshot.mockResolvedValue({
+        data: MODEL_SNAPSHOT,
+        cols: 120,
+        rows: 40,
+        seq: 64
+      })
+      return getMainBufferSnapshot
+    }
+
+    it('restores the model snapshot after the relay attach tail even when the unhide marker races handler registration', async () => {
+      seedSshWorkspaceState()
+      queueSshReattachTransport()
+      const getMainBufferSnapshot = mockModelSnapshot()
+      // The parked-watcher teardown records the reveal in the same commit that remounts the pane.
+      const { noteSshParkedPaneRevealRestore } = await import('./ssh-parked-reveal-restore')
+      noteSshParkedPaneRevealRestore(SSH_PTY_ID)
+      // Adversarial ordering: main re-emits the marker on unhide BEFORE the pane's
+      // reattach resolves, so no handler exists yet and the marker is dropped.
+      const { _dispatchPtyModelRestoreNeededForTest } = await import('./pty-model-restore-channel')
+      _dispatchPtyModelRestoreNeededForTest({ id: SSH_PTY_ID, reason: 'unhide', markerSeq: 64 })
+
+      const { writes } = await mountRevealedSshPane()
+
+      expect(getMainBufferSnapshot).toHaveBeenCalledTimes(1)
+      expect(getMainBufferSnapshot).toHaveBeenCalledWith(SSH_PTY_ID, { scrollbackRows: 5_000 })
+      const allWrites = writes()
+      const tailIndex = allWrites.indexOf(RELAY_ATTACH_TAIL)
+      const snapshotIndex = allWrites.indexOf(MODEL_SNAPSHOT)
+      expect(tailIndex).toBeGreaterThanOrEqual(0)
+      // The model snapshot must land after (and replace) the 100 KB relay tail.
+      expect(snapshotIndex).toBeGreaterThan(tailIndex)
+      // Replace, not double-paint: the restore clears before replaying, and the
+      // tail is never painted again after the snapshot (replay-guard dedupe).
+      expect(allWrites.slice(tailIndex + 1, snapshotIndex)).toContain(CLEAR_SEQUENCE)
+      expect(allWrites.slice(snapshotIndex + 1)).not.toContain(RELAY_ATTACH_TAIL)
+    })
+
+    it('restores the model snapshot when the hidden-delivery gate kill switch is off', async () => {
+      seedSshWorkspaceState({
+        settings: {
+          ...mockStoreState.settings,
+          terminalHiddenDeliveryGate: false
+        }
+      })
+      queueSshReattachTransport()
+      const getMainBufferSnapshot = mockModelSnapshot()
+      const { noteSshParkedPaneRevealRestore } = await import('./ssh-parked-reveal-restore')
+      noteSshParkedPaneRevealRestore(SSH_PTY_ID)
+
+      const { writes } = await mountRevealedSshPane()
+
+      expect(getMainBufferSnapshot).toHaveBeenCalledWith(SSH_PTY_ID, { scrollbackRows: 5_000 })
+      const allWrites = writes()
+      expect(allWrites.indexOf(MODEL_SNAPSHOT)).toBeGreaterThan(allWrites.indexOf(RELAY_ATTACH_TAIL))
+    })
+
+    it('leaves an ordinary (never parked) ssh reattach on the relay attach tail', async () => {
+      seedSshWorkspaceState()
+      queueSshReattachTransport()
+      const getMainBufferSnapshot = mockModelSnapshot()
+
+      const { writes } = await mountRevealedSshPane()
+
+      // No reveal note -> no snapshot fetch; the attach tail is the reattach paint.
+      expect(getMainBufferSnapshot).not.toHaveBeenCalled()
+      expect(writes()).toContain(RELAY_ATTACH_TAIL)
+    })
+
+    it('consumes the reveal note once so the next remount does not re-restore', async () => {
+      seedSshWorkspaceState()
+      queueSshReattachTransport()
+      const getMainBufferSnapshot = mockModelSnapshot()
+      const { noteSshParkedPaneRevealRestore, consumeSshParkedPaneRevealRestore } =
+        await import('./ssh-parked-reveal-restore')
+      noteSshParkedPaneRevealRestore(SSH_PTY_ID)
+
+      await mountRevealedSshPane()
+
+      expect(getMainBufferSnapshot).toHaveBeenCalledTimes(1)
+      expect(consumeSshParkedPaneRevealRestore(SSH_PTY_ID)).toBe(false)
+    })
+  })
+
   describe('reconcileIfSessionDead', () => {
     it('closes a split pane bound to a dead local session (same teardown as onExit)', async () => {
       const { connectPanePty } = await import('./pty-connection')

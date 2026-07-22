@@ -13,7 +13,8 @@ import {
   getTerminalWorktreeColdParkRecheckDelayMs,
   isSnapshotBackedTerminalPty,
   selectColdParkedTerminalTabs,
-  selectColdParkedTerminalWorktrees
+  selectColdParkedTerminalWorktrees,
+  terminalPtyParkSnapshotClass
 } from './terminal-hidden-view-parking'
 
 describe('isSnapshotBackedTerminalPty', () => {
@@ -40,9 +41,68 @@ describe('isSnapshotBackedTerminalPty', () => {
     expect(isSnapshotBackedTerminalPty('wt-2@@session-1', 'wt-1')).toBe(false)
   })
 
-  it('rejects SSH and remote runtime PTY handles', () => {
+  it('rejects SSH and remote runtime PTY handles when remote parking is not requested', () => {
     expect(isSnapshotBackedTerminalPty('ssh:ssh-1@@pty-1', 'repo::/worktree')).toBe(false)
     expect(isSnapshotBackedTerminalPty('remote:env-1@@terminal-1', 'repo::/worktree')).toBe(false)
+  })
+
+  it('ssh pty parks when remote parking enabled', () => {
+    expect(
+      isSnapshotBackedTerminalPty('ssh:ssh-1@@pty-1', 'repo::/worktree', {
+        remoteParkingEnabled: true
+      })
+    ).toBe(true)
+  })
+
+  it('terminalRemotePaneParking=false restores the exclusion', () => {
+    expect(
+      isSnapshotBackedTerminalPty('ssh:ssh-1@@pty-1', 'repo::/worktree', {
+        remoteParkingEnabled: false
+      })
+    ).toBe(false)
+  })
+
+  // Why: remote-wire reveal needs the phase-2 watcher byte source and exit
+  // classification (Wave 4); the class stays excluded whatever the flag says.
+  it('remote runtime pty still refuses while remote-wire parking is phase 2', () => {
+    expect(
+      isSnapshotBackedTerminalPty('remote:env-1@@terminal-1', 'repo::/worktree', {
+        remoteParkingEnabled: true
+      })
+    ).toBe(false)
+  })
+
+  it('separator-less daemon-fail-open id still refuses with remote parking enabled', () => {
+    expect(
+      isSnapshotBackedTerminalPty('pty-local-detached', 'repo::/worktree', {
+        remoteParkingEnabled: true
+      })
+    ).toBe(false)
+  })
+
+  it('foreign worktree session id still refuses with remote parking enabled', () => {
+    expect(
+      isSnapshotBackedTerminalPty('repo::/other@@session-1', 'repo::/worktree', {
+        remoteParkingEnabled: true
+      })
+    ).toBe(false)
+  })
+})
+
+describe('terminalPtyParkSnapshotClass', () => {
+  it('classifies each park snapshot authority', () => {
+    expect(terminalPtyParkSnapshotClass('repo::/worktree@@session-1', 'repo::/worktree')).toBe(
+      'daemon'
+    )
+    expect(terminalPtyParkSnapshotClass('ssh:ssh-1@@pty-1', 'repo::/worktree')).toBe(
+      'ssh-main-model'
+    )
+    expect(terminalPtyParkSnapshotClass('remote:env-1@@terminal-1', 'repo::/worktree')).toBe(
+      'remote-wire'
+    )
+    expect(terminalPtyParkSnapshotClass('pty-local-detached', 'repo::/worktree')).toBeNull()
+    expect(terminalPtyParkSnapshotClass('repo::/other@@session-1', 'repo::/worktree')).toBeNull()
+    expect(terminalPtyParkSnapshotClass(null, 'repo::/worktree')).toBeNull()
   })
 })
 
@@ -120,6 +180,26 @@ describe('canParkTerminalWorktreeRenderers', () => {
           { id: 'tab-1', ptyId: 'repo::/worktree@@session-1' },
           { id: 'tab-2', ptyId: 'ssh:ssh-1@@pty-1' }
         ]
+      })
+    ).toBe(false)
+  })
+
+  it('parks a worktree with ssh tabs when remote parking is enabled, but not remote-wire tabs', () => {
+    const withSshTab = {
+      ...base,
+      terminalTabs: [
+        { id: 'tab-1', ptyId: 'repo::/worktree@@session-1' },
+        { id: 'tab-2', ptyId: 'ssh:ssh-1@@pty-1' }
+      ]
+    }
+    expect(canParkTerminalWorktreeRenderers({ ...withSshTab, remoteParkingEnabled: true })).toBe(
+      true
+    )
+    expect(
+      canParkTerminalWorktreeRenderers({
+        ...withSshTab,
+        remoteParkingEnabled: true,
+        terminalTabs: [...withSshTab.terminalTabs, { id: 'tab-3', ptyId: 'remote:env-1@@term-1' }]
       })
     ).toBe(false)
   })

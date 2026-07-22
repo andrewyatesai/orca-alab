@@ -1,7 +1,14 @@
-import { isRemoteRuntimePtyId } from '@/runtime/runtime-terminal-inspection'
-import { PTY_SESSION_ID_SEPARATOR } from '../../../../shared/pty-session-id-format'
-import { parseAppSshPtyId } from '../../../../shared/ssh-pty-id'
+import { isSnapshotBackedTerminalPty } from './terminal-park-snapshot-class'
 import type { TerminalTab } from '../../../../shared/types'
+
+// Why: re-export so the parking policy's callers keep one import surface; the
+// class-resolver split only serves the max-lines budget.
+export {
+  isSnapshotBackedTerminalPty,
+  terminalPtyParkSnapshotClass,
+  type SnapshotBackedTerminalPtyOptions,
+  type TerminalParkSnapshotClass
+} from './terminal-park-snapshot-class'
 
 // Why: cold-park hysteresis keeps a hidden pane mounted for 30s so quick tab
 // flips never pay a re-hydrate; hot-retain keeps a bounded recently-visible
@@ -50,23 +57,6 @@ function getPendingActivationSpawnCount(value: boolean | number | undefined): nu
   return typeof value === 'number' && value > 0 ? value : 0
 }
 
-// Why: parking relies on the daemon model snapshot to re-hydrate. Remote
-// runtime and SSH PTYs have no local snapshot in this phase, and a session id
-// minted for another worktree reattaches through a path parking cannot replay.
-export function isSnapshotBackedTerminalPty(ptyId: string | null, worktreeId: string): boolean {
-  if (!ptyId) {
-    return false
-  }
-  if (isRemoteRuntimePtyId(ptyId) || parseAppSshPtyId(ptyId)) {
-    return false
-  }
-  // Why: separator-less ids come from the daemon-fail-open LocalPtyProvider;
-  // they have no daemon session model, so revealing a parked pane would
-  // silently respawn a fresh shell instead of restoring the snapshot.
-  const separatorIdx = ptyId.lastIndexOf(PTY_SESSION_ID_SEPARATOR)
-  return separatorIdx !== -1 && ptyId.slice(0, separatorIdx) === worktreeId
-}
-
 export function canParkTerminalWorktreeRenderers(args: {
   worktreeId: string
   terminalTabs: readonly ColdParkableTerminalTab[]
@@ -74,6 +64,7 @@ export function canParkTerminalWorktreeRenderers(args: {
   // Why: callers pass settings.terminalHiddenViewParking !== false — the
   // design-doc kill switch that disables parking entirely.
   parkingEnabled: boolean
+  remoteParkingEnabled?: boolean
   isVisible: boolean
   shouldMeasureHiddenWorktree: boolean
   hasActivityTerminalPortal: boolean
@@ -103,7 +94,9 @@ export function canParkTerminalWorktreeRenderers(args: {
     if (getPendingActivationSpawnCount(tab.pendingActivationSpawn) > 0) {
       return false
     }
-    return isSnapshotBackedTerminalPty(tab.ptyId, args.worktreeId)
+    return isSnapshotBackedTerminalPty(tab.ptyId, args.worktreeId, {
+      remoteParkingEnabled: args.remoteParkingEnabled === true
+    })
   })
 }
 
@@ -112,6 +105,7 @@ export function canParkTerminalTabRenderer(args: {
   terminalTab: TerminalTabColdParkCandidate
   pendingStartupByTabId: Readonly<Record<string, unknown>>
   parkingEnabled: boolean
+  remoteParkingEnabled?: boolean
   nowMs: number
   coldParkDelayMs?: number
 }): boolean {
@@ -133,7 +127,9 @@ export function canParkTerminalTabRenderer(args: {
   if (getPendingActivationSpawnCount(tab.pendingActivationSpawn) > 0) {
     return false
   }
-  return isSnapshotBackedTerminalPty(tab.ptyId, args.worktreeId)
+  return isSnapshotBackedTerminalPty(tab.ptyId, args.worktreeId, {
+    remoteParkingEnabled: args.remoteParkingEnabled === true
+  })
 }
 
 type ColdParkRetainCandidate = { id: string; hiddenSinceMs: number }
@@ -196,6 +192,7 @@ export function selectColdParkedTerminalWorktrees(
     worktrees: readonly TerminalWorktreeColdParkCandidate[]
     pendingStartupByTabId: Readonly<Record<string, unknown>>
     parkingEnabled: boolean
+    remoteParkingEnabled?: boolean
     nowMs: number
   } & TerminalColdParkPolicyOverrides
 ): Set<string> {
@@ -211,6 +208,7 @@ export function selectColdParkedTerminalWorktrees(
         ...worktree,
         pendingStartupByTabId: args.pendingStartupByTabId,
         parkingEnabled: args.parkingEnabled,
+        remoteParkingEnabled: args.remoteParkingEnabled === true,
         nowMs: args.nowMs,
         coldParkDelayMs
       })
@@ -232,6 +230,7 @@ export function selectColdParkedTerminalTabs(
     terminalTabs: readonly TerminalTabColdParkCandidate[]
     pendingStartupByTabId: Readonly<Record<string, unknown>>
     parkingEnabled: boolean
+    remoteParkingEnabled?: boolean
     nowMs: number
   } & TerminalColdParkPolicyOverrides
 ): Set<string> {
@@ -248,6 +247,7 @@ export function selectColdParkedTerminalTabs(
         terminalTab: tab,
         pendingStartupByTabId: args.pendingStartupByTabId,
         parkingEnabled: args.parkingEnabled,
+        remoteParkingEnabled: args.remoteParkingEnabled === true,
         nowMs: args.nowMs,
         coldParkDelayMs
       })

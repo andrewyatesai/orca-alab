@@ -31,6 +31,7 @@ import {
   updateTerminalSubscriptionViewport as updateCachedTerminalSubscriptionViewport
 } from './rpc-client-terminal-subscription'
 import { describeSocketEvent } from './socket-event-debug'
+import { markRpcDeliveryUnknown } from './rpc-delivery-ambiguity'
 import { isRpcResponse } from './rpc-response-shape'
 import { websocketPayloadToUint8 } from './websocket-payload-bytes'
 
@@ -651,7 +652,7 @@ export function connect(
     if (intentionallyClosed) {
       console.log('[net] handleSocketClosed — intentional close')
       setState('disconnected')
-      rejectAllPending('Connection closed')
+      rejectAllPending('Connection closed', { deliveryUnknown: true })
       return
     }
     console.log('[net] handleSocketClosed → reconnect', {
@@ -661,7 +662,7 @@ export function connect(
       attempt: reconnectAttempt
     })
     emitLog('warn', 'WebSocket closed', 'Will attempt to reconnect')
-    rejectAllPending('Connection interrupted')
+    rejectAllPending('Connection interrupted', { deliveryUnknown: true })
     setState('reconnecting')
     scheduleReconnect()
   }
@@ -795,8 +796,12 @@ export function connect(
     }
   }
 
-  function rejectAllPending(reason: string) {
-    const error = new Error(reason)
+  function rejectAllPending(reason: string, options?: { deliveryUnknown?: boolean }) {
+    // Why: pending entries only exist after a successful socket write, so a close
+    // here means the host may have processed them — mark the ambiguity for callers.
+    const error = options?.deliveryUnknown
+      ? markRpcDeliveryUnknown(new Error(reason))
+      : new Error(reason)
     for (const [id, req] of pending) {
       pending.delete(id)
       queueMicrotask(() => req.reject(error))
@@ -992,7 +997,8 @@ export function connect(
             timeoutMs,
             state
           })
-          reject(new Error(`Request timed out: ${method}`))
+          // Why: the frame was written 30s ago — the host may have processed it.
+          reject(markRpcDeliveryUnknown(new Error(`Request timed out: ${method}`)))
         }, timeoutMs)
 
         pending.set(id, {
@@ -1176,7 +1182,8 @@ export function connect(
       }
       sharedKey = null
       setState('disconnected')
-      rejectAllPending('Client closed')
+      // Why: closing the client cannot retract request frames already written.
+      rejectAllPending('Client closed', { deliveryUnknown: true })
     }
   }
 }

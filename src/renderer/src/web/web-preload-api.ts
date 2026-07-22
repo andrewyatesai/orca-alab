@@ -669,9 +669,6 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       // localStorage writes synchronously, so there is no deferred web flush.
       flush: async () => {},
       readTerminalScrollback: () => null,
-      // Web clients have no local snapshot store; deep restore degrades to no-op like the legacy read.
-      readTerminalScrollbackTail: () => null,
-      readTerminalScrollbackOlderChunk: async () => null,
       setSync: (session, hostId) => {
         writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(session))
       }
@@ -2897,8 +2894,7 @@ function createShellApi(): NonNullable<Partial<PreloadApi>['shell']> {
     pickImage: () => Promise.resolve(null),
     pickRepoIconImage: () => Promise.resolve(null),
     pickAudio: () => Promise.resolve(null),
-    pickDirectory: () => Promise.resolve(null),
-    copyFile: () => Promise.resolve()
+    pickDirectory: () => Promise.resolve(null)
   }
 }
 

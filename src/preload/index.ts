@@ -2155,10 +2155,7 @@ const api = {
     pickAudio: (): Promise<string | null> => ipcRenderer.invoke('shell:pickAudio'),
 
     pickDirectory: (args: { defaultPath?: string }): Promise<string | null> =>
-      ipcRenderer.invoke('shell:pickDirectory', args),
-
-    copyFile: (args: { srcPath: string; destPath: string }): Promise<void> =>
-      ipcRenderer.invoke('shell:copyFile', args)
+      ipcRenderer.invoke('shell:pickDirectory', args)
   },
 
   skills: {
@@ -2674,11 +2671,6 @@ const api = {
     flush: () => ipcRenderer.invoke('session:flush'),
     readTerminalScrollback: (args) =>
       ipcRenderer.sendSync('session:read-terminal-scrollback-sync', args),
-    // P5 deep restore: sync tail with offsets, then async older-chunk streaming.
-    readTerminalScrollbackTail: (args) =>
-      ipcRenderer.sendSync('session:read-terminal-scrollback-tail-sync', args),
-    readTerminalScrollbackOlderChunk: (args) =>
-      ipcRenderer.invoke('session:read-terminal-scrollback-older-chunk', args),
     /** Synchronous session save for beforeunload — blocks until flushed to disk. */
     setSync: (args, hostId) => {
       ipcRenderer.sendSync('session:set-sync', args, hostId)

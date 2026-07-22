@@ -1,10 +1,9 @@
 import { ipcMain, shell, dialog } from 'electron'
 import { spawn } from 'node:child_process'
-import { constants, copyFile, readFile, stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Store } from '../persistence'
-import { resolveAuthorizedPath } from './filesystem-auth'
 import type { ShellOpenLocalPathResult } from '../../shared/shell-open-types'
 import { MAX_REPO_ICON_UPLOAD_BYTES } from '../../shared/repo-icon'
 import { getSpawnArgsForWindows } from '../win32-utils'
@@ -17,6 +16,17 @@ export { EXTERNAL_EDITOR_CLI_COMMAND }
 
 const REPO_ICON_IMAGE_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png'
+}
+
+// Why: KeybindingsFileActions launches these two without a settings entry, so they stay trusted even when never configured.
+const BUILT_IN_EDITOR_COMMANDS = new Set([EXTERNAL_EDITOR_CLI_COMMAND, 'cursor'])
+
+function isTrustedExternalEditorCommand(command: string, store: Store): boolean {
+  if (BUILT_IN_EDITOR_COMMANDS.has(command)) {
+    return true
+  }
+  const applications = store.getSettings().openInApplications ?? []
+  return applications.some((application) => application.command.trim() === command)
 }
 
 async function pathExists(pathValue: string): Promise<boolean> {
@@ -143,8 +153,16 @@ export function registerShellHandlers(store: Store): void {
 
   ipcMain.handle(
     'shell:openInExternalEditor',
-    (_event, path: string, command?: string): Promise<ShellOpenLocalPathResult> =>
-      openInExternalEditor(path, command)
+    (_event, path: string, command?: string): Promise<ShellOpenLocalPathResult> => {
+      // Why: command reaches spawn() (compound commands run via `sh -c`), so only main-trusted
+      // launchers may run — a raw renderer string would hand a compromised renderer arbitrary
+      // process execution (same threat model as the fs:* path confinement).
+      const trimmedCommand = command?.trim()
+      if (trimmedCommand && !isTrustedExternalEditorCommand(trimmedCommand, store)) {
+        return Promise.resolve({ ok: false, reason: 'launch-failed' })
+      }
+      return openInExternalEditor(path, command)
+    }
   )
 
   ipcMain.handle('shell:openUrl', (_event, rawUrl: string) => {
@@ -287,25 +305,6 @@ export function registerShellHandlers(store: Store): void {
     return result.filePaths[0]
   })
 
-  // Why: copying a picked image next to the markdown file lets us insert a
-  // relative path (e.g. `![](image.png)`) instead of embedding base64,
-  // keeping markdown files small and portable.
-  ipcMain.handle(
-    'shell:copyFile',
-    async (_event, args: { srcPath: string; destPath: string }): Promise<void> => {
-      if (!isAbsolute(normalize(args.srcPath)) || !isAbsolute(normalize(args.destPath))) {
-        throw new Error('Both source and destination must be absolute paths')
-      }
-      // Why: confine both ends like fs:* handlers — a bare copyFile here would
-      // hand a compromised renderer an arbitrary read/copy primitive. Every
-      // live caller copies within authorized roots, so no exceptions needed.
-      const src = await resolveAuthorizedPath(args.srcPath, store)
-      const dest = await resolveAuthorizedPath(args.destPath, store)
-      // Why: COPYFILE_EXCL prevents silently overwriting an existing file.
-      // The renderer-side deconfliction loop already picks a unique name, so
-      // the dest should never exist — if it does, something is wrong and we
-      // should fail loudly rather than clobber data.
-      await copyFile(src, dest, constants.COPYFILE_EXCL)
-    }
-  )
+  // Note: shell:copyFile was removed — it had no live caller (markdown image
+  // insert and file duplication both go through the confined fs:* handlers).
 }

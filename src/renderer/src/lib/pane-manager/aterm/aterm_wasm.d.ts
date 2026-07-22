@@ -410,6 +410,22 @@ export class AtermTerminal {
      */
     search_budgeted_cancel(): void;
     /**
+     * Metadata for a [`AtermTerminal::search`]-contract query — most
+     * importantly the engine's `incomplete` signal, which that legacy export
+     * has always DROPPED (E9a, correctness-first): when index eviction or the
+     * engine's match cap truncated the results, the host has been presenting
+     * a truncated match list/count as if it were exhaustive.
+     *
+     * Stateless on purpose: it re-runs `query` against the SAME cached
+     * full-content index `search` uses (O(1) index reuse on unchanged
+     * content, so the added cost is one query, never a rebuild) and reports
+     * on exactly the results that call would return — no staleness if the
+     * host asks without (or long after) a paired `search`. Empty query or
+     * invalid regex: `incomplete == false`, `match_count == 0`, mirroring
+     * the legacy export's empty array.
+     */
+    search_meta(query: string, case_sensitive: boolean, is_regex: boolean): SearchMeta;
+    /**
      * Drop the current selection so the highlight clears on the next render.
      */
     selection_clear(): void;
@@ -1160,6 +1176,25 @@ export class LinkHit {
 }
 
 /**
+ * Metadata for a legacy-contract search ([`AtermTerminal::search_meta`]).
+ */
+export class SearchMeta {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * True when the results may be truncated: index eviction dropped old rows
+     * before they could be searched, or the engine's match cap was reached.
+     */
+    readonly incomplete: boolean;
+    /**
+     * Number of matches the paired [`AtermTerminal::search`] call returns
+     * (i.e. its flat triplet array length / 3), after any cap.
+     */
+    readonly match_count: number;
+}
+
+/**
  * Selection bounds in DISPLAY viewport cell coords (0 = top visible row),
  * inclusive of `start`, with `end` already side-adjusted to match
  * `selection_text` and the painted highlight.
@@ -1220,6 +1255,7 @@ export interface InitOutput {
     readonly __wbg_atermterminal_free: (a: number, b: number) => void;
     readonly __wbg_budgetedsearchresult_free: (a: number, b: number) => void;
     readonly __wbg_linkhit_free: (a: number, b: number) => void;
+    readonly __wbg_searchmeta_free: (a: number, b: number) => void;
     readonly __wbg_selectionrange_free: (a: number, b: number) => void;
     readonly atermterminal_add_fallback_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_add_fallback_font_registered: (a: number, b: number) => [number, number];
@@ -1299,6 +1335,7 @@ export interface InitOutput {
     readonly atermterminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly atermterminal_search_budgeted_cancel: (a: number) => void;
     readonly atermterminal_search_display_origin: (a: number) => number;
+    readonly atermterminal_search_meta: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly atermterminal_selection_clear: (a: number) => void;
     readonly atermterminal_selection_extend: (a: number, b: number, c: number) => void;
     readonly atermterminal_selection_finish: (a: number) => void;
@@ -1387,6 +1424,8 @@ export interface InitOutput {
     readonly linkhit_start_col: (a: number) => number;
     readonly linkhit_url: (a: number) => [number, number];
     readonly register_font: (a: number, b: number) => number;
+    readonly searchmeta_incomplete: (a: number) => number;
+    readonly searchmeta_match_count: (a: number) => number;
     readonly selectionrange_end_x: (a: number) => number;
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;

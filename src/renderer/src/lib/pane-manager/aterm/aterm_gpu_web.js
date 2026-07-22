@@ -1006,6 +1006,24 @@ export class AtermGpuTerminal {
         return ret >>> 0;
     }
     /**
+     * Metadata for a [`AtermGpuTerminal::search`]-contract query (E9a):
+     * GPU-module parity with aterm-wasm's `search_meta` — carries the
+     * engine's `incomplete` signal the legacy `search` export drops. Same
+     * stateless contract: re-runs `query` on the cached index (one query,
+     * never a rebuild, on unchanged content); empty query or invalid regex
+     * reports `incomplete == false`, `match_count == 0`.
+     * @param {string} query
+     * @param {boolean} case_sensitive
+     * @param {boolean} is_regex
+     * @returns {SearchMeta}
+     */
+    search_meta(query, case_sensitive, is_regex) {
+        const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermgputerminal_search_meta(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex);
+        return SearchMeta.__wrap(ret);
+    }
+    /**
      * Drop the current selection so the highlight clears on the next render.
      */
     selection_clear() {
@@ -2107,6 +2125,50 @@ export class LinkHit {
     }
 }
 if (Symbol.dispose) LinkHit.prototype[Symbol.dispose] = LinkHit.prototype.free;
+
+/**
+ * Metadata for a legacy-contract search ([`AtermGpuTerminal::search_meta`]).
+ * Same shape as the aterm-wasm module's `SearchMeta` (each wasm module
+ * exports its own copy of the boundary type).
+ */
+export class SearchMeta {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(SearchMeta.prototype);
+        obj.__wbg_ptr = ptr;
+        SearchMetaFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        SearchMetaFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_searchmeta_free(ptr, 0);
+    }
+    /**
+     * True when the results may be truncated: index eviction dropped old rows
+     * before they could be searched, or the engine's match cap was reached.
+     * @returns {boolean}
+     */
+    get incomplete() {
+        const ret = wasm.searchmeta_incomplete(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Number of matches the paired [`AtermGpuTerminal::search`] call returns
+     * (its flat triplet array length / 3), after any cap.
+     * @returns {number}
+     */
+    get match_count() {
+        const ret = wasm.searchmeta_match_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) SearchMeta.prototype[Symbol.dispose] = SearchMeta.prototype.free;
 
 /**
  * Selection bounds in DISPLAY viewport cell coords (0 = top visible row),
@@ -3318,6 +3380,9 @@ const BudgetedSearchResultFinalization = (typeof FinalizationRegistry === 'undef
 const LinkHitFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_linkhit_free(ptr >>> 0, 1));
+const SearchMetaFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_searchmeta_free(ptr >>> 0, 1));
 const SelectionRangeFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_selectionrange_free(ptr >>> 0, 1));

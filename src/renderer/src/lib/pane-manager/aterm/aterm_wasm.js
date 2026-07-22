@@ -981,6 +981,31 @@ export class AtermTerminal {
         return ret >>> 0;
     }
     /**
+     * Metadata for a [`AtermTerminal::search`]-contract query — most
+     * importantly the engine's `incomplete` signal, which that legacy export
+     * has always DROPPED (E9a, correctness-first): when index eviction or the
+     * engine's match cap truncated the results, the host has been presenting
+     * a truncated match list/count as if it were exhaustive.
+     *
+     * Stateless on purpose: it re-runs `query` against the SAME cached
+     * full-content index `search` uses (O(1) index reuse on unchanged
+     * content, so the added cost is one query, never a rebuild) and reports
+     * on exactly the results that call would return — no staleness if the
+     * host asks without (or long after) a paired `search`. Empty query or
+     * invalid regex: `incomplete == false`, `match_count == 0`, mirroring
+     * the legacy export's empty array.
+     * @param {string} query
+     * @param {boolean} case_sensitive
+     * @param {boolean} is_regex
+     * @returns {SearchMeta}
+     */
+    search_meta(query, case_sensitive, is_regex) {
+        const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_search_meta(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex);
+        return SearchMeta.__wrap(ret);
+    }
+    /**
      * Drop the current selection so the highlight clears on the next render.
      */
     selection_clear() {
@@ -2099,6 +2124,48 @@ export class LinkHit {
 if (Symbol.dispose) LinkHit.prototype[Symbol.dispose] = LinkHit.prototype.free;
 
 /**
+ * Metadata for a legacy-contract search ([`AtermTerminal::search_meta`]).
+ */
+export class SearchMeta {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(SearchMeta.prototype);
+        obj.__wbg_ptr = ptr;
+        SearchMetaFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        SearchMetaFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_searchmeta_free(ptr, 0);
+    }
+    /**
+     * True when the results may be truncated: index eviction dropped old rows
+     * before they could be searched, or the engine's match cap was reached.
+     * @returns {boolean}
+     */
+    get incomplete() {
+        const ret = wasm.searchmeta_incomplete(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Number of matches the paired [`AtermTerminal::search`] call returns
+     * (i.e. its flat triplet array length / 3), after any cap.
+     * @returns {number}
+     */
+    get match_count() {
+        const ret = wasm.searchmeta_match_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) SearchMeta.prototype[Symbol.dispose] = SearchMeta.prototype.free;
+
+/**
  * Selection bounds in DISPLAY viewport cell coords (0 = top visible row),
  * inclusive of `start`, with `end` already side-adjusted to match
  * `selection_text` and the painted highlight.
@@ -2306,6 +2373,9 @@ const BudgetedSearchResultFinalization = (typeof FinalizationRegistry === 'undef
 const LinkHitFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_linkhit_free(ptr >>> 0, 1));
+const SearchMetaFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_searchmeta_free(ptr >>> 0, 1));
 const SelectionRangeFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_selectionrange_free(ptr >>> 0, 1));

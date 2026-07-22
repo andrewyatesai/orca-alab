@@ -410,6 +410,15 @@ export class AtermGpuTerminal {
      */
     search_budgeted_cancel(): void;
     /**
+     * Metadata for a [`AtermGpuTerminal::search`]-contract query (E9a):
+     * GPU-module parity with aterm-wasm's `search_meta` — carries the
+     * engine's `incomplete` signal the legacy `search` export drops. Same
+     * stateless contract: re-runs `query` on the cached index (one query,
+     * never a rebuild, on unchanged content); empty query or invalid regex
+     * reports `incomplete == false`, `match_count == 0`.
+     */
+    search_meta(query: string, case_sensitive: boolean, is_regex: boolean): SearchMeta;
+    /**
      * Drop the current selection so the highlight clears on the next render.
      */
     selection_clear(): void;
@@ -1145,6 +1154,27 @@ export class LinkHit {
 }
 
 /**
+ * Metadata for a legacy-contract search ([`AtermGpuTerminal::search_meta`]).
+ * Same shape as the aterm-wasm module's `SearchMeta` (each wasm module
+ * exports its own copy of the boundary type).
+ */
+export class SearchMeta {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * True when the results may be truncated: index eviction dropped old rows
+     * before they could be searched, or the engine's match cap was reached.
+     */
+    readonly incomplete: boolean;
+    /**
+     * Number of matches the paired [`AtermGpuTerminal::search`] call returns
+     * (its flat triplet array length / 3), after any cap.
+     */
+    readonly match_count: number;
+}
+
+/**
  * Selection bounds in DISPLAY viewport cell coords (0 = top visible row),
  * inclusive of `start`, with `end` already side-adjusted to match
  * `selection_text` and the painted highlight. Mirrors the aterm-wasm crate.
@@ -1206,6 +1236,7 @@ export interface InitOutput {
     readonly __wbg_atermgputerminal_free: (a: number, b: number) => void;
     readonly __wbg_budgetedsearchresult_free: (a: number, b: number) => void;
     readonly __wbg_linkhit_free: (a: number, b: number) => void;
+    readonly __wbg_searchmeta_free: (a: number, b: number) => void;
     readonly __wbg_selectionrange_free: (a: number, b: number) => void;
     readonly atermgputerminal_adapter_info: (a: number) => [number, number];
     readonly atermgputerminal_add_fallback_font: (a: number, b: number, c: number) => [number, number];
@@ -1288,6 +1319,7 @@ export interface InitOutput {
     readonly atermgputerminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly atermgputerminal_search_budgeted_cancel: (a: number) => void;
     readonly atermgputerminal_search_display_origin: (a: number) => number;
+    readonly atermgputerminal_search_meta: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly atermgputerminal_selection_clear: (a: number) => void;
     readonly atermgputerminal_selection_extend: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_selection_finish: (a: number) => void;
@@ -1376,6 +1408,8 @@ export interface InitOutput {
     readonly linkhit_start_col: (a: number) => number;
     readonly linkhit_url: (a: number) => [number, number];
     readonly register_font: (a: number, b: number) => number;
+    readonly searchmeta_incomplete: (a: number) => number;
+    readonly searchmeta_match_count: (a: number) => number;
     readonly selectionrange_end_x: (a: number) => number;
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;

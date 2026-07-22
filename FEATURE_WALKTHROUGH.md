@@ -70,14 +70,14 @@ rather than a live latest-`main` claim:
 
 | Provenance field                               | Exact value                                                        |
 | ---------------------------------------------- | ------------------------------------------------------------------ |
-| Upstream commit                                | `97b9dcbe5f6cf8619f3228d4367a7dca0ac2ff20`                         |
-| `git describe --tags --always`                 | `v0.56-9-g97b9dcbe`                                                |
+| Upstream commit                                | `72276a613d215c5c4896b6234648f66d3eb15a96`                         |
+| `git describe --tags --always`                 | `v0.56-33-g72276a61`                                                |
 | Cargo workspace version / embedded WASM marker | `0.56.0` / `aterm(0.56.0)`                                         |
 | Artifact manifest                              | schema `2`                                                         |
 | Downstream compatibility patch                 | `config/patches/aterm-gpu-wasm-clock.patch`                        |
 | Patch SHA-256                                  | `af2e17dda30efbbf3666eeed1ac852aa8dff67d4456f2796bc814209be1bd757` |
 
-The commit is 9 commits after the `v0.56` tag (released July 21, 2026), and the
+The commit is 33 commits after the `v0.56` tag (released July 21, 2026), and the
 post-tag fixes are represented by aterm's `[Unreleased]` changelog. Its
 workspace version is `0.56.0`; the pin is the `v0.56` line plus follow-up
 fixes, so calling it the exact tagged `v0.56` release would still be
@@ -86,10 +86,10 @@ inaccurate.
 Schema 2 binds the clean upstream commit and exact compatibility-patch digest to
 all eight generated CPU/GPU files: JavaScript glue, TypeScript declarations,
 WASM binaries, and WASM declarations. It records byte length and SHA-256 for
-each. The current CPU binary is 3,752,181 bytes with SHA-256
-`8364a197eba293b64283e2eedc7ab23d5cf7d5cae3d482fffca1fa1dcdc0e8a1`;
-the GPU binary is 6,216,384 bytes with SHA-256
-`58c1a81df0cf4c80aa0980b4f47b2b409698dfe03ddc4a35933d546f73058fd9`. These
+each. The current CPU binary is 3,756,421 bytes with SHA-256
+`76973c4eb12296696fa668c1a70f8fa4eeeb20cc15034b02fc6f6563c6ea3e70`;
+the GPU binary is 6,220,610 bytes with SHA-256
+`2a871730e7fc99405efe936f97a7cf2fb50bcd33616269779aae95aba9a31eac`. These
 figures restate `aterm_wasm_artifact_pin.json`; if this document and the
 manifest ever disagree, the manifest is the value `pnpm check:aterm-pin`
 enforces.
@@ -427,7 +427,7 @@ pin on July 21, 2026; lane counts were recorded during the fork's validation
 passes and are carried forward, not relabelled as fresh runs:
 
 - Pin identity: the aterm submodule checkout is clean and detached at
-  `97b9dcbe5f6cf8619f3228d4367a7dca0ac2ff20`, matching both the tracked
+  `72276a613d215c5c4896b6234648f66d3eb15a96`, matching both the tracked
   submodule pointer and the manifest's `sourceCommit`.
 - Schema-2 aterm provenance check: all **8/8** generated CPU/GPU artifacts,
   byte lengths, hashes, source commit, and compatibility-patch digest match.

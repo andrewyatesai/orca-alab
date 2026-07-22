@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "adb8e73bd56ca9fcb128d147dbe377b7a890c7da",
+  "sourceCommit": "c87ddf6cde5c262181fc2ca8bc9e27b2ec5ff2e0",
   "sourcePatch": {
     "path": "config/patches/aterm-gpu-wasm-clock.patch",
     "sha256": "af2e17dda30efbbf3666eeed1ac852aa8dff67d4456f2796bc814209be1bd757"
@@ -15,8 +15,8 @@
       "sha256": "6bb9f3fb30647be0561791147cdc1c1e4c389b498873b5fa5c2ef22eeb5baece"
     },
     "aterm_wasm_bg.wasm": {
-      "bytes": 3759059,
-      "sha256": "786897c49fd945a675ee0508f118edeb5ab13073037ab55a01379c6a5e0eb49e"
+      "bytes": 3761311,
+      "sha256": "9849c682fa6a730042cf16b6c264d876180b9a4f2f7c887254cace53b4bb1ad2"
     },
     "aterm_wasm_bg.wasm.d.ts": {
       "bytes": 15576,
@@ -24,19 +24,19 @@
     },
     "aterm_gpu_web.js": {
       "bytes": 167670,
-      "sha256": "19a35bc31c1173262f30d42f0442b6218a5469a3d81108832a1aa0cb76f36597"
+      "sha256": "703cac6ca58639c0615943e393270837c60f2bb45705dbc7e2084b9c7aca7092"
     },
     "aterm_gpu_web.d.ts": {
       "bytes": 78714,
-      "sha256": "6756d92ccaf53039f0f242d4a94241eaca241194b1898d79faaf9ba7f0d015d7"
+      "sha256": "6b316e840abfbfb0b35814fa3a7ee7b3857356bb9bc29df616168bc3df396e63"
     },
     "aterm_gpu_web_bg.wasm": {
-      "bytes": 6224235,
-      "sha256": "bd33d76ba92aae91740043ecfa3dd7f34b937a188742460a092fb48cafdb7911"
+      "bytes": 6225799,
+      "sha256": "cfba634f1d46a63681b28e5a39ece4e85adc04887ccc1378a91cce64b9b6f902"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
       "bytes": 16844,
-      "sha256": "7c21f9a3488f74bc2e43f00a18bb6287e67bf8696d6c0c29e426fb518b3076b2"
+      "sha256": "9b93f8ec0a173132adbe5f6b5dfaea7b64d62795680c41482866a88550d032b4"
     }
   }
 }

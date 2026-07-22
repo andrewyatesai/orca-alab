@@ -30,6 +30,7 @@ import {
   expectedAtermWasmSourcePatch,
   withPatchedAtermWorktree
 } from './aterm-wasm-source-patch.mjs'
+import { cachedWasmBindgenExecutablePath } from './rust-host-executable-paths.mjs'
 import { CargoCommandFailure, runStreamedCargoCommand } from './stream-cargo-command.mjs'
 import { assertNoEmbeddedLocalBuildPaths, wasmPathRemapRustflags } from './wasm-build-paths.mjs'
 
@@ -84,29 +85,28 @@ function which(bin) {
   return false
 }
 
-// Which rustup toolchain builds the wasm. Defaults to STABLE (the proven,
-// wasm32-capable path); ORCA_RUST_TOOLCHAIN=trust rebuilds with the Trust-verified
-// compiler (`pnpm bump:aterm` honors it too).
+// Orca's browser artifacts deliberately default to stable, the proven
+// wasm32-capable path, even though native aterm pins Trust. The explicit override
+// keeps Trust-WASM verification available without making it a build prerequisite.
 const RUST_TOOLCHAIN = process.env.ORCA_RUST_TOOLCHAIN || 'stable'
 
 // Absolute path to a rustup-managed tool (Homebrew's cargo/rustc on PATH shadow
 // rustup and lack the wasm32 target).
-function rustupStableBin(bin) {
-  return execFileSync('rustup', ['which', bin, '--toolchain', RUST_TOOLCHAIN], {
+function rustupToolchainBin(bin, toolchain = RUST_TOOLCHAIN) {
+  return execFileSync('rustup', ['which', bin, '--toolchain', toolchain], {
     encoding: 'utf8'
   }).trim()
 }
 
-// Build cargo with the rustup-managed STABLE toolchain explicitly. Two shadows to beat:
-// (1) a Homebrew cargo on PATH ignores RUSTUP_TOOLCHAIN, and (2) even rustup's stable
-// cargo spawns a BARE `rustc` resolved from PATH (Homebrew's 1.95, no wasm32) unless
-// RUSTC is pinned. So we invoke stable's cargo by absolute path WITH RUSTC pinned to
-// stable's rustc. Falls back to plain cargo (+ RUSTUP_TOOLCHAIN) when rustup is absent.
+// Build with the selected rustup toolchain explicitly. Two shadows to beat:
+// (1) a Homebrew cargo on PATH ignores RUSTUP_TOOLCHAIN, and (2) cargo spawns a
+// BARE `rustc` resolved from PATH unless RUSTC is pinned. Falls back to plain
+// cargo (+ RUSTUP_TOOLCHAIN) when rustup is absent.
 async function runWasmCargo(args, opts = {}) {
   const baseEnv = opts.env ?? process.env
   if (which('rustup')) {
-    const cargo = rustupStableBin('cargo')
-    const rustc = rustupStableBin('rustc')
+    const cargo = rustupToolchainBin('cargo')
+    const rustc = rustupToolchainBin('rustc')
     await runStreamedCargoCommand({
       command: cargo,
       args,
@@ -127,22 +127,29 @@ async function runWasmCargo(args, opts = {}) {
 }
 
 function resolveWasmBindgen() {
-  const cached = join(WB_DIR, 'bin/wasm-bindgen')
+  const cached = cachedWasmBindgenExecutablePath(WB_DIR)
   if (existsSync(cached)) {
     return cached
   }
   // Bootstrap the exact pinned CLI once (cached, gitignored) so the build is
   // reproducible regardless of the system wasm-bindgen version.
   console.log(`[aterm-wasm] bootstrapping wasm-bindgen-cli ${WB_VERSION} → ${WB_DIR}`)
-  run('cargo', [
-    'install',
-    'wasm-bindgen-cli',
-    '--version',
-    WB_VERSION,
-    '--root',
-    WB_DIR,
-    '--locked'
-  ])
+  const hasRustup = which('rustup')
+  // Why: a custom default toolchain can reject third-party build dependencies;
+  // bootstrap this host tool with stable, independent of renderer verification.
+  run(
+    hasRustup ? rustupToolchainBin('cargo', 'stable') : 'cargo',
+    ['install', 'wasm-bindgen-cli', '--version', WB_VERSION, '--root', WB_DIR, '--locked'],
+    hasRustup
+      ? {
+          env: {
+            ...process.env,
+            RUSTC: rustupToolchainBin('rustc', 'stable'),
+            RUSTUP_TOOLCHAIN: 'stable'
+          }
+        }
+      : undefined
+  )
   return cached
 }
 
@@ -165,17 +172,15 @@ async function buildCrate(key, wasmBindgen, atermSource) {
       '--manifest-path',
       join(atermSource, dir, 'Cargo.toml')
     ],
-    // Pin to stable (aterm's rust-toolchain.toml channel): the machine's global rustup
-    // default may be an older nightly that lacks the wasm32-unknown-unknown target (or
-    // violates aterm's rust-version). RUSTUP_TOOLCHAIN is a belt-and-suspenders for the
-    // no-rustup fallback path. The simd flag is target-scoped so host proc-macro builds
-    // stay untouched (plain RUSTFLAGS would leak into them).
+    // Pin the selected Orca WASM toolchain: the machine's global default may lack
+    // wasm32-unknown-unknown or violate aterm's rust-version. The simd flag is
+    // target-scoped so host proc-macro builds stay untouched.
     {
       env: {
         ...process.env,
         CARGO_TARGET_DIR,
         CARGO_NET_OFFLINE: 'false',
-        RUSTUP_TOOLCHAIN: 'stable',
+        RUSTUP_TOOLCHAIN: RUST_TOOLCHAIN,
         CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: [
           process.env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS,
           WASM_SIMD_RUSTFLAG,

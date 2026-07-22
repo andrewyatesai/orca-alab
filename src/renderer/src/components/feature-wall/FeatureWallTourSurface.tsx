@@ -1,36 +1,28 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JSX, ReactNode } from 'react'
 import {
+  DEFAULT_FEATURE_WALL_STEP_ID,
   DEFAULT_FEATURE_WALL_WORKFLOW_ID,
-  FEATURE_WALL_WORKFLOWS,
   getFeatureWallMediaTile,
+  type FeatureWallStepId,
   type FeatureWallWorkflow,
   type FeatureWallWorkflowId
 } from '../../../../shared/feature-wall-workflows'
-import { getAgentsSteps, type AgentsStepId } from '../../../../shared/agents-orchestration-steps'
-import { getWorkbenchSteps, type WorkbenchStepId } from '../../../../shared/workbench-steps'
-import { getReviewSteps, type ReviewStepId } from '../../../../shared/review-steps'
 import type { FeatureWallOpenSourceTelemetry } from '../../../../shared/telemetry-events'
 import type { FeatureWallTourDepthSummary } from '../../../../shared/feature-wall-tour-depth'
-import { track } from '@/lib/telemetry'
-import { useAppStore } from '@/store'
-import { ORCA_CLI_SKILL_NAME, ORCHESTRATION_SKILL_NAME } from '@/lib/agent-feature-install-commands'
-import {
-  GLOBAL_AGENT_SKILL_SOURCE_KINDS,
-  useInstalledAgentSkill
-} from '@/hooks/useInstalledAgentSkills'
-import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
-import { usePrefersReducedMotion } from './feature-wall-modal-helpers'
-import { toFeatureWallAssetUrl, useFeatureWallAssetBaseUrl } from './feature-wall-assets'
-import { useFeatureWallTaskSourcePresentation } from './use-feature-wall-task-source-presentation'
-import { useFeatureWallCompletion } from './use-feature-wall-completion'
-import { useFeatureWallTourTelemetry } from './use-feature-wall-tour-telemetry'
-import { FeatureWallContinueButton } from './FeatureWallContinueButton'
-import { FeatureWallTourPanel } from './FeatureWallTourPanel'
-import { getFeatureWallActiveStepCopy } from './feature-wall-active-step-copy'
+import { Button } from '@/components/ui/button'
+import { translate } from '@/i18n/i18n'
 import { getScreenSubmitModifierLabel } from '@/lib/screen-submit-shortcut'
+import { track } from '@/lib/telemetry'
+import { usePrefersReducedMotion } from './feature-wall-modal-helpers'
+import { FeatureWallContinueButton } from './FeatureWallContinueButton'
+import { getLocalizedFeatureWallWorkflows } from './feature-wall-localized-workflows'
+import { focusVisibleFeatureWallStep, hasFocusedFeatureWallStep } from './feature-wall-step-focus'
+import { FeatureWallTourPanel } from './FeatureWallTourPanel'
+import { useFeatureWallCompletion } from './use-feature-wall-completion'
 import { useFeatureWallTourKeyboardShortcut } from './use-feature-wall-tour-keyboard-shortcut'
 import { useFeatureWallTourRailKeydown } from './use-feature-wall-tour-rail-keydown'
+import { useFeatureWallTourTelemetry } from './use-feature-wall-tour-telemetry'
 
 type FeatureWallTourSurfaceProps = {
   isOpen: boolean
@@ -44,6 +36,8 @@ type FeatureWallTourSurfaceProps = {
   compactRail?: boolean
   detachedFooter?: boolean
   leadingFooterContent?: ReactNode
+  finalSecondaryLabel?: string
+  onFinalSecondaryAction?: () => void
   onTourDepthSummaryChange?: (summary: FeatureWallTourDepthSummary) => void
 }
 
@@ -53,303 +47,171 @@ export function FeatureWallTourSurface({
   onDone,
   className,
   panelClassName,
-  doneLabel = 'Done',
-  footerText = 'Reopen any time from Help > Explore Orca.',
+  doneLabel,
+  footerText,
   enableKeyboardShortcut = true,
   compactRail = false,
   detachedFooter = false,
   leadingFooterContent,
+  finalSecondaryLabel,
+  onFinalSecondaryAction,
   onTourDepthSummaryChange
 }: FeatureWallTourSurfaceProps): JSX.Element | null {
-  const settings = useAppStore((s) => s.settings)
-  const updateSettings = useAppStore((s) => s.updateSettings)
-  const activeSkillRuntime = useActiveProjectSkillRuntime()
-  const assetBaseUrl = useFeatureWallAssetBaseUrl(isOpen)
+  const workflows = getLocalizedFeatureWallWorkflows()
+  const resolvedDoneLabel =
+    doneLabel ?? translate('auto.components.feature.wall.FeatureWallTourSurface.a120000003', 'Done')
+  const resolvedFooterText =
+    footerText === undefined
+      ? translate(
+          'auto.components.feature.wall.FeatureWallTourSurface.a120000004',
+          'Reopen any time from Help > Explore Orca.'
+        )
+      : footerText
   const prefersReducedMotion = usePrefersReducedMotion()
   const reactId = useId()
   const previewPanelId = `${reactId}-feature-wall-preview-panel`
-  const [selectedId, setSelectedId] = useState<FeatureWallWorkflowId>(
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<FeatureWallWorkflowId>(
     DEFAULT_FEATURE_WALL_WORKFLOW_ID
   )
+  const [selectedStepId, setSelectedStepId] = useState<FeatureWallStepId>(
+    DEFAULT_FEATURE_WALL_STEP_ID
+  )
   const railRefs = useRef<(HTMLButtonElement | null)[]>([])
-
-  const selectedIndex = useMemo(
+  const selectedWorkflowIndex = useMemo(
     () =>
       Math.max(
         0,
-        FEATURE_WALL_WORKFLOWS.findIndex((w) => w.id === selectedId)
+        workflows.findIndex((workflow) => workflow.id === selectedWorkflowId)
       ),
-    [selectedId]
+    [selectedWorkflowId, workflows]
   )
-  const selected = FEATURE_WALL_WORKFLOWS[selectedIndex]
-  const taskSourcePresentation = useFeatureWallTaskSourcePresentation(isOpen, selected)
-  const selectedPresentation = taskSourcePresentation.workflow
-  const agentsSteps = useMemo(() => getAgentsSteps(), [])
-  const workbenchSteps = useMemo(() => getWorkbenchSteps(), [])
-  const reviewSteps = useMemo(() => getReviewSteps(), [])
-  const [agentsStepId, setAgentsStepId] = useState<AgentsStepId>(
-    () => agentsSteps[0]?.id ?? 'statuses'
+  const selectedWorkflow = workflows[selectedWorkflowIndex]
+  const activeStepIndex = Math.max(
+    0,
+    selectedWorkflow.steps.findIndex((step) => step.id === selectedStepId)
   )
-  const [workbenchStepId, setWorkbenchStepId] = useState<WorkbenchStepId>(
-    () => workbenchSteps[0]?.id ?? 'terminal'
-  )
-  const [reviewStepId, setReviewStepId] = useState<ReviewStepId>(
-    () => reviewSteps[0]?.id ?? 'notes'
-  )
-  const [previousOpen, setPreviousOpen] = useState(isOpen)
-  if (isOpen !== previousOpen) {
-    setPreviousOpen(isOpen)
-    if (!isOpen) {
-      setSelectedId(DEFAULT_FEATURE_WALL_WORKFLOW_ID)
-      setAgentsStepId(agentsSteps[0]?.id ?? 'statuses')
-      setWorkbenchStepId(workbenchSteps[0]?.id ?? 'terminal')
-      setReviewStepId(reviewSteps[0]?.id ?? 'notes')
-    }
-  }
-  // Why: the feature-wall completion model owns skill-completion state, so read
-  // installed skills here instead of asking child setup cards to notify upward
-  // from passive Effects.
-  const orchestrationSkill = useInstalledAgentSkill(ORCHESTRATION_SKILL_NAME, {
-    enabled: isOpen,
-    discoveryTarget: activeSkillRuntime.discoveryTarget,
-    sourceKinds: GLOBAL_AGENT_SKILL_SOURCE_KINDS
-  })
-  const browserUseSkill = useInstalledAgentSkill(ORCA_CLI_SKILL_NAME, {
-    enabled: isOpen,
-    discoveryTarget: activeSkillRuntime.discoveryTarget,
-    sourceKinds: GLOBAL_AGENT_SKILL_SOURCE_KINDS
-  })
-  const completion = useFeatureWallCompletion(
-    isOpen,
-    taskSourcePresentation.hasConnectedTaskSource,
-    taskSourcePresentation.isCheckingTaskSources,
-    orchestrationSkill.installed,
-    browserUseSkill.installed,
-    { onTourDepthSummaryChange }
-  )
+  const activeStep = selectedWorkflow.steps[activeStepIndex]
+  const completion = useFeatureWallCompletion(isOpen, { onTourDepthSummaryChange })
+  const { markWorkflowVisited, markStepVisited } = completion
   const { markExitAction } = useFeatureWallTourTelemetry({
     isOpen,
     source,
     getDepthSummary: completion.getTourDepthSummary
   })
-  const {
-    markWorkflowVisited,
-    markAgentStepVisited,
-    markWorkbenchStepVisited,
-    markReviewStepVisited
-  } = completion
   const markWorkflowVisitedRef = useRef(markWorkflowVisited)
+  const markStepVisitedRef = useRef(markStepVisited)
   markWorkflowVisitedRef.current = markWorkflowVisited
-
-  const agentsActiveStep =
-    selected.id === 'agents-orchestration'
-      ? (agentsSteps.find((s) => s.id === agentsStepId) ?? agentsSteps[0] ?? null)
-      : null
-  const workbenchActiveStep =
-    selected.id === 'workbench'
-      ? (workbenchSteps.find((s) => s.id === workbenchStepId) ?? workbenchSteps[0] ?? null)
-      : null
-  const reviewActiveStep =
-    selected.id === 'review'
-      ? (reviewSteps.find((s) => s.id === reviewStepId) ?? reviewSteps[0] ?? null)
-      : null
-  const primaryTile = getFeatureWallMediaTile(selected.primaryTileId)
-  const posterUrl = primaryTile ? toFeatureWallAssetUrl(assetBaseUrl, primaryTile.posterPath) : null
-  const gifUrl = primaryTile ? toFeatureWallAssetUrl(assetBaseUrl, primaryTile.gifPath) : null
-  const activeStepCopy = getFeatureWallActiveStepCopy(
-    agentsActiveStep,
-    workbenchActiveStep,
-    reviewActiveStep
-  )
+  markStepVisitedRef.current = markStepVisited
 
   useEffect(() => {
-    if (isOpen) {
-      markWorkflowVisitedRef.current(DEFAULT_FEATURE_WALL_WORKFLOW_ID)
-      track('feature_wall_group_selected', {
-        group_id: DEFAULT_FEATURE_WALL_WORKFLOW_ID,
-        source
-      })
-      const defaultTile = getFeatureWallMediaTile(FEATURE_WALL_WORKFLOWS[0].primaryTileId)
-      if (defaultTile) {
-        track('feature_wall_feature_selected', {
-          group_id: DEFAULT_FEATURE_WALL_WORKFLOW_ID,
-          tile_id: defaultTile.id,
-          source
-        })
-        // Keep the legacy hover/focus event firing too for analytics
-        // continuity until dashboards are migrated to feature_selected.
-        track('feature_wall_tile_focused', { tile_id: defaultTile.id })
-      }
+    if (!isOpen) {
+      return
     }
-  }, [isOpen, source])
+    markWorkflowVisitedRef.current(DEFAULT_FEATURE_WALL_WORKFLOW_ID)
+    markStepVisitedRef.current(DEFAULT_FEATURE_WALL_STEP_ID)
+    trackWorkflowSelection(workflows[0], source)
+  }, [isOpen, source, workflows])
 
-  const handleSelect = useCallback(
-    (workflow: FeatureWallWorkflow): void => {
+  const handleSelectStep = useCallback(
+    (workflow: FeatureWallWorkflow, stepId: FeatureWallStepId): void => {
+      const transferRailFocus = hasFocusedFeatureWallStep()
       markWorkflowVisited(workflow.id)
-      if (workflow.id === selectedId) {
+      markStepVisited(stepId)
+      setSelectedWorkflowId(workflow.id)
+      setSelectedStepId(stepId)
+      // Why: shortcut navigation can hide the focused step row at a chapter
+      // boundary; keep keyboard focus aligned with the newly selected screen.
+      if (transferRailFocus) {
+        focusVisibleFeatureWallStep(stepId)
+      }
+    },
+    [markStepVisited, markWorkflowVisited]
+  )
+
+  const handleSelectWorkflow = useCallback(
+    (workflow: FeatureWallWorkflow): void => {
+      const firstStep = workflow.steps[0]
+      if (!firstStep) {
         return
       }
-      setSelectedId(workflow.id)
-      if (workflow.id === 'agents-orchestration') {
-        const nextStepId = agentsSteps[0]?.id ?? 'statuses'
-        markAgentStepVisited(nextStepId)
-        setAgentsStepId(nextStepId)
-      } else if (workflow.id === 'workbench') {
-        const nextStepId = workbenchSteps[0]?.id ?? 'terminal'
-        markWorkbenchStepVisited(nextStepId)
-        setWorkbenchStepId(nextStepId)
-      } else if (workflow.id === 'review') {
-        const nextStepId = reviewSteps[0]?.id ?? 'notes'
-        markReviewStepVisited(nextStepId)
-        setReviewStepId(nextStepId)
-      }
-      track('feature_wall_group_selected', { group_id: workflow.id, source })
-      const tile = getFeatureWallMediaTile(workflow.primaryTileId)
-      if (tile) {
-        track('feature_wall_feature_selected', {
-          group_id: workflow.id,
-          tile_id: tile.id,
-          source
-        })
-        track('feature_wall_tile_focused', { tile_id: tile.id })
-      }
+      handleSelectStep(workflow, firstStep.id)
+      trackWorkflowSelection(workflow, source)
     },
-    [
-      agentsSteps,
-      markAgentStepVisited,
-      markReviewStepVisited,
-      markWorkbenchStepVisited,
-      markWorkflowVisited,
-      reviewSteps,
-      selectedId,
-      source,
-      workbenchSteps
-    ]
-  )
-
-  const handleSelectAgentsStep = useCallback(
-    (id: AgentsStepId): void => {
-      markAgentStepVisited(id)
-      setAgentsStepId(id)
-    },
-    [markAgentStepVisited]
-  )
-
-  const handleSelectWorkbenchStep = useCallback(
-    (id: WorkbenchStepId): void => {
-      markWorkbenchStepVisited(id)
-      setWorkbenchStepId(id)
-    },
-    [markWorkbenchStepVisited]
-  )
-
-  const handleSelectReviewStep = useCallback(
-    (id: ReviewStepId): void => {
-      markReviewStepVisited(id)
-      setReviewStepId(id)
-    },
-    [markReviewStepVisited]
+    [handleSelectStep, source]
   )
 
   const handleRailKeyDown = useFeatureWallTourRailKeydown({
     railRefs,
-    onSelectWorkflow: handleSelect
+    onSelectWorkflow: handleSelectWorkflow
   })
-
-  const isLastWorkflow = selectedIndex >= FEATURE_WALL_WORKFLOWS.length - 1
-  const agentsStepIndex =
-    selected.id === 'agents-orchestration'
-      ? agentsSteps.findIndex((step) => step.id === agentsStepId)
-      : -1
-  const workbenchStepIndex =
-    selected.id === 'workbench'
-      ? workbenchSteps.findIndex((step) => step.id === workbenchStepId)
-      : -1
-  const reviewStepIndex =
-    selected.id === 'review' ? reviewSteps.findIndex((step) => step.id === reviewStepId) : -1
-  const hasNextSubStep =
-    (selected.id === 'agents-orchestration' &&
-      (agentsStepIndex < 0 ? agentsSteps.length > 0 : agentsStepIndex < agentsSteps.length - 1)) ||
-    (selected.id === 'workbench' &&
-      (workbenchStepIndex < 0
-        ? workbenchSteps.length > 0
-        : workbenchStepIndex < workbenchSteps.length - 1)) ||
-    (selected.id === 'review' &&
-      (reviewStepIndex < 0 ? reviewSteps.length > 0 : reviewStepIndex < reviewSteps.length - 1))
-  const continueLabel = isLastWorkflow && !hasNextSubStep ? doneLabel : 'Continue'
-  const handleContinue = useCallback((): void => {
-    markWorkflowVisited(selected.id)
-    if (selected.id === 'agents-orchestration') {
-      markAgentStepVisited(agentsStepId)
-      const nextStep = agentsSteps[agentsStepIndex >= 0 ? agentsStepIndex + 1 : 0]
-      if (nextStep) {
-        markAgentStepVisited(nextStep.id)
-        setAgentsStepId(nextStep.id)
-        return
-      }
-    }
-    if (selected.id === 'workbench') {
-      markWorkbenchStepVisited(workbenchStepId)
-      const nextStep = workbenchSteps[workbenchStepIndex >= 0 ? workbenchStepIndex + 1 : 0]
-      if (nextStep) {
-        markWorkbenchStepVisited(nextStep.id)
-        setWorkbenchStepId(nextStep.id)
-        return
-      }
-    }
-    if (selected.id === 'review') {
-      markReviewStepVisited(reviewStepId)
-      const nextStep = reviewSteps[reviewStepIndex >= 0 ? reviewStepIndex + 1 : 0]
-      if (nextStep) {
-        markReviewStepVisited(nextStep.id)
-        setReviewStepId(nextStep.id)
-        return
-      }
-    }
-    if (isLastWorkflow) {
-      const exitAction = source === 'onboarding' ? 'onboarding_continue' : 'done'
-      let markedSuccessfulExit = false
-      const markSuccessfulExit = (): void => {
-        if (markedSuccessfulExit) {
-          return
-        }
+  const isLastWorkflow = selectedWorkflowIndex === workflows.length - 1
+  const isLastStep = activeStepIndex === selectedWorkflow.steps.length - 1
+  const isTourEnd = isLastWorkflow && isLastStep
+  const handleDone = useCallback((): void => {
+    const exitAction = source === 'onboarding' ? 'onboarding_continue' : 'done'
+    let markedSuccessfulExit = false
+    const markSuccessfulExit = (): void => {
+      if (!markedSuccessfulExit) {
         markedSuccessfulExit = true
         markExitAction(exitAction)
       }
-      const doneResult = onDone(markSuccessfulExit)
-      if (doneResult instanceof Promise) {
-        void doneResult.then((result) => result !== false && markSuccessfulExit())
-      } else if (doneResult !== false) {
-        markSuccessfulExit()
-      }
+    }
+    const doneResult = onDone(markSuccessfulExit)
+    if (doneResult instanceof Promise) {
+      void doneResult.then((result) => result !== false && markSuccessfulExit())
+    } else if (doneResult !== false) {
+      markSuccessfulExit()
+    }
+  }, [markExitAction, onDone, source])
+
+  const handleFinalSecondaryAction = useCallback((): void => {
+    markExitAction(source === 'onboarding' ? 'onboarding_continue' : 'done')
+    onFinalSecondaryAction?.()
+  }, [markExitAction, onFinalSecondaryAction, source])
+
+  const handleContinue = useCallback((): void => {
+    handleSelectStep(selectedWorkflow, activeStep.id)
+    const nextStep = selectedWorkflow.steps[activeStepIndex + 1]
+    if (nextStep) {
+      handleSelectStep(selectedWorkflow, nextStep.id)
       return
     }
-    const nextWorkflow = FEATURE_WALL_WORKFLOWS[selectedIndex + 1]
+    const nextWorkflow = workflows[selectedWorkflowIndex + 1]
     if (nextWorkflow) {
-      handleSelect(nextWorkflow)
-      railRefs.current[selectedIndex + 1]?.focus()
+      handleSelectWorkflow(nextWorkflow)
+      return
+    }
+    handleDone()
+  }, [
+    activeStep.id,
+    activeStepIndex,
+    handleDone,
+    handleSelectStep,
+    handleSelectWorkflow,
+    selectedWorkflow,
+    selectedWorkflowIndex,
+    workflows
+  ])
+
+  const handleBack = useCallback((): void => {
+    const previousStep = selectedWorkflow.steps[activeStepIndex - 1]
+    if (previousStep) {
+      handleSelectStep(selectedWorkflow, previousStep.id)
+      return
+    }
+    const previousWorkflow = workflows[selectedWorkflowIndex - 1]
+    const previousWorkflowLastStep = previousWorkflow?.steps.at(-1)
+    if (previousWorkflow && previousWorkflowLastStep) {
+      handleSelectStep(previousWorkflow, previousWorkflowLastStep.id)
+      trackWorkflowSelection(previousWorkflow, source)
     }
   }, [
-    agentsStepId,
-    agentsStepIndex,
-    agentsSteps,
-    handleSelect,
-    isLastWorkflow,
-    markAgentStepVisited,
-    markExitAction,
-    markReviewStepVisited,
-    markWorkbenchStepVisited,
-    markWorkflowVisited,
-    onDone,
-    reviewStepId,
-    reviewStepIndex,
-    reviewSteps,
-    selected.id,
-    selectedIndex,
+    activeStepIndex,
+    handleSelectStep,
+    selectedWorkflow,
+    selectedWorkflowIndex,
     source,
-    workbenchStepId,
-    workbenchStepIndex,
-    workbenchSteps
+    workflows
   ])
 
   useFeatureWallTourKeyboardShortcut({
@@ -362,17 +224,36 @@ export function FeatureWallTourSurface({
     return null
   }
 
-  const showGif = !prefersReducedMotion && gifUrl !== null
-  const previewTitleId = `${reactId}-feature-wall-preview-${selected.id}`
-  const description = activeStepCopy?.description ?? selectedPresentation.lede
+  const previewTitleId = `${reactId}-feature-wall-preview-${activeStep.id}`
   const continueButton = (
-    <FeatureWallContinueButton
-      label={continueLabel}
-      enableKeyboardShortcut={enableKeyboardShortcut}
-      shortcutModifierLabel={getScreenSubmitModifierLabel()}
-      onClick={handleContinue}
-    />
+    <div className="flex items-center gap-2">
+      {isTourEnd && finalSecondaryLabel && onFinalSecondaryAction ? (
+        <Button type="button" variant="outline" size="sm" onClick={handleFinalSecondaryAction}>
+          {finalSecondaryLabel}
+        </Button>
+      ) : null}
+      <FeatureWallContinueButton
+        label={
+          isTourEnd
+            ? resolvedDoneLabel
+            : translate(
+                'auto.components.feature.wall.FeatureWallTourSurface.a110000001',
+                'Continue'
+              )
+        }
+        enableKeyboardShortcut={enableKeyboardShortcut}
+        shortcutModifierLabel={getScreenSubmitModifierLabel()}
+        onClick={handleContinue}
+      />
+    </div>
   )
+  const isTourStart = selectedWorkflowIndex === 0 && activeStepIndex === 0
+  const defaultLeadingContent = isTourStart ? null : (
+    <Button type="button" variant="ghost" size="sm" onClick={handleBack}>
+      {translate('auto.components.feature.wall.FeatureWallTourSurface.a110000002', 'Back')}
+    </Button>
+  )
+  const resolvedLeadingContent = leadingFooterContent ?? defaultLeadingContent
 
   return (
     <FeatureWallTourPanel
@@ -382,34 +263,35 @@ export function FeatureWallTourSurface({
       compactRail={compactRail}
       previewPanelId={previewPanelId}
       previewTitleId={previewTitleId}
-      selected={selected}
-      description={description}
-      activeStepCopy={activeStepCopy}
+      selectedWorkflow={selectedWorkflow}
+      activeStep={activeStep}
+      source={source}
       completion={completion}
       railRefs={railRefs}
-      onSelectWorkflow={handleSelect}
+      onSelectWorkflow={handleSelectWorkflow}
+      onSelectStep={handleSelectStep}
       onRailKeyDown={handleRailKeyDown}
-      agentsSteps={agentsSteps}
-      agentsActiveStep={agentsActiveStep}
-      onSelectAgentsStep={handleSelectAgentsStep}
-      workbenchSteps={workbenchSteps}
-      workbenchActiveStep={workbenchActiveStep}
-      onSelectWorkbenchStep={handleSelectWorkbenchStep}
-      reviewSteps={reviewSteps}
-      reviewActiveStep={reviewActiveStep}
-      onSelectReviewStep={handleSelectReviewStep}
-      posterUrl={posterUrl}
-      gifUrl={gifUrl}
-      showGif={showGif}
       prefersReducedMotion={prefersReducedMotion}
-      source={source}
-      orchestrationSkill={orchestrationSkill}
-      browserUseSkill={browserUseSkill}
-      settings={settings}
-      updateSettings={updateSettings}
-      footerText={footerText}
+      footerText={resolvedFooterText}
       continueButton={continueButton}
-      leadingFooterContent={leadingFooterContent}
+      leadingFooterContent={resolvedLeadingContent}
     />
   )
+}
+
+function trackWorkflowSelection(
+  workflow: FeatureWallWorkflow,
+  source: FeatureWallOpenSourceTelemetry
+): void {
+  track('feature_wall_group_selected', { group_id: workflow.id, source })
+  const tile = getFeatureWallMediaTile(workflow.primaryTileId)
+  if (!tile) {
+    return
+  }
+  track('feature_wall_feature_selected', {
+    group_id: workflow.id,
+    tile_id: tile.id,
+    source
+  })
+  track('feature_wall_tile_focused', { tile_id: tile.id })
 }

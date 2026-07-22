@@ -1,25 +1,22 @@
 import type { JSX, KeyboardEvent, MutableRefObject, ReactNode } from 'react'
-import type { AgentsStep, AgentsStepId } from '../../../../shared/agents-orchestration-steps'
-import type {
-  FeatureWallWorkflow,
-  FeatureWallWorkflowId
+import { ArrowUpRight } from 'lucide-react'
+import {
+  FEATURE_WALL_STEP_IDS,
+  getFeatureWallMediaTile,
+  type FeatureWallStep,
+  type FeatureWallStepId,
+  type FeatureWallWorkflow,
+  type FeatureWallWorkflowId
 } from '../../../../shared/feature-wall-workflows'
-import type { ReviewStep, ReviewStepId } from '../../../../shared/review-steps'
 import type { FeatureWallOpenSourceTelemetry } from '../../../../shared/telemetry-events'
-import type { GlobalSettings } from '../../../../shared/types'
-import type { WorkbenchStep, WorkbenchStepId } from '../../../../shared/workbench-steps'
-import type { InstalledAgentSkillState } from '@/hooks/useInstalledAgentSkills'
+import { Button } from '@/components/ui/button'
+import { translate } from '@/i18n/i18n'
+import { track } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 import type { FeatureWallCompletionState } from './use-feature-wall-completion'
 import { FeatureWallBody } from './FeatureWallBody'
 import { FeatureWallRail } from './FeatureWallRail'
-import { translate } from '@/i18n/i18n'
-
-export type FeatureWallActiveStepCopy = {
-  title: string
-  description: string
-  optional: boolean
-}
+import type { FeatureWallRailOrientation } from './feature-wall-rail-navigation'
 
 export function FeatureWallTourPanel(props: {
   className?: string
@@ -28,39 +25,43 @@ export function FeatureWallTourPanel(props: {
   compactRail: boolean
   previewPanelId: string
   previewTitleId: string
-  selected: FeatureWallWorkflow
-  description: string
-  activeStepCopy: FeatureWallActiveStepCopy | null
+  selectedWorkflow: FeatureWallWorkflow
+  activeStep: FeatureWallStep
+  source: FeatureWallOpenSourceTelemetry
   completion: FeatureWallCompletionState
   railRefs: MutableRefObject<(HTMLButtonElement | null)[]>
   onSelectWorkflow: (workflow: FeatureWallWorkflow) => void
-  onRailKeyDown: (event: KeyboardEvent<HTMLButtonElement>, index: number) => void
-  agentsSteps: readonly AgentsStep[]
-  agentsActiveStep: AgentsStep | null
-  onSelectAgentsStep: (id: AgentsStepId) => void
-  workbenchSteps: readonly WorkbenchStep[]
-  workbenchActiveStep: WorkbenchStep | null
-  onSelectWorkbenchStep: (id: WorkbenchStepId) => void
-  reviewSteps: readonly ReviewStep[]
-  reviewActiveStep: ReviewStep | null
-  onSelectReviewStep: (id: ReviewStepId) => void
-  posterUrl: string | null
-  gifUrl: string | null
-  showGif: boolean
+  onSelectStep: (workflow: FeatureWallWorkflow, stepId: FeatureWallStepId) => void
+  onRailKeyDown: (
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+    orientation: FeatureWallRailOrientation
+  ) => void
   prefersReducedMotion: boolean
-  source: FeatureWallOpenSourceTelemetry
-  orchestrationSkill: InstalledAgentSkillState
-  browserUseSkill: InstalledAgentSkillState
-  settings: GlobalSettings | null
-  updateSettings: (updates: Partial<GlobalSettings>) => void
   footerText: string | null
   continueButton: ReactNode
   leadingFooterContent?: ReactNode
 }): JSX.Element {
-  // Why: the tour should not slide horizontally between pages; individual
-  // visuals can adapt inside the stage, but the page anchor must stay fixed.
   const contentStageClassName = 'mx-auto w-full max-w-[940px]'
-  const previewTitle = props.activeStepCopy?.title ?? props.selected.title
+  const activeStepNumber = Math.max(1, FEATURE_WALL_STEP_IDS.indexOf(props.activeStep.id) + 1)
+  const stepCount = FEATURE_WALL_STEP_IDS.length
+  const stepProgressText = translate(
+    'auto.components.feature.wall.FeatureWallTourPanel.a120000001',
+    '{{value0}} of {{value1}}',
+    { value0: activeStepNumber, value1: stepCount }
+  )
+  const openWorkflowDocs = (): void => {
+    const tile = getFeatureWallMediaTile(props.selectedWorkflow.primaryTileId)
+    if (tile) {
+      track('feature_wall_docs_clicked', {
+        group_id: props.selectedWorkflow.id,
+        tile_id: tile.id,
+        source: props.source
+      })
+      track('feature_wall_tile_clicked', { tile_id: tile.id })
+    }
+    void window.api.shell.openUrl(props.activeStep.docsUrl ?? props.selectedWorkflow.docsUrl)
+  }
   const panel = (
     <div
       className={cn(
@@ -79,24 +80,15 @@ export function FeatureWallTourPanel(props: {
       >
         <div className="min-h-0 md:border-r md:border-border">
           <FeatureWallRail
-            selectedId={props.selected.id as FeatureWallWorkflowId}
+            selectedWorkflowId={props.selectedWorkflow.id as FeatureWallWorkflowId}
+            selectedStepId={props.activeStep.id}
             previewPanelId={props.previewPanelId}
             railRefs={props.railRefs}
-            onSelect={props.onSelectWorkflow}
+            onSelectWorkflow={props.onSelectWorkflow}
+            onSelectStep={props.onSelectStep}
             onRailKeyDown={props.onRailKeyDown}
             workflowDone={props.completion.workflowDone}
-            agentsSteps={props.agentsSteps}
-            agentsActiveStepId={props.agentsActiveStep?.id ?? null}
-            agentStepDone={props.completion.agentStepDone}
-            onSelectAgentsStep={props.onSelectAgentsStep}
-            workbenchSteps={props.workbenchSteps}
-            workbenchActiveStepId={props.workbenchActiveStep?.id ?? null}
-            workbenchStepDone={props.completion.workbenchStepDone}
-            onSelectWorkbenchStep={props.onSelectWorkbenchStep}
-            reviewSteps={props.reviewSteps}
-            reviewActiveStepId={props.reviewActiveStep?.id ?? null}
-            reviewStepDone={props.completion.reviewStepDone}
-            onSelectReviewStep={props.onSelectReviewStep}
+            stepDone={props.completion.stepDone}
           />
         </div>
 
@@ -104,53 +96,89 @@ export function FeatureWallTourPanel(props: {
           id={props.previewPanelId}
           role="tabpanel"
           className="scrollbar-sleek grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-y-auto"
-          aria-labelledby={props.previewTitleId}
+          aria-labelledby={`${props.previewPanelId}-workflow-${props.selectedWorkflow.id} ${props.previewTitleId}`}
         >
-          <div className={cn(contentStageClassName, 'px-8 pb-3 pt-6 text-center')}>
-            <div className="flex flex-wrap items-center justify-center gap-2">
+          <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {translate(
+              'auto.components.feature.wall.FeatureWallTourPanel.a120000004',
+              'Step {{value0}} of {{value1}}: {{value2}}',
+              {
+                value0: activeStepNumber,
+                value1: stepCount,
+                value2: props.activeStep.title
+              }
+            )}
+          </span>
+          <div
+            className={cn(
+              contentStageClassName,
+              'px-4 pb-2 pt-3 text-center [@media(max-height:500px)]:px-3 [@media(max-height:500px)]:pb-0 [@media(max-height:500px)]:pt-2 md:px-8 md:pt-4'
+            )}
+          >
+            <p className="flex flex-wrap items-center justify-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <span>{props.selectedWorkflow.meta}</span>
+              <span aria-hidden>·</span>
+              <span
+                role="progressbar"
+                aria-label={translate(
+                  'auto.components.feature.wall.FeatureWallTourPanel.a120000003',
+                  'Tour progress'
+                )}
+                aria-valuemin={1}
+                aria-valuemax={stepCount}
+                aria-valuenow={activeStepNumber}
+                aria-valuetext={stepProgressText}
+              >
+                {stepProgressText}
+              </span>
+            </p>
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
               <h3
                 id={props.previewTitleId}
-                className="text-2xl font-semibold leading-tight tracking-tight"
+                className="text-xl font-semibold leading-tight tracking-tight [@media(max-height:500px)]:text-lg md:text-2xl"
               >
-                {previewTitle}
+                {props.activeStep.title}
               </h3>
-              {props.activeStepCopy?.optional ? (
+              {props.activeStep.availabilityLabel ? (
                 <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {translate(
-                    'auto.components.feature.wall.FeatureWallTourPanel.af7d622f6f',
-                    'Optional'
-                  )}
+                  {props.activeStep.availabilityLabel}
                 </span>
               ) : null}
             </div>
-            <p className="mx-auto mt-3 max-w-[56ch] text-sm leading-relaxed text-muted-foreground">
-              {props.description}
+            <p className="mx-auto mt-2 max-w-[62ch] text-xs leading-relaxed text-muted-foreground [@media(max-height:500px)]:mt-1 [@media(max-height:500px)]:text-[11px] [@media(max-height:500px)]:leading-snug md:text-sm">
+              {props.activeStep.description}
             </p>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="mt-0.5 h-7 px-1 text-xs [@media(max-height:500px)]:h-6"
+              aria-label={translate(
+                'auto.components.feature.wall.FeatureWallTourPanel.a120000005',
+                'Learn more about {{value0}}',
+                { value0: props.activeStep.name }
+              )}
+              onClick={openWorkflowDocs}
+            >
+              {translate(
+                'auto.components.feature.wall.FeatureWallTourPanel.a120000002',
+                'Learn more'
+              )}
+              <ArrowUpRight className="size-3" />
+            </Button>
           </div>
 
           <div className={contentStageClassName}>
             <FeatureWallBody
-              selected={props.selected}
-              posterUrl={props.posterUrl}
-              gifUrl={props.gifUrl}
-              showGif={props.showGif}
+              activeStep={props.activeStep}
               prefersReducedMotion={props.prefersReducedMotion}
-              source={props.source}
-              agentsActiveStep={props.agentsActiveStep}
-              workbenchActiveStep={props.workbenchActiveStep}
-              reviewActiveStep={props.reviewActiveStep}
-              orchestrationSkill={props.orchestrationSkill}
-              browserUseSkill={props.browserUseSkill}
-              onUsageAccountStateChange={props.completion.refreshUsageAccountState}
-              settings={props.settings}
-              updateSettings={props.updateSettings}
             />
           </div>
         </section>
       </div>
 
       {!props.detachedFooter ? (
-        <footer className="flex items-center justify-between border-t border-border bg-card/50 px-4 py-3 sm:px-7">
+        <footer className="flex items-center justify-between gap-2 border-t border-border bg-card/50 px-3 py-2 md:px-7 md:py-3">
           {props.leadingFooterContent ? (
             props.leadingFooterContent
           ) : props.footerText ? (

@@ -17,6 +17,16 @@ evidence-driven engineering.
 For a guided tour of the product and ALab-specific engineering, see the
 [feature walkthrough](FEATURE_WALKTHROUGH.md).
 
+## Downloads
+
+Desktop builds are on the
+[Releases page](https://github.com/alabsystems/orca-alab/releases). macOS
+builds are currently unsigned: right-click → **Open** on first launch.
+
+ALab Edition versions itself independently. Each release documents the
+upstream Orca version it is aligned to — the current release is aligned to
+**upstream Orca v1.4.147**.
+
 ## What is Orca?
 
 [Orca](https://github.com/stablyai/orca) is an open-source desktop workspace for

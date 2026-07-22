@@ -18,6 +18,11 @@ export type { AtermLinkProviderSource } from './aterm-provider-link-hit'
  *  escape hatch). */
 export type AtermLinkOpener = (url: string, opts: { forceSystemBrowser: boolean }) => void
 
+/** Opens an OSC-8 (kind 0) hyperlink target. Receives the raw MouseEvent so the
+ *  scheme-aware router can read the activation modifier + Shift system-default
+ *  hatch itself (mirrors the xterm linkHandler.activate signature). */
+export type AtermOscLinkOpener = (url: string, event: MouseEvent) => void
+
 /** Opens a detected file-path link (kind 2). `rawPathText` is the matched span
  *  exactly as it appeared on the row; the closure resolves it against the pane's
  *  cwd/runtime and opens it. `openWithSystemDefault` mirrors xterm's Shift hatch. */
@@ -32,6 +37,9 @@ export type AtermLinkDeps = {
   redraw: () => void
   isDisposed: () => boolean
   openUrl: AtermLinkOpener
+  /** OSC-8 (kind 0) targets carry arbitrary schemes (file://, Windows paths) —
+   *  routed scheme-aware, NOT through the http(s)-only URL opener (#6880). */
+  openOscUrl: AtermOscLinkOpener
   /** Latest file-path opener (kind 2), late-bound by the controller. Null until
    *  the pane's cwd/runtime context is threaded in; then kind-2 clicks open. */
   getFileLinkOpener: () => AtermFileLinkOpener | null
@@ -114,7 +122,8 @@ function isLinkActivation(event: MouseEvent): boolean {
  *  attachAtermSelectionInput's structure; the wasm engine does the link
  *  detection via link_at, and we only paint a pointer cursor + open URLs. */
 export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
-  const { canvas, term, redraw, isDisposed, openUrl, getFileLinkOpener, getLinkProviders } = deps
+  const { canvas, term, redraw, isDisposed, openUrl, openOscUrl, getFileLinkOpener, getLinkProviders } =
+    deps
   const { linkTooltip } = deps
   // Worker-backed term: link_at returns the lagging snapshot and the loader drives the
   // canvas cursor from the worker's hoverCursor each STATE. Detect the async capability
@@ -304,9 +313,17 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
     hoverRafId = requestAnimationFrame(evaluateHover)
   }
 
-  // Open a resolved link hit (URL/OSC8 via openUrl, file-path via the late-bound opener).
+  // Open a resolved link hit (OSC-8 via the scheme router, URL via openUrl,
+  // file-path via the late-bound opener).
   const openHit = (hit: { url: string; kind: number }, event: MouseEvent): void => {
-    if (hit.kind === LINK_KIND_OSC8 || hit.kind === LINK_KIND_URL) {
+    // Why: OSC-8 targets are app-minted URIs (file://, C:\ paths) — the http(s)-only
+    // URL opener would hand them to the browser instead of orca's file routing (#6880).
+    if (hit.kind === LINK_KIND_OSC8) {
+      event.preventDefault()
+      openOscUrl(hit.url, event)
+      return
+    }
+    if (hit.kind === LINK_KIND_URL) {
       event.preventDefault()
       openUrl(hit.url, { forceSystemBrowser: event.shiftKey })
       return

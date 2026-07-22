@@ -386,6 +386,7 @@ describe('aterm link input (worker hover/click)', () => {
       redraw: vi.fn(),
       isDisposed: () => false,
       openUrl,
+      openOscUrl: vi.fn(),
       getFileLinkOpener: () => null
     })
     canvas.dispatchEvent(
@@ -417,6 +418,7 @@ describe('aterm link input (worker hover/click)', () => {
       redraw: vi.fn(),
       isDisposed: () => false,
       openUrl: vi.fn(),
+      openOscUrl: vi.fn(),
       getFileLinkOpener: () => null
     })
     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 5, clientY: 5 }))
@@ -442,6 +444,7 @@ describe('aterm link input (worker hover/click)', () => {
       redraw: vi.fn(),
       isDisposed: () => false,
       openUrl: vi.fn(),
+      openOscUrl: vi.fn(),
       getFileLinkOpener: () => null
     })
     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 5, clientY: 5 }))

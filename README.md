@@ -3,32 +3,29 @@
 </h1>
 
 <p align="center">
-  <strong>A performance- and correctness-focused edition of Orca.</strong>
+  <strong>An IDE for orchestrating fleets of AI coding agents — built on a Rust terminal engine.</strong>
 </p>
 
-Orca: ALab Edition is an experimental downstream fork of
-[Stably's Orca](https://github.com/stablyai/orca). It keeps Orca's agent workspace
-and concentrates on the terminal stack, native hot paths, failure recovery, and
-evidence-driven engineering.
+Orca: ALab Edition is a desktop workspace for running CLI coding agents side
+by side: isolated Git worktrees, terminals, editing, an embedded browser,
+source control, diff review, SSH workspaces, GitHub and Linear integrations,
+mobile monitoring, Computer Use, and a scriptable CLI — with the terminal
+stack, native hot paths, and failure recovery engineered around the
+[aterm](https://github.com/alabsystems/aterm) Rust terminal engine and
+evidence-driven verification.
 
-> Upstream downloads install upstream Orca. Orca: ALab Edition is currently built
-> from this repository.
-
-For a guided tour of the product and ALab-specific engineering, see the
+For a guided tour of the product and its engineering, see the
 [feature walkthrough](FEATURE_WALKTHROUGH.md).
 
-## What is Orca?
+## Downloads
 
-[Orca](https://github.com/stablyai/orca) is an open-source desktop workspace for
-running CLI coding agents side by side. It brings isolated Git worktrees,
-terminals, editing, an embedded browser, source control, diff review, SSH
-workspaces, GitHub and Linear integrations, mobile monitoring, Computer Use, and
-a scriptable CLI into one application.
+Desktop builds are on the
+[Releases page](https://github.com/alabsystems/orca-alab/releases). macOS
+builds are currently unsigned: right-click → **Open** on first launch.
 
-Those product capabilities come from upstream Orca. See the
-[upstream repository](https://github.com/stablyai/orca) and
-[upstream documentation](https://www.onorca.dev/docs) for the complete product
-guide, supported agents, screenshots, and official releases.
+ALab Edition versions itself independently. Each release documents the
+upstream Orca version it is aligned to — the current release is aligned to
+**upstream Orca v1.4.147**.
 
 <p align="center">
   <img src="resources/readme-hero.jpg" alt="Orca running coding agents in parallel worktrees" width="960" />
@@ -207,16 +204,13 @@ On macOS, the dedicated Computer Use helper requires user approval for
 Accessibility and Screen Recording before it can control other applications or
 capture their windows.
 
-## Upstream and license
-
-ALab Edition periodically incorporates work from
-[upstream Orca](https://github.com/stablyai/orca), but it is an independent fork
-and may not match the latest upstream commit at every point in time. Please report
-edition-specific issues in [this repository](https://github.com/andrewyatesai/orca-alab/issues)
-and upstream issues in the [Orca issue tracker](https://github.com/stablyai/orca/issues).
+## License and attribution
 
 Orca: ALab Edition is distributed under the [Apache License 2.0](LICENSE),
-Copyright 2026 Andrew Yates (see [NOTICE](NOTICE)). Portions derived from
-upstream Orca remain Copyright (c) 2026 Lovecast Inc. under the MIT License;
-the upstream notice is preserved in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Copyright 2026 Andrew Yates (see [NOTICE](NOTICE)).
+
+It incorporates code from the [Orca project](https://github.com/stablyai/orca),
+Copyright (c) 2026 Lovecast Inc., under the MIT License; that notice and all
+third-party notices are preserved in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Report issues in
+[this repository](https://github.com/andrewyatesai/orca-alab/issues).

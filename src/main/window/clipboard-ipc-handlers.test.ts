@@ -13,6 +13,7 @@ const {
   childStdinEndMock,
   resolveAuthorizedPathMock,
   fsMkdirMock,
+  fsMkdtempMock,
   fsReaddirMock,
   fsRmMock,
   fsWriteFileMock,
@@ -46,6 +47,7 @@ const {
   }),
   resolveAuthorizedPathMock: vi.fn(),
   fsMkdirMock: vi.fn(),
+  fsMkdtempMock: vi.fn(),
   fsReaddirMock: vi.fn(),
   fsRmMock: vi.fn(),
   fsWriteFileMock: vi.fn(),
@@ -73,6 +75,10 @@ vi.mock('node:fs/promises', () => ({
   rm: fsRmMock,
   stat: fsStatMock,
   default: {
+    mkdtemp: fsMkdtempMock,
+    readdir: fsReaddirMock,
+    rm: fsRmMock,
+    stat: fsStatMock,
     writeFile: fsWriteFileMock
   }
 }))
@@ -133,6 +139,7 @@ import {
   setTrustedClipboardRendererWebContentsId
 } from './clipboard-ipc-handlers'
 import { cleanupExpiredRemoteClipboardFiles } from './clipboard-remote-file-copy'
+import { cleanupExpiredClipboardImageTempDirs } from './clipboard-image-temp-file'
 
 function getRegisteredHandlers(): Map<string, (...args: unknown[]) => unknown> {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
@@ -187,6 +194,8 @@ describe('registerClipboardHandlers', () => {
     resolveAuthorizedPathMock.mockImplementation(async (path: string) => path)
     fsMkdirMock.mockReset()
     fsMkdirMock.mockResolvedValue(undefined)
+    fsMkdtempMock.mockReset()
+    fsMkdtempMock.mockImplementation(async (prefix: string) => `${prefix}a1b2c3`)
     fsReaddirMock.mockReset()
     fsReaddirMock.mockResolvedValue([])
     fsRmMock.mockReset()
@@ -316,6 +325,46 @@ describe('registerClipboardHandlers', () => {
     expect(fsRmMock).toHaveBeenCalledWith(join('/tmp', 'orca-clipboard-file-expired'), {
       recursive: true,
       force: true
+    })
+  })
+
+  it('sweeps expired clipboard paste image directories', async () => {
+    const nowMs = 1760000000000
+    fsReaddirMock.mockResolvedValue([
+      dirent('orca-paste-expired'),
+      dirent('orca-paste-fresh'),
+      dirent('orca-paste-plain-file.png', false),
+      dirent('unrelated-temp')
+    ])
+    fsStatMock.mockImplementation(async (targetPath: string) => {
+      if (targetPath.endsWith('expired')) {
+        return { mtimeMs: nowMs - 7 * 24 * 60 * 60 * 1000 - 1 }
+      }
+      if (targetPath.endsWith('fresh')) {
+        return { mtimeMs: nowMs - 1000 }
+      }
+      throw new Error(`unexpected stat: ${targetPath}`)
+    })
+
+    await cleanupExpiredClipboardImageTempDirs(nowMs)
+
+    expect(fsRmMock).toHaveBeenCalledTimes(1)
+    expect(fsRmMock).toHaveBeenCalledWith(join('/tmp', 'orca-paste-expired'), {
+      recursive: true,
+      force: true
+    })
+  })
+
+  it('runs the clipboard paste image sweep when handlers register', async () => {
+    fsReaddirMock.mockResolvedValue([dirent('orca-paste-expired')])
+    fsStatMock.mockResolvedValue({ mtimeMs: 1760000000000 - 8 * 24 * 60 * 60 * 1000 })
+
+    registerClipboardHandlers({} as never)
+    await vi.waitFor(() => {
+      expect(fsRmMock).toHaveBeenCalledWith(join('/tmp', 'orca-paste-expired'), {
+        recursive: true,
+        force: true
+      })
     })
   })
 
@@ -532,11 +581,12 @@ describe('registerClipboardHandlers', () => {
     expect(removeHandlerMock).toHaveBeenCalledWith('clipboard:saveImageAsTempFile')
   })
 
-  it('saves clipboard images to a local temp file when no connection is provided', async () => {
+  it('saves clipboard images to a private mkdtemp dir when no connection is provided', async () => {
     const png = Buffer.from([0, 1, 2, 3])
     const expectedPath = join(
       '/tmp',
-      'orca-paste-1760000000000-00000000-0000-4000-8000-000000000000.png'
+      'orca-paste-a1b2c3',
+      'orca-paste-00000000-0000-4000-8000-000000000000.png'
     )
     clipboardReadImageMock.mockReturnValue({
       getSize: () => ({ height: 1, width: 1 }),
@@ -550,6 +600,7 @@ describe('registerClipboardHandlers', () => {
     await expect(
       handlers.get('clipboard:saveImageAsTempFile')?.(makeClipboardEvent(), undefined)
     ).resolves.toBe(expectedPath)
+    expect(fsMkdtempMock).toHaveBeenCalledWith(join('/tmp', 'orca-paste-'))
     expect(fsWriteFileMock).toHaveBeenCalledWith(expectedPath, png)
     expect(getSshFilesystemProviderMock).not.toHaveBeenCalled()
   })
@@ -560,7 +611,8 @@ describe('registerClipboardHandlers', () => {
     const sourcePath = 'C:\\Users\\alice\\图片\\copied-image.png'
     const expectedPath = join(
       '/tmp',
-      'orca-paste-1760000000000-00000000-0000-4000-8000-000000000000.png'
+      'orca-paste-a1b2c3',
+      'orca-paste-00000000-0000-4000-8000-000000000000.png'
     )
     clipboardReadImageMock.mockReturnValue({ isEmpty: () => true })
     clipboardReadBufferMock.mockReturnValue(Buffer.from(`${sourcePath}\0`, 'utf16le'))

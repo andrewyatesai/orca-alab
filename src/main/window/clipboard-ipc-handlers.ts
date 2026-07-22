@@ -16,6 +16,7 @@ import {
   type ReadClipboardTextOptions
 } from '../../shared/clipboard-text'
 import {
+  cleanupExpiredClipboardImageTempDirs,
   saveClipboardImageBufferAsTempFile,
   type SaveClipboardImageAsTempFileArgs
 } from './clipboard-image-temp-file'
@@ -101,6 +102,7 @@ export function registerClipboardHandlers(store: Store): void {
   ipcMain.removeHandler('clipboard:saveImageAsTempFile')
 
   void cleanupExpiredRemoteClipboardFiles()
+  void cleanupExpiredClipboardImageTempDirs()
 
   ipcMain.handle('clipboard:readText', async (event, options?: ReadClipboardTextOptions) => {
     assertTrustedClipboardSender(event)

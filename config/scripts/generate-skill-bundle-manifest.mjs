@@ -283,13 +283,20 @@ function packageDigest(files) {
 }
 
 function releaseTags() {
-  return execFileSync(
-    'git',
-    ['for-each-ref', '--sort=creatordate', '--format=%(refname:short)', 'refs/tags/v*'],
-    { encoding: 'utf8' }
+  return (
+    execFileSync(
+      'git',
+      ['for-each-ref', '--sort=creatordate', '--format=%(refname:short)', 'refs/tags/v*'],
+      { encoding: 'utf8' }
+    )
+      .split('\n')
+      // Why: v0.minor>=1 tags are constellation snapshot tags (publication
+      // engine), not app releases, and must not mint released skill snapshots.
+      // v0.0.x stays: the historic v0.0.1 tag already labels committed history.
+      .filter(
+        (tag) => /^v\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.-]+)?$/.test(tag) && !/^v0\.[1-9]/.test(tag)
+      )
   )
-    .split('\n')
-    .filter((tag) => /^v\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.-]+)?$/.test(tag))
 }
 
 function skillsTreeShasAtRefs(refs) {

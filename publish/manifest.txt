@@ -1,7 +1,7 @@
 README.md
-FEATURE_WALKTHROUGH.md
 LICENSE
+NOTICE
 THIRD-PARTY-NOTICES.md
 .gitleaks.toml
 resources/build/icon.png
-NOTICE
+resources/readme-hero.jpg

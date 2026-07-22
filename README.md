@@ -31,7 +31,7 @@ Those product capabilities come from upstream Orca. See the
 guide, supported agents, screenshots, and official releases.
 
 <p align="center">
-  <img src="docs/assets/readme-hero.jpg" alt="Orca running coding agents in parallel worktrees" width="960" />
+  <img src="resources/readme-hero.jpg" alt="Orca running coding agents in parallel worktrees" width="960" />
 </p>
 
 ## Why ALab Edition?
@@ -135,7 +135,7 @@ Clone with the aterm submodule and install dependencies:
 
 ```bash
 git clone --depth 1 --recurse-submodules https://github.com/andrewyatesai/orca-alab.git
-cd orc
+cd orca-alab
 pnpm install --frozen-lockfile
 pnpm dev
 ```

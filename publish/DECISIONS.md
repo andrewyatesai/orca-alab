@@ -60,3 +60,22 @@ baseline. It is structurally blocked today on four independent walls:
    the `rust/aterm` submodule has a public home (`alabsystems/aterm`).
 
 Until those campaigns run, the landing snapshot remains the staged boundary.
+
+## v0.2.0 boundary revision (2026-07-22 release audit)
+
+The v0.1.0 snapshot shipped the dev repo's README/walkthrough verbatim, which
+made false claims on a 6-file snapshot (build instructions with no source,
+"built from this repository", links to the empty alabsystems/aterm). Fixes:
+
+- Transform T1 now **replaces** README.md at export with a purpose-written
+  public landing page: downloads point at THIS repo's Releases (binaries are
+  mirrored there, since the org rewrite forbids referencing the dev org), the
+  two version lines (v0.x snapshot tags vs 1.4.x-fork.N app versions) are
+  explained, and aterm is described without linking an empty repo.
+- FEATURE_WALKTHROUGH.md is **excluded** until a public-appropriate edition
+  exists — its provenance commands and file citations dangle without source.
+- The README hero image moved to `resources/readme-hero.jpg` (exported), so
+  the landing page keeps its product visual.
+- Relicensed: LICENSE is Apache-2.0, NOTICE carries fork copyright, upstream
+  MIT notice preserved in THIRD-PARTY-NOTICES.md (which also re-quotes the
+  aterm NOTICE at the current pin).

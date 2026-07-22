@@ -498,7 +498,7 @@ module.exports = {
     // on the next accepted update (staging-launch audit F1). Must match
     // UPDATE_FEED_REPO_SLUG in src/main/updater-feed-endpoints.ts.
     owner: 'andrewyatesai',
-    repo: 'orc',
+    repo: 'orca-alab',
     releaseType: 'release'
   }
 }

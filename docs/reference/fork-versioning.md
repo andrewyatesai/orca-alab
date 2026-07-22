@@ -35,7 +35,7 @@ Release tags on the fork repo are `v<version>`, e.g. `v1.4.122-fork.1`.
 ## Update feed: fork-owned, dormant-if-unconfigured (F1)
 
 All updater endpoints derive from one constant —
-`UPDATE_FEED_REPO_SLUG = 'andrewyatesai/orc'` in
+`UPDATE_FEED_REPO_SLUG = 'andrewyatesai/orca-alab'` in
 `src/main/updater-feed-endpoints.ts` — which must match the `publish` block in
 `config/electron-builder.config.cjs`. There are no other feed URLs in the
 updater; the atom feed, the pinned `releases/download/<tag>` feeds, and the

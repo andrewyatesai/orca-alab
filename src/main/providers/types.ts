@@ -112,6 +112,12 @@ export type PtyProcessInfo = {
   terminalHandle?: string
 }
 
+/** Positive per-session liveness evidence from a provider's own registry (#9169). */
+export type PtySessionLiveness = {
+  alive: boolean
+  pid: number | null
+}
+
 export type IPtyProvider = {
   spawn(opts: PtySpawnOptions): Promise<PtySpawnResult>
   /** Whether this spawn target can append the Git guard after its final env merge. */
@@ -185,6 +191,8 @@ export type IPtyProvider = {
   confirmForegroundProcess?: (id: string) => Promise<string | null>
   serialize(ids: string[]): Promise<string>
   revive(state: string): Promise<void>
+  /** Null = no evidence either way (caller must fail open on its cached flags, #9166 guard). */
+  getSessionLiveness?: (id: string) => Promise<PtySessionLiveness | null>
   // Why: deadlineMs bounds the underlying RPC exactly like shutdown's deadlineMs.
   listProcesses(opts?: { deadlineMs?: number }): Promise<PtyProcessInfo[]>
   getDefaultShell(): Promise<string>

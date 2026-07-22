@@ -881,6 +881,62 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
     })
   })
 
+  describe('getSessionLiveness (#9169)', () => {
+    it('reports alive with pid for a live session', async () => {
+      const { id } = await adapter.spawn({ cols: 80, rows: 24 })
+      await expect(adapter.getSessionLiveness(id)).resolves.toEqual({
+        alive: true,
+        pid: 999_999_999
+      })
+    })
+
+    it('reports alive=false after child exit even within the memo window', async () => {
+      const { id } = await adapter.spawn({
+        cols: 80,
+        rows: 24,
+        sessionId: 'repo-1::/tmp/wt-live@@abc12345'
+      })
+      // Prime the memo with an alive answer, then die inside the window (critic note: exit must invalidate the memo).
+      await expect(adapter.getSessionLiveness(id)).resolves.toEqual({
+        alive: true,
+        pid: 999_999_999
+      })
+      const exits: { id: string; code: number }[] = []
+      adapter.onExit((payload) => exits.push(payload))
+      lastSubprocess._simulateExit(3)
+      await waitFor(() => exits.length > 0)
+
+      await expect(adapter.getSessionLiveness(id)).resolves.toEqual({ alive: false, pid: null })
+    })
+
+    it('memoizes listSessions within the probe window', async () => {
+      const { id } = await adapter.spawn({ cols: 80, rows: 24 })
+      const requestSpy = vi.spyOn(
+        (adapter as unknown as { client: DaemonClient }).client,
+        'request'
+      )
+
+      await adapter.getSessionLiveness(id)
+      await adapter.getSessionLiveness(id)
+
+      const listCalls = requestSpy.mock.calls.filter(([method]) => method === 'listSessions')
+      expect(listCalls).toHaveLength(1)
+    })
+
+    it('treats an unlisted minted session id as positive death evidence', async () => {
+      await adapter.spawn({ cols: 80, rows: 24 })
+      await expect(adapter.getSessionLiveness('repo-9::/tmp/wt-gone@@dead1234')).resolves.toEqual({
+        alive: false,
+        pid: null
+      })
+    })
+
+    it('returns no evidence for an id the daemon could not own', async () => {
+      await adapter.spawn({ cols: 80, rows: 24 })
+      await expect(adapter.getSessionLiveness('renderer-local-pty')).resolves.toBeNull()
+    })
+  })
+
   describe('hasChildProcesses / getForegroundProcess', () => {
     it('returns false for shell foreground processes', async () => {
       const { id } = await adapter.spawn({ cols: 80, rows: 24 })

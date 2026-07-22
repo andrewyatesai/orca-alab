@@ -457,6 +457,9 @@ export type RuntimeTerminalShow = RuntimeTerminalSummary & {
   paneRuntimeId: number
   ptyId: string | null
   rendererGraphEpoch: number
+  /** Single-source liveness shared with terminal.read (#9169): show and read agree definitionally. */
+  status: RuntimeTerminalState
+  pid: number | null
 }
 
 export type RuntimeTerminalState = 'running' | 'exited' | 'unknown'

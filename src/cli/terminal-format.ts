@@ -95,6 +95,8 @@ export function formatTerminalShow(result: { terminal: RuntimeTerminalShow }): s
     `branch: ${terminal.branch}`,
     `leaf: ${terminal.leafId}`,
     `ptyId: ${terminal.ptyId ?? 'none'}`,
+    `status: ${terminal.status}`,
+    `pid: ${terminal.pid ?? 'null'}`,
     `connected: ${terminal.connected}`,
     `writable: ${terminal.writable}`,
     `preview: ${terminal.preview || '<empty>'}`

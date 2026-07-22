@@ -172,3 +172,57 @@ export ZDOTDIR="$_orca_home"
 unset _orca_home
 `
 }
+
+// Why: both wrapper writers (local-pty-shell-ready.ts, daemon/shell-ready.ts)
+// must emit a byte-identical nu integration file; one template makes the
+// parity contract structural instead of copy-discipline.
+export function getNuShellReadyIntegrationContent(): string {
+  return `# Orca nu shell-ready integration (generated - do not edit).
+# Sourced via \`nu -l -e "source ..."\`: runs AFTER env.nu/config.nu/login.nu,
+# mirroring the zsh .zlogin / bash --rcfile wrapper slot. Every section is
+# guarded so one failure cannot take down the shell.
+
+# -- Orca-managed env restoration (parity with the zsh/bash wrappers) --
+def --env __orca_prepend_path [dir: string] {
+  if ($dir | is-empty) { return }
+  # Why: $env.PATH is a list under default ENV_CONVERSIONS but a plain string
+  # when the user removed the conversion; normalize before editing.
+  let parts = if (($env.PATH | describe) | str starts-with "list") {
+    $env.PATH
+  } else {
+    $env.PATH | split row (char esep)
+  }
+  $env.PATH = ($parts | where {|p| $p != $dir } | prepend $dir)
+}
+try { __orca_prepend_path ($env.ORCA_ATTRIBUTION_SHIM_DIR? | default "") }
+try { __orca_prepend_path ($env.ORCA_AGENT_TEAMS_SHIM_DIR? | default "") }
+try { if $env.ORCA_OPENCODE_CONFIG_DIR? != null { $env.OPENCODE_CONFIG_DIR = $env.ORCA_OPENCODE_CONFIG_DIR } }
+try { if $env.ORCA_MIMOCODE_HOME? != null { $env.MIMOCODE_HOME = $env.ORCA_MIMOCODE_HOME } }
+try { if $env.ORCA_CODEX_HOME? != null { $env.CODEX_HOME = $env.ORCA_CODEX_HOME } }
+
+# -- OSC 133 / OSC 7 via nu's native shell integration --
+# Why: force-enable regardless of user config, matching the zsh/bash wrappers
+# which unconditionally install Orca's OSC 133 hooks. nu emits 133;A/B/C/D
+# (D with exit code) and OSC 7, ST-terminated; the engine accepts BEL and ST.
+try {
+  if (($env.config.shell_integration | describe) | str starts-with "record") {
+    $env.config.shell_integration.osc133 = true
+    $env.config.shell_integration.osc7 = true
+  } else {
+    $env.config.shell_integration = true   # pre-0.96 boolean (gate bypass safety net)
+  }
+}
+
+# -- OSC 777 shell-ready marker at first prompt --
+# Why a STRING hook: string hooks evaluate in the REPL context, so the
+# once-guard env var persists across prompts; closure hooks would re-fire.
+# Why BEL: both marker scanners (shell-ready-marker-scanner.ts,
+# shell_ready_barrier.rs) accept ONLY the \\x07 terminator.
+try {
+  $env.config.hooks.pre_prompt = (
+    ($env.config.hooks.pre_prompt? | default [])
+    | append 'if ($env.ORCA_SHELL_READY_MARKER? == "1") and ($env.__ORCA_SHELL_READY_SENT? == null) { $env.__ORCA_SHELL_READY_SENT = "1"; print -n $"(char esc)]777;orca-shell-ready(char bel)" }'
+  )
+}
+`
+}

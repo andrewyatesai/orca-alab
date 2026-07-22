@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { isNushellExecutableName } from '../../shared/nushell-shell'
 import { applyShellStartupText } from './shell-path-line-parser'
 import {
   sameSegments,
@@ -90,6 +91,10 @@ function getStartupFilePaths(shell: string, env: NodeJS.ProcessEnv, homePath: st
   if (shellName === 'fish') {
     const xdgConfig = resolveConfigDirectory(env.XDG_CONFIG_HOME, homePath)
     return [path.join(xdgConfig ?? path.join(homePath, '.config'), 'fish', 'config.fish')]
+  }
+  // Why: nu PATH edits are code, not parseable exports — and a nu login shell never reads ~/.profile; the live login-shell probe covers it.
+  if (isNushellExecutableName(shellName)) {
+    return []
   }
   return [path.join(homePath, '.profile')]
 }

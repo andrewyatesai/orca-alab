@@ -4,8 +4,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import type * as NodeChildProcess from 'node:child_process'
 import {
   _resetHydrateShellPathCache,
+  buildShellPathProbeArgv,
   hydrateShellPath,
   mergePathSegments,
   type HydrationResult
@@ -351,5 +353,74 @@ describe('mergePathSegments', () => {
 
     expect(mergePathSegments([])).toEqual([])
     expect(process.env.PATH).toBe(joinPath('/usr/bin', '/bin'))
+  })
+})
+
+describe('nu login shell PATH probe (#8928 PR1)', () => {
+  beforeEach(() => {
+    _resetHydrateShellPathCache()
+    spawnMock.mockReset()
+  })
+
+  it('nu login shell probe uses split flags and sh-delegated PATH print', async () => {
+    const proc = createMockShellProcess()
+    spawnMock.mockReturnValue(proc)
+
+    const resultPromise = hydrateShellPath({ shellOverride: '/usr/local/bin/nu', force: true })
+
+    expect(spawnMock).toHaveBeenCalledTimes(1)
+    const [spawnedShell, spawnArgs] = spawnMock.mock.calls[0]
+    expect(spawnedShell).toBe('/usr/local/bin/nu')
+    // Why: nu rejects combined short flags (-lc) — the flags must arrive split.
+    expect(spawnArgs[0]).toBe('-l')
+    expect(spawnArgs[1]).toBe('-c')
+    expect(spawnArgs).toHaveLength(3)
+    const nuCommand = spawnArgs[2] as string
+    // The probe body is delegated to sh so nu's ENV_CONVERSIONS-converted PATH reaches a POSIX printf.
+    expect(nuCommand.startsWith("^sh -c '")).toBe(true)
+    expect(nuCommand.endsWith("'")).toBe(true)
+    // Why: nu single-quoted strings have no escape mechanism — the inner body must not contain single quotes (Critic note 4).
+    expect(nuCommand.slice("^sh -c '".length, -1)).not.toContain("'")
+
+    proc.stdout.emit('data', Buffer.from('__ORCA_SHELL_PATH__/nu/bin:/usr/bin__ORCA_SHELL_PATH__'))
+    proc.emit('close')
+    await expect(resultPromise).resolves.toEqual({
+      segments: ['/nu/bin', '/usr/bin'],
+      ok: true,
+      failureReason: 'none'
+    })
+  })
+
+  it('nu probe output parses through the delimiter scanner', async () => {
+    // Run the exact sh body nu would exec and feed its real output through hydration.
+    const argv = buildShellPathProbeArgv('nu')
+    const innerShBody = (argv[2] as string).slice("^sh -c '".length, -1)
+    const { spawnSync } = await vi.importActual<typeof NodeChildProcess>('node:child_process')
+    if (process.platform === 'win32') {
+      return
+    }
+    const shRun = spawnSync('/bin/sh', ['-c', innerShBody], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: '/probe/bin:/usr/bin' }
+    })
+    expect(shRun.status).toBe(0)
+
+    const proc = createMockShellProcess()
+    spawnMock.mockReturnValue(proc)
+    const resultPromise = hydrateShellPath({ shellOverride: '/usr/local/bin/nu', force: true })
+    proc.stdout.emit('data', Buffer.from(shRun.stdout))
+    proc.emit('close')
+
+    await expect(resultPromise).resolves.toEqual({
+      segments: ['/probe/bin', '/usr/bin'],
+      ok: true,
+      failureReason: 'none'
+    })
+  })
+
+  it('keeps the -lc probe for zsh/bash/fish', () => {
+    expect(buildShellPathProbeArgv('/bin/zsh')[0]).toBe('-lc')
+    expect(buildShellPathProbeArgv('/bin/bash')[0]).toBe('-lc')
+    expect(buildShellPathProbeArgv('/usr/bin/fish')[0]).toBe('-lc')
   })
 })

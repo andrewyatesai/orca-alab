@@ -12,11 +12,17 @@ import {
 } from '../powershell-osc133-bootstrap'
 import { getPosixOmpShellWrapper } from '../pty/omp-shell-wrapper'
 import {
+  getNuShellReadyIntegrationContent,
   getZshEnvTemplate,
   getZshFinalZdotdirRestoreBlock,
   getZshShellReadyMarkerRegistrationBlock,
   getZshStartupFileSourceBlock
 } from '../shell-templates'
+import { buildNuSourceCommand, isNushellExecutableName } from '../../shared/nushell-shell'
+import {
+  getCachedNushellIntegrationSupport,
+  probeNushellIntegrationSupport
+} from '../pty/nushell-capability-probe'
 
 const ORCA_USER_DATA_PATH_ENV = 'ORCA_USER_DATA_PATH'
 const SHELL_READY_MARKER = '\\033]777;orca-shell-ready\\007'
@@ -77,7 +83,8 @@ function getRequiredShellReadyWrapperPaths(root = getShellReadyWrapperRoot()): s
     join(root, 'zsh', '.zprofile'),
     join(root, 'zsh', '.zshrc'),
     join(root, 'zsh', '.zlogin'),
-    join(root, 'bash', 'rcfile')
+    join(root, 'bash', 'rcfile'),
+    join(root, 'nu', 'integration.nu')
   ]
 }
 
@@ -277,6 +284,7 @@ function ensureShellReadyWrappers(): void {
   const root = getShellReadyWrapperRoot()
   const zshDir = join(root, 'zsh')
   const bashDir = join(root, 'bash')
+  const nuDir = join(root, 'nu')
 
   const zshEnv = getZshEnvTemplate(zshDir, 'daemon')
   const zshProfile = `# Orca daemon zsh shell-ready wrapper
@@ -316,7 +324,8 @@ ${getZshFinalZdotdirRestoreBlock()}
     [join(zshDir, '.zprofile'), zshProfile],
     [join(zshDir, '.zshrc'), zshRc],
     [join(zshDir, '.zlogin'), zshLogin],
-    [join(bashDir, 'rcfile'), bashRc]
+    [join(bashDir, 'rcfile'), bashRc],
+    [join(nuDir, 'integration.nu'), getNuShellReadyIntegrationContent()]
   ] as const
 
   try {
@@ -350,7 +359,12 @@ export function resolvePtyShellPath(env: Record<string, string>): string {
 
 export function shellPathSupportsPtyStartupBarrier(shellPath: string): boolean {
   const shellName = pathWin32.basename(basename(shellPath)).toLowerCase()
-  return shellName === 'zsh' || shellName === 'bash'
+  return (
+    shellName === 'zsh' ||
+    shellName === 'bash' ||
+    // Why: nu emits the OSC 777 marker only when the integration file is sourced (gated on the probed version floor).
+    (isNushellExecutableName(shellName) && getCachedNushellIntegrationSupport(shellPath) === true)
+  )
 }
 
 export function supportsPtyStartupBarrier(env: Record<string, string>): boolean {
@@ -397,6 +411,22 @@ function getWrappedShellLaunchConfig(
       },
       supportsReadyMarker: options.emitReadyMarker
     }
+  }
+
+  if (isNushellExecutableName(shellName)) {
+    if (getCachedNushellIntegrationSupport(shellPath) === true) {
+      ensureShellReadyWrappers()
+      const root = getShellReadyWrapperRoot()
+      return {
+        // Why: nu rejects combined short flags (-le); split -l -e sources the integration AFTER env.nu/config.nu/login.nu — the zsh .zlogin slot.
+        args: ['-l', '-e', buildNuSourceCommand(join(root, 'nu', 'integration.nu'))],
+        env: { ORCA_SHELL_READY_MARKER: options.emitReadyMarker ? '1' : '0' },
+        supportsReadyMarker: options.emitReadyMarker
+      }
+    }
+    // Why: conservative-first — a below-floor nu must never receive -e "source …" (a parse error aborts startup); probe so the next spawn upgrades.
+    void probeNushellIntegrationSupport(shellPath)
+    return { args: null, env: {}, supportsReadyMarker: false }
   }
 
   if (isPowerShellExecutableName(shellName)) {

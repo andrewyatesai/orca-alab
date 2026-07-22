@@ -3,9 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync
+} from 'node:fs'
 import type * as pty from 'node-pty'
 import type * as LocalPtyShellReadyModule from './local-pty-shell-ready'
+import type * as NushellCapabilityProbeModule from '../pty/nushell-capability-probe'
 import {
   createShellReadyScanState,
   scanForShellReady,
@@ -1938,5 +1947,118 @@ export MY_VAR=foo
       // ZDOTDIR not unset, uses discovered value
       expect(result.stdout).toContain(`ORCA_ORIG_ZDOTDIR=${xdgZshDir}`)
     })
+  })
+})
+
+describePosix('nu launch config (#8928 PR1)', () => {
+  let userDataPath: string
+
+  async function importFreshWithProbe(): Promise<{
+    shellReady: typeof LocalPtyShellReadyModule
+    probe: typeof NushellCapabilityProbeModule
+  }> {
+    vi.resetModules()
+    // Why: import the probe AFTER resetModules so the seeded cache instance is the one local-pty-shell-ready consumes.
+    const probe = await import('../pty/nushell-capability-probe')
+    const shellReady = await import('./local-pty-shell-ready')
+    return { shellReady, probe }
+  }
+
+  beforeEach(() => {
+    userDataPath = mkdtempSync(join(tmpdir(), 'local-pty-shell-ready-nu-'))
+    setTestUserDataPath(userDataPath)
+  })
+
+  afterEach(() => {
+    rmSync(userDataPath, { recursive: true, force: true })
+  })
+
+  it('nu launch config uses split -l -e flags and sources the integration file', async () => {
+    const { shellReady, probe } = await importFreshWithProbe()
+    probe.__seedNushellIntegrationSupport('/usr/local/bin/nu', true)
+
+    const config = shellReady.getShellReadyLaunchConfig('/usr/local/bin/nu')
+
+    expect(config.args).toEqual([
+      '-l',
+      '-e',
+      `source "${userDataPath}/shell-ready/nu/integration.nu"`
+    ])
+    expect(config.env).toEqual({ ORCA_SHELL_READY_MARKER: '1' })
+    expect(config.supportsReadyMarker).toBe(true)
+  })
+
+  it('nu attribution config keeps the integration but disables the marker', async () => {
+    const { shellReady, probe } = await importFreshWithProbe()
+    probe.__seedNushellIntegrationSupport('/usr/local/bin/nu', true)
+
+    const config = shellReady.getAttributionShellLaunchConfig('/usr/local/bin/nu')
+
+    expect(config.args?.[0]).toBe('-l')
+    expect(config.args?.[1]).toBe('-e')
+    expect(config.env).toEqual({ ORCA_SHELL_READY_MARKER: '0' })
+    expect(config.supportsReadyMarker).toBe(false)
+  })
+
+  it('nu below the integration floor spawns plain -l with no ready marker', async () => {
+    const { shellReady, probe } = await importFreshWithProbe()
+    probe.__seedNushellIntegrationSupport('/usr/local/bin/nu', false)
+
+    const config = shellReady.getShellReadyLaunchConfig('/usr/local/bin/nu')
+
+    // Why: args null lets the caller keep its plain ['-l'] default — never -e "source …" on an unproven nu.
+    expect(config.args).toBeNull()
+    expect(config.env).toEqual({})
+    expect(config.supportsReadyMarker).toBe(false)
+  })
+
+  it('cold-cache nu degrades this spawn and fires the probe for the next one', async () => {
+    const { shellReady, probe } = await importFreshWithProbe()
+    const missingNu = join(userDataPath, 'definitely-missing', 'nu')
+
+    const config = shellReady.getShellReadyLaunchConfig(missingNu)
+
+    expect(config.args).toBeNull()
+    expect(config.supportsReadyMarker).toBe(false)
+    // The fired probe resolves (here: spawn failure → unsupported) so the next spawn has a definite answer.
+    await probe.probeNushellIntegrationSupport(missingNu)
+    expect(probe.getCachedNushellIntegrationSupport(missingNu)).toBe(false)
+  })
+
+  it('nu integration file emits a single BEL-terminated OSC 777 marker string', async () => {
+    const { shellReady, probe } = await importFreshWithProbe()
+    probe.__seedNushellIntegrationSupport('/usr/local/bin/nu', true)
+
+    shellReady.getShellReadyLaunchConfig('/usr/local/bin/nu')
+
+    const integration = readFileSync(
+      join(userDataPath, 'shell-ready', 'nu', 'integration.nu'),
+      'utf8'
+    )
+    // Static content assert against the scanner marker: ESC ]777;orca-shell-ready BEL, spelled with nu char literals.
+    expect(shellReady.SHELL_READY_MARKER_PREFIX).toBe('\x1b]777;orca-shell-ready')
+    const markerOccurrences = integration.split(']777;orca-shell-ready').length - 1
+    expect(markerOccurrences).toBe(1)
+    expect(integration).toContain('$"(char esc)]777;orca-shell-ready(char bel)"')
+    // Why: the marker scanners accept ONLY the BEL terminator; an ST-terminated marker would never match.
+    expect(integration).not.toContain('char st')
+    // The once-guard string hook must be single-quoted with no embedded single quotes (nu single quotes have no escapes).
+    expect(integration).toContain('$env.__ORCA_SHELL_READY_SENT? == null')
+    const hookLine = integration.split('\n').find((line) => line.includes(']777;orca-shell-ready'))
+    expect(hookLine).toBeDefined()
+    expect(hookLine!.trim().startsWith("| append '")).toBe(true)
+    expect(hookLine!.trim().endsWith("'")).toBe(true)
+    expect(hookLine!.trim().slice("| append '".length, -1)).not.toContain("'")
+  })
+
+  it('registers the nu integration file as a required wrapper artifact', async () => {
+    const { shellReady, probe } = await importFreshWithProbe()
+    probe.__seedNushellIntegrationSupport('/usr/local/bin/nu', true)
+
+    shellReady.getShellReadyLaunchConfig('/usr/local/bin/nu')
+
+    expect(existsSync(join(userDataPath, 'shell-ready', 'nu', 'integration.nu'))).toBe(true)
+    expect(existsSync(join(userDataPath, 'shell-ready', 'zsh', '.zshrc'))).toBe(true)
+    expect(existsSync(join(userDataPath, 'shell-ready', 'bash', 'rcfile'))).toBe(true)
   })
 })

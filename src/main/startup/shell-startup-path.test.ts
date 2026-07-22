@@ -112,3 +112,36 @@ describe('applyShellStartupPathFiles', () => {
     expect(result.segments).toEqual([fishBin, '/usr/bin'])
   })
 })
+
+describe('nu static startup scan (#8928 PR1)', () => {
+  it('nu returns no static startup files (and not ~/.profile)', () => {
+    const home = createHome()
+    const profileBin = makeDirectory(join(home, 'profile-bin'))
+    // A .profile PATH edit that WOULD be applied if nu fell into the generic default.
+    writeFileSync(join(home, '.profile'), `export PATH="${profileBin}:$PATH"\n`)
+
+    for (const shell of ['nu', '/usr/local/bin/nu', '/home/u/.cargo/bin/nu-0.104', 'nu.exe']) {
+      const result = applyShellStartupPathFiles(shell, ['/usr/bin'], {
+        env: { HOME: home },
+        homePath: home,
+        platform: 'darwin'
+      })
+      // Why: nu never reads ~/.profile — mirroring it would surface segments the live shell doesn't have.
+      expect(result.segments).toEqual(['/usr/bin'])
+      expect(result.changed).toBe(false)
+    }
+  })
+
+  it('unknown shells still fall back to ~/.profile', () => {
+    const home = createHome()
+    const profileBin = makeDirectory(join(home, 'profile-bin'))
+    writeFileSync(join(home, '.profile'), `export PATH="${profileBin}:$PATH"\n`)
+
+    const result = applyShellStartupPathFiles('/opt/weird/xonsh', ['/usr/bin'], {
+      env: { HOME: home },
+      homePath: home,
+      platform: 'darwin'
+    })
+    expect(result.segments).toEqual([profileBin, '/usr/bin'])
+  })
+})

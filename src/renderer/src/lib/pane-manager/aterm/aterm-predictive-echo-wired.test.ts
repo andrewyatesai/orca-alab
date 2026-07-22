@@ -51,6 +51,17 @@ function makeDefaultWorkerTerm(post: (cmd: AtermWorkerPaneCommand) => void) {
   return createWorkerBackedTerm({ post, initial: makeWorkerState() })
 }
 
+// Why: a strict-comparison regex ([!=]==) missed loose/truthiness drifts (`!flag`, `== false`,
+// an ADDITIVE early gate before the predicate call) that flip the shipped default while every
+// assertion stays green — so reject ANY code use of the flag outside the exact predicate call.
+function flagUsedOutsidePredicate(source: string): boolean {
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, '') // doc comments legitimately mention the flag
+    .replace(/\/\/[^\n]*/g, '')
+    .replaceAll('shouldUseWorkerRender(window.__atermWorkerRender)', '')
+  return code.includes('__atermWorkerRender')
+}
+
 describe('predictive echo is wired on the default worker render path (silent-death guard)', () => {
   it('the default render strategy is the worker path', () => {
     // The REAL predicate loadAtermStrategy uses to pick the worker term (the facade under
@@ -70,8 +81,13 @@ describe('predictive echo is wired on the default worker render path (silent-dea
     expect(fnStart).toBeGreaterThanOrEqual(0)
     const body = source.slice(fnStart)
     expect(body).toMatch(/shouldUseWorkerRender\(window\.__atermWorkerRender\)/)
-    // No raw comparison against the flag anywhere in code — the predicate is the only gate.
-    expect(source).not.toMatch(/window\.__atermWorkerRender\s*[!=]==/)
+    // No use of the flag outside the predicate call anywhere in code — the predicate is
+    // the ONLY gate (an additive `if (!flag)` gate before it would also flip the default).
+    expect(flagUsedOutsidePredicate(source)).toBe(false)
+    // Guard-of-the-guard: the checker must flag the truthiness drift it exists to catch.
+    expect(
+      flagUsedOutsidePredicate(`${source}\nif (!window.__atermWorkerRender) inProcess()`)
+    ).toBe(true)
   })
 
   it('the worker term facade implements the full predict_* shape', () => {

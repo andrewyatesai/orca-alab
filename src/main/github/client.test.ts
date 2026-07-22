@@ -3670,6 +3670,31 @@ describe('getPRForBranch', () => {
       ]
     })
   })
+
+  it('counts a STALE check run as failed in the work-item check summary', async () => {
+    getOwnerRepoMock.mockResolvedValueOnce({ owner: 'acme', repo: 'widgets' })
+    ghExecFileAsyncMock.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        number: 43,
+        title: 'Superseded checks',
+        state: 'OPEN',
+        url: 'https://github.com/acme/widgets/pull/43',
+        updatedAt: '2026-03-28T00:00:00Z',
+        isDraft: false,
+        headRefName: 'feature/stale-check',
+        baseRefName: 'main',
+        statusCheckRollup: [
+          { name: 'build', conclusion: 'SUCCESS', completedAt: '2026-03-28T00:01:00Z' },
+          // Why: GitHub marks superseded required runs STALE — a terminal failure, not a green (mirrors mappers.ts).
+          { name: 'deploy', conclusion: 'STALE', completedAt: '2026-03-28T00:02:00Z' }
+        ]
+      })
+    })
+
+    await expect(getWorkItem('/repo-root', 43, 'pr')).resolves.toMatchObject({
+      checksSummary: { state: 'failure', total: 2, passed: 1, failed: 1, pending: 0 }
+    })
+  })
 })
 
 describe('updatePRState', () => {

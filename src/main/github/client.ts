@@ -643,9 +643,16 @@ function deriveWorkItemCheckSummary(value: unknown): GitHubWorkItem['checksSumma
     if (['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(conclusion)) {
       passed += 1
     } else if (
-      ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(
-        conclusion
-      )
+      // Why: keep in sync with mapCheckConclusion — STALE/STARTUP_FAILURE are terminal failures (upstream #4605).
+      [
+        'FAILURE',
+        'ERROR',
+        'TIMED_OUT',
+        'CANCELLED',
+        'ACTION_REQUIRED',
+        'STARTUP_FAILURE',
+        'STALE'
+      ].includes(conclusion)
     ) {
       failed += 1
     } else if (status === 'COMPLETED' && conclusion) {
@@ -3408,9 +3415,7 @@ async function getPRChecksViaRestFallback(
     const checkRunData = JSON.parse(stdout) as {
       check_runs?: RestCheckRun[]
     }
-    const checkRuns = latestCheckDetailsByName(
-      (checkRunData.check_runs ?? []).map(mapRestCheckRun)
-    )
+    const checkRuns = latestCheckDetailsByName((checkRunData.check_runs ?? []).map(mapRestCheckRun))
     const checkRunNames = new Set(checkRuns.map((check) => check.name))
 
     let legacyStatuses: PRCheckDetail[] = []

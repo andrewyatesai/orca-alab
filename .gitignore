@@ -106,6 +106,8 @@ coverage/
 # Temp
 tmp/
 .tmp/
+# Empty err_* redirect files occasionally left behind by merge tooling.
+/err_*
 design-docs/
 .context/
 .atl/
@@ -142,6 +144,10 @@ validation-screenshots/
 # Local scratch notes and PR evidence screenshots (not part of the product).
 /notes/
 /pr-evidence/
+
+# Regenerable upstream-triage API dumps (~7MB); the durable record lives in
+# docs/reference/upstream-triage/.
+/upstream-triage/
 
 # Playwright
 test-results/

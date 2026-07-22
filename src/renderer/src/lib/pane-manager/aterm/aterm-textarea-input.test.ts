@@ -81,7 +81,8 @@ function mount(
   termOverrides: FakeTermOverrides = {},
   getMacOptionIsMeta?: () => boolean,
   getCustomKeyEventHandler?: () => ((event: KeyboardEvent) => boolean) | null,
-  getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
+  getScrollIntentTarget?: () => TerminalScrollIntentTarget | null,
+  predictionEcho?: Parameters<typeof attachAtermTextareaInput>[0]['predictionEcho']
 ): Harness {
   const wrapper = document.createElement('div')
   const screen = document.createElement('div')
@@ -116,7 +117,8 @@ function mount(
     copySelection,
     getMacOptionIsMeta,
     getCustomKeyEventHandler,
-    getScrollIntentTarget
+    getScrollIntentTarget,
+    predictionEcho
   })
   return {
     textarea,
@@ -188,6 +190,30 @@ function fireComposition(
 }
 
 describe('attachAtermTextareaInput', () => {
+  it('delivers input to the PTY even when predictive echo throws (input is not gated behind speculative echo)', () => {
+    // A predict-path throw (worker seam under load) must NEVER swallow the
+    // keystroke: inputSink runs BEFORE noteChar and noteChar is guarded.
+    const noteChar = vi.fn(() => {
+      throw new Error('predict seam blew up')
+    })
+    const predictionEcho = {
+      noteChar,
+      noteBackspace: vi.fn(),
+      noteSubmit: vi.fn(),
+      reconcile: vi.fn(),
+      overlayCells: vi.fn(() => new Uint32Array(0)),
+      setMode: vi.fn(),
+      refreshDeadline: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn()
+    }
+    const h = mount({}, undefined, undefined, undefined, predictionEcho)
+    expect(() => fireInput(h.textarea, 'x', 'insertText')).not.toThrow()
+    expect(h.inputSink).toHaveBeenCalledWith('x') // the char still reached the PTY
+    expect(noteChar).toHaveBeenCalledWith('x') // and prediction was attempted
+    h.dispose()
+  })
+
   it('sends the InputEvent data for an insertText (typed character) via inputSink', () => {
     const h = mount()
     fireInput(h.textarea, 'x', 'insertText')

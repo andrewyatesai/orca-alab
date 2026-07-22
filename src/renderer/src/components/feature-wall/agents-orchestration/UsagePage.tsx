@@ -78,8 +78,21 @@ function Popover(props: {
 }): JSX.Element {
   const { expanded, targeted, swapped, pulseKey } = props
   // Why: bars show % used (consumption), matching the live status-bar meter.
-  const sessionPctText = swapped ? '0% used' : '96% used'
-  const sessionResetText = swapped ? 'Resets in 5h' : 'Resets in 47m'
+  const sessionPctText = swapped
+    ? translate('auto.components.feature.wall.agents.orchestration.UsagePage.h130000001', '0% used')
+    : translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000002',
+        '96% used'
+      )
+  const sessionResetText = swapped
+    ? translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000003',
+        'Resets in 5h'
+      )
+    : translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000004',
+        'Resets in 47m'
+      )
   const sessionFillWidth = swapped ? '0%' : '96%'
   const weeklyFillWidth = '38%'
 
@@ -192,7 +205,7 @@ function Popover(props: {
         )}
       >
         <div className="overflow-hidden min-h-0">
-          <div className="pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <div className="pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             {translate(
               'auto.components.feature.wall.agents.orchestration.UsagePage.be5a165875',
               'Switch to'
@@ -201,7 +214,10 @@ function Popover(props: {
           <div className="flex flex-col gap-0.5 rounded-lg border border-border bg-foreground/[0.025] p-[3px]">
             <SwitchAccount
               accountWidthClassName="w-24"
-              tag="Team"
+              tag={translate(
+                'auto.components.feature.wall.agents.orchestration.UsagePage.h130000005',
+                'Team'
+              )}
               fillPct={0}
               metaText="0%"
               highlighted={targeted}
@@ -274,7 +290,7 @@ function SwitchAccount(props: {
       <div className="flex min-w-0 items-center gap-1.5">
         <AccountNameSkeleton widthClassName={props.accountWidthClassName} />
         {props.tag ? (
-          <span className="shrink-0 rounded-full bg-foreground/[0.06] px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <span className="shrink-0 rounded-full bg-foreground/[0.06] px-1.5 py-px text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             {props.tag}
           </span>
         ) : null}
@@ -286,7 +302,7 @@ function SwitchAccount(props: {
             style={{ width: `${props.fillPct}%` }}
           />
         </span>
-        <span className="min-w-7 text-right font-mono text-[10px] text-muted-foreground">
+        <span className="min-w-7 text-right font-mono text-[11px] text-muted-foreground">
           {props.metaText}
         </span>
       </div>
@@ -301,13 +317,21 @@ function BottomBar(props: { swapped: boolean }): JSX.Element {
   // Why: match live status-bar consumption meters (% used), same as the popover.
   const codexFillWidth = props.swapped ? '0%' : '96%'
   const codexFillColor = props.swapped ? 'rgb(34 197 94)' : 'rgb(239 68 68)'
-  const codexMeta = props.swapped ? '0% used 5h · 4% used wk' : '96% used 47m'
+  const codexMeta = props.swapped
+    ? translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000006',
+        '0% used 5h · 4% used wk'
+      )
+    : translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000007',
+        '96% used 47m'
+      )
   return (
     <div
       className="absolute bottom-[22px] left-1/2 flex -translate-x-1/2 items-center gap-3.5 rounded-lg border border-border bg-muted/60 px-3.5 py-1.5 text-[11px] shadow-[0_1px_2px_rgba(24,24,27,0.04)]"
       style={{ width: 340 }}
     >
-      <div className="inline-flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
+      <div className="inline-flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
         <ClaudeIcon size={12} />
         <span className="block h-1 w-9 overflow-hidden rounded-full bg-foreground/[0.12]">
           <span className="block h-full rounded-full bg-emerald-500" style={{ width: '29%' }} />
@@ -319,7 +343,7 @@ function BottomBar(props: { swapped: boolean }): JSX.Element {
           )}
         </span>
       </div>
-      <div className="-my-0.5 inline-flex items-center gap-1.5 rounded-md bg-foreground/[0.06] px-1.5 py-0.5 font-mono text-[10.5px] text-foreground">
+      <div className="-my-0.5 inline-flex items-center gap-1.5 rounded-md bg-foreground/[0.06] px-1.5 py-0.5 font-mono text-[11px] text-foreground">
         <span style={{ color: '#111' }}>
           <OpenAIIcon size={12} />
         </span>

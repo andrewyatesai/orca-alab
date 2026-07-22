@@ -36,6 +36,17 @@ export class AtermTerminal {
      */
     authorize_clipboard_write(): void;
     /**
+     * Mint an EXTRA OSC 8 URI scheme onto the engine's safe allowlist (orca
+     * deep-links §7) — e.g. `authorize_hyperlink_scheme("orca")` so
+     * host-emitted `orca://` OSC-8 hyperlinks linkify. Returns `false`
+     * (refused, nothing changes) for a malformed / over-long scheme, a
+     * never-allow scheme (`javascript`/`data`/`file`/…, however cased), or
+     * when the bounded set (4) is full; `true` when live (idempotent).
+     * Every other OSC-8 guard — byte cap, control-char and BiDi filters,
+     * the OSC-8 capability gate — still applies to extra-scheme URIs.
+     */
+    authorize_hyperlink_scheme(scheme: string): boolean;
+    /**
      * Authorize (`true`) or revoke (`false`) OSC 9 / 99 / 777 desktop
      * notifications. The engine is fail-closed by default: until the host
      * authorizes, the notification handlers return before any dispatch, so
@@ -117,6 +128,24 @@ export class AtermTerminal {
      * must not drive a 60/120 Hz display-rAF loop.
      */
     is_effects_active(): boolean;
+    /**
+     * The last completed OSC-133 block's output as JSON, following the
+     * `take_osc_events` JSON-drain convention (CM-A3, "Copy Last Command
+     * Output"):
+     *   `{"status":"ok","text":"…","exitCode":0}` — output read in full
+     *     (`exitCode` is `null` when the block was finalized without OSC 133 D,
+     *     e.g. an interrupted command whose next prompt closed it);
+     *   `{"status":"evicted"}` — the block's rows scrolled past the scrollback
+     *     cap (DL-1: an honest marker, never silently-shifted/empty text);
+     *   `undefined` — nothing to copy: no shell integration, no finished block
+     *     yet (incl. a snapshot-rehydrated pane — blocks are excluded from
+     *     checkpoints), or the block never reached its output phase.
+     *
+     * `&self` — the read rides `Terminal::last_completed_block`, which was added
+     * alongside this binding precisely so the facade does not need the `&mut`
+     * `output_blocks()` (`make_contiguous`) path.
+     */
+    last_command_output(): string | undefined;
     /**
      * Detect a link under display `row`/`col`. Prefers an OSC-8 hyperlink, then
      * falls back to smart-selection rules (url/file_path). Returns `None` for
@@ -302,6 +331,11 @@ export class AtermTerminal {
      * clipboard setting off). Returns the engine to its fail-closed default.
      */
     revoke_clipboard_write(): void;
+    /**
+     * Remove a host-minted extra scheme (case-insensitive), restoring the
+     * engine's default allowlist posture for it.
+     */
+    revoke_hyperlink_scheme(scheme: string): void;
     /**
      * Copy of the last-rendered RGBA8 framebuffer (`width*height*4` bytes),
      * ready for `ctx.putImageData(new ImageData(rgba, width, height), 0, 0)`.
@@ -1287,6 +1321,7 @@ export interface InitOutput {
     readonly atermterminal_add_fallback_font_registered: (a: number, b: number) => [number, number];
     readonly atermterminal_advance_effects: (a: number, b: number) => void;
     readonly atermterminal_authorize_clipboard_write: (a: number) => void;
+    readonly atermterminal_authorize_hyperlink_scheme: (a: number, b: number, c: number) => number;
     readonly atermterminal_authorize_notifications: (a: number, b: number) => void;
     readonly atermterminal_base_y: (a: number) => number;
     readonly atermterminal_bracketed_paste_mode: (a: number) => number;
@@ -1318,6 +1353,7 @@ export interface InitOutput {
     readonly atermterminal_is_focus_event_mode: (a: number) => number;
     readonly atermterminal_is_mouse_tracking: (a: number) => number;
     readonly atermterminal_keyboard_mode_bits: (a: number) => number;
+    readonly atermterminal_last_command_output: (a: number) => [number, number];
     readonly atermterminal_link_at: (a: number, b: number, c: number) => number;
     readonly atermterminal_matrix_rain_enabled: (a: number) => number;
     readonly atermterminal_mouse_wants_any_motion: (a: number) => number;
@@ -1344,6 +1380,7 @@ export interface InitOutput {
     readonly atermterminal_render: (a: number) => void;
     readonly atermterminal_resize: (a: number, b: number, c: number) => void;
     readonly atermterminal_revoke_clipboard_write: (a: number) => void;
+    readonly atermterminal_revoke_hyperlink_scheme: (a: number, b: number, c: number) => void;
     readonly atermterminal_rgba: (a: number) => [number, number];
     readonly atermterminal_rgba_ptr: (a: number) => number;
     readonly atermterminal_row_is_wrapped: (a: number, b: number) => number;

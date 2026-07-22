@@ -15,7 +15,6 @@ export function AgentsOrchestrationVisual(props: {
   heightPx?: number
   onCycleComplete?: () => void
   orchestrationCreatedChildCount?: number
-  orchestrationLoopMs?: number
   orchestrationShowResponseBeats?: boolean
 }): JSX.Element {
   const {
@@ -25,13 +24,17 @@ export function AgentsOrchestrationVisual(props: {
     heightPx,
     onCycleComplete,
     orchestrationCreatedChildCount,
-    orchestrationLoopMs,
     orchestrationShowResponseBeats
   } = props
   return (
     <div
       className="relative flex flex-col text-foreground"
-      style={{ width: widthPx ?? PANEL_WIDTH_PX, height: heightPx ?? PANEL_HEIGHT_PX }}
+      data-feature-wall-agents-visual={activeStepId}
+      style={{
+        width: '100%',
+        maxWidth: widthPx ?? PANEL_WIDTH_PX,
+        height: heightPx ?? PANEL_HEIGHT_PX
+      }}
     >
       <Page active={activeStepId === 'statuses'}>
         <StatusesPage active={activeStepId === 'statuses'} reducedMotion={reducedMotion} />
@@ -45,7 +48,6 @@ export function AgentsOrchestrationVisual(props: {
           reducedMotion={reducedMotion}
           onCycleComplete={onCycleComplete}
           controlledCreatedChildCount={orchestrationCreatedChildCount}
-          loopMs={orchestrationLoopMs}
           showResponseBeats={orchestrationShowResponseBeats}
         />
       </Page>

@@ -37,6 +37,10 @@ type RestartSession = {
   dispose: () => Promise<void>
 }
 
+type RestartSessionOptions = {
+  seedCompletedOnboarding?: boolean
+}
+
 async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     const timeout = setTimeout(resolve, ms)
@@ -82,18 +86,22 @@ function launchEnv(userDataDir: string, headful: boolean): NodeJS.ProcessEnv {
  * env stripping, headful toggle) so behavior differences between fixtures
  * don't leak in as false positives for persistence bugs.
  */
-export function createRestartSession(testInfo: TestInfo): RestartSession {
+export function createRestartSession(
+  testInfo: TestInfo,
+  options: RestartSessionOptions = {}
+): RestartSession {
   const mainPath = path.join(process.cwd(), 'out', 'main', 'index.js')
   const userDataDir = mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-restart-'))
   const headful = shouldLaunchHeadful(testInfo)
 
-  // Why: this helper bypasses the shared `electronApp` fixture, so it must
-  // seed the same completed onboarding profile or first-run overlays cover
-  // both launches and obscure restart failures.
-  writeFileSync(
-    path.join(userDataDir, 'orca-data.json'),
-    `${JSON.stringify(getE2ECompletedOnboardingProfile(), null, 2)}\n`
-  )
+  if (options.seedCompletedOnboarding !== false) {
+    // Why: restart tests normally need the same completed profile as the shared
+    // fixture; an explicit first-run case can opt into the real onboarding path.
+    writeFileSync(
+      path.join(userDataDir, 'orca-data.json'),
+      `${JSON.stringify(getE2ECompletedOnboardingProfile(), null, 2)}\n`
+    )
+  }
 
   const launch = async (): Promise<LaunchedOrca> => {
     const app = await electron.launch({

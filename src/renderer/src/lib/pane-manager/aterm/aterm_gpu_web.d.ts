@@ -41,6 +41,13 @@ export class AtermGpuTerminal {
      */
     authorize_clipboard_write(): void;
     /**
+     * Mint an EXTRA OSC 8 URI scheme onto the engine's safe allowlist (orca
+     * deep-links §7; see aterm-wasm — kept in parity). The grid is shared, so
+     * this covers both the GPU and CPU-fallback paths. Returns `false` when
+     * refused (malformed / never-allow / bounded set full), `true` when live.
+     */
+    authorize_hyperlink_scheme(scheme: string): boolean;
+    /**
      * Authorize (`true`) or revoke (`false`) OSC 9 / 99 / 777 desktop
      * notifications. The engine is fail-closed by default: until the host
      * authorizes, the notification handlers return before any dispatch, so
@@ -330,6 +337,11 @@ export class AtermGpuTerminal {
      * off), returning the engine to its fail-closed default.
      */
     revoke_clipboard_write(): void;
+    /**
+     * Remove a host-minted extra scheme (case-insensitive), restoring the
+     * engine's default allowlist posture for it (parity with aterm-wasm).
+     */
+    revoke_hyperlink_scheme(scheme: string): void;
     /**
      * Copy of the last [`render_offscreen`](Self::render_offscreen) RGBA8
      * framebuffer (`width*height*4` bytes), ready for
@@ -1262,6 +1274,7 @@ export interface InitOutput {
     readonly atermgputerminal_add_fallback_font_registered: (a: number, b: number) => [number, number];
     readonly atermgputerminal_advance_effects: (a: number, b: number) => void;
     readonly atermgputerminal_authorize_clipboard_write: (a: number) => void;
+    readonly atermgputerminal_authorize_hyperlink_scheme: (a: number, b: number, c: number) => number;
     readonly atermgputerminal_authorize_notifications: (a: number, b: number) => void;
     readonly atermgputerminal_base_y: (a: number) => number;
     readonly atermgputerminal_bracketed_paste_mode: (a: number) => number;
@@ -1322,6 +1335,7 @@ export interface InitOutput {
     readonly atermgputerminal_render_offscreen: (a: number) => [number, number];
     readonly atermgputerminal_resize: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_revoke_clipboard_write: (a: number) => void;
+    readonly atermgputerminal_revoke_hyperlink_scheme: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_rgba: (a: number) => [number, number];
     readonly atermgputerminal_row_is_wrapped: (a: number, b: number) => number;
     readonly atermgputerminal_row_len: (a: number, b: number) => number;
@@ -1436,9 +1450,9 @@ export interface InitOutput {
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_2766a53e392c0a38___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__wasm_bindgen_2766a53e392c0a38___JsValue____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue__wasm_bindgen_2766a53e392c0a38___JsValue_____: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue_____: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

@@ -1113,7 +1113,7 @@ function __wbg_get_imports() {
       const ret = makeMutClosure(
         arg0,
         arg1,
-        wasm.__wasm_bindgen_func_elem_1641,
+        wasm.__wasm_bindgen_func_elem_1628,
         __wasm_bindgen_func_elem_1643
       )
       return addHeapObject(ret)

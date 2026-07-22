@@ -91,6 +91,20 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_authorize_clipboard_write(this.__wbg_ptr);
     }
     /**
+     * Mint an EXTRA OSC 8 URI scheme onto the engine's safe allowlist (orca
+     * deep-links §7; see aterm-wasm — kept in parity). The grid is shared, so
+     * this covers both the GPU and CPU-fallback paths. Returns `false` when
+     * refused (malformed / never-allow / bounded set full), `true` when live.
+     * @param {string} scheme
+     * @returns {boolean}
+     */
+    authorize_hyperlink_scheme(scheme) {
+        const ptr0 = passStringToWasm0(scheme, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermgputerminal_authorize_hyperlink_scheme(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
      * Authorize (`true`) or revoke (`false`) OSC 9 / 99 / 777 desktop
      * notifications. The engine is fail-closed by default: until the host
      * authorizes, the notification handlers return before any dispatch, so
@@ -828,6 +842,16 @@ export class AtermGpuTerminal {
      */
     revoke_clipboard_write() {
         wasm.atermgputerminal_revoke_clipboard_write(this.__wbg_ptr);
+    }
+    /**
+     * Remove a host-minted extra scheme (case-insensitive), restoring the
+     * engine's default allowlist posture for it (parity with aterm-wasm).
+     * @param {string} scheme
+     */
+    revoke_hyperlink_scheme(scheme) {
+        const ptr0 = passStringToWasm0(scheme, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermgputerminal_revoke_hyperlink_scheme(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * Copy of the last [`render_offscreen`](Self::render_offscreen) RGBA8
@@ -2953,7 +2977,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(a, state0.b, arg0, arg1);
+                        return wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue__wasm_bindgen_2766a53e392c0a38___JsValue_____(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -3330,7 +3354,7 @@ function __wbg_get_imports() {
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { dtor_idx: 36, function: Function { arguments: [Externref], shim_idx: 37, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______, wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____);
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_2766a53e392c0a38___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__wasm_bindgen_2766a53e392c0a38___JsValue____Output_______, wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0) {
@@ -3394,12 +3418,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2) {
-    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2);
+function wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue_____(arg0, arg1, arg2) {
+    wasm.wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue_____(arg0, arg1, arg2);
 }
 
-function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3);
+function wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue__wasm_bindgen_2766a53e392c0a38___JsValue_____(arg0, arg1, arg2, arg3) {
+    wasm.wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue__wasm_bindgen_2766a53e392c0a38___JsValue_____(arg0, arg1, arg2, arg3);
 }
 
 const AtermGpuTerminalFinalization = (typeof FinalizationRegistry === 'undefined')

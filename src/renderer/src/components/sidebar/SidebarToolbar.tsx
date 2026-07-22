@@ -26,6 +26,7 @@ const SidebarToolbar = React.memo(function SidebarToolbar({
   const [workspaceBoardMovedHintOpen, setWorkspaceBoardMovedHintOpen] = React.useState(false)
   const movedHintEligibleRef = React.useRef<boolean | null>(null)
   const persistedUIReady = useAppStore((state) => state.persistedUIReady)
+  const activeModal = useAppStore((state) => state.activeModal)
   const hasUsedWorkspaceBoard = useAppStore((state) =>
     hasFeatureInteraction(state.featureInteractions, 'workspace-board')
   )
@@ -72,7 +73,11 @@ const SidebarToolbar = React.memo(function SidebarToolbar({
         </div>
         <div className="flex items-center gap-1">
           <ScrollToCurrentWorkspaceToolbarButton />
-          <Tooltip open={workspaceBoardMovedHintOpen ? true : undefined}>
+          <Tooltip
+            // Why: a forced migration hint must not pierce a modal overlay and
+            // cover that modal's footer; it resumes if the modal closes in time.
+            open={activeModal !== 'none' ? false : workspaceBoardMovedHintOpen ? true : undefined}
+          >
             <TooltipTrigger asChild>
               <Button
                 // Why: previewing the board from a card drag lights up the

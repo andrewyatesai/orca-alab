@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { ClaudeIcon } from '@/components/status-bar/icons'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { FeatureWallClickRing } from './FeatureWallClickRing'
+import { BrowserDesignPayloadSummary } from './BrowserDesignPayloadSummary'
 import { translate } from '@/i18n/i18n'
 
 // Why: this animation tells the full Orca story end-to-end — the user opens a
@@ -19,33 +20,31 @@ const PROMPT_TEXT = 'Make Starter card stand out'
 const TOUR_FLOATING_SURFACE_CLASS =
   'border border-black/14 bg-[rgba(255,255,255,0.82)] text-popover-foreground shadow-[0_16px_36px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-2xl dark:border-white/14 dark:bg-[rgba(0,0,0,0.72)] dark:shadow-[0_20px_44px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.04)]'
 
-const PRE_INTRO_MS = 600
-const NEWTAB_APPROACH_MS = 700
-const NEWTAB_CLICK_MS = 180
-const NEWTAB_DWELL_MS = 700
-const NEWTAB_ROW_HOVER_MS = 1050
-const NEWTAB_ROW_CLICK_MS = 220
-const TAB_REVEAL_MS = 500
-const APPROACH_CARD_MS = 900
-const INSPECT_MS = 700
-const ANNOTATE_OPEN_MS = 360
-const ANNOTATE_TYPE_INTERVAL_MS = 58
-const ANNOTATE_HOLD_MS = 900
-const SEND_APPROACH_MS = 500
-const SEND_CLICK_MS = 250
-const HANDOFF_MS = 200
-const WORKING_LINE_STAGGER_MS = 260
-const WORKING_HOLD_MS = 1400
-const UPDATED_HOLD_MS = 900
-const VERIFY_INTENT_MS = 1100
-const CLICK_APPROACH_MS = 620
-const CLICK_PRESS_MS = 280
-const NAVIGATED_HOLD_MS = 700
-const SCREENSHOT_LINE_HOLD_MS = 420
-const SCREENSHOT_FLASH_HOLD_MS = 700
-const VERIFIED_HOLD_MS = 2400
-const RESET_HOLD_MS = 300
-const CLICK_RING_MS = 460
+const PRE_INTRO_MS = 100
+const NEWTAB_APPROACH_MS = 150
+const NEWTAB_CLICK_MS = 80
+const NEWTAB_DWELL_MS = 100
+const NEWTAB_ROW_HOVER_MS = 150
+const NEWTAB_ROW_CLICK_MS = 80
+const TAB_REVEAL_MS = 120
+const APPROACH_CARD_MS = 150
+const INSPECT_MS = 150
+const ANNOTATE_OPEN_MS = 120
+const ANNOTATE_TYPE_INTERVAL_MS = 15
+const ANNOTATE_HOLD_MS = 150
+const SEND_APPROACH_MS = 120
+const SEND_CLICK_MS = 80
+const HANDOFF_MS = 80
+const WORKING_LINE_STAGGER_MS = 100
+const WORKING_HOLD_MS = 200
+const UPDATED_HOLD_MS = 200
+const VERIFY_INTENT_MS = 150
+const CLICK_APPROACH_MS = 120
+const CLICK_PRESS_MS = 80
+const NAVIGATED_HOLD_MS = 150
+const SCREENSHOT_LINE_HOLD_MS = 100
+const SCREENSHOT_FLASH_HOLD_MS = 150
+const CLICK_RING_MS = 220
 
 type Phase =
   | 'idle'
@@ -183,8 +182,8 @@ export function BrowserAnimatedVisual(props: {
   const { reducedMotion, onCycleComplete } = props
   const newBrowserShortcutLabel = useShortcutLabel('tab.newBrowser')
 
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [typedChars, setTypedChars] = useState(0)
+  const [phase, setPhase] = useState<Phase>(() => (reducedMotion ? 'verified' : 'idle'))
+  const [typedChars, setTypedChars] = useState(() => (reducedMotion ? PROMPT_TEXT.length : 0))
   const [flashKey, setFlashKey] = useState(0)
   const [clickRingKey, setClickRingKey] = useState(0)
   const [clickRingVisible, setClickRingVisible] = useState(false)
@@ -257,200 +256,194 @@ export function BrowserAnimatedVisual(props: {
       timeouts.push(id)
     }
 
-    async function loop(): Promise<void> {
-      while (!cancelled) {
-        setPhase('idle')
-        setTypedChars(0)
-        setClickRingVisible(false)
-        setCursorTo(40, 18)
-        await wait(PRE_INTRO_MS)
-        if (cancelled) {
-          return
-        }
-
-        // 1. Cursor approaches the "+" in the tab strip.
-        const newtabPos = transformForElement(newtabBtnRef.current)
-        setCursorTo(newtabPos.x, newtabPos.y)
-        setPhase('newtab-approach')
-        await wait(NEWTAB_APPROACH_MS)
-        if (cancelled) {
-          return
-        }
-
-        // 2. Click "+". Capture the dropdown's left offset relative to the
-        // titlebar so the menu lines up with the button.
-        setPhase('newtab-click')
-        pulseClickRing()
-        if (titlebarRef.current && newtabBtnRef.current) {
-          const tbRect = titlebarRef.current.getBoundingClientRect()
-          const btnRect = newtabBtnRef.current.getBoundingClientRect()
-          setMenuOffsetX(btnRect.left - tbRect.left)
-        }
-        await wait(NEWTAB_CLICK_MS)
-        if (cancelled) {
-          return
-        }
-        await wait(NEWTAB_DWELL_MS)
-        if (cancelled) {
-          return
-        }
-
-        // 3. Move to "New Browser Tab" row.
-        const rowPos = transformForElement(newtabRowRef.current, 6, 0)
-        setCursorTo(rowPos.x, rowPos.y)
-        setPhase('newtab-row-approach')
-        await wait(NEWTAB_ROW_HOVER_MS)
-        if (cancelled) {
-          return
-        }
-
-        // 4. Click → dropdown closes, browser tab reveals, page comes alive.
-        setPhase('newtab-row-click')
-        pulseClickRing()
-        await wait(NEWTAB_ROW_CLICK_MS)
-        if (cancelled) {
-          return
-        }
-        setPhase('tab-revealed')
-        await wait(TAB_REVEAL_MS)
-        if (cancelled) {
-          return
-        }
-
-        // Cursor approaches the Starter card.
-        const starterPos = transformForElement(starterCardRef.current, 0, -8)
-        setCursorTo(starterPos.x, starterPos.y)
-        setPhase('approach-card')
-        await wait(APPROACH_CARD_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('inspect')
-        pulseClickRing()
-        await wait(INSPECT_MS)
-        if (cancelled) {
-          return
-        }
-
-        // Anchor the annotate popover to the Starter card's actual position so
-        // it lines up regardless of how the parent grid lays out.
-        if (browserPageRef.current && starterCardRef.current) {
-          const pageRect = browserPageRef.current.getBoundingClientRect()
-          const cardRect = starterCardRef.current.getBoundingClientRect()
-          setAnnotateAnchor({
-            left: cardRect.right - pageRect.left + 6,
-            top: cardRect.top - pageRect.top
-          })
-        }
-        setPhase('annotate')
-        await wait(ANNOTATE_OPEN_MS)
-        if (cancelled) {
-          return
-        }
-        for (let i = 1; i <= PROMPT_TEXT.length; i += 1) {
-          if (cancelled) {
-            return
-          }
-          setTypedChars(i)
-          await wait(ANNOTATE_TYPE_INTERVAL_MS)
-        }
-        await wait(ANNOTATE_HOLD_MS)
-        if (cancelled) {
-          return
-        }
-
-        const sendPos = transformForElement(sendBtnRef.current)
-        setCursorTo(sendPos.x, sendPos.y)
-        setPhase('send-approach')
-        await wait(SEND_APPROACH_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('send-click')
-        pulseClickRing()
-        await wait(SEND_CLICK_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('handoff')
-        await wait(HANDOFF_MS)
-        if (cancelled) {
-          return
-        }
-
-        // Split lands. Working line + prompt are gated on phase >= 'working';
-        // small stagger keeps them from popping in simultaneously.
-        setPhase('working')
-        await wait(WORKING_LINE_STAGGER_MS * 2)
-        if (cancelled) {
-          return
-        }
-        await wait(WORKING_HOLD_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('updated')
-        await wait(UPDATED_HOLD_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('verify-intent')
-        await wait(VERIFY_INTENT_MS)
-        if (cancelled) {
-          return
-        }
-
-        const ctaPos = transformForElement(ctaRef.current)
-        setCursorTo(ctaPos.x, ctaPos.y)
-        setPhase('click-approach')
-        await wait(CLICK_APPROACH_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('click-press')
-        pulseClickRing()
-        await wait(CLICK_PRESS_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('navigated')
-        await wait(NAVIGATED_HOLD_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('screenshot-line')
-        await wait(SCREENSHOT_LINE_HOLD_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('screenshot-flash')
-        setFlashKey((k) => k + 1)
-        await wait(SCREENSHOT_FLASH_HOLD_MS)
-        if (cancelled) {
-          return
-        }
-
-        setPhase('verified')
-        await wait(VERIFIED_HOLD_MS)
-        if (cancelled) {
-          return
-        }
-        onCycleComplete?.()
-
-        await wait(RESET_HOLD_MS)
+    async function runOnce(): Promise<void> {
+      setPhase('idle')
+      setTypedChars(0)
+      setClickRingVisible(false)
+      setCursorTo(40, 18)
+      await wait(PRE_INTRO_MS)
+      if (cancelled) {
+        return
       }
+
+      // 1. Cursor approaches the "+" in the tab strip.
+      const newtabPos = transformForElement(newtabBtnRef.current)
+      setCursorTo(newtabPos.x, newtabPos.y)
+      setPhase('newtab-approach')
+      await wait(NEWTAB_APPROACH_MS)
+      if (cancelled) {
+        return
+      }
+
+      // 2. Click "+". Capture the dropdown's left offset relative to the
+      // titlebar so the menu lines up with the button.
+      setPhase('newtab-click')
+      pulseClickRing()
+      if (titlebarRef.current && newtabBtnRef.current) {
+        const tbRect = titlebarRef.current.getBoundingClientRect()
+        const btnRect = newtabBtnRef.current.getBoundingClientRect()
+        setMenuOffsetX(btnRect.left - tbRect.left)
+      }
+      await wait(NEWTAB_CLICK_MS)
+      if (cancelled) {
+        return
+      }
+      await wait(NEWTAB_DWELL_MS)
+      if (cancelled) {
+        return
+      }
+
+      // 3. Move to "New Browser Tab" row.
+      const rowPos = transformForElement(newtabRowRef.current, 6, 0)
+      setCursorTo(rowPos.x, rowPos.y)
+      setPhase('newtab-row-approach')
+      await wait(NEWTAB_ROW_HOVER_MS)
+      if (cancelled) {
+        return
+      }
+
+      // 4. Click → dropdown closes, browser tab reveals, page comes alive.
+      setPhase('newtab-row-click')
+      pulseClickRing()
+      await wait(NEWTAB_ROW_CLICK_MS)
+      if (cancelled) {
+        return
+      }
+      setPhase('tab-revealed')
+      await wait(TAB_REVEAL_MS)
+      if (cancelled) {
+        return
+      }
+
+      // Cursor approaches the Starter card.
+      const starterPos = transformForElement(starterCardRef.current, 0, -8)
+      setCursorTo(starterPos.x, starterPos.y)
+      setPhase('approach-card')
+      await wait(APPROACH_CARD_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('inspect')
+      pulseClickRing()
+      await wait(INSPECT_MS)
+      if (cancelled) {
+        return
+      }
+
+      // Anchor the annotate popover to the Starter card's actual position so
+      // it lines up regardless of how the parent grid lays out.
+      if (browserPageRef.current && starterCardRef.current) {
+        const pageRect = browserPageRef.current.getBoundingClientRect()
+        const cardRect = starterCardRef.current.getBoundingClientRect()
+        setAnnotateAnchor({
+          left: cardRect.right - pageRect.left + 6,
+          top: cardRect.top - pageRect.top
+        })
+      }
+      setPhase('annotate')
+      await wait(ANNOTATE_OPEN_MS)
+      if (cancelled) {
+        return
+      }
+      for (let i = 1; i <= PROMPT_TEXT.length; i += 1) {
+        if (cancelled) {
+          return
+        }
+        setTypedChars(i)
+        await wait(ANNOTATE_TYPE_INTERVAL_MS)
+      }
+      await wait(ANNOTATE_HOLD_MS)
+      if (cancelled) {
+        return
+      }
+
+      const sendPos = transformForElement(sendBtnRef.current)
+      setCursorTo(sendPos.x, sendPos.y)
+      setPhase('send-approach')
+      await wait(SEND_APPROACH_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('send-click')
+      pulseClickRing()
+      await wait(SEND_CLICK_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('handoff')
+      await wait(HANDOFF_MS)
+      if (cancelled) {
+        return
+      }
+
+      // Split lands. Working line + prompt are gated on phase >= 'working';
+      // small stagger keeps them from popping in simultaneously.
+      setPhase('working')
+      await wait(WORKING_LINE_STAGGER_MS * 2)
+      if (cancelled) {
+        return
+      }
+      await wait(WORKING_HOLD_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('updated')
+      await wait(UPDATED_HOLD_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('verify-intent')
+      await wait(VERIFY_INTENT_MS)
+      if (cancelled) {
+        return
+      }
+
+      const ctaPos = transformForElement(ctaRef.current)
+      setCursorTo(ctaPos.x, ctaPos.y)
+      setPhase('click-approach')
+      await wait(CLICK_APPROACH_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('click-press')
+      pulseClickRing()
+      await wait(CLICK_PRESS_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('navigated')
+      await wait(NAVIGATED_HOLD_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('screenshot-line')
+      await wait(SCREENSHOT_LINE_HOLD_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('screenshot-flash')
+      setFlashKey((k) => k + 1)
+      await wait(SCREENSHOT_FLASH_HOLD_MS)
+      if (cancelled) {
+        return
+      }
+
+      setPhase('verified')
+      onCycleComplete?.()
     }
 
-    loop()
+    // Why: a single sub-five-second pass communicates cause and result without
+    // leaving users with an indefinitely moving surface.
+    void runOnce()
     return () => {
       cancelled = true
       timeouts.forEach((id) => window.clearTimeout(id))
@@ -495,7 +488,7 @@ export function BrowserAnimatedVisual(props: {
   const bodyOverflowVisible = isIntroPhase
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" data-feature-wall-browser-phase={phase}>
       <div className="relative w-full" style={{ height: 270 }}>
         <div
           className="absolute inset-0 grid transition-[grid-template-columns,gap] duration-500 ease-out"
@@ -573,7 +566,7 @@ export function BrowserAnimatedVisual(props: {
                       'New Browser Tab'
                     )}
                   </span>
-                  <span className="font-mono text-[10.5px] text-muted-foreground">
+                  <span className="font-mono text-[11px] text-muted-foreground">
                     {newBrowserShortcutLabel}
                   </span>
                 </div>
@@ -651,20 +644,20 @@ export function BrowserAnimatedVisual(props: {
                 <div
                   aria-hidden={!annotateOpen}
                   className={cn(
-                    'pointer-events-none absolute z-30 flex origin-top-left flex-col gap-1.5 rounded-md px-[9px] pb-[7px] pt-2 text-[10px] transition-[opacity,transform] duration-200',
+                    'pointer-events-none absolute z-30 flex origin-top-left flex-col gap-1.5 rounded-md px-[9px] pb-[7px] pt-2 text-[11px] transition-[opacity,transform] duration-200',
                     TOUR_FLOATING_SURFACE_CLASS,
                     annotateOpen ? 'scale-100 opacity-100' : 'scale-[0.96] opacity-0'
                   )}
-                  style={{ left: annotateAnchor.left, top: annotateAnchor.top, width: 188 }}
+                  style={{ left: annotateAnchor.left, top: annotateAnchor.top, width: 232 }}
                 >
-                  <span className="block w-full shrink-0 truncate font-mono text-[9.5px] leading-none text-muted-foreground">
+                  <span className="block w-full shrink-0 truncate font-mono text-[11px] leading-none text-muted-foreground">
                     {translate(
                       'auto.components.feature.wall.BrowserAnimatedVisual.d8856b604a',
                       'div.pricing-grid > div.card.starter:nth-of-type(1) > a.cta'
                     )}
                   </span>
                   <span aria-hidden className="h-px w-full shrink-0 bg-popover-foreground/10" />
-                  <div className="min-h-[28px] flex-1 break-words font-sans text-[10px] leading-[1.35] text-popover-foreground">
+                  <div className="min-h-[28px] flex-1 break-words font-sans text-[11px] leading-[1.35] text-popover-foreground">
                     {typedChars > 0 ? (
                       <>
                         {PROMPT_TEXT.slice(0, typedChars)}
@@ -679,6 +672,7 @@ export function BrowserAnimatedVisual(props: {
                       </span>
                     )}
                   </div>
+                  <BrowserDesignPayloadSummary />
                   <div className="flex justify-end">
                     <span
                       ref={sendBtnRef}
@@ -723,11 +717,11 @@ export function BrowserAnimatedVisual(props: {
 
           <div
             className={cn(
-              'flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card font-mono text-[10px] text-card-foreground shadow-xs transition-[opacity,transform] duration-500',
+              'flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card font-mono text-[11px] text-card-foreground shadow-xs transition-[opacity,transform] duration-500',
               isSplit ? 'translate-x-0 opacity-100' : 'translate-x-2 opacity-0'
             )}
           >
-            <div className="flex h-5 shrink-0 items-center gap-1.5 border-b border-border bg-muted/40 px-2 text-[9.5px] font-medium text-foreground">
+            <div className="flex h-5 shrink-0 items-center gap-1.5 border-b border-border bg-muted/40 px-2 text-[11px] font-medium text-foreground">
               <ClaudeIcon size={11} />
               <span>
                 {translate(
@@ -736,6 +730,11 @@ export function BrowserAnimatedVisual(props: {
                 )}
               </span>
             </div>
+            {isSplit ? (
+              <div className="border-b border-border bg-muted/20 px-2 py-1.5 font-sans">
+                <BrowserDesignPayloadSummary mode="sent" />
+              </div>
+            ) : null}
             <div className="flex flex-1 flex-col gap-1 px-2 py-2 leading-snug">
               {TERM_ENTRIES.map(({ entry, minPhase }, i) => (
                 <TerminalLine key={i} visible={phaseAtLeast(phase, minPhase)}>

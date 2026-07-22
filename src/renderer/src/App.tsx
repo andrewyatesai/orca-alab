@@ -52,6 +52,7 @@ import { ActivityTitlebarControls } from './components/activity/ActivityTitlebar
 import Sidebar from './components/Sidebar'
 import { shutdownBufferCaptures } from './components/terminal-pane/shutdown-buffer-captures'
 import { TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT } from '../../shared/terminal-scrollback-limits'
+import { FLOATING_TERMINAL_WORKTREE_ID } from '../../shared/constants'
 import { dispatchWindowCloseRequest } from './components/window-close-request-coordinator'
 import {
   getSystemPrefersDarkSnapshot,
@@ -139,6 +140,10 @@ import {
   getStartupErrorFallbackUI,
   hydratePersistedUIAfterStartupRead
 } from './lib/startup-ui-hydration'
+import {
+  getReusableFloatingWorkspaceTerminal,
+  getStartupFloatingWorkspaceDecision
+} from './lib/startup-floating-workspace'
 import {
   logRendererStartupDiagnostic,
   timeRendererStartupStep,
@@ -413,6 +418,7 @@ function App(): React.JSX.Element {
   useRadixBodyPointerEventsRecovery()
   useWebSessionTabsSync()
   const [floatingTerminalOpen, setFloatingTerminalOpen] = useState(false)
+  const startupFloatingWorkspaceDecisionHandledRef = useRef(false)
   const floatingWorkspaceTourInteractionSnapshotRef = useRef<{
     wasPreviouslyInteracted?: boolean
     persisted?: Promise<void>
@@ -490,6 +496,7 @@ function App(): React.JSX.Element {
   const worktreeSidebarScrollAnchorRef = useRef<VirtualizedScrollAnchor>(null)
   const floatingVisibleTabCount = useAppStore(selectFloatingVisibleTabCount)
   const workspaceSessionReady = useAppStore((s) => s.workspaceSessionReady)
+  const hydrationSucceeded = useAppStore((s) => s.hydrationSucceeded)
   const backgroundTerminalMountRequested = useSyncExternalStore(
     subscribeBackgroundTerminalWorktreeMountRequests,
     hasRequestedBackgroundTerminalWorktreeMount,
@@ -1093,6 +1100,59 @@ function App(): React.JSX.Element {
       abortController.abort()
     }
   }, [actions])
+
+  useEffect(() => {
+    const decision = getStartupFloatingWorkspaceDecision({
+      activeView,
+      activeWorktreeId,
+      creationLayoutActive,
+      floatingWorkspaceEnabled: floatingTerminalEnabled,
+      hydrationSucceeded,
+      onboardingLoaded,
+      onboardingVisible: shouldRenderOnboarding,
+      persistedUIReady,
+      startupDecisionHandled: startupFloatingWorkspaceDecisionHandledRef.current
+    })
+    if (decision === 'wait') {
+      return
+    }
+
+    // Why: startup owns one decision only; later closes or blocker changes must not reopen the panel.
+    startupFloatingWorkspaceDecisionHandledRef.current = true
+    if (decision === 'suppress') {
+      return
+    }
+
+    const state = useAppStore.getState()
+    const reusableTerminal = getReusableFloatingWorkspaceTerminal(
+      state.tabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? [],
+      state.unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? []
+    )
+    if (reusableTerminal) {
+      state.activateTab(reusableTerminal.unifiedTabId)
+      state.setActiveTab(reusableTerminal.terminalTabId)
+    } else {
+      // Why: the global scratch workspace always executes locally, even when the selected runtime is SSH.
+      const terminal = state.createTab(FLOATING_TERMINAL_WORKTREE_ID, undefined, undefined, {
+        activate: false,
+        recordInteraction: false
+      })
+      state.activateTab(terminal.id)
+      state.setActiveTab(terminal.id)
+    }
+    requestFloatingTerminalOpenMaximized()
+    setFloatingTerminalOpenWithFocus(true)
+  }, [
+    activeView,
+    activeWorktreeId,
+    creationLayoutActive,
+    floatingTerminalEnabled,
+    hydrationSucceeded,
+    onboardingLoaded,
+    persistedUIReady,
+    setFloatingTerminalOpenWithFocus,
+    shouldRenderOnboarding
+  ])
 
   useEffect(() => {
     setRuntimeGraphStoreStateGetter(useAppStore.getState)

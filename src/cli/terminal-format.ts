@@ -171,6 +171,11 @@ export function formatTerminalClose(result: { close: RuntimeTerminalClose }): st
   if (result.close.closeMode === 'tab') {
     return `Closed terminal tab ${result.close.tabId} (${result.close.handle}).`
   }
+  if (result.close.closeMode === 'pty') {
+    // Why: tells orchestrators no tab was closed — the live tabless PTY was killed instead (#9193).
+    const ptyNote = result.close.ptyKilled ? ' PTY killed.' : ' PTY kill failed.'
+    return `Terminal ${result.close.handle} had no tab to close.${ptyNote}`
+  }
   const ptyNote = result.close.ptyKilled ? ' PTY killed.' : ''
   return `Closed terminal ${result.close.handle}.${ptyNote}`
 }

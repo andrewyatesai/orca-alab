@@ -20072,6 +20072,139 @@ describe('OrcaRuntimeService', () => {
     expect(flushOrThrow).toHaveBeenCalledTimes(1)
   })
 
+  it("closeTerminalTab kills a live pty-backed handle with no tab binding and reports closeMode 'pty'", async () => {
+    // Why: restart adoption records daemon-surviving PTYs without a tab binding (#9193); `--tab` close must converge on the kill, not throw not-found.
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-orphan`
+    const kill = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }]
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+    expect(terminal.tabId).toBe(`pty:${ptyId}`)
+
+    await expect(runtime.closeTerminalTab(terminal.handle)).resolves.toEqual({
+      handle: terminal.handle,
+      tabId: `pty:${ptyId}`,
+      closeMode: 'pty',
+      ptyKilled: true
+    })
+    expect(kill).toHaveBeenCalledWith(ptyId)
+  })
+
+  it('closeTerminal and closeTerminalTab agree for a restart-adopted tabless PTY', async () => {
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-orphan-agree`
+    const kill = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }]
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    const tabClose = await runtime.closeTerminalTab(terminal.handle)
+    const paneClose = await runtime.closeTerminal(terminal.handle)
+
+    // Why: the reported divergence was not-found on one path, kill on the other; both paths must share one liveness model.
+    expect(tabClose).toEqual({
+      handle: terminal.handle,
+      tabId: `pty:${ptyId}`,
+      closeMode: 'pty',
+      ptyKilled: true
+    })
+    expect(paneClose).toEqual({ handle: terminal.handle, tabId: `pty:${ptyId}`, ptyKilled: true })
+    expect(kill).toHaveBeenCalledTimes(2)
+    expect(kill).toHaveBeenNthCalledWith(1, ptyId)
+    expect(kill).toHaveBeenNthCalledWith(2, ptyId)
+  })
+
+  it('killed tabless handle disappears from listTerminals and worktree projections', async () => {
+    const ptyId = `${TEST_WORKTREE_ID}@@pty-orphan-gone`
+    let daemonSessions = [{ id: ptyId, cwd: TEST_WORKTREE_PATH, title: 'shell' }]
+    const kill = vi.fn(() => true)
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => daemonSessions
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+    const [terminal] = (await runtime.listTerminals()).terminals
+    const before = await runtime.getWorktreePs()
+    expect(
+      before.worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
+    ).toMatchObject({ liveTerminalCount: 1, hasAttachedPty: true })
+
+    await runtime.closeTerminalTab(terminal.handle)
+    // Why: the provider exit callback is the physical-death proof the kill path relies on; no extra cleanup code should be needed.
+    daemonSessions = []
+    runtime.onPtyExit(ptyId, 0)
+
+    expect((await runtime.listTerminals()).terminals).toEqual([])
+    const after = await runtime.getWorktreePs()
+    expect(
+      after.worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
+    ).toMatchObject({ liveTerminalCount: 0, hasAttachedPty: false })
+  })
+
+  it('keeps the durable whole-tab close for a pty-backed handle with a live tab binding', async () => {
+    // Why: pins #8958/#9114 behavior — the #9193 convergence must only fire when no tab exists.
+    const { runtimeStore } = makeRuntimeStoreWithWorkspaceSession(
+      makeWorkspaceSessionWithHeadlessTerminal({
+        tabsByWorktree: {
+          [TEST_WORKTREE_ID]: [
+            {
+              id: 'laptop-tab',
+              ptyId: null,
+              worktreeId: TEST_WORKTREE_ID,
+              title: 'Durable',
+              customTitle: null,
+              color: null,
+              sortOrder: 0,
+              createdAt: 1
+            }
+          ]
+        },
+        terminalLayoutsByTabId: {
+          'laptop-tab': makeHeadlessTerminalLayout({ [HEADLESS_LEAF_ID]: undefined })
+        }
+      })
+    )
+    const spawn = vi.fn().mockResolvedValue({ id: 'laptop-created-pty' })
+    const kill = vi.fn(() => true)
+    const runtime = new OrcaRuntimeService({ ...runtimeStore, flushOrThrow: vi.fn() } as never)
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill,
+      getForegroundProcess: async () => null
+    })
+    runtime.syncWindowGraph(0, { tabs: [], leaves: [] })
+    const terminal = await runtime.createTerminal(`id:${TEST_WORKTREE_ID}`, {
+      tabId: 'laptop-tab',
+      leafId: HEADLESS_LEAF_ID
+    })
+
+    await expect(runtime.closeTerminalTab(terminal.handle)).resolves.toEqual({
+      handle: terminal.handle,
+      tabId: 'laptop-tab',
+      closeMode: 'tab',
+      ptyKilled: false
+    })
+    expect(kill).toHaveBeenCalledWith('laptop-created-pty')
+  })
+
   it('lists PTY-backed mobile session terminals without a renderer graph', async () => {
     const spawn = vi.fn().mockResolvedValue({ id: 'laptop-created-pty' })
     const runtime = new OrcaRuntimeService(store)

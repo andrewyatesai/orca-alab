@@ -20535,7 +20535,10 @@ export class OrcaRuntimeService {
     if (pty) {
       const tabId = pty.pty.tabId
       if (!tabId) {
-        throw new Error('terminal_tab_not_found')
+        // Why: restart adoption and binding-churn pruning make live tabless PTYs routine (#9193); converge on the pane-close kill so a `--tab` retry can progress instead of looping on not-found.
+        this.claudeAgentTeams.removeTeamForLeaderHandle(handle)
+        const ptyKilled = this.ptyController?.kill(pty.pty.ptyId) ?? false
+        return { handle, tabId: pty.record.tabId, closeMode: 'pty', ptyKilled }
       }
       await this.closeMobileSessionTab(`id:${pty.pty.worktreeId}`, tabId)
       this.claudeAgentTeams.removeTeamForLeaderHandle(handle)

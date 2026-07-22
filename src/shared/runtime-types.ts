@@ -555,8 +555,9 @@ export type RuntimeTerminalFocus = {
 export type RuntimeTerminalClose = {
   handle: string
   tabId: string
-  /** Present for the durable whole-tab lifecycle without changing legacy receipts. */
-  closeMode?: 'tab'
+  /** Present for the durable whole-tab lifecycle without changing legacy receipts.
+   *  'pty' = no tab existed for the handle, so the live PTY was killed instead (#9193). */
+  closeMode?: 'tab' | 'pty'
   ptyKilled: boolean
 }
 

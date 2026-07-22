@@ -3,7 +3,7 @@ import { attachAtermSelectionInput } from './aterm-selection-input'
 import { attachAtermEventReportingInput } from './aterm-event-reporting-input'
 import { attachAtermLinkInput } from './aterm-link-input'
 import { createAtermLinkTooltip } from './aterm-link-tooltip'
-import { createAtermUrlOpener } from './aterm-url-link-routing'
+import { createAtermOscLinkOpener, createAtermUrlOpener } from './aterm-url-link-routing'
 import { copyAtermSelectionToClipboard } from './aterm-clipboard-copy'
 import type { AtermMetrics } from './aterm-grid-reflow'
 import type { AtermSharedLateBindings } from './aterm-pane-wiring'
@@ -108,6 +108,9 @@ export function attachAtermPointerInputs({
   // URL/file-path openers are held in `shared` so a GPU→CPU rebuild keeps the
   // late-bound openers the lifecycle set on the prior controller.
   const openUrl = createAtermUrlOpener(() => shared.activeLinkContext)
+  // Kind-0 OSC-8 targets get the scheme-aware router (file://, Windows paths);
+  // same late-bound context, so a GPU→CPU rebuild keeps both openers aligned.
+  const openOscUrl = createAtermOscLinkOpener(() => shared.activeLinkContext)
 
   // The hover tooltip DOM overlay (main-thread on all draw paths); the link
   // input feeds it hover/leave, and it consumes PaneManagerOptions'
@@ -127,6 +130,7 @@ export function attachAtermPointerInputs({
     redraw: scheduleDraw,
     isDisposed,
     openUrl,
+    openOscUrl,
     getFileLinkOpener: () => shared.fileLinkOpener,
     getLinkProviders: () => shared.linkProviderSource?.() ?? [],
     linkTooltip,

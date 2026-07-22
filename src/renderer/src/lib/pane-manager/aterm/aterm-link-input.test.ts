@@ -63,6 +63,7 @@ function mount(
     redraw,
     isDisposed: () => false,
     openUrl: vi.fn(),
+    openOscUrl: vi.fn(),
     getFileLinkOpener: () => null,
     getLinkProviders: () => [providerWithLink(link)],
     linkTooltip
@@ -147,6 +148,97 @@ describe('attachAtermLinkInput provider links', () => {
   })
 })
 
+describe('attachAtermLinkInput engine link kinds (#6880)', () => {
+  function mountEngineLink(hit: { url: string; kind: number }): {
+    canvas: HTMLCanvasElement
+    input: AtermLinkInput
+    openUrl: ReturnType<typeof vi.fn>
+    openOscUrl: ReturnType<typeof vi.fn>
+  } {
+    const canvas = document.createElement('canvas')
+    document.body.appendChild(canvas)
+    const term = {
+      is_alt_screen: false,
+      is_mouse_tracking: false,
+      display_origin_absolute: 0,
+      link_at: () => ({ start_col: 0, end_col: 6, ...hit })
+    } as unknown as AtermTerminal
+    const openUrl = vi.fn()
+    const openOscUrl = vi.fn()
+    const input = attachAtermLinkInput({
+      canvas,
+      term,
+      metrics: { dpr: 1, cellWidth: CELL_W, cellHeight: CELL_H },
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      openUrl,
+      openOscUrl,
+      getFileLinkOpener: () => null
+    })
+    return { canvas, input, openUrl, openOscUrl }
+  }
+
+  it('kind-0 OSC 8 hit routes through the OSC opener, not the HTTP opener', () => {
+    const { canvas, input, openUrl, openOscUrl } = mountEngineLink({
+      url: 'file:///tmp/report.txt',
+      kind: 0
+    })
+    const click = mouseEventAtCell('click', 2, 0, { ctrlKey: true })
+    canvas.dispatchEvent(click)
+    expect(openOscUrl).toHaveBeenCalledTimes(1)
+    expect(openOscUrl.mock.calls[0][0]).toBe('file:///tmp/report.txt')
+    // The raw MouseEvent travels with the hit (the scheme router reads Shift/modifiers).
+    expect(openOscUrl.mock.calls[0][1]).toBe(click)
+    expect(openUrl).not.toHaveBeenCalled()
+    expect(click.defaultPrevented).toBe(true)
+    input.dispose()
+  })
+
+  it('kind-1 URL hit still uses the HTTP opener (Shift → system browser)', () => {
+    const { canvas, input, openUrl, openOscUrl } = mountEngineLink({
+      url: 'https://example.test/',
+      kind: 1
+    })
+    canvas.dispatchEvent(mouseEventAtCell('click', 2, 0, { ctrlKey: true, shiftKey: true }))
+    expect(openUrl).toHaveBeenCalledWith('https://example.test/', { forceSystemBrowser: true })
+    expect(openOscUrl).not.toHaveBeenCalled()
+    input.dispose()
+  })
+
+  it('worker async click path routes kind 0 through the OSC opener too', async () => {
+    const canvas = document.createElement('canvas')
+    document.body.appendChild(canvas)
+    const term = {
+      is_alt_screen: false,
+      is_mouse_tracking: false,
+      display_origin_absolute: 0,
+      link_at: () => undefined, // lagging sync snapshot has no hit
+      linkAtAsync: () =>
+        Promise.resolve({ url: 'file:///srv/log.txt', kind: 0, start_col: 0, end_col: 6 }),
+      clearHover: vi.fn()
+    } as unknown as AtermTerminal
+    const openUrl = vi.fn()
+    const openOscUrl = vi.fn()
+    const input = attachAtermLinkInput({
+      canvas,
+      term,
+      metrics: { dpr: 1, cellWidth: CELL_W, cellHeight: CELL_H },
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      openUrl,
+      openOscUrl,
+      getFileLinkOpener: () => null
+    })
+    canvas.dispatchEvent(mouseEventAtCell('click', 2, 0, { ctrlKey: true }))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(openOscUrl).toHaveBeenCalledTimes(1)
+    expect(openOscUrl.mock.calls[0][0]).toBe('file:///srv/log.txt')
+    expect(openUrl).not.toHaveBeenCalled()
+    input.dispose()
+  })
+})
+
 describe('attachAtermLinkInput tooltip notifications', () => {
   it('feeds a resolved provider hover to the tooltip sink with its span + text', async () => {
     const link = makeLink()
@@ -195,6 +287,7 @@ describe('attachAtermLinkInput resetHoverCache', () => {
       redraw: vi.fn(),
       isDisposed: () => false,
       openUrl: vi.fn(),
+      openOscUrl: vi.fn(),
       getFileLinkOpener: () => null
     })
 

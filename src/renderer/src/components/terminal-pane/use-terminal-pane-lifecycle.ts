@@ -42,6 +42,8 @@ import { createTerminalHandleLinkProvider } from './terminal-handle-links'
 import type { LinkHandlerDeps } from './terminal-link-handlers'
 import type { TerminalPathExistsCache } from './terminal-path-exists-cache'
 import { handleOscLink } from './terminal-osc-link-routing'
+import { buildAtermPaneLinkContext } from './aterm-pane-link-context'
+import type { AtermLinkContext } from '@/lib/pane-manager/aterm/aterm-url-link-routing'
 import {
   installHttpLinkClickFallback,
   type TerminalLinkRoutingPreferenceRequester
@@ -732,10 +734,7 @@ export function useTerminalPaneLifecycle({
       id: number
       atermController?: {
         setFileLinkOpener: (fn: (raw: string, sys: boolean) => void) => void
-        setUrlLinkContext: (context: {
-          worktreeId?: string | null
-          requestOpenLinksInAppPreference?: TerminalLinkRoutingPreferenceRequester
-        }) => void
+        setUrlLinkContext: (context: AtermLinkContext) => void
       } | null
     }
 
@@ -750,8 +749,21 @@ export function useTerminalPaneLifecycle({
       if (!controller) {
         return false
       }
-      // Honor the in-app/system-browser preference for URL clicks (kinds 0/1).
-      controller.setUrlLinkContext({ worktreeId, requestOpenLinksInAppPreference })
+      // URL clicks (kind 1) honor the in-app/system-browser preference; kind-0
+      // OSC-8 clicks additionally get the cwd/home/runtime scheme-routing context.
+      controller.setUrlLinkContext(
+        buildAtermPaneLinkContext(
+          {
+            worktreeId,
+            worktreePath,
+            terminalHomePath,
+            requestOpenLinksInAppPreference,
+            getPaneLinkCwd,
+            getRuntimeEnvironmentIdForPane: linkDeps.getRuntimeEnvironmentIdForPane
+          },
+          pane.id
+        )
+      )
       controller.setFileLinkOpener((rawPathText, openWithSystemDefault) => {
         // Parse the matched span the same way the xterm path does, then resolve
         // against the live cwd (startupCwd) + home so relative/tilde paths open.

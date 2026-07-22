@@ -668,11 +668,27 @@ describe('deriveCheckStatus', () => {
   it('logs unknown conclusion/state values and never counts them as success', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
+      // Why: unknown completed conclusion fails closed, matching mapCheckConclusion.
       expect(
         deriveCheckStatus([{ name: 'x', status: 'COMPLETED', conclusion: 'SOME_NEW_VALUE' }])
-      ).toBe('neutral')
+      ).toBe('failure')
       expect(deriveCheckStatus([{ name: 'y', state: 'SOME_NEW_STATE' }])).toBe('neutral')
       expect(warnSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('does not read a rollup of SUCCESS plus an unknown conclusion as green', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const rollup = [
+        { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+        { name: 'new-kind', status: 'COMPLETED', conclusion: 'SOME_FUTURE_CONCLUSION' }
+      ]
+
+      // Why: badge must agree with mapCheckConclusion's detail list, which shows this check failed.
+      expect(deriveCheckStatus(rollup)).toBe('failure')
     } finally {
       warnSpy.mockRestore()
     }

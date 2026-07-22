@@ -264,8 +264,9 @@ function classifyCheckRunEntry(
       case 'NEUTRAL':
         return 'none'
       default: {
+        // Why: fail closed like mapCheckConclusion — an unknown completed conclusion must never read green.
         console.warn(`[github:checks] unknown rollup conclusion: ${c}`)
-        return 'none'
+        return 'failure'
       }
     }
   }

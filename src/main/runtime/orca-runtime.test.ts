@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as GitUsernameModule from '../git/git-username'
 import { performance } from 'node:perf_hooks'
 import { EventEmitter } from 'node:events'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
@@ -41,12 +41,14 @@ import {
   getEffectiveHooks,
   getEffectiveHooksFromConfig,
   getDefaultTabsLaunch,
+  getSharedCommandTrustContent,
   hasHooksFile,
   loadHooks,
   parseOrcaYaml,
   runHook,
   shouldRunSetupForCreate
 } from '../hooks'
+import { getSharedCommandTrustContent as sharedCommandTrustContentSource } from '../../shared/orca-yaml-trust-content'
 import { getBaseRefDefault, getBranchConflictKind } from '../git/repo'
 import type { OrchestrationDb } from './orchestration/db'
 import type { MessagePriority, MessageRow, MessageType } from './orchestration/types'
@@ -5290,6 +5292,80 @@ describe('OrcaRuntimeService', () => {
         scriptContent: 'echo yaml setup'
       }
     })
+  })
+
+  // Wave-1 waiver composition pin (1E → orca-runtime.ts, claimed by 1A): the
+  // runtime hooks-snapshot call sites hash through the SAME shared trust-content
+  // function the renderer imports (shared/orca-yaml-trust-content), so the
+  // getDefaultTabCommandTrustContent → getSharedCommandTrustContent rename
+  // cannot split the trust hash across main/runtime/renderer.
+  it('getRepoHooks hashes the full shared command trust content identically to the renderer source module', async () => {
+    const fullHooks = {
+      scripts: { setup: 'pnpm install' },
+      defaultTabs: [{ title: 'Dev', command: 'pnpm dev' }],
+      quickCommands: [
+        { label: 'Rebuild', command: 'make rebuild' },
+        { label: 'Fix', action: 'agent-prompt', agent: 'claude', prompt: 'fix the failing test' }
+      ]
+    } as never
+    const previousTrustContentImpl = vi.mocked(getSharedCommandTrustContent).getMockImplementation()
+    // Route the runtime's production call sites through the REAL shared module
+    // (the exact module ensure-hooks-confirmed/use-project-quick-commands import).
+    vi.mocked(getSharedCommandTrustContent).mockImplementation(
+      sharedCommandTrustContentSource as never
+    )
+    try {
+      const expectedContent = sharedCommandTrustContentSource(fullHooks)
+      // The renamed function must cover ALL repo-controlled command bytes.
+      expect(expectedContent).toContain('pnpm install')
+      expect(expectedContent).toContain('# defaultTabs[1] Dev\npnpm dev')
+      expect(expectedContent).toContain('# quickCommands[1] Rebuild\nmake rebuild')
+      expect(expectedContent).toContain(
+        '# quickCommands[2] Fix\nagent-prompt claude: fix the failing test'
+      )
+      const expectedHash = createHash('sha256').update(expectedContent).digest('hex')
+
+      // Local branch (hasHooksFile → loadHooks → getSharedCommandTrustContent).
+      vi.mocked(hasHooksFile).mockReturnValue(true)
+      vi.mocked(loadHooks).mockReturnValue(fullHooks)
+      vi.mocked(getEffectiveHooks).mockReturnValue(fullHooks)
+      const runtime = new OrcaRuntimeService(store as never)
+      await expect(runtime.getRepoHooks('id:repo-1')).resolves.toMatchObject({
+        setupTrust: { contentHash: expectedHash, scriptContent: expectedContent }
+      })
+
+      // SSH branch (fsProvider → parseOrcaYaml → getSharedCommandTrustContent).
+      const remoteStore = {
+        ...store,
+        getRepos: () => [
+          {
+            id: TEST_REPO_ID,
+            path: '/remote/repo',
+            displayName: 'repo',
+            badgeColor: 'blue',
+            addedAt: 1,
+            connectionId: 'ssh-1'
+          }
+        ]
+      }
+      const fsProvider = {
+        readFile: vi.fn().mockResolvedValue({ content: 'orca yaml bytes', isBinary: false })
+      }
+      vi.mocked(parseOrcaYaml).mockReturnValue(fullHooks)
+      registerSshFilesystemProvider('ssh-1', fsProvider as never)
+      try {
+        const remoteRuntime = new OrcaRuntimeService(remoteStore as never)
+        await expect(remoteRuntime.getRepoHooks('id:repo-1')).resolves.toMatchObject({
+          setupTrust: { contentHash: expectedHash, scriptContent: expectedContent }
+        })
+      } finally {
+        unregisterSshFilesystemProvider('ssh-1')
+      }
+    } finally {
+      if (previousTrustContentImpl) {
+        vi.mocked(getSharedCommandTrustContent).mockImplementation(previousTrustContentImpl)
+      }
+    }
   })
 
   it('uses remote path joins for SSH hook checks and issue-command files', async () => {

@@ -30,6 +30,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { runRelayGitRemoteCommand } from '../../relay/relay-git-remote-command'
 import { createHandlers, requestContext } from '../../relay/agent-exec-handler-test-harness'
 import { wrapRemoteCommandForPosixShell } from './ssh-connection-utils'
+import { SshConnection } from './ssh-connection'
+import { execCommand, isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
+import type { SshTarget } from '../../shared/ssh-types'
 
 // Skip is environment-only: win32 has no POSIX login shells or process groups.
 // On POSIX hosts both shells always run — bash real, fish via the stub.
@@ -276,6 +279,147 @@ describePosix(
   }
 )
 
+type SystemSshExecFixture = {
+  dir: string
+  sshShimPath: string
+  inner: string
+  sshPidFile: string
+  shPidFile: string
+  wrappedLineFile: string
+  doneFile: string
+}
+
+// Why: the ssh2 loop needs a live sshd; ORCA_SYSTEM_SSH_PATH is the production
+// seam that lets the REAL execCommand → SshConnection.exec →
+// spawnTrackedSystemSshCommand → spawnSystemSshCommand chain run against a
+// local stand-in. The shim receives the argv OpenSSH would get — the wrapped
+// line is its final argument, exactly what sshd hands the remote login shell —
+// and execs the login shell on it with stdio detached like a remote hop.
+function buildSystemSshExecFixture(shellCase: LoginShellCase): SystemSshExecFixture {
+  const dir = makeTempDir()
+  const loginShellPath = shellCase.resolvePath(dir)
+  const sshPidFile = join(dir, 'ssh-pid')
+  const shPidFile = join(dir, 'sh-pid')
+  const wrappedLineFile = join(dir, 'wrapped-line')
+  const doneFile = join(dir, 'done')
+  const inner = `printf %s "$$" > '${shPidFile}'; sleep 30; echo finished > '${doneFile}'`
+  const sshShimPath = join(dir, 'orca-test-ssh')
+  writeExecutable(
+    sshShimPath,
+    '#!/bin/sh\n' +
+      'for arg in "$@"; do last=$arg; done\n' +
+      `printf %s "$last" > '${wrappedLineFile}'\n` +
+      `printf %s "$$" > '${sshPidFile}'\n` +
+      // Detach stdio before exec so descendants hold no local pipes — the
+      // channel close then reflects only the local ssh process's death, the
+      // exact unconfirmed-teardown semantics execCommand must preserve.
+      `exec '${loginShellPath}' -c "$last" < /dev/null > /dev/null 2>&1\n`
+  )
+  return { dir, sshShimPath, inner, sshPidFile, shPidFile, wrappedLineFile, doneFile }
+}
+
+// Why: no live connection exists in unit scope; force the post-connect
+// system-ssh transport state so exec() takes its production channel path.
+function createConnectedSystemSshConnection(): SshConnection {
+  const target: SshTarget = {
+    id: 'kill-timeout-target',
+    label: 'kill-timeout-target',
+    host: '127.0.0.1',
+    port: 22,
+    username: 'orca-test',
+    // Why: no ControlMaster socket — each exec must spawn the shim directly.
+    systemSshConnectionReuse: false
+  }
+  const conn = new SshConnection(target, { onStateChange: () => undefined })
+  ;(conn as unknown as { useSystemSshTransport: boolean }).useSystemSshTransport = true
+  ;(conn as unknown as { state: { status: string } }).state.status = 'connected'
+  return conn
+}
+
+async function readStartedSystemSshTree(
+  fixture: SystemSshExecFixture
+): Promise<{ sshPid: number; shPid: number }> {
+  await waitFor(
+    () => existsSync(fixture.sshPidFile) && existsSync(fixture.shPidFile),
+    10_000,
+    'system-ssh wrapped command start'
+  )
+  const sshPid = Number(readFileSync(fixture.sshPidFile, 'utf8').trim())
+  const shPid = Number(readFileSync(fixture.shPidFile, 'utf8').trim())
+  lingeringPids.push(sshPid, shPid)
+  return { sshPid, shPid }
+}
+
+describePosix(
+  'relay exec path: execCommand → SshConnection.exec channel-close abort/timeout semantics (#7715)',
+  () => {
+    afterEach(() => {
+      delete process.env.ORCA_SYSTEM_SSH_PATH
+    })
+
+    for (const shellCase of SHELL_CASES) {
+      it(`${shellCase.label}: abort closes the exec channel, SIGTERMs the login shell, and rejects unconfirmed`, async () => {
+        const fixture = buildSystemSshExecFixture(shellCase)
+        process.env.ORCA_SYSTEM_SSH_PATH = fixture.sshShimPath
+        const conn = createConnectedSystemSshConnection()
+        const controller = new AbortController()
+        const pending = execCommand(conn, fixture.inner, {
+          signal: controller.signal,
+          timeoutMs: 60_000
+        })
+        const settledError = pending.then(
+          () => null,
+          (error: Error) => error
+        )
+        const { sshPid } = await readStartedSystemSshTree(fixture)
+        // Pin: the exec path applied the production wrapper — the shim's final
+        // argument is byte-identical to the line sshd would hand a login shell.
+        expect(readFileSync(fixture.wrappedLineFile, 'utf8'), `under ${shellCase.label}`).toBe(
+          wrapRemoteCommandForPosixShell(fixture.inner)
+        )
+        controller.abort()
+        const error = await settledError
+        expect(error).toBeInstanceOf(Error)
+        expect(error?.name, `under ${shellCase.label}`).toBe('AbortError')
+        expect(error?.message).toBe('SSH operation was cancelled')
+        // Pin: a system-ssh channel close proves only the LOCAL process died;
+        // callers gating cleanup (install locks) must see it as unconfirmed.
+        expect(isUnconfirmedSshCommandTermination(error), `under ${shellCase.label}`).toBe(true)
+        // The channel close delivered SIGTERM to the exec'd login shell.
+        await waitFor(
+          () => !pidAlive(sshPid),
+          5_000,
+          `${shellCase.label} login-shell death after exec-channel abort`
+        )
+        expect(existsSync(fixture.doneFile), `under ${shellCase.label}`).toBe(false)
+      }, 30_000)
+
+      it(`${shellCase.label}: execCommand timeout closes the channel and rejects with the timeout message`, async () => {
+        const fixture = buildSystemSshExecFixture(shellCase)
+        process.env.ORCA_SYSTEM_SSH_PATH = fixture.sshShimPath
+        const conn = createConnectedSystemSshConnection()
+        const pending = execCommand(conn, fixture.inner, { timeoutMs: 1_000 })
+        const settledError = pending.then(
+          () => null,
+          (error: Error) => error
+        )
+        const { sshPid } = await readStartedSystemSshTree(fixture)
+        const error = await settledError
+        expect(error?.message, `under ${shellCase.label}`).toBe(
+          `Command "${fixture.inner}" timed out after 1s`
+        )
+        expect(isUnconfirmedSshCommandTermination(error), `under ${shellCase.label}`).toBe(true)
+        await waitFor(
+          () => !pidAlive(sshPid),
+          5_000,
+          `${shellCase.label} login-shell death after exec-channel timeout`
+        )
+        expect(existsSync(fixture.doneFile), `under ${shellCase.label}`).toBe(false)
+      }, 30_000)
+    }
+  }
+)
+
 describePosix(
   'execNonInteractive timeout path: AgentExecHandler kills the login-shell hook child',
   () => {
@@ -311,11 +455,7 @@ describePosix(
         expect(result, `under ${shellCase.label}`).toMatchObject({ timedOut: true, exitCode: null })
         expect(result.canceled, `under ${shellCase.label}`).toBeFalsy()
         // The SIGKILL must land on the shell actually interpreting the hook.
-        await waitFor(
-          () => !pidAlive(shellPid),
-          5_000,
-          `${shellCase.label} hook interpreter death`
-        )
+        await waitFor(() => !pidAlive(shellPid), 5_000, `${shellCase.label} hook interpreter death`)
         // Only the (now dead) interpreter writes `done`, so the sequence can
         // never resume after the timeout. (The forked `sleep` may linger
         // briefly as an orphan; it writes nothing and exits on its own.)

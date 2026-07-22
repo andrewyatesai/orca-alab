@@ -10,7 +10,8 @@ import { workerWasmHeapBytes, type EngineHandle } from './aterm-worker-engine-bu
 import { createWorkerPredictor, type WorkerPredictor } from './aterm-worker-predictor'
 import { applyAtermWorkerThemeSet } from './aterm-worker-theme-apply'
 import { hasAtermSpillExports } from './aterm-spill-engine-read'
-import { answerSearchFindQuery, createWorkerSearch } from './aterm-worker-search'
+import { createWorkerSearch } from './aterm-worker-search'
+import { answerWorkerTerminalQuery } from './aterm-worker-terminal-query'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
 import { createAtermWorkerEffectsTick } from './aterm-worker-effects-tick'
 import { createWorkerScrollPx } from './aterm-worker-scroll-px'
@@ -124,7 +125,6 @@ export function createWorkerTerminal(
     arg: number | undefined,
     arg2: number | undefined,
     text?: string,
-    /** The query id — a searchFind echoes it back as STATE.searchGeneration. */
     queryId?: number
   ) => string | number | boolean | null
   /** Capped serialize for the debounced shutdown cache (full + scrollback-only). */
@@ -345,43 +345,8 @@ export function createWorkerTerminal(
       // (legacy modes emit bytes ≥ 0x80) so the report isn't truncated.
       return decodeMouseReport(bytes)
     },
-    query: (kind, arg, arg2, text, queryId) => {
-      switch (kind) {
-        case 'searchFind':
-          // Run the find NOW (user-initiated — never cost-gated); the query id IS the
-          // request generation — echoed via STATE.searchGeneration for the pending label.
-          return answerSearchFindQuery(search, arg, text, queryId ?? 0)
-        case 'serialize':
-          return e.serialize(arg ?? undefined)
-        case 'serializeScrollback':
-          return e.serialize_scrollback(arg ?? undefined)
-        case 'selectionText':
-          return e.selection_text() ?? ''
-        case 'rowText':
-          return e.row_text(arg ?? 0) ?? null
-        case 'rowLen':
-          return e.row_len(arg ?? 0) ?? null
-        case 'rowWrapped':
-          return e.row_is_wrapped(arg ?? 0) ?? null
-        case 'cellText':
-          return e.cell_text(arg ?? 0, arg2 ?? 0)
-        case 'cellWide':
-          return e.cell_is_wide(arg ?? 0, arg2 ?? 0) ?? null
-        case 'linkAt': {
-          const hit = e.link_at(arg ?? 0, arg2 ?? 0)
-          return hit
-            ? JSON.stringify({
-                url: hit.url,
-                kind: hit.kind,
-                start_col: hit.start_col,
-                end_col: hit.end_col
-              })
-            : null
-        }
-        default:
-          return null
-      }
-    },
+    query: (kind, arg, arg2, text, queryId) =>
+      answerWorkerTerminalQuery(e, search, kind, arg, arg2, text, queryId),
     // Cap the cached serialize so the debounced push + the sync shutdown read stay
     // bounded (ample scrollback for session restore; the awaitable save paths use the
     // uncapped query round-trip).

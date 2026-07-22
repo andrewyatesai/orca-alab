@@ -108,7 +108,8 @@ describe('pane dispatch searchFind supersede skip', () => {
 
     // The newest find still executes, repaints, and answers.
     dispatchPaneCommand(pane, { type: 'query', id: 2, kind: 'searchFind', arg: 0, text: 'ab' })
-    expect(query).toHaveBeenCalledWith('searchFind', 0, undefined, 'ab')
+    // The trailing arg is the query id — the request generation the STATE echoes.
+    expect(query).toHaveBeenCalledWith('searchFind', 0, undefined, 'ab', 2)
     expect(schedule).toHaveBeenCalledTimes(1)
     expect(posted[1]).toEqual({ id: 2, value: '{"count":1,"activeIndex":1}' })
   })

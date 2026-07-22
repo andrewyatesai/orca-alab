@@ -67,8 +67,7 @@ const TERMINAL_COLOR_KEYS = [
   'brightBlue',
   'brightMagenta',
   'brightCyan',
-  'brightWhite',
-  'bold'
+  'brightWhite'
 ] as const satisfies readonly (keyof TerminalColorOverrides)[]
 
 const TERMINAL_ANSI_COLOR_KEYS = [

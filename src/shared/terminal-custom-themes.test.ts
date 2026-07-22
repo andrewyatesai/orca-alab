@@ -90,4 +90,31 @@ describe('terminal custom themes', () => {
   it('expands short hex colors', () => {
     expect(normalizeTerminalHexColor('abc')).toBe('#aabbcc')
   })
+
+  // Why: `bold` was removed from TerminalColorOverrides (#8595 — the engine has no
+  // bold-color input); themes persisted before the removal must still parse, with
+  // the stale key silently dropped.
+  it('tolerates a legacy persisted bold override by dropping it', () => {
+    const themes = normalizeTerminalCustomThemes([
+      {
+        id: 'ghostty:legacy-bold',
+        name: 'Legacy Bold',
+        source: 'ghostty',
+        terminal: {
+          background: '#000000',
+          foreground: '#ffffff',
+          red: '#ff0000',
+          bold: '#ff00ff'
+        }
+      }
+    ])
+
+    expect(themes).toHaveLength(1)
+    expect(themes[0]?.terminal).toEqual({
+      background: '#000000',
+      foreground: '#ffffff',
+      red: '#ff0000'
+    })
+    expect('bold' in (themes[0]?.terminal ?? {})).toBe(false)
+  })
 })

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { contrastRatio, enforceDefaultContrast } from './aterm-theme-colors'
+import {
+  atermThemeColorsFromITheme,
+  contrastRatio,
+  enforceDefaultContrast
+} from './aterm-theme-colors'
 
 // WCAG AA body-text floor the seeded default fg must clear against the default bg
 // (MINOR b) — matches xterm's minimumContrastRatio default.
@@ -35,5 +39,22 @@ describe('enforceDefaultContrast (MINOR b)', () => {
     const fg = 0xd0d0d0
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(MIN_CONTRAST_RATIO)
     expect(enforceDefaultContrast(fg, bg)).toBe(fg)
+  })
+})
+
+describe('atermThemeColorsFromITheme', () => {
+  // Why: settings persisted before the `bold` override was removed (#8595) can still
+  // spread a stale `bold` key into the composed ITheme; the engine seed must ignore
+  // it — the wasm surface has no bold-color input.
+  it('ignores a stale bold key riding on a composed theme', () => {
+    const legacyTheme = {
+      background: '#101010',
+      foreground: '#fafafa',
+      red: '#ff0000',
+      bold: '#ff00ff'
+    }
+    const colors = atermThemeColorsFromITheme(legacyTheme)
+    expect(colors.palette).toEqual([{ index: 1, rgb: 0xff0000 }])
+    expect(colors.bg).toBe(0x101010)
   })
 })

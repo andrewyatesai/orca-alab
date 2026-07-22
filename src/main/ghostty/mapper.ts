@@ -199,12 +199,8 @@ export function mapGhosttyToOrca(
       return { colorOverrides: { cursorAccent: normalizeHex(v) } }
     },
 
-    'bold-color': (v) => {
-      if (!HEX_COLOR_RE.test(v)) {
-        return null
-      }
-      return { colorOverrides: { bold: normalizeHex(v) } }
-    },
+    // Why no 'bold-color' parser: the aterm engine has no bold-color input (#8595),
+    // so the key reports as unsupported instead of persisting a setting nothing consumes.
 
     'mouse-hide-while-typing': (v) => {
       if (v !== 'true' && v !== 'false') {

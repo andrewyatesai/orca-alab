@@ -96,18 +96,6 @@ export const COLOR_OVERRIDE_GROUPS: {
             'Text color of selected text'
           )
         }
-      },
-      {
-        key: 'bold',
-        get label() {
-          return translate('auto.components.settings.TerminalWindowSection.862e463f7f', 'Bold Text')
-        },
-        get description() {
-          return translate(
-            'auto.components.settings.TerminalWindowSection.fb8c6f1967',
-            'Color for bold text. Falls back to the normal color if not set.'
-          )
-        }
       }
     ]
   },

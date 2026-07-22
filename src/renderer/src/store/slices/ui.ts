@@ -35,7 +35,6 @@ import {
   applyManualRepoOrder,
   normalizeManualRepoOrder
 } from '../../../../shared/manual-repo-order'
-import { isTopLevelView } from '../../../../shared/top-level-view'
 import type { UsagePercentageDisplay } from '../../../../shared/usage-percentage-display'
 import {
   DEFAULT_USAGE_PERCENTAGE_DISPLAY,
@@ -487,22 +486,6 @@ function hydratedUIPartialMatchesState(state: AppState, hydrated: Partial<UISlic
   return Object.entries(hydrated).every(([key, value]) =>
     persistedUIValuesEqual(state[key as keyof AppState], value)
   )
-}
-
-function sanitizeHydratedActiveView(
-  value: PersistedUIState['activeView'],
-  experimentalActivityEnabled: boolean
-): TopLevelView {
-  // Why: older data (pre-activeView) or a view a different build doesn't have
-  // falls back to terminal rather than rendering nothing.
-  if (!isTopLevelView(value)) {
-    return 'terminal'
-  }
-  // Why: activity is hidden when its setting is off, so gate only it (mobile/automations stay functional when hidden).
-  if (value === 'activity' && !experimentalActivityEnabled) {
-    return 'terminal'
-  }
-  return value
 }
 
 let agentSendTargetModeInstanceCounter = 0
@@ -2445,11 +2428,9 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         workspaceCleanupDismissals: sanitizeWorkspaceCleanupDismissals(
           ui.workspaceCleanup?.dismissals
         ),
-        // Why: restore only on startup; on 'sync' broadcasts it would clobber the window's current per-window view.
-        activeView:
-          source === 'startup'
-            ? sanitizeHydratedActiveView(ui.activeView, s.settings?.experimentalActivity === true)
-            : s.activeView,
+        // Why: every launch starts in the primary terminal workbench instead of a
+        // persisted secondary page. Sync hydration still preserves per-window navigation.
+        activeView: source === 'startup' ? 'terminal' : s.activeView,
         persistedUIReady: true
       }
       // Why: return the same ref on identical hydration so App's debounced writer doesn't echo it back to main.

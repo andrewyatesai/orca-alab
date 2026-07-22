@@ -92,7 +92,7 @@ export function CliFeatureTipVisual(): JSX.Element {
       </div>
 
       <div className="cli-tip-orchestration-frame relative mt-5 flex h-[17rem] items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-background/80 px-5 shadow-xs">
-        <div className="origin-center">
+        <div className="w-full max-w-[350px] origin-center">
           <AgentsOrchestrationVisual
             activeStepId="orchestration"
             reducedMotion={reducedMotion}

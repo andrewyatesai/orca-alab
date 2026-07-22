@@ -15,6 +15,7 @@ export default function FeatureWallModal(): JSX.Element | null {
   const activeModal = useAppStore((s) => s.activeModal)
   const modalData = useAppStore((s) => s.modalData)
   const closeModal = useAppStore((s) => s.closeModal)
+  const openModal = useAppStore((s) => s.openModal)
   const isOpen = activeModal === 'feature-wall'
   const source = getFeatureWallOpenSource(modalData)
 
@@ -31,27 +32,43 @@ export default function FeatureWallModal(): JSX.Element | null {
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="grid h-[min(780px,calc(100vh-2rem))] w-[min(1240px,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-0 p-0 sm:max-w-none"
+        className="grid h-[min(780px,calc(100vh-2rem))] w-[min(1240px,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-0 p-0 motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none sm:max-w-none"
+        overlayClassName="motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none"
         tabIndex={-1}
       >
-        <DialogHeader className="gap-1 border-b border-border px-7 py-4">
-          <DialogTitle className="text-lg">
+        {/* Why: at Orca's supported minimum height, preserving a visual preview
+            is more useful than spending the first fold on modal chrome. */}
+        <DialogHeader className="gap-0.5 border-b border-border px-4 py-3 [@media(max-height:500px)]:py-2 md:gap-1 md:px-7 md:py-3">
+          <DialogTitle className="text-base md:text-lg">
             {translate(
               'auto.components.feature.wall.FeatureWallModal.3567e147c8',
-              'Get to know Orca'
+              'Explore Orca: ALab Edition'
             )}
           </DialogTitle>
-          {/* Why: Radix requires a description for the dialog to be a11y-compliant,
-              but we don't want it visible - the rail and step copy already orient users. */}
-          <DialogDescription className="sr-only">
+          <DialogDescription className="text-[11px] text-muted-foreground md:text-xs">
             {translate(
-              'auto.components.feature.wall.FeatureWallModal.33dca8bbbe',
-              'A short, workflow-by-workflow tour of Orca.'
+              'auto.components.feature.wall.FeatureWallModal.a140000001',
+              '14 guided screens · about 7 minutes'
             )}
           </DialogDescription>
         </DialogHeader>
 
-        <FeatureWallTourSurface isOpen={isOpen} source={source} onDone={closeModal} />
+        <FeatureWallTourSurface
+          isOpen={isOpen}
+          source={source}
+          doneLabel={translate(
+            'auto.components.feature.wall.FeatureWallModal.a120000001',
+            'Return to Orca'
+          )}
+          finalSecondaryLabel={translate(
+            'auto.components.feature.wall.FeatureWallModal.a130000001',
+            'Finish setup'
+          )}
+          onFinalSecondaryAction={() =>
+            openModal('setup-guide', { telemetrySource: 'feature_wall' })
+          }
+          onDone={closeModal}
+        />
       </DialogContent>
     </Dialog>
   )

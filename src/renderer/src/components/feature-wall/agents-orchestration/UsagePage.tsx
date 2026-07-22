@@ -78,8 +78,21 @@ function Popover(props: {
 }): JSX.Element {
   const { expanded, targeted, swapped, pulseKey } = props
   // Why: bars show % used (consumption), matching the live status-bar meter.
-  const sessionPctText = swapped ? '0% used' : '96% used'
-  const sessionResetText = swapped ? 'Resets in 5h' : 'Resets in 47m'
+  const sessionPctText = swapped
+    ? translate('auto.components.feature.wall.agents.orchestration.UsagePage.h130000001', '0% used')
+    : translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000002',
+        '96% used'
+      )
+  const sessionResetText = swapped
+    ? translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000003',
+        'Resets in 5h'
+      )
+    : translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000004',
+        'Resets in 47m'
+      )
   const sessionFillWidth = swapped ? '0%' : '96%'
   const weeklyFillWidth = '38%'
 
@@ -201,7 +214,10 @@ function Popover(props: {
           <div className="flex flex-col gap-0.5 rounded-lg border border-border bg-foreground/[0.025] p-[3px]">
             <SwitchAccount
               accountWidthClassName="w-24"
-              tag="Team"
+              tag={translate(
+                'auto.components.feature.wall.agents.orchestration.UsagePage.h130000005',
+                'Team'
+              )}
               fillPct={0}
               metaText="0%"
               highlighted={targeted}
@@ -301,7 +317,15 @@ function BottomBar(props: { swapped: boolean }): JSX.Element {
   // Why: match live status-bar consumption meters (% used), same as the popover.
   const codexFillWidth = props.swapped ? '0%' : '96%'
   const codexFillColor = props.swapped ? 'rgb(34 197 94)' : 'rgb(239 68 68)'
-  const codexMeta = props.swapped ? '0% used 5h · 4% used wk' : '96% used 47m'
+  const codexMeta = props.swapped
+    ? translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000006',
+        '0% used 5h · 4% used wk'
+      )
+    : translate(
+        'auto.components.feature.wall.agents.orchestration.UsagePage.h130000007',
+        '96% used 47m'
+      )
   return (
     <div
       className="absolute bottom-[22px] left-1/2 flex -translate-x-1/2 items-center gap-3.5 rounded-lg border border-border bg-muted/60 px-3.5 py-1.5 text-[11px] shadow-[0_1px_2px_rgba(24,24,27,0.04)]"

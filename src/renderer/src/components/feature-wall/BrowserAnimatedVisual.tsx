@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { ClaudeIcon } from '@/components/status-bar/icons'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { FeatureWallClickRing } from './FeatureWallClickRing'
+import { BrowserDesignPayloadSummary } from './BrowserDesignPayloadSummary'
 import { translate } from '@/i18n/i18n'
 
 // Why: this animation tells the full Orca story end-to-end — the user opens a
@@ -183,8 +184,8 @@ export function BrowserAnimatedVisual(props: {
   const { reducedMotion, onCycleComplete } = props
   const newBrowserShortcutLabel = useShortcutLabel('tab.newBrowser')
 
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [typedChars, setTypedChars] = useState(0)
+  const [phase, setPhase] = useState<Phase>(() => (reducedMotion ? 'verified' : 'idle'))
+  const [typedChars, setTypedChars] = useState(() => (reducedMotion ? PROMPT_TEXT.length : 0))
   const [flashKey, setFlashKey] = useState(0)
   const [clickRingKey, setClickRingKey] = useState(0)
   const [clickRingVisible, setClickRingVisible] = useState(false)
@@ -495,7 +496,7 @@ export function BrowserAnimatedVisual(props: {
   const bodyOverflowVisible = isIntroPhase
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" data-feature-wall-browser-phase={phase}>
       <div className="relative w-full" style={{ height: 270 }}>
         <div
           className="absolute inset-0 grid transition-[grid-template-columns,gap] duration-500 ease-out"
@@ -655,7 +656,7 @@ export function BrowserAnimatedVisual(props: {
                     TOUR_FLOATING_SURFACE_CLASS,
                     annotateOpen ? 'scale-100 opacity-100' : 'scale-[0.96] opacity-0'
                   )}
-                  style={{ left: annotateAnchor.left, top: annotateAnchor.top, width: 188 }}
+                  style={{ left: annotateAnchor.left, top: annotateAnchor.top, width: 232 }}
                 >
                   <span className="block w-full shrink-0 truncate font-mono text-[9.5px] leading-none text-muted-foreground">
                     {translate(
@@ -679,6 +680,7 @@ export function BrowserAnimatedVisual(props: {
                       </span>
                     )}
                   </div>
+                  <BrowserDesignPayloadSummary />
                   <div className="flex justify-end">
                     <span
                       ref={sendBtnRef}
@@ -736,6 +738,11 @@ export function BrowserAnimatedVisual(props: {
                 )}
               </span>
             </div>
+            {isSplit ? (
+              <div className="border-b border-border bg-muted/20 px-2 py-1.5 font-sans">
+                <BrowserDesignPayloadSummary mode="sent" />
+              </div>
+            ) : null}
             <div className="flex flex-1 flex-col gap-1 px-2 py-2 leading-snug">
               {TERM_ENTRIES.map(({ entry, minPhase }, i) => (
                 <TerminalLine key={i} visible={phaseAtLeast(phase, minPhase)}>

@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { getFeatureWallRailNavigationTarget } from './feature-wall-rail-navigation'
+import {
+  getFeatureWallRailNavigationTarget,
+  normalizeFeatureWallRailNavigationKey
+} from './feature-wall-rail-navigation'
+
+describe('normalizeFeatureWallRailNavigationKey', () => {
+  it('uses up and down arrows for the desktop vertical rail', () => {
+    expect(normalizeFeatureWallRailNavigationKey('ArrowUp', 'vertical')).toBe('ArrowUp')
+    expect(normalizeFeatureWallRailNavigationKey('ArrowLeft', 'vertical')).toBeNull()
+  })
+
+  it('maps left and right arrows for the compact horizontal row', () => {
+    expect(normalizeFeatureWallRailNavigationKey('ArrowLeft', 'horizontal')).toBe('ArrowUp')
+    expect(normalizeFeatureWallRailNavigationKey('ArrowRight', 'horizontal')).toBe('ArrowDown')
+    expect(normalizeFeatureWallRailNavigationKey('ArrowDown', 'horizontal')).toBeNull()
+  })
+
+  it('keeps Home and End available in either orientation', () => {
+    expect(normalizeFeatureWallRailNavigationKey('Home', 'horizontal')).toBe('Home')
+    expect(normalizeFeatureWallRailNavigationKey('End', 'vertical')).toBe('End')
+  })
+})
 
 describe('getFeatureWallRailNavigationTarget', () => {
   it('moves down past the current row', () => {

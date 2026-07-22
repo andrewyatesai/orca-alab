@@ -1,27 +1,22 @@
-// Feature-wall tour-depth enum data + types. The behavior (getFeatureWallTourDepthStep,
-// buildFeatureWallTourDepthSummary) was cut over to the Rust
-// `orca_core::feature_wall_tour_depth` port — the renderer drives it via the
-// orca-git wasm (see src/renderer/src/lib/git-wasm/feature-wall-tour-depth.ts).
-// The two enum consts stay in TS because telemetry-events.ts builds z.enum()
-// schemas from them; this file must remain import-safe on every surface (no
-// napi/wasm), so it carries data + types only.
-import type { AgentsStepId } from './agents-orchestration-steps'
-import type { FeatureWallWorkflowId } from './feature-wall-workflows'
-import type { ReviewStepId } from './review-steps'
-import type { WorkbenchStepId } from './workbench-steps'
+// Feature-wall tour-depth enum data + types. The behavior is owned by the Rust
+// orca_core port and reached through the renderer's orca-git wasm adapter.
+import type { FeatureWallStepId, FeatureWallWorkflowId } from './feature-wall-workflows'
 
 export const FEATURE_WALL_TOUR_DEPTH_STEPS = [
-  'workspaces',
+  'terminal',
+  'add-project',
   'tasks',
-  'agents_statuses',
-  'agents_usage',
-  'agents_orchestration',
-  'workbench_terminal',
-  'workbench_editor',
-  'workbench_browser',
-  'review_notes',
-  'review_pr_view',
-  'review_ship'
+  'workspaces',
+  'agents',
+  'workbench',
+  'browser-design',
+  'review-ship',
+  'cli-skills',
+  'orchestration',
+  'automations',
+  'remote-mobile',
+  'mobile-emulators',
+  'computer-use'
 ] as const
 
 export type FeatureWallTourDepthStep = (typeof FEATURE_WALL_TOUR_DEPTH_STEPS)[number]
@@ -41,12 +36,8 @@ export type FeatureWallTourDepthSummary = {
 
 export type FeatureWallTourDepthInput = {
   visitedWorkflows: ReadonlySet<FeatureWallWorkflowId>
-  visitedAgentSteps: ReadonlySet<AgentsStepId>
-  visitedWorkbenchSteps: ReadonlySet<WorkbenchStepId>
-  visitedReviewSteps: ReadonlySet<ReviewStepId>
+  visitedSteps: ReadonlySet<FeatureWallStepId>
   workflowDone: Record<FeatureWallWorkflowId, boolean>
-  agentStepDone: Record<AgentsStepId, boolean>
-  workbenchStepDone: Record<WorkbenchStepId, boolean>
-  reviewStepDone: Record<ReviewStepId, boolean>
+  stepDone: Record<FeatureWallStepId, boolean>
   lastGroupId: FeatureWallWorkflowId | null
 }

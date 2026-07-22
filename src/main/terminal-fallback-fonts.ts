@@ -1,6 +1,10 @@
 import { readFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
+import {
+  loadUserFallbackStack,
+  normalizeUserFallbackFamilies
+} from './terminal-user-fallback-stack'
 
 // The aterm canvas/WebGL renderers rasterize glyphs themselves from injected
 // font bytes and ship only JetBrains Mono, so CJK and emoji render as .notdef
@@ -26,8 +30,12 @@ export type FallbackChainEntry = {
 }
 
 export type TerminalFallbackFonts = {
-  // CJK stays first (set_fallback_font); `region` surfaces which Han form was
-  // picked so the renderer can reason about it. Absent when no CJK face exists.
+  // User-configured fallback families (terminalFontFallbackFamilies), resolved
+  // to face bytes, in the user's order. They precede the CJK face in the chain;
+  // unresolvable families are skipped. Empty when the setting is unset/empty.
+  user: { family: string; bytes: Uint8Array }[]
+  // CJK follows the user stack (set_fallback_font when no user stack); `region`
+  // surfaces which Han form was picked. Absent when no CJK face exists.
   cjk?: { bytes: Uint8Array; region: CjkRegion }
   emoji?: Uint8Array
   // Monochrome SYMBOL tier (set_symbol_font), consulted only after the primary +
@@ -253,9 +261,15 @@ function osLocale(): string {
  *  payload (Apple Color Emoji is ~183MB) and most sessions never render one. */
 export type FallbackFontClass = 'text' | 'emoji'
 
+// The OS half of the text class, plus the resolved file paths it shipped so the
+// user half can be de-duped against it at assembly time.
+type OsTextFallbackFonts = Omit<TerminalFallbackFonts, 'emoji' | 'user'> & {
+  usedPaths: Set<string>
+}
+
 // Per-class caches (promises, so concurrent requests share one disk read). The
 // emoji read only ever happens when a renderer actually reports an emoji miss.
-let cachedText: Promise<Omit<TerminalFallbackFonts, 'emoji'>> | null = null
+let cachedText: Promise<OsTextFallbackFonts> | null = null
 let cachedEmoji: Promise<Uint8Array | undefined> | null = null
 
 function candidatesFor(table: Record<NodeJS.Platform, readonly string[]>): readonly string[] {
@@ -339,7 +353,7 @@ async function discoverChain(usedPaths: Set<string>): Promise<FallbackChainEntry
   return chain
 }
 
-async function loadTextFonts(): Promise<Omit<TerminalFallbackFonts, 'emoji'>> {
+async function loadTextFonts(): Promise<OsTextFallbackFonts> {
   // Han-unification: pick the CJK face for the user's locale so JP/KR users see
   // their own glyph forms, not Chinese ones. On Linux, ask fontconfig for the
   // region's lang (Noto resolves the regional face); region-preferred OS faces are
@@ -365,7 +379,8 @@ async function loadTextFonts(): Promise<Omit<TerminalFallbackFonts, 'emoji'>> {
   return {
     cjk: cjkFound ? { bytes: cjkFound.bytes, region } : undefined,
     symbol,
-    chain
+    chain,
+    usedPaths
   }
 }
 
@@ -379,15 +394,25 @@ async function loadEmojiFont(): Promise<Uint8Array | undefined> {
  * `classes` is omitted — the legacy eager shape). Class results are cached for
  * the process lifetime; the ~183MB emoji face is only ever read once a
  * renderer actually reports an emoji glyph miss (E1 lazy fonts).
+ * `userFamilies` (terminalFontFallbackFamilies) resolve into the `user` field of
+ * the text class, ordered, before the CJK face.
  */
 export async function getTerminalFallbackFonts(
-  classes?: readonly FallbackFontClass[]
+  classes?: readonly FallbackFontClass[],
+  userFamilies?: readonly string[]
 ): Promise<TerminalFallbackFonts> {
   const wantText = !classes || classes.includes('text')
   const wantEmoji = !classes || classes.includes('emoji')
-  const [text, emoji] = await Promise.all([
+  const families = normalizeUserFallbackFamilies(userFamilies)
+  const [text, emoji, userFaces] = await Promise.all([
     wantText ? (cachedText ??= loadTextFonts()) : undefined,
-    wantEmoji ? (cachedEmoji ??= loadEmojiFont()) : undefined
+    wantEmoji ? (cachedEmoji ??= loadEmojiFont()) : undefined,
+    wantText && families.length > 0 ? loadUserFallbackStack(families) : []
   ])
-  return { cjk: text?.cjk, symbol: text?.symbol, chain: text?.chain ?? [], emoji }
+  // De-dup user faces against the OS half by resolved path so a family that
+  // doubles as the CJK/chain face (e.g. Microsoft YaHei) is never shipped twice.
+  const user = userFaces
+    .filter((face) => !face.path || !text?.usedPaths.has(face.path))
+    .map(({ family, bytes }) => ({ family, bytes }))
+  return { user, cjk: text?.cjk, symbol: text?.symbol, chain: text?.chain ?? [], emoji }
 }

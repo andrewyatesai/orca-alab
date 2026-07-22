@@ -34,6 +34,35 @@ const getTerminalTypographySearchEntryCatalog = createLocalizedCatalog(() => [
     ]
   },
   {
+    title: translate(
+      'auto.components.settings.terminal.search.fallbackFontsTitle',
+      'Fallback Fonts'
+    ),
+    description: translate(
+      'auto.components.settings.terminal.search.fallbackFontsDescription',
+      'Ordered fonts consulted after the primary terminal font and before Orca’s automatic OS fallbacks. Applies to new terminal panes.'
+    ),
+    keywords: [
+      ...translateSearchKeyword('auto.components.settings.terminal.search.f66a7cf715', 'terminal'),
+      ...translateSearchKeyword(
+        'auto.components.settings.terminal.search.103cdb862f',
+        'typography'
+      ),
+      ...translateSearchKeyword('auto.components.settings.terminal.search.b0bb76ae6b', 'font'),
+      ...translateSearchKeyword(
+        'auto.components.settings.terminal.search.fallbackKeyword',
+        'fallback'
+      ),
+      ...translateSearchKeyword('auto.components.settings.terminal.search.glyphKeyword', 'glyph'),
+      ...translateSearchKeyword(
+        'auto.components.settings.terminal.search.nerdFontKeyword',
+        'nerd font'
+      ),
+      ...translateSearchKeyword('auto.components.settings.terminal.search.cjkKeyword', 'cjk'),
+      ...translateSearchKeyword('auto.components.settings.terminal.search.emojiKeyword', 'emoji')
+    ]
+  },
+  {
     title: translate('auto.components.settings.terminal.search.28ea41bd2d', 'Font Weight'),
     description: translate(
       'auto.components.settings.terminal.search.98c18f2c77',
@@ -104,8 +133,10 @@ export const getTerminalTypographySearchEntries = createLocalizedCatalog(() => [
   ...getTerminalTypographySearchEntryCatalog()
 ])
 
+// Why: slice(3) skips Font Size + Font Family + Fallback Fonts (the primary
+// rows); the advanced disclosure indexes into what remains (weight/height/ligatures).
 export const getTerminalAdvancedTypographySearchEntries = createLocalizedCatalog(() =>
-  getTerminalTypographySearchEntryCatalog().slice(2)
+  getTerminalTypographySearchEntryCatalog().slice(3)
 )
 
 export const getTerminalRenderingSearchEntries = createLocalizedCatalog(() => [

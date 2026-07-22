@@ -9,6 +9,23 @@ vi.mock('electron', () => ({ app: { getLocale: () => 'en-US' } }))
 const readFileMock = vi.fn<(path: string) => Promise<Buffer>>()
 vi.mock('fs/promises', () => ({ readFile: (path: string) => readFileMock(path) }))
 
+// The user-stack half resolves through system-fonts' family→bytes seam; mock it
+// so tests control which families exist and which file each resolves to.
+const resolveFaceMock =
+  vi.fn<
+    (
+      family: string,
+      weight?: number
+    ) => Promise<{
+      primary: Uint8Array | null
+      bold: Uint8Array | null
+      primaryPath: string | null
+    }>
+  >()
+vi.mock('./system-fonts', () => ({
+  resolveTerminalFontFaceBytes: (family: string, weight?: number) => resolveFaceMock(family, weight)
+}))
+
 import { cjkRegionFromLocale } from './terminal-fallback-fonts'
 import type { TerminalFallbackFonts } from './terminal-fallback-fonts'
 
@@ -193,5 +210,112 @@ describe('getTerminalFallbackFonts (non-Latin chain discovery)', () => {
     expect(both.cjk).toBeDefined()
     expect(both.emoji).toBeDefined()
     expect(readFileMock).not.toHaveBeenCalled()
+  })
+})
+
+// PC-8367: the user-configured fallback stack (terminalFontFallbackFamilies)
+// resolves through the family→bytes seam and precedes the CJK face.
+describe('getTerminalFallbackFonts (user fallback stacks)', () => {
+  let originalPlatform: PropertyDescriptor | undefined
+
+  const MAC_CJK = '/System/Library/Fonts/PingFang.ttc'
+
+  // Families that "exist": each maps to its resolved file path + a marker byte.
+  function resolvableFamilies(table: Record<string, { path: string; byte: number }>): void {
+    resolveFaceMock.mockImplementation(async (family: string) => {
+      const found = table[family]
+      if (!found) {
+        return { primary: null, bold: null, primaryPath: null }
+      }
+      return { primary: new Uint8Array([found.byte]), bold: null, primaryPath: found.path }
+    })
+  }
+
+  async function freshModule(): Promise<typeof import('./terminal-fallback-fonts')> {
+    vi.resetModules()
+    return import('./terminal-fallback-fonts')
+  }
+
+  beforeEach(() => {
+    originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+  })
+
+  afterEach(() => {
+    if (originalPlatform) {
+      Object.defineProperty(process, 'platform', originalPlatform)
+    }
+    readFileMock.mockReset()
+    resolveFaceMock.mockReset()
+  })
+
+  it('user families resolve in order and land in `user` before the CJK face', async () => {
+    existingPaths(MAC_CJK)
+    resolvableFamilies({
+      'Fira Code': { path: '/fonts/FiraCode.ttf', byte: 0xaa },
+      Iosevka: { path: '/fonts/Iosevka.ttf', byte: 0xbb }
+    })
+    const mod = await freshModule()
+    const fonts = await mod.getTerminalFallbackFonts(['text'], ['Fira Code', 'Iosevka'])
+    expect(fonts.user.map((face) => face.family)).toEqual(['Fira Code', 'Iosevka'])
+    expect([...fonts.user[0].bytes]).toEqual([0xaa])
+    expect([...fonts.user[1].bytes]).toEqual([0xbb])
+    // The OS half is untouched: the CJK face still rides its own field, after the stack.
+    expect(fonts.cjk).toBeDefined()
+    // Resolution uses weight 400 (the stack has no per-family weight knob).
+    expect(resolveFaceMock).toHaveBeenCalledWith('Fira Code', 400)
+  })
+
+  it('an unresolvable family is skipped, later ones survive', async () => {
+    existingPaths()
+    resolvableFamilies({ Iosevka: { path: '/fonts/Iosevka.ttf', byte: 0xbb } })
+    const mod = await freshModule()
+    const fonts = await mod.getTerminalFallbackFonts(['text'], ['No Such Font', 'Iosevka'])
+    expect(fonts.user.map((face) => face.family)).toEqual(['Iosevka'])
+  })
+
+  it('a user face de-dups against CJK/chain by resolved path', async () => {
+    existingPaths(MAC_CJK, MAC_ARABIC)
+    resolvableFamilies({
+      // Resolves to the very files the OS half already ships (CJK + arabic chain).
+      PingFang: { path: MAC_CJK, byte: 0x01 },
+      'Geeza Pro': { path: MAC_ARABIC, byte: 0x02 },
+      Iosevka: { path: '/fonts/Iosevka.ttf', byte: 0xbb }
+    })
+    const mod = await freshModule()
+    const fonts = await mod.getTerminalFallbackFonts(['text'], ['PingFang', 'Geeza Pro', 'Iosevka'])
+    expect(fonts.user.map((face) => face.family)).toEqual(['Iosevka'])
+    expect(fonts.cjk).toBeDefined()
+    expect(fonts.chain.map((entry) => entry.script)).toEqual(['arabic'])
+  })
+
+  it('the user-half memo misses when the family list changes and hits when it repeats', async () => {
+    existingPaths()
+    resolvableFamilies({
+      A: { path: '/fonts/A.ttf', byte: 0x0a },
+      B: { path: '/fonts/B.ttf', byte: 0x0b }
+    })
+    const mod = await freshModule()
+
+    await mod.getTerminalFallbackFonts(['text'], ['A'])
+    expect(resolveFaceMock).toHaveBeenCalledTimes(1)
+
+    // Same list → memo hit, no re-resolution.
+    await mod.getTerminalFallbackFonts(['text'], ['A'])
+    expect(resolveFaceMock).toHaveBeenCalledTimes(1)
+
+    // Changed list → memo miss, the new list resolves.
+    const fonts = await mod.getTerminalFallbackFonts(['text'], ['A', 'B'])
+    expect(resolveFaceMock).toHaveBeenCalledTimes(3)
+    expect(fonts.user.map((face) => face.family)).toEqual(['A', 'B'])
+  })
+
+  it("an emoji-scoped read never resolves user families (they ride the 'text' class)", async () => {
+    existingPaths()
+    resolvableFamilies({ A: { path: '/fonts/A.ttf', byte: 0x0a } })
+    const mod = await freshModule()
+    const fonts = await mod.getTerminalFallbackFonts(['emoji'], ['A'])
+    expect(fonts.user).toEqual([])
+    expect(resolveFaceMock).not.toHaveBeenCalled()
   })
 })

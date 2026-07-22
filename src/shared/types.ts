@@ -2653,6 +2653,10 @@ export type GlobalSettings = {
   primarySelectionMiddleClickPasteDefaultedForTerminalDefaults?: boolean
   terminalFontSize: number
   terminalFontFamily: string
+  /** Ordered user fallback families consulted after the primary font and
+   *  before Orca's locale-derived OS fallbacks. Family names as returned by
+   *  fonts:listSystemFontFamilies. Empty/unset = current behavior. */
+  terminalFontFallbackFamilies?: string[]
   /** One-time stamp: the old macOS default 'SF Mono' was migrated to 'Menlo'. */
   terminalFontMenloMigrated?: boolean
   terminalFontWeight: number

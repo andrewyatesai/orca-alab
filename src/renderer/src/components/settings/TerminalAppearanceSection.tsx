@@ -25,6 +25,7 @@ import { SettingsRow, SettingsSubsectionHeader } from './SettingsFormControls'
 import { SearchableSetting } from './SearchableSetting'
 import { FontAutocomplete } from './SettingsFormControls'
 import { TerminalFontSizeSetting } from './TerminalFontSizeSetting'
+import { TerminalFallbackFontsRow } from './TerminalFallbackFontsRow'
 import { TerminalAdvancedTypographyControls } from './TerminalAdvancedTypographyControls'
 import { TerminalThemeCatalogSection } from './TerminalThemeSections'
 import { TerminalWindowSection } from './TerminalWindowSection'
@@ -113,9 +114,10 @@ export function TerminalAppearanceSection({
   const themeCatalogMatches = matchesSettingsSearch(searchQuery, themeCatalogSearchEntries)
   const previewAdvancedMatches = cursorMatches || paneMatches || windowMatches
   const showThemeCatalog = !isSearching || themeCatalogMatches || previewAdvancedMatches
+  // Why: slice(0,3) = Font Size + Font Family + Fallback Fonts (the primary rows).
   const primaryTypographyMatches = matchesSettingsSearch(
     searchQuery,
-    terminalTypographyEntries.slice(0, 2)
+    terminalTypographyEntries.slice(0, 3)
   )
   const ghosttyImportMatches = matchesSettingsSearch(searchQuery, ghosttyImportEntries)
   const showPrimaryTypography =
@@ -234,6 +236,14 @@ export function TerminalAppearanceSection({
                 }
               />
             </SearchableSetting>
+
+            <TerminalFallbackFontsRow
+              settings={settings}
+              updateSettings={updateSettings}
+              suggestions={terminalFontSuggestions}
+              onRequestSuggestions={onRequestFontSuggestions}
+              forceVisible={forceVisiblePrimary}
+            />
           </div>
 
           {showTypographyAdvancedDisclosure ? (

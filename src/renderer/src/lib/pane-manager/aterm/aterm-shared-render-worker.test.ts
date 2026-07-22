@@ -235,4 +235,36 @@ describe('aterm shared render worker host', () => {
     c.post({ type: 'draw' })
     expect(workers[1].posted.some((p) => p.message.type === 'draw')).toBe(true)
   })
+
+  it("a text fontClass delivery carries the user's fallback stack before the CJK face (PC-8367)", async () => {
+    // The production class loader translates the IPC payload into the worker's
+    // ordered `fallbacks` array; the worker registry applies it in array order.
+    const { loadSharedWorkerFontClass } = await import('./aterm-shared-render-worker')
+    const userA = new Uint8Array([0x0a])
+    const userB = new Uint8Array([0x0b])
+    const cjk = new Uint8Array([0x1c])
+    const chain0 = new Uint8Array([0x2c])
+    vi.stubGlobal('window', {
+      api: {
+        fonts: {
+          getTerminalFallbackFonts: vi.fn().mockResolvedValue({
+            user: [
+              { family: 'A', bytes: userA },
+              { family: 'B', bytes: userB }
+            ],
+            cjk: { bytes: cjk, region: 'zh-Hans' },
+            chain: [{ bytes: chain0, script: 'arabic' }],
+            symbol: new Uint8Array([0x3c])
+          })
+        }
+      }
+    })
+    try {
+      const faces = await loadSharedWorkerFontClass('text')
+      expect(faces.fallbacks?.map((face) => face[0])).toEqual([0x0a, 0x0b, 0x1c, 0x2c])
+      expect(faces.symbol?.[0]).toBe(0x3c)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

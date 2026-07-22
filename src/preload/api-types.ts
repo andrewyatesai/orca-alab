@@ -2146,6 +2146,9 @@ export type PreloadApi = {
      *  missing ('text' = CJK+chain+symbol, 'emoji') — E1 lazy fonts; omitted =
      *  both. */
     getTerminalFallbackFonts: (classes?: ('text' | 'emoji')[]) => Promise<{
+      /** User-configured fallback families (terminalFontFallbackFamilies) resolved
+       *  to face bytes, in the user's order — injected before the CJK face. */
+      user: { family: string; bytes: Uint8Array }[]
       cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
       emoji?: Uint8Array
       symbol?: Uint8Array

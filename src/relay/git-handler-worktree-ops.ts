@@ -14,26 +14,45 @@ async function rollbackRelayWorktreeCreate(
   targetDir: string,
   branchName: string,
   deleteBranch: boolean,
+  worktreeKnownRegistered: boolean,
   error: unknown
 ): Promise<never> {
   const wrapped = error instanceof Error ? error : new Error(String(error))
+  // Why: steps stay independently best-effort — a failed remove must not skip the prune that clears a stale admin record, nor the fresh-branch delete.
+  const failedSteps: string[] = []
+  let removed = true
   try {
     await git(['worktree', 'remove', '--force', targetDir], repoPath)
-    await git(['worktree', 'prune'], repoPath)
-    if (deleteBranch) {
-      await git(['branch', '-D', '--', branchName], repoPath)
-    }
   } catch {
-    wrapped.message = `${wrapped.message} (cleanup also failed — the partially created worktree at "${targetDir}" may need manual removal)`
+    removed = false
+    failedSteps.push('worktree remove')
+  }
+  try {
+    await git(['worktree', 'prune'], repoPath)
+  } catch {
+    failedSteps.push('worktree prune')
+  }
+  // Why: on unknown registration a failed remove may mean the add never created the branch, so -D could destroy a pre-existing one.
+  if (deleteBranch && (removed || worktreeKnownRegistered)) {
+    try {
+      await git(['branch', '-D', '--', branchName], repoPath)
+    } catch {
+      failedSteps.push('branch delete')
+    }
+  }
+  if (failedSteps.length > 0) {
+    wrapped.message = `${wrapped.message} (cleanup also failed: ${failedSteps.join(', ')} — the partially created worktree at "${targetDir}" may need manual removal)`
   }
   throw wrapped
 }
 
-async function relayWorktreeAddRegistered(
+type RelayWorktreeAddRegistration = 'registered' | 'unregistered' | 'unknown'
+
+async function probeRelayWorktreeAddRegistration(
   git: GitExec,
   repoPath: string,
   targetDir: string
-): Promise<boolean> {
+): Promise<RelayWorktreeAddRegistration> {
   try {
     // Why: plain --porcelain (no -z) keeps this probe Git 2.25-safe; a registration check doesn't need newline-exact paths.
     const { stdout } = await git(['worktree', 'list', '--porcelain'], repoPath)
@@ -41,9 +60,11 @@ async function relayWorktreeAddRegistered(
       .split('\n')
       .filter((line) => line.startsWith('worktree '))
       .some((line) => areRelayWorktreePathsEqual(line.slice('worktree '.length), targetDir))
+      ? 'registered'
+      : 'unregistered'
   } catch {
     // Why: state unknown after the failed add — err toward rollback so a registered orphan isn't silently kept.
-    return true
+    return 'unknown'
   }
 }
 
@@ -130,7 +151,8 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
     await git(args, repoPath)
   } catch (error) {
     // Why: a killed add (e.g. timeout mid-checkout, #7410) can leave a registered worktree + fresh branch; roll back only state this add created.
-    if (!(await relayWorktreeAddRegistered(git, repoPath, targetDir))) {
+    const registration = await probeRelayWorktreeAddRegistration(git, repoPath, targetDir)
+    if (registration === 'unregistered') {
       throw error
     }
     return rollbackRelayWorktreeCreate(
@@ -139,6 +161,7 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
       targetDir,
       branchName,
       !checkoutExistingBranch,
+      registration === 'registered',
       error
     )
   }
@@ -150,12 +173,14 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
         await git([...parallelCheckout, 'checkout'], targetDir)
       }
     } catch (error) {
+      // Why: the add succeeded, so registration (and the fresh branch) is certain.
       return rollbackRelayWorktreeCreate(
         git,
         repoPath,
         targetDir,
         branchName,
         !checkoutExistingBranch,
+        true,
         error
       )
     }

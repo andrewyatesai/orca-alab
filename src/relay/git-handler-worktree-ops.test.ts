@@ -182,6 +182,107 @@ describe('addWorktreeOp', () => {
     expect(calls).toContainEqual(['worktree', 'remove', '--force', '/repo-feature'])
     expect(calls).toContainEqual(['worktree', 'prune'])
     expect(calls).toContainEqual(['branch', '-D', '--', 'feature/test'])
+    expect(addError.message).not.toContain('cleanup also failed')
+  })
+
+  it('still prunes and deletes the fresh branch when rollback remove fails on a registered worktree', async () => {
+    const addError = new Error('git worktree add timed out')
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args.includes('worktree') && args.includes('add')) {
+        throw addError
+      }
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        return {
+          stdout: worktreeList(
+            { path: '/repo', branch: 'main' },
+            { path: '/repo-feature', branch: 'feature/test' }
+          ),
+          stderr: ''
+        }
+      }
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        throw new Error('failed to delete: Device or resource busy')
+      }
+      return { stdout: '', stderr: '' }
+    })
+
+    await expect(
+      addWorktreeOp(git, {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature'
+      })
+    ).rejects.toBe(addError)
+
+    const calls = git.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'prune'])
+    expect(calls).toContainEqual(['branch', '-D', '--', 'feature/test'])
+    expect(addError.message).toContain('cleanup also failed: worktree remove')
+  })
+
+  it('prunes but never branch-deletes when rollback remove fails and registration is unknown', async () => {
+    const addError = new Error('git worktree add timed out')
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args.includes('worktree') && args.includes('add')) {
+        throw addError
+      }
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        throw new Error('remote connection dropped')
+      }
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        throw new Error('is not a working tree')
+      }
+      return { stdout: '', stderr: '' }
+    })
+
+    await expect(
+      addWorktreeOp(git, {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature'
+      })
+    ).rejects.toBe(addError)
+
+    const calls = git.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'prune'])
+    // Why: the add may have died before creating the branch — deleting on unknown state could destroy a pre-existing branch.
+    expect(calls.some((args) => args[0] === 'branch')).toBe(false)
+    expect(addError.message).toContain('cleanup also failed: worktree remove')
+  })
+
+  it('never branch-deletes when a checkout-existing-branch rollback remove fails', async () => {
+    const addError = new Error('git worktree add timed out')
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args.includes('worktree') && args.includes('add')) {
+        throw addError
+      }
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        return {
+          stdout: worktreeList(
+            { path: '/repo', branch: 'main' },
+            { path: '/repo-feature', branch: 'feature/test' }
+          ),
+          stderr: ''
+        }
+      }
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        throw new Error('failed to delete: Device or resource busy')
+      }
+      return { stdout: '', stderr: '' }
+    })
+
+    await expect(
+      addWorktreeOp(git, {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature',
+        checkoutExistingBranch: true
+      })
+    ).rejects.toBe(addError)
+
+    const calls = git.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'prune'])
+    expect(calls.some((args) => args[0] === 'branch')).toBe(false)
   })
 
   it('never deletes a pre-existing branch when a checkout-existing-branch SSH add fails', async () => {

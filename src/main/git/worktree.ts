@@ -819,6 +819,8 @@ function resolveGitOutputPath(
 async function rollbackDeferredWorktreeCreate(
   repoPath: string,
   worktreePath: string,
+  branch: string,
+  worktreeKnownRegistered: boolean,
   options: AddWorktreeOptions,
   error: unknown,
   knownRemovedWorktree?: RemoveWorktreeOptions['knownRemovedWorktree']
@@ -833,8 +835,23 @@ async function rollbackDeferredWorktreeCreate(
       ...(options.wslDistro ? { wslDistro: options.wslDistro } : {})
     })
   } catch {
+    // Why: remaining steps stay independently best-effort — a remove refusing a half-registered admin record must not skip the prune that clears it (mirrors the relay twin).
+    const failedSteps = ['worktree remove']
+    try {
+      await gitExecFileAsync(['worktree', 'prune'], gitExecOptions(repoPath, options))
+    } catch {
+      failedSteps.push('worktree prune')
+    }
+    // Why: on unknown registration a failed remove may mean the add never created the branch, so -D could destroy a pre-existing one.
+    if (!options.checkoutExistingBranch && worktreeKnownRegistered) {
+      try {
+        await gitExecFileAsync(['branch', '-D', '--', branch], gitExecOptions(repoPath, options))
+      } catch {
+        failedSteps.push('branch delete')
+      }
+    }
     wrapped.cleanupFailed = true
-    wrapped.message = `${wrapped.message} (cleanup also failed — the partially created worktree at "${worktreePath}" may need manual removal)`
+    wrapped.message = `${wrapped.message} (cleanup also failed: ${failedSteps.join(', ')} — the partially created worktree at "${worktreePath}" may need manual removal)`
   }
   throw wrapped
 }
@@ -942,9 +959,16 @@ async function performAddWorktree(
     })
   } catch (error) {
     // Why: a killed add (e.g. timeout mid-checkout, #7410) can leave a registered worktree + fresh branch; roll back only state this add created.
-    const registeredWorktree = (await listWorktreesUnshared(repoPath, options)).find((worktree) =>
-      areWorktreePathsEqual(worktree.path, worktreePath)
-    )
+    let registeredWorktree: GitWorktreeInfo | undefined
+    try {
+      // Why: strict listing — the swallowing variant returns [] on git failure, which would skip rollback exactly when the repo is degraded (#7410 residue).
+      registeredWorktree = (await listWorktreesStrict(repoPath, options)).find((worktree) =>
+        areWorktreePathsEqual(worktree.path, worktreePath)
+      )
+    } catch {
+      // Why: probe failed — state unknown, so err toward rollback like the relay twin; branch delete only follows a successful worktree remove, so pre-existing branches are safe.
+      return rollbackDeferredWorktreeCreate(repoPath, worktreePath, branch, false, options, error)
+    }
     if (!registeredWorktree) {
       // Why: add failed before registering anything (e.g. branch/path already exists) — nothing to roll back.
       throw error
@@ -952,6 +976,8 @@ async function performAddWorktree(
     return rollbackDeferredWorktreeCreate(
       repoPath,
       worktreePath,
+      branch,
+      true,
       options,
       error,
       registeredWorktree
@@ -973,7 +999,8 @@ async function performAddWorktree(
         })
       }
     } catch (error) {
-      return rollbackDeferredWorktreeCreate(repoPath, worktreePath, options, error)
+      // Why: the add succeeded, so registration (and the fresh branch) is certain.
+      return rollbackDeferredWorktreeCreate(repoPath, worktreePath, branch, true, options, error)
     }
   }
 

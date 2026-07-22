@@ -55,6 +55,18 @@ function mockGitWithFailingAdd(addError: Error, listStdout: string): void {
   })
 }
 
+function mockGitWithFailingAddAndList(addError: Error, listError: Error): void {
+  gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+    if (isWorktreeAdd(args)) {
+      throw addError
+    }
+    if (isWorktreeList(args)) {
+      throw listError
+    }
+    return { stdout: '' }
+  })
+}
+
 describe('addWorktree rollback when the primary `git worktree add` fails', () => {
   beforeEach(() => {
     gitExecFileAsyncMock.mockReset()
@@ -86,6 +98,93 @@ describe('addWorktree rollback when the primary `git worktree add` fails', () =>
 
     const calls = gitExecFileAsyncMock.mock.calls.map((call) => call[0])
     expect(calls).toContainEqual(['worktree', 'remove', '--force', WORKTREE])
+    expect(calls.some((args) => args[0] === 'branch')).toBe(false)
+  })
+
+  it('still prunes and force-deletes the fresh branch when rollback remove fails on a registered worktree', async () => {
+    const addError = new Error('failed to run git: timed out after 180000ms')
+    gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (isWorktreeAdd(args)) {
+        throw addError
+      }
+      if (isWorktreeList(args)) {
+        return { stdout: registeredList }
+      }
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        throw new Error('failed to delete: Device or resource busy')
+      }
+      return { stdout: '' }
+    })
+
+    await expect(addWorktree(REPO, WORKTREE, BRANCH)).rejects.toBe(addError)
+
+    const calls = gitExecFileAsyncMock.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'prune'])
+    expect(calls).toContainEqual(['branch', '-D', '--', BRANCH])
+    expect(addError.message).toContain('cleanup also failed: worktree remove')
+  })
+
+  it('prunes but never branch-deletes when the probe failed and rollback remove also fails', async () => {
+    const addError = new Error('failed to run git: timed out after 180000ms')
+    gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (isWorktreeAdd(args)) {
+        throw addError
+      }
+      if (isWorktreeList(args)) {
+        throw new Error('fatal: unable to access repository')
+      }
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        throw new Error('is not a working tree')
+      }
+      return { stdout: '' }
+    })
+
+    await expect(addWorktree(REPO, WORKTREE, BRANCH)).rejects.toBe(addError)
+
+    const calls = gitExecFileAsyncMock.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'prune'])
+    // Why: the add may have died before creating the branch — deleting on unknown state could destroy a pre-existing branch.
+    expect(calls.some((args) => args[0] === 'branch')).toBe(false)
+    expect(addError.message).toContain('cleanup also failed: worktree remove')
+  })
+
+  it('never branch-deletes when a checkout-existing-branch rollback remove fails', async () => {
+    const addError = new Error('failed to run git: timed out after 180000ms')
+    gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (isWorktreeAdd(args)) {
+        throw addError
+      }
+      if (isWorktreeList(args)) {
+        return { stdout: registeredList }
+      }
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        throw new Error('failed to delete: Device or resource busy')
+      }
+      return { stdout: '' }
+    })
+
+    await expect(
+      addWorktree(REPO, WORKTREE, BRANCH, undefined, false, false, {
+        checkoutExistingBranch: true
+      })
+    ).rejects.toBe(addError)
+
+    const calls = gitExecFileAsyncMock.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'prune'])
+    expect(calls.some((args) => args[0] === 'branch')).toBe(false)
+  })
+
+  it('errs toward rollback when the registration probe itself fails (matches the relay twin)', async () => {
+    const addError = new Error('failed to run git: timed out after 180000ms')
+    // Why: the same degraded-repo conditions that kill the add can fail `worktree list`; state unknown must not skip rollback (#7410 residue).
+    mockGitWithFailingAddAndList(addError, new Error('fatal: unable to access repository'))
+
+    await expect(addWorktree(REPO, WORKTREE, BRANCH)).rejects.toBe(addError)
+
+    expect(addError.message).not.toContain('cleanup also failed')
+    const calls = gitExecFileAsyncMock.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'remove', '--force', WORKTREE])
+    // Why: with the listing unavailable no branch is known-registered, so nothing (pre-existing or fresh) may be branch-deleted.
     expect(calls.some((args) => args[0] === 'branch')).toBe(false)
   })
 

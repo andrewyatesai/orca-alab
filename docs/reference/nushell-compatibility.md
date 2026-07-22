@@ -97,6 +97,32 @@ nu -l -e 'source "<userData>/shell-ready/nu/integration.nu"'
   unknown shells (including nu) on `/bin/sh -lc` — its payloads are POSIX
   text.
 
-## Out of scope (later PRs / Wave 2)
+## Agent-startup dialect (nushell PR4)
 
-- `AgentStartupShell 'nushell'` dialect + bracketed-paste gate — nushell PR4.
+- `AgentStartupShell` gains a `'nushell'` member. Dialect rules: arguments are
+  nu double-quoted (`\` and `"` escaped; `$` is NOT interpolated in plain
+  `"…"`), argv commands carry the `^` external caret on the quoted head, env
+  clearing is `hide-env -i`, chaining is `; ` (nu has no `&&`), and startup
+  templates route through the POSIX tokenizer (nu-specific escapes are a named
+  follow-up — a win32 nu Hermes override containing backslash paths is the
+  known gap).
+- The dialect is implemented twice by design: the TS helpers in
+  `src/shared/tui-agent-startup-shell.ts` and the Rust port in
+  `rust/crates/orca-agents/src/tui_agent_startup_shell.rs` (napi addon + the
+  regenerated `orca_git_wasm` renderer/relay blobs). An older blob simply
+  fails to parse the `'nushell'` label and keeps today's platform default.
+- Resolution: `resolveWindowsShellStartupFamily` maps the `nushell` sentinel
+  and `nu.exe` paths to the family; `resolveLocalPosixAgentStartupShell`
+  (posix-terminal-shell.ts) returns `'nushell'` only when the LOCAL default
+  POSIX shell setting is nu — SSH remotes stay `'posix'` (remote shell kind
+  unknown) and WSL-runtime launches make no claim (the distro login shell is
+  not described by `terminalPosixShell`).
+- Bracketed paste: multiline startup prompts paste literally into nu only at
+  the integration floor (`isBracketedPasteSafeShell`); below-floor or
+  never-probed nu keeps the raw submit path. The daemon path derives the same
+  answer from its nu-aware startup barrier gate.
+- Hermes startup query: POSIX-host nu terminals use the `sh -c` wrapper (the
+  single-quoted script is quote-free by construction, so nu parses it);
+  win32 nu keeps the PowerShell `-EncodedCommand` wrapper (all bare tokens).
+- Setup runners and AI-vault resume commands emit nu-safe text (`cmd.exe /c
+  "C:\\…"` escaping on Windows; `cd "…"; $env.CODEX_HOME = "…"; …` chains).

@@ -2061,4 +2061,18 @@ describePosix('nu launch config (#8928 PR1)', () => {
     expect(existsSync(join(userDataPath, 'shell-ready', 'zsh', '.zshrc'))).toBe(true)
     expect(existsSync(join(userDataPath, 'shell-ready', 'bash', 'rcfile'))).toBe(true)
   })
+
+  it('arms bracketed paste for nu only at the integration floor (#8928 PR4)', async () => {
+    const { shellReady, probe } = await importFreshWithProbe()
+    probe.__seedNushellIntegrationSupport('/usr/local/bin/nu', true)
+    probe.__seedNushellIntegrationSupport('/opt/old/nu', false)
+
+    expect(shellReady.isBracketedPasteSafeShell('/bin/bash')).toBe(true)
+    expect(shellReady.isBracketedPasteSafeShell('/bin/zsh')).toBe(true)
+    expect(shellReady.isBracketedPasteSafeShell('/usr/local/bin/nu')).toBe(true)
+    // Why: below-floor and never-probed nu must keep the raw submit path.
+    expect(shellReady.isBracketedPasteSafeShell('/opt/old/nu')).toBe(false)
+    expect(shellReady.isBracketedPasteSafeShell('/never/probed/nu')).toBe(false)
+    expect(shellReady.isBracketedPasteSafeShell('/usr/bin/fish')).toBe(false)
+  })
 })

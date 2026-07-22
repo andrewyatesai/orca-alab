@@ -444,6 +444,20 @@ export function getAttributionShellLaunchConfig(shellPath: string): ShellReadyLa
   return getWrappedShellLaunchConfig(shellPath, { emitReadyMarker: false })
 }
 
+// Why: only shells with bracketed paste armed may take multiline startup prompts as one literal paste;
+// nu qualifies only when the integration floor is met (reedline arms it by default >= 0.96, non-Windows).
+export function isBracketedPasteSafeShell(shellPath: string): boolean {
+  if (process.platform === 'win32') {
+    return false
+  }
+  const shellName = basename(shellPath).toLowerCase()
+  return (
+    shellName === 'bash' ||
+    shellName === 'zsh' ||
+    (isNushellExecutableName(shellName) && getCachedNushellIntegrationSupport(shellPath) === true)
+  )
+}
+
 // ── Startup command writer ──────────────────────────────────────────
 
 export function writeStartupCommandWhenShellReady(

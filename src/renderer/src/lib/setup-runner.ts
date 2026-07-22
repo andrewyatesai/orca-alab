@@ -3,7 +3,7 @@ import {
   getSetupRunnerCommandPlatformForPath
 } from '../../../shared/setup-runner-command'
 import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'
-import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
+import { resolveLocalAgentStartupShell } from '../../../shared/local-agent-startup-shell'
 import { repoIsRemote } from '../../../shared/agent-launch-remote'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 
@@ -31,7 +31,8 @@ export function getWorktreeSetupTerminalShellFamily(
     worktreesByRepo?: Record<string, readonly { id: string; repoId: string; hostId?: string }[]>
   },
   worktreeId: string,
-  terminalWindowsShell: string | null | undefined
+  terminalWindowsShell: string | null | undefined,
+  terminalPosixShell?: string | null
 ): AgentStartupShell | undefined {
   const worktree = Object.values(state.worktreesByRepo ?? {})
     .flat()
@@ -40,9 +41,14 @@ export function getWorktreeSetupTerminalShellFamily(
   const isRemote =
     (repo ? repoIsRemote(repo) : false) ||
     Boolean(worktree?.hostId && worktree.hostId !== LOCAL_EXECUTION_HOST_ID)
-  return resolveLocalWindowsAgentStartupShell({
-    platform: navigator.userAgent.includes('Windows') ? 'win32' : 'linux',
+  const clientPlatform: NodeJS.Platform = navigator.userAgent.includes('Windows')
+    ? 'win32'
+    : 'linux'
+  return resolveLocalAgentStartupShell({
+    platform: clientPlatform,
+    clientPlatform,
     isRemote,
-    terminalWindowsShell
+    terminalWindowsShell,
+    terminalPosixShell
   })
 }

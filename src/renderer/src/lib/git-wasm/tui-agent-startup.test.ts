@@ -82,6 +82,25 @@ describe('tui agent startup plans', () => {
     )
   })
 
+  it('uses nushell quoting when the target shell is nu (#8928 PR4)', () => {
+    // Why: this crosses the Rust wasm boundary — proves the regenerated core parses the 'nushell' label.
+    const plan = buildAgentStartupPlan({
+      agent: 'claude',
+      prompt: 'fix Bob\'s "quoted" C:\\branch',
+      cmdOverrides: {},
+      platform: 'darwin',
+      shell: 'nushell'
+    })
+
+    expect(plan?.launchCommand).toBe('claude "fix Bob\'s \\"quoted\\" C:\\\\branch"')
+  })
+
+  it('invokes quoted argv commands with the nushell external caret', () => {
+    expect(buildShellCommandFromArgv(['codex', 'resume', 's1'], 'nushell')).toBe(
+      '^"codex" "resume" "s1"'
+    )
+  })
+
   it('uses cmd escaping when requested explicitly', () => {
     const plan = buildAgentStartupPlan({
       agent: 'claude',

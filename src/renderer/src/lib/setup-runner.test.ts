@@ -93,11 +93,14 @@ describe('getWorktreeSetupTerminalShellFamily', () => {
     expect(getWorktreeSetupTerminalShellFamily(state, 'wt-remote', 'git-bash')).toBeUndefined()
   })
 
-  it('returns undefined off Windows clients', () => {
+  it('resolves the POSIX family off Windows clients (#8928 PR4)', () => {
     vi.stubGlobal('navigator', {
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
     })
 
-    expect(getWorktreeSetupTerminalShellFamily(state, 'wt-local', 'git-bash')).toBeUndefined()
+    expect(getWorktreeSetupTerminalShellFamily(state, 'wt-local', 'git-bash')).toBe('posix')
+    expect(getWorktreeSetupTerminalShellFamily(state, 'wt-local', null, 'nu')).toBe('nushell')
+    // Remote worktrees still make no local-shell claim.
+    expect(getWorktreeSetupTerminalShellFamily(state, 'wt-remote', null, 'nu')).toBeUndefined()
   })
 })

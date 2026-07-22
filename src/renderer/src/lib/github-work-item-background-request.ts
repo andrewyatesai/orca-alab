@@ -26,7 +26,7 @@ import type { TaskSourceContext, WorkspaceRunContext } from '../../../shared/tas
 import type { AgentStartedTelemetry } from '@/lib/worktree-activation'
 import { getRepoExecutionHostId, parseExecutionHostId } from '../../../shared/execution-host'
 import { projectHostSetupProjectionFromRepos } from '../../../shared/project-host-setup-projection'
-import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
+import { resolveLocalAgentStartupShell } from '../../../shared/local-agent-startup-shell'
 
 export type GitHubWorkItemBackgroundStoreSnapshot = {
   repos: readonly Repo[]
@@ -46,6 +46,7 @@ export type GitHubWorkItemBackgroundStoreSnapshot = {
           | 'agentDefaultArgs'
           | 'agentDefaultEnv'
           | 'terminalWindowsShell'
+          | 'terminalPosixShell'
           | 'customAgents'
         >
       >
@@ -189,10 +190,12 @@ export function buildGitHubWorkItemStartupPlan(args: {
   // Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only
   // `orca-ide` rename must not be applied for remote launches.
   const isRemote = repoIsRemote(repo)
-  const shell = resolveLocalWindowsAgentStartupShell({
+  const shell = resolveLocalAgentStartupShell({
     platform,
+    clientPlatform: CLIENT_PLATFORM,
     isRemote,
-    terminalWindowsShell: store.settings?.terminalWindowsShell
+    terminalWindowsShell: store.settings?.terminalWindowsShell,
+    terminalPosixShell: store.settings?.terminalPosixShell
   })
   const draftLaunchPlan = draftPrompt
     ? buildAgentDraftLaunchPlan({

@@ -32,6 +32,7 @@ import {
   getShellReadyLaunchConfig,
   createShellReadyScanState,
   drainShellReadyHeldBytes,
+  isBracketedPasteSafeShell,
   scanForShellReady,
   writeStartupCommandWhenShellReady,
   STARTUP_COMMAND_READY_MAX_WAIT_MS
@@ -1039,10 +1040,8 @@ export class LocalPtyProvider implements IPtyProvider {
     ptyDisposables.set(id, disposables)
 
     if (args.command && !startupCommandDeliveredInShellArgs) {
-      // Why: only POSIX bash/zsh have bracketed-paste armed so multiline startup prompts paste literally; others use raw submit.
-      const spawnedShellName = getSpawnedShellName(shellPath).toLowerCase()
-      const bracketedPasteSafe =
-        process.platform !== 'win32' && (spawnedShellName === 'bash' || spawnedShellName === 'zsh')
+      // Why: only shells with bracketed-paste armed take multiline startup prompts literally; others use raw submit.
+      const bracketedPasteSafe = isBracketedPasteSafeShell(shellPath)
       writeStartupCommandWhenShellReady(
         shellReadyPromise,
         proc,

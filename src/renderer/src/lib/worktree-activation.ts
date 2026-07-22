@@ -459,7 +459,8 @@ export function ensureWorktreeHasInitialTerminal(
       terminalShellFamily: getWorktreeSetupTerminalShellFamily(
         ownerState,
         worktreeId,
-        useAppStore.getState().settings?.terminalWindowsShell
+        useAppStore.getState().settings?.terminalWindowsShell,
+        useAppStore.getState().settings?.terminalPosixShell
       )
     })
     sequencedStartup = {
@@ -688,7 +689,8 @@ function queueSetupAndIssueCommands(
   const terminalShellFamily = getWorktreeSetupTerminalShellFamily(
     activationState,
     worktreeId,
-    activationState.settings?.terminalWindowsShell
+    activationState.settings?.terminalWindowsShell,
+    activationState.settings?.terminalPosixShell
   )
   // Why: setup launch location is user-configurable — 'new-tab' keeps setup output off the primary pane; splits keep it adjacent.
   if (setup) {

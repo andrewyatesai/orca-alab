@@ -96,6 +96,32 @@ describe('buildAiVaultResumeCommand', () => {
     )
   })
 
+  it('builds nu-syntax queued resume commands for a live Nushell terminal (#8928 PR4)', () => {
+    // Windows nu: nu-escaped backslash paths, `;` chaining, no `&&`/Set-Location.
+    expect(
+      buildAiVaultResumeCommand({
+        agent: 'codex',
+        sessionId: 'session-1',
+        cwd: 'C:\\Users\\Ada Lovelace\\repo',
+        platform: 'win32',
+        codexHome: 'C:\\Users\\Ada Lovelace\\codex-home',
+        shell: 'nushell'
+      })
+    ).toBe(
+      'cd "C:\\\\Users\\\\Ada Lovelace\\\\repo"; $env.CODEX_HOME = "C:\\\\Users\\\\Ada Lovelace\\\\codex-home"; codex resume "session-1"'
+    )
+    // POSIX nu takes the same nu dialect — the `cd '…' && …` fallback does not parse in nu.
+    expect(
+      buildAiVaultResumeCommand({
+        agent: 'codex',
+        sessionId: 'session-1',
+        cwd: '/repo/app',
+        platform: 'darwin',
+        shell: 'nushell'
+      })
+    ).toBe('cd "/repo/app"; codex resume "session-1"')
+  })
+
   it('falls back to the session id when no OMP transcript path is known', () => {
     expect(
       buildAiVaultResumeCommand({

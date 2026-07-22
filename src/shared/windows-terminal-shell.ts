@@ -1,5 +1,5 @@
 import type { AgentStartupShell } from './tui-agent-startup-shell'
-import type { WINDOWS_NUSHELL_SHELL } from './nushell-shell'
+import { WINDOWS_NUSHELL_SHELL, isNushellExecutableName } from './nushell-shell'
 
 export const WINDOWS_GIT_BASH_SHELL = 'git-bash'
 
@@ -28,6 +28,10 @@ export function resolveWindowsShellStartupFamily(
   }
   if (trimmed === WINDOWS_GIT_BASH_SHELL) {
     return 'posix'
+  }
+  // Why: nu parses neither POSIX nor PowerShell quoting; queued commands need the nushell dialect.
+  if (trimmed === WINDOWS_NUSHELL_SHELL || isNushellExecutableName(trimmed)) {
+    return 'nushell'
   }
   const basename = trimmed.replaceAll('\\', '/').split('/').pop()?.toLowerCase() ?? ''
   if (basename === 'cmd.exe') {

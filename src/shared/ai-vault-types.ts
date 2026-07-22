@@ -223,7 +223,8 @@ export function buildAiVaultResumeShellCommand(args: {
 
   // Why: shell-aware commands are parsed by a known running shell, while
   // shell-less persisted commands keep the legacy self-contained cmd wrapper.
-  if (platform === 'win32' && shell && shell !== 'cmd') {
+  // nu on ANY platform needs its own dialect — the POSIX `cd '…' && …` fallback below does not parse in nu.
+  if (shell === 'nushell' || (platform === 'win32' && shell && shell !== 'cmd')) {
     return buildResumeShellCommandForShell({
       resumeCommand: args.resumeCommand,
       cwd,
@@ -265,6 +266,19 @@ function buildResumeShellCommandForShell(args: {
     const envPrefix = codexHome ? `CODEX_HOME=${quoteStartupArg(codexHome, shell)} ` : ''
     const command = `${envPrefix}${args.resumeCommand}`
     return cwd ? `cd ${quoteStartupArg(cwd, shell)} && ${command}` : command
+  }
+
+  if (shell === 'nushell') {
+    // Why: nu has no `&&` or inline-env prefixes; chain nu statements with `;` and set $env directly.
+    const segments: string[] = []
+    if (cwd) {
+      segments.push(`cd ${quoteStartupArg(cwd, shell)}`)
+    }
+    if (codexHome) {
+      segments.push(`$env.CODEX_HOME = ${quoteStartupArg(codexHome, shell)}`)
+    }
+    segments.push(args.resumeCommand)
+    return segments.join(commandSeparator(shell))
   }
 
   const separator = commandSeparator(shell)

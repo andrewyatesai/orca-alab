@@ -13,15 +13,17 @@ pub enum AgentStartupShell {
     Posix,
     Powershell,
     Cmd,
+    Nushell,
 }
 
 impl AgentStartupShell {
-    /// Parse the TS string literal (`'posix' | 'powershell' | 'cmd'`).
+    /// Parse the TS string literal (`'posix' | 'powershell' | 'cmd' | 'nushell'`).
     pub fn from_label(label: &str) -> Option<Self> {
         match label {
             "posix" => Some(Self::Posix),
             "powershell" => Some(Self::Powershell),
             "cmd" => Some(Self::Cmd),
+            "nushell" => Some(Self::Nushell),
             _ => None,
         }
     }
@@ -59,6 +61,10 @@ pub fn quote_startup_arg(value: &str, shell: AgentStartupShell) -> String {
             format!("\"{escaped}\"")
         }
         AgentStartupShell::Posix => format!("'{}'", value.replace('\'', "'\\''")),
+        // Why: plain nu "…" does not interpolate $; only \ and " need escaping.
+        AgentStartupShell::Nushell => {
+            format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+        }
     }
 }
 
@@ -73,6 +79,10 @@ pub fn build_shell_command_from_argv(args: &[&str], shell: AgentStartupShell) ->
     if matches!(shell, AgentStartupShell::Powershell) && !command.is_empty() {
         return format!("& {command}");
     }
+    // Why: nu requires the caret to run a quoted head as an external command.
+    if matches!(shell, AgentStartupShell::Nushell) && !command.is_empty() {
+        return format!("^{command}");
+    }
     command
 }
 
@@ -84,6 +94,8 @@ pub fn clear_env_command(name: &str, shell: AgentStartupShell) -> String {
         }
         AgentStartupShell::Cmd => format!("set \"{name}=\""),
         AgentStartupShell::Posix => format!("unset {name}"),
+        // Why: -i ignores a not-set name, matching unset's silent no-op.
+        AgentStartupShell::Nushell => format!("hide-env -i {name}"),
     }
 }
 
@@ -171,7 +183,11 @@ pub fn tokenize_startup_command(
     shell: AgentStartupShell,
 ) -> Result<Vec<String>, String> {
     match shell {
-        AgentStartupShell::Posix => tokenize_custom_command_template(value),
+        // Why: nushell templates route through the POSIX tokenizer — single/double-quote
+        // splitting is compatible; nu-specific escapes are a named follow-up (#8928 §5).
+        AgentStartupShell::Posix | AgentStartupShell::Nushell => {
+            tokenize_custom_command_template(value)
+        }
         AgentStartupShell::Powershell | AgentStartupShell::Cmd => {
             tokenize_windows_startup_command(value, shell)
         }
@@ -246,6 +262,41 @@ mod tests {
         assert_eq!(command_separator(AgentStartupShell::Cmd), " & ");
         assert_eq!(command_separator(AgentStartupShell::Posix), "; ");
         assert_eq!(command_separator(AgentStartupShell::Powershell), "; ");
+    }
+
+    #[test]
+    fn quotes_nushell_arguments_with_escaped_backslashes_and_quotes() {
+        // Mirrors the TS `quoteStartupArg(value, 'nushell')` byte-for-byte.
+        assert_eq!(
+            quote_startup_arg("say \"hi\" C:\\repo", AgentStartupShell::Nushell),
+            "\"say \\\"hi\\\" C:\\\\repo\""
+        );
+        // $ is NOT interpolated inside plain nu double quotes — no escaping.
+        assert_eq!(quote_startup_arg("$env.FOO", AgentStartupShell::Nushell), "\"$env.FOO\"");
+    }
+
+    #[test]
+    fn builds_a_nushell_command_with_the_external_caret() {
+        assert_eq!(
+            build_shell_command_from_argv(&["claude", "-p", "fix it"], AgentStartupShell::Nushell),
+            "^\"claude\" \"-p\" \"fix it\""
+        );
+        assert_eq!(build_shell_command_from_argv(&[], AgentStartupShell::Nushell), "");
+    }
+
+    #[test]
+    fn clears_nushell_env_vars_with_hide_env() {
+        assert_eq!(clear_env_command("FOO", AgentStartupShell::Nushell), "hide-env -i FOO");
+        assert_eq!(command_separator(AgentStartupShell::Nushell), "; ");
+    }
+
+    #[test]
+    fn parses_the_nushell_label_and_tokenizes_like_posix() {
+        assert_eq!(AgentStartupShell::from_label("nushell"), Some(AgentStartupShell::Nushell));
+        assert_eq!(
+            tokenize_startup_command("claude 'a b' \"c\"", AgentStartupShell::Nushell),
+            tokenize_startup_command("claude 'a b' \"c\"", AgentStartupShell::Posix)
+        );
     }
 
     #[test]

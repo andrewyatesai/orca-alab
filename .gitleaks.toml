@@ -1,0 +1,3 @@
+# Public-export secret scanning keeps every built-in detector enabled.
+[extend]
+useDefault = true

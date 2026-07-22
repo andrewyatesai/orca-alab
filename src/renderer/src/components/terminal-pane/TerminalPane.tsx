@@ -786,6 +786,7 @@ export default function TerminalPane({
   const updateSettings = useAppStore((store) => store.updateSettings)
   const requestLinkRoutingPreference = useLinkRoutingPreferenceDialog()
   const keybindings = useAppStore((store) => store.keybindings)
+  const customKeybindings = useAppStore((store) => store.customKeybindings)
   const rightClickToPaste = settings?.terminalRightClickToPaste ?? isWindowsUserAgent()
   // Why: Windows ConPTY doesn't forward DECSET 2004 from TUIs, so xterm may not know multi-line paste needs bracketed protection.
   const forceBracketedMultilineTextPaste = isWindowsUserAgent()
@@ -1838,6 +1839,7 @@ export default function TerminalPane({
     macOptionAsAltRef,
     paneKittyKeyboardModesRef,
     keybindings,
+    customKeybindings,
     terminalShortcutPolicy: settings?.terminalShortcutPolicy ?? 'orca-first'
   })
 

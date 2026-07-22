@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { createWorkerBackedTerm } from './aterm-worker-term'
 import { createAtermPredictionEcho } from './aterm-prediction-echo'
+import { shouldUseWorkerRender } from './aterm-strategy-select'
 import type { AtermWorkerPaneCommand, AtermWorkerState } from './aterm-render-worker-protocol'
 
 // WIRED-ON-DEFAULT-PATH contract for mosh-style predictive echo — the code side of
@@ -50,10 +51,11 @@ function makeDefaultWorkerTerm(post: (cmd: AtermWorkerPaneCommand) => void) {
 
 describe('predictive echo is wired on the default worker render path (silent-death guard)', () => {
   it('the default render strategy is the worker path', () => {
-    // The condition loadAtermStrategy uses to pick the worker term (the facade under test).
-    expect((window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender).not.toBe(
-      false
-    )
+    // The REAL predicate loadAtermStrategy uses to pick the worker term (the facade under
+    // test): worker by default (flag unset), only an explicit `false` opts out.
+    expect(shouldUseWorkerRender(undefined)).toBe(true)
+    expect(shouldUseWorkerRender(false)).toBe(false)
+    expect(shouldUseWorkerRender(true)).toBe(true)
   })
 
   it('the worker term facade implements the full predict_* shape', () => {

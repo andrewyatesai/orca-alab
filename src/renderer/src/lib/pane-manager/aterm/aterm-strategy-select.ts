@@ -31,6 +31,13 @@ export type AtermPendingStrategy = {
 // GPU init so we fall through to the guaranteed CPU path instead.
 const GPU_INIT_TIMEOUT_MS = 4000
 
+/** The worker render path is the DEFAULT: only an explicit `window.__atermWorkerRender
+ *  = false` opts out (the e2e suite does, for in-process canvas/GPU assertions).
+ *  Exported so the predictive-echo wiring contract test pins the real predicate. */
+export function shouldUseWorkerRender(flag: boolean | undefined): boolean {
+  return flag !== false
+}
+
 /** Pick + load the draw strategy for a pane. GPU is attempted when the
  *  auto-policy says so (the DEFAULT on capable hardware — see
  *  aterm-gpu-auto-policy); if GPU loading or `init` fails OR HANGS we fall back to
@@ -52,7 +59,7 @@ export async function loadAtermStrategy(
   // as transferControlToOffscreen the original is poisoned (getContext throws), so a
   // CPU/GPU load on it would reject and leave the pane permanently blank.
   let cfg = config
-  if (typeof window === 'undefined' || window.__atermWorkerRender !== false) {
+  if (typeof window === 'undefined' || shouldUseWorkerRender(window.__atermWorkerRender)) {
     try {
       return await loadAtermWorkerEngine(config)
     } catch (err) {

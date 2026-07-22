@@ -114,7 +114,8 @@ unless the full-path fanout shows large-batch gains.
 I built the receiver-timed harness the review recommended
 (`scratchpad/daemon-flood-timed.mjs`: launch the real daemon, attach a v1020
 binary stream, flood `cat`, time until the client consumes+verifies the last
-byte). Results (quiet M5 Max, 524 MB corpus, 5 trials, tight):
+byte; since committed as `tools/benchmarks/daemon-flood-timed.mjs` — E0-daemon,
+see Reproduce). Results (quiet M5 Max, 524 MB corpus, 5 trials, tight):
 
 - **Full production path, current per-read routing: ~152–156 MB/s.** That is
   *less than half* the read+engine loop's 337 — so the socket fan-out
@@ -193,17 +194,59 @@ but modest NDJSON win (per-line encode+write amortization) and roughly nothing
 for binary on a fast local Unix socket; the pump-side +58% ceiling is NOT
 reached by the writer form even quiet, and stays unclaimed.
 
-**Measurement limitation (WSL / SSH): not benchmarked.** These numbers cover
-the native local-socket writer only. The roadmap asked for WSL and SSH writer
-measurements too; neither exists yet — this is a macOS dev host (no WSL), and
-no end-to-end SSH-transport run of this harness has been done. The coalescing
-itself is transport-agnostic (one drain loop per stream socket regardless of
-who consumes it), and fewer, larger frames should help more where per-frame
-cost is higher (WSL's 9P/vsock seams, SSH channel framing) — but that is a
-hypothesis, not a measurement, and the WSL/SSH deltas remain unclaimed until
-someone runs `stream_flood_bench` on those hosts.
+**Measurement limitation (WSL / SSH): SSH-localhost now measured; WSL still
+pending.** The quiet-machine numbers above cover the native local-socket
+writer. The committed harness (E0-daemon, 2026-07-22 — see Reproduce) added an
+`ssh-localhost` mode whose stream crosses a real SSH channel via `ssh -L`
+Unix-socket forwarding, so the writer-under-SSH run is now reproducible
+anywhere with a reachable sshd. First datapoint (M5 Max, MODERATELY LOADED —
+loadavg 4.8–7.0, coarser than the quiet runs; post-P2 release binary, 500 MB,
+5 trials, medians): native ndjson 167.5 / binary 157.0 MB/s; ssh-localhost
+ndjson 108.1 / binary 112.2 MB/s (wider spread, min 75 — ssh+sshd share this
+box's CPU in localhost mode). So SSH transport costs ~33% end-to-end here, and
+the format gap collapses under SSH. The roadmap's actual question — the P2
+writer coalescing's before/after delta OVER SSH — remains open: run the
+harness ABBA with `--daemon-bin` at pre-/post-P2 binaries. WSL remains
+unmeasured (macOS dev host); the harness runs unchanged inside a WSL distro
+(native mode measures that distro's daemon writer), which is the missing run.
 
 ## Reproduce
+
+### `tools/benchmarks/daemon-flood-timed.mjs` — the full-path flood harness
+
+The committed `daemon-flood-timed` class (restored from scratchpad by
+E0-daemon; `pnpm bench:daemon-flood` or invoke directly). It launches the REAL
+`orca-daemon` binary token-less, attaches a control+stream client pair (NDJSON
+or `--binary` v1020), floods `cat <corpus>` through a session, and
+receiver-times createOrAttach → exit event — the full PTY read → decode →
+engine → route_output → stream writer (P2 coalescing) → socket → client path.
+The corpus is auto-generated, deterministic, and byte-identical to
+`examples/stream_flood_bench.rs`'s, so numbers stay comparable across both
+harnesses.
+
+```
+node tools/benchmarks/daemon-flood-timed.mjs --mb 500 --trials 5 [--binary]
+node tools/benchmarks/daemon-flood-timed.mjs --mode ssh-localhost \
+  [--ssh-dest user@host] [--ssh-arg -p --ssh-arg 2222 --ssh-arg -i --ssh-arg <key>]
+```
+
+- **ABBA across builds** (the P2-class writer question): alternate
+  `--daemon-bin <before>` / `--daemon-bin <after>` with `--label`; each summary
+  line records loadavg + host for the trend record.
+- **ssh-localhost mode** consumes the stream through `ssh -L` Unix-socket
+  forwarding (OpenSSH ≥ 6.7), so every frame crosses a real SSH channel while
+  staying single-host reproducible. It needs non-interactive key auth to
+  `--ssh-dest` (default `localhost`); with Remote Login auth unavailable, a
+  scratch sshd on a high port + throwaway key via `--ssh-arg` (port, identity,
+  `UserKnownHostsFile`) works without touching `~/.ssh`.
+- **WSL**: run the harness unchanged inside the distro (native mode) — that
+  measures the distro's daemon writer end-to-end.
+- **Windows**: native mode only (the daemon side is a named pipe; win32
+  OpenSSH lacks Unix-socket forwarding); the flood child is `cmd.exe /c type`.
+- `examples/stream_flood_bench.rs` is the in-process `serve()` variant (no
+  daemon binary needed); `pump_bench.rs` (below) is the read+engine leg only.
+
+### `pump_bench.rs` — the read+engine microbench
 
 `rust/crates/orca-daemon/examples/pump_bench.rs` (self-contained; measures
 blocking vs an inlined gather feeding a real `HeadlessTerminal`):

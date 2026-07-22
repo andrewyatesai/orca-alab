@@ -780,14 +780,16 @@ export function HostScreen({
   const toggleCollapsed = useCallback(
     (key: string) => {
       const next = new Set(viewStateRef.current.collapsedGroups)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
+      if (!next.delete(key)) {
         next.add(key)
       }
       persistViewSettings({ collapsedGroups: [...next] })
     },
     [persistViewSettings]
+  )
+  const toggleWorktreeLineage = useCallback(
+    (item: Worktree) => toggleCollapsed(getMobileWorkspaceLineageGroupKey(item.worktreeId)),
+    [toggleCollapsed]
   )
   const { sections, rawSections, uniqueRepos, uniqueRepoColors } = useWorkspaceSections({
     displayWorktrees,
@@ -1199,9 +1201,7 @@ export function HostScreen({
               hideRepo={groupMode === 'repo'}
               onPress={openWorktreeSession}
               onLongPress={item.workspaceKind === 'folder-workspace' ? undefined : setActionTarget}
-              onToggleLineage={(row) =>
-                toggleCollapsed(getMobileWorkspaceLineageGroupKey(row.worktreeId))
-              }
+              onToggleLineage={toggleWorktreeLineage}
             />
           )}
         />

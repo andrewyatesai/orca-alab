@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { hashOrcaHookScript } from './orca-hook-trust'
+import { hashOrcaHookScript, isSharedOrcaCommandTrusted } from './orca-hook-trust'
 
 const realCrypto = globalThis.crypto
 
@@ -27,5 +27,29 @@ describe('hashOrcaHookScript', () => {
     expect(hash).toMatch(/^[0-9a-f]+$/)
     expect(await hashOrcaHookScript('echo hi')).toBe(hash)
     expect(await hashOrcaHookScript('echo bye')).not.toBe(hash)
+  })
+})
+
+describe('isSharedOrcaCommandTrusted', () => {
+  it('trusts only a matching setup content hash or an always-trusted repo', () => {
+    expect(
+      isSharedOrcaCommandTrusted({ setup: { contentHash: 'abc', approvedAt: 1 } }, 'abc')
+    ).toBe(true)
+    expect(
+      isSharedOrcaCommandTrusted({ setup: { contentHash: 'abc', approvedAt: 1 } }, 'def')
+    ).toBe(false)
+    expect(isSharedOrcaCommandTrusted({ all: { approvedAt: 1 } }, 'anything')).toBe(true)
+    expect(isSharedOrcaCommandTrusted(undefined, 'abc')).toBe(false)
+  })
+
+  // Why: fail closed — a snapshot Orca could not hash must never count as trusted.
+  it('never trusts a missing content hash', () => {
+    expect(isSharedOrcaCommandTrusted({ setup: { contentHash: '', approvedAt: 1 } }, null)).toBe(
+      false
+    )
+    expect(isSharedOrcaCommandTrusted({ setup: { contentHash: '', approvedAt: 1 } }, '')).toBe(
+      false
+    )
+    expect(isSharedOrcaCommandTrusted({ all: { approvedAt: 1 } }, null)).toBe(true)
   })
 })

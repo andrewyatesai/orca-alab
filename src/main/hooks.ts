@@ -8,6 +8,7 @@ import { resolveHookCommandSourcePolicy } from './rust-hook-command-source-polic
 import { shouldWaitForSetupBeforeAgentStartup } from '../shared/setup-agent-startup-policy'
 import { TERMINAL_GIT_CREDENTIAL_GUARD_POLICY_ENV } from '../shared/terminal-git-credential-guard'
 import { parseOrcaYaml } from '../shared/orca-yaml'
+import { getSharedCommandTrustContent } from '../shared/orca-yaml-trust-content'
 import { gitExecFileSync, promptGuardShellEnv } from './git/runner'
 import { isWslPath, parseWslPath, toWindowsWslPath, toLinuxPath } from './wsl'
 import { addWorktreeSetupWslInteropEnv } from './pty/wsl-orca-env'
@@ -37,6 +38,9 @@ function getHookShell(): string | undefined {
 }
 
 export { parseOrcaYaml }
+// Why: one canonical trust-content builder (shared with the renderer) so main-,
+// runtime-, and renderer-side hashes of shared orca.yaml commands always match.
+export { getSharedCommandTrustContent }
 
 /**
  * Load hooks from orca.yaml in the given repo root.
@@ -67,7 +71,8 @@ const RECOGNIZED_ORCA_YAML_KEYS = new Set([
   'scripts',
   'issueCommand',
   'defaultTabs',
-  'environmentRecipes'
+  'environmentRecipes',
+  'quickCommands'
 ])
 
 /** True when `orca.yaml` has a top-level key this version of Orca does not handle. */
@@ -263,18 +268,16 @@ export function shouldRunSetupForCreate(repo: Repo, decision: SetupDecision = 'i
   return policy === 'run-by-default'
 }
 
-export function getDefaultTabCommandTrustContent(hooks: OrcaHooks | null): string {
-  const commands = (hooks?.defaultTabs ?? [])
-    .map((tab, index) => {
-      const command = tab.command?.trim()
-      if (!command) {
-        return null
-      }
-      const label = tab.title ? ` ${tab.title}` : ''
-      return `# defaultTabs[${index + 1}]${label}\n${command}`
-    })
-    .filter((entry): entry is string => entry !== null)
-  return [hooks?.scripts.setup?.trim(), ...commands].filter(Boolean).join('\n\n')
+// Why: local-only repos may use shared tab titles/colors but must not run
+// committed orca.yaml commands (defaultTabs commands or project quick commands).
+export function canRunSharedCommandsForRepo(repo: Repo): boolean {
+  const sharedCommandPolicy = resolveHookCommandSourcePolicy(
+    repo.hookSettings?.commandSourcePolicy,
+    {
+      hasLocalScript: Boolean(repo.hookSettings?.scripts.setup?.trim())
+    }
+  )
+  return sharedCommandPolicy !== 'local-only'
 }
 
 export function getDefaultTabsLaunch(
@@ -287,16 +290,8 @@ export function getDefaultTabsLaunch(
     return undefined
   }
   const hasCommands = tabs.some((tab) => Boolean(tab.command?.trim()))
-  const sharedCommandPolicy = resolveHookCommandSourcePolicy(
-    repo.hookSettings?.commandSourcePolicy,
-    {
-      hasLocalScript: Boolean(repo.hookSettings?.scripts.setup?.trim())
-    }
-  )
-  // Why: local-only repos may use shared tab titles/colors but must not run the committed orca.yaml commands.
-  const canRunSharedCommands = sharedCommandPolicy !== 'local-only'
   const runCommands =
-    hasCommands && canRunSharedCommands ? shouldRunSetupForCreate(repo, decision) : false
+    hasCommands && canRunSharedCommandsForRepo(repo) ? shouldRunSetupForCreate(repo, decision) : false
   return { tabs, runCommands }
 }
 

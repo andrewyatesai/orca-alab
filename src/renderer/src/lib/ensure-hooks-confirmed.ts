@@ -1,5 +1,6 @@
 import type { AppState } from '@/store/types'
 import type { OrcaHooks } from '../../../shared/types'
+import { getSharedCommandTrustContent } from '../../../shared/orca-yaml-trust-content'
 import { resolveHookCommandSourcePolicy } from '@/lib/git-wasm/hook-command-source-policy'
 import { hashOrcaHookScript, type OrcaHookScriptKind } from './orca-hook-trust'
 import { checkRuntimeHooks, readRuntimeIssueCommand } from '@/runtime/runtime-hooks-client'
@@ -23,20 +24,6 @@ function enqueueTrustPrompt<T>(task: () => Promise<T>): Promise<T> {
 
 export function __resetTrustPromptChainForTests(): void {
   trustPromptChain = Promise.resolve()
-}
-
-function getSetupTrustContent(yamlHooks: OrcaHooks | null): string {
-  const defaultTabCommands = (yamlHooks?.defaultTabs ?? [])
-    .map((tab, index) => {
-      const command = tab.command?.trim()
-      if (!command) {
-        return null
-      }
-      const label = tab.title ? ` ${tab.title}` : ''
-      return `# defaultTabs[${index + 1}]${label}\n${command}`
-    })
-    .filter((entry): entry is string => entry !== null)
-  return [yamlHooks?.scripts?.setup?.trim(), ...defaultTabCommands].filter(Boolean).join('\n\n')
 }
 
 function getVmRecipeTrustContent(yamlHooks: OrcaHooks | null): string {
@@ -67,7 +54,7 @@ function findHookRepo(state: AppState, repoId: string, hostId?: ExecutionHostId)
     : state.repos.find((repo) => repo.id === repoId)
 }
 
-function settingsForHookRepoOwner(
+export function settingsForHookRepoOwner(
   state: AppState,
   repoId: string,
   hostId?: ExecutionHostId
@@ -139,9 +126,11 @@ export async function ensureHooksConfirmed(
           return 'skip'
         }
         const yamlHooks = (result.hooks as OrcaHooks | null) ?? null
+        // Why: 'setup' trust covers ALL shared orca.yaml commands (setup +
+        // defaultTabs + quickCommands) via the one canonical builder.
         scriptContent =
           scriptKind === 'setup'
-            ? getSetupTrustContent(yamlHooks)
+            ? getSharedCommandTrustContent(yamlHooks)
             : scriptKind === 'vmRecipe'
               ? getVmRecipeTrustContent(yamlHooks)
               : (yamlHooks?.scripts?.[scriptKind] ?? '').trim()

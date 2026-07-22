@@ -142,6 +142,37 @@ describe('ensureHooksConfirmed', () => {
     await expect(promise).resolves.toBe('skip')
   })
 
+  it('re-prompts when orca.yaml quick command text changes the shared trust content hash (#8481)', async () => {
+    const { state, pending } = createTestState()
+    // Why: an approval that predates the quickCommands block must not cover it.
+    state.trustedOrcaHooks['repo-1'] = {
+      setup: { contentHash: await hashOrcaHookScript('pnpm install'), approvedAt: 1 }
+    }
+    hooksCheckMock.mockResolvedValue({
+      hasHooks: true,
+      hooks: {
+        scripts: { setup: 'pnpm install' },
+        quickCommands: [
+          { label: 'Dev server', command: 'npm run dev' },
+          { label: 'Investigate', action: 'agent-prompt', agent: 'claude', prompt: 'Look around' }
+        ]
+      },
+      mayNeedUpdate: false
+    })
+
+    const promise = ensureHooksConfirmed(state, 'repo-1', 'setup')
+
+    await vi.waitFor(() => expect(pending).toHaveLength(1))
+    const expectedContent =
+      'pnpm install\n\n# quickCommands[1] Dev server\nnpm run dev\n\n# quickCommands[2] Investigate\nagent-prompt claude: Look around'
+    expect(pending[0].data.scriptContent).toBe(expectedContent)
+    expect(pending[0].data.contentHash).toBe(await hashOrcaHookScript(expectedContent))
+    expect(pending[0].data.previouslyApproved).toBe(true)
+
+    pending[0].resolve('skip')
+    await expect(promise).resolves.toBe('skip')
+  })
+
   it('prompts for VM recipes using the recipe lifecycle declarations', async () => {
     const { state, pending } = createTestState()
     hooksCheckMock.mockResolvedValue({

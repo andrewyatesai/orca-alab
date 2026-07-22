@@ -1,6 +1,22 @@
 import { sha256 } from './sha256'
+import type { PersistedTrustedOrcaHookRepo } from '../../../shared/types'
 
 export type OrcaHookScriptKind = 'setup' | 'archive' | 'issueCommand' | 'vmRecipe'
+
+/**
+ * Whether the repo's current trust record covers the shared orca.yaml command
+ * content (setup + defaultTabs + quickCommands) with the given hash. Fails
+ * closed: no hash (fetch failed / not yet computed) is never trusted.
+ */
+export function isSharedOrcaCommandTrusted(
+  trust: PersistedTrustedOrcaHookRepo | undefined,
+  contentHash: string | null
+): boolean {
+  if (trust?.all) {
+    return true
+  }
+  return Boolean(contentHash) && trust?.setup?.contentHash === contentHash
+}
 
 export async function hashOrcaHookScript(content: string): Promise<string> {
   const normalized = content.trim()

@@ -674,7 +674,7 @@ import { gitPush } from '../git/remote'
 import { isENOENT } from '../ipc/filesystem-auth'
 import {
   createSetupRunnerScript,
-  getDefaultTabCommandTrustContent,
+  getSharedCommandTrustContent,
   getDefaultTabsLaunch,
   getEffectiveHooks,
   getEffectiveSetupRunPolicy,
@@ -15321,7 +15321,7 @@ export class OrcaRuntimeService {
           source: hooks ? 'orca.yaml' : null,
           setupTrust: this.getSharedSetupHookTrustPayload(
             repo,
-            getDefaultTabCommandTrustContent(hooks)
+            getSharedCommandTrustContent(hooks)
           )
         }
       } catch {
@@ -15344,7 +15344,7 @@ export class OrcaRuntimeService {
       source: hasFile ? 'orca.yaml' : hooks ? 'legacy' : null,
       setupTrust: this.getSharedSetupHookTrustPayload(
         repo,
-        getDefaultTabCommandTrustContent(sharedHooks)
+        getSharedCommandTrustContent(sharedHooks)
       )
     }
   }

@@ -32,6 +32,10 @@ export type AtermSearchApi = {
    *  (streaming; see aterm-worker-search) — the UI's stale indicator. Always false
    *  in-process, where refresh is immediate. */
   searchResultsStale: () => boolean
+  /** True when the engine's budgeted find reported a truncated index (eviction /
+   *  match cap, E9a) — the count is a floor, rendered "N+". Always false in-process,
+   *  where the legacy one-shot API drops the signal. */
+  searchResultsIncomplete: () => boolean
   /** True while an issued find's results haven't landed yet (worker path only — the
    *  in-process search is synchronous). The label shows "~N, searching…" then. */
   searchIsPending: () => boolean
@@ -109,6 +113,7 @@ export function buildAtermSearchApi(deps: AtermSearchApiDeps): AtermSearchApi {
     searchMatchCount: () => workerSearch()?.count ?? searchController.count(),
     searchActiveMatchIndex: () => workerSearch()?.activeIndex ?? searchController.activeIndex(),
     searchResultsStale: () => workerSearch()?.stale ?? false,
+    searchResultsIncomplete: () => workerSearch()?.incomplete ?? false,
     // In-process find is synchronous, so results are never pending there.
     searchIsPending: () => workerSearch()?.pending ?? false,
     searchMarkerModel: () => {

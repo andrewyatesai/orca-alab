@@ -62,6 +62,9 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** True while streaming's cost gate serves search results older than the buffer
    *  content (worker path; see aterm-worker-search) — the UI's stale indicator. */
   searchResultsStale: () => boolean
+  /** True when the engine reported a truncated match index (eviction / match cap,
+   *  E9a) — the count is a floor, so the UI labels it "N+" ("~N+" with stale). */
+  searchResultsIncomplete: () => boolean
   /** True while an issued find's results haven't landed yet (worker path) — the
    *  count is the previous query's, so the UI labels it "~N, searching…". */
   searchIsPending: () => boolean

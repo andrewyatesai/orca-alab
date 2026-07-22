@@ -39,6 +39,8 @@ export function createWorkerSearchMirror(
       activeIndex: state.searchActiveIndex,
       activeRect: state.searchActiveRect,
       stale: state.searchResultsStale,
+      // Coerce: a STATE from a worker predating the E9a plumbing lacks the field.
+      incomplete: state.searchResultsIncomplete === true,
       markers: state.searchMarkers,
       pending: latestFindId() > state.searchGeneration
     }),
@@ -49,6 +51,8 @@ export function createWorkerSearchMirror(
       // count/active, and the stale flag must reach the search UI's indicator.
       next.searchResultsVersion !== prev.searchResultsVersion ||
       next.searchResultsStale !== prev.searchResultsStale ||
+      // An incomplete flip must reach the "N+" count label like the stale flag does.
+      next.searchResultsIncomplete !== prev.searchResultsIncomplete ||
       // Generation catch-up resolves the pending label even with identical totals.
       next.searchGeneration !== prev.searchGeneration ||
       !searchMarkerModelsEqual(next.searchMarkers, prev.searchMarkers),

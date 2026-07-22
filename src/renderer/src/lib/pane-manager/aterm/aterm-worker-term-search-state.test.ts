@@ -47,6 +47,7 @@ function makeState(overrides: Partial<AtermWorkerState> = {}): AtermWorkerState 
     searchActiveRect: null,
     searchResultsVersion: 0,
     searchResultsStale: false,
+    searchResultsIncomplete: false,
     searchGeneration: 0,
     searchMarkers: { fractions: [], activeFraction: null },
     searchMatchRects: [],
@@ -108,6 +109,7 @@ describe('worker-backed term search state', () => {
       activeIndex: 3,
       activeRect: null,
       stale: true,
+      incomplete: false,
       markers: { fractions: [], activeFraction: null },
       pending: false
     })
@@ -123,6 +125,38 @@ describe('worker-backed term search state', () => {
     )
     expect(handler).toHaveBeenCalledTimes(2)
     expect(facade.searchStateSnapshot().stale).toBe(false)
+  })
+
+  it('fires on an incomplete flip and exposes the flag via searchStateSnapshot (E9a)', () => {
+    const { facade, applyState } = makeTerm()
+    const handler = vi.fn()
+    facade.onSearchStateChange(handler)
+
+    // The engine truncated the index (eviction / match cap): the flag must reach
+    // the snapshot so the count UI can render "N+".
+    applyState(makeState({ searchCount: 7, searchActiveIndex: 7, searchResultsIncomplete: true }))
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(facade.searchStateSnapshot().incomplete).toBe(true)
+
+    // A later find covers the full buffer → the flip back must notify too.
+    applyState(
+      makeState({
+        searchCount: 7,
+        searchActiveIndex: 7,
+        searchResultsIncomplete: false,
+        searchResultsVersion: 1
+      })
+    )
+    expect(handler).toHaveBeenCalledTimes(2)
+    expect(facade.searchStateSnapshot().incomplete).toBe(false)
+  })
+
+  it('treats a STATE without the E9a field (older worker) as complete — current behavior', () => {
+    const { facade, applyState } = makeTerm()
+    const state = makeState({ searchCount: 4, searchActiveIndex: 1 })
+    delete (state as Partial<AtermWorkerState>).searchResultsIncomplete
+    applyState(state)
+    expect(facade.searchStateSnapshot().incomplete).toBe(false)
   })
 
   it('routes term.search() through the id-correlated query channel (not a command)', () => {

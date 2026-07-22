@@ -46,6 +46,9 @@ export type AtermWorkerAsyncFacade = {
     activeIndex: number
     activeRect: { x: number; y: number; width: number; height: number } | null
     stale: boolean
+    /** True when the engine reported a truncated index (eviction / match cap, E9a):
+     *  `count` is a floor, so the label renders "N+" (both with stale → "~N+"). */
+    incomplete: boolean
     /** Scrollbar marker model the worker derived from the full match list. */
     markers: AtermSearchMarkerModel
     /** True while an issued find hasn't been echoed back yet (count is the previous

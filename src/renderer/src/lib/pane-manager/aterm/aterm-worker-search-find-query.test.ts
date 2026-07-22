@@ -201,6 +201,47 @@ describe('budgeted sliced find (P1.1)', () => {
     expect(scrollIntoView).toHaveBeenCalledWith(9) // LAST match scrolled into view
   })
 
+  it('surfaces the settling step incomplete_index as resultsIncomplete (E9a) and clears it on the next full find', () => {
+    vi.useFakeTimers()
+    const { handle } = makeBudgetedHandle([
+      // Eviction / the match cap truncated the index: the count is a floor.
+      step({
+        matches: new Uint32Array([3, 0, 4]),
+        complete: true,
+        incompleteIndex: true,
+        rowsFed: 8000,
+        totalRows: 8000
+      }),
+      step({
+        matches: new Uint32Array([3, 0, 4]),
+        complete: true,
+        rowsFed: 8000,
+        totalRows: 8000
+      }),
+      step({
+        matches: new Uint32Array([3, 0, 4]),
+        complete: true,
+        incompleteIndex: true,
+        rowsFed: 8000,
+        totalRows: 8000
+      })
+    ])
+    const search = createWorkerSearch(handle, () => 24)
+    answerSearchFindQuery(search, 0, 'ab', 1, () => false, vi.fn())
+    expect(search.resultsIncomplete()).toBe(true)
+    expect(search.count()).toBe(1)
+
+    // The next find's step covers the full index → the flag clears.
+    answerSearchFindQuery(search, 0, 'abc', 2, () => false, vi.fn())
+    expect(search.resultsIncomplete()).toBe(false)
+
+    // clear() also drops the flag (find UI closed).
+    answerSearchFindQuery(search, 0, 'ab', 3, () => false, vi.fn())
+    expect(search.resultsIncomplete()).toBe(true)
+    search.clear()
+    expect(search.resultsIncomplete()).toBe(false)
+  })
+
   it('settles with the scanned prefix flagged stale after repeated engine restarts — every call slice-budgeted', () => {
     vi.useFakeTimers()
     // rowsFed DROPS on calls 2-4 (content changed between slices; the engine

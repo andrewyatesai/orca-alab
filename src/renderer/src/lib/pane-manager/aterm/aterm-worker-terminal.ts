@@ -260,6 +260,7 @@ export function createWorkerTerminal(
         // set the cost-gate stale flag / bumped the version for THIS frame.
         searchResultsVersion: search.resultsVersion(),
         searchResultsStale: search.resultsStale(),
+        searchResultsIncomplete: search.resultsIncomplete(),
         searchGeneration: search.generation(),
         searchMarkers: search.markerModel(),
         searchMatchRects: search.visibleRects(),

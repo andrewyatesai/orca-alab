@@ -27,12 +27,12 @@ function makeSurface(): {
   findCalls: [string, boolean, boolean][]
   resolveFind: (index: number, result: FindResult) => Promise<void>
   listeners: (() => void)[]
-  setSnapshot: (count: number, activeIndex: number, stale: boolean) => void
+  setSnapshot: (count: number, activeIndex: number, stale: boolean, incomplete?: boolean) => void
 } {
   const findCalls: [string, boolean, boolean][] = []
   const resolvers: ((r: FindResult) => void)[] = []
   const listeners: (() => void)[] = []
-  let snapshot = { count: 0, activeIndex: 0, stale: false }
+  let snapshot = { count: 0, activeIndex: 0, stale: false, incomplete: false }
   const surface: AtermSearchSurface = {
     findMatches: vi.fn(() => 0),
     findMatchesAsync: (query, caseSensitive, isRegex) => {
@@ -45,6 +45,7 @@ function makeSurface(): {
     searchMatchCount: () => snapshot.count,
     searchActiveMatchIndex: () => snapshot.activeIndex,
     searchResultsStale: () => snapshot.stale,
+    searchResultsIncomplete: () => snapshot.incomplete,
     searchIsPending: () => false,
     onSearchStateChange: (handler) => {
       listeners.push(handler)
@@ -60,8 +61,8 @@ function makeSurface(): {
       })
     },
     listeners,
-    setSnapshot: (count, activeIndex, stale) => {
-      snapshot = { count, activeIndex, stale }
+    setSnapshot: (count, activeIndex, stale, incomplete = false) => {
+      snapshot = { count, activeIndex, stale, incomplete }
     }
   }
 }
@@ -90,8 +91,7 @@ function renderSearch(surface: AtermSearchSurface): void {
 
 function typeQuery(text: string): void {
   const input = container!.querySelector('input')!
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!
-    .set!
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
   act(() => {
     setValue.call(input, text)
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -231,5 +231,41 @@ describe('TerminalSearch find-as-you-type', () => {
     const fresh = container!.querySelector('[data-terminal-search-count]')!
     expect(fresh.textContent).toBe('6 / 6')
     expect(fresh.getAttribute('data-stale')).toBeNull()
+  })
+
+  it('renders the incomplete/stale label matrix: N+ / ~N / ~N+ (E9a)', async () => {
+    const { surface, resolveFind, listeners, setSnapshot } = makeSurface()
+    renderSearch(surface)
+    typeQuery('abc')
+    advance(SEARCH_DEBOUNCE_MS)
+
+    // incomplete only: the engine truncated the index — the count is a floor, "N+".
+    setSnapshot(5, 5, false, true)
+    await resolveFind(0, { count: 5, activeIndex: 5 })
+    const count = container!.querySelector('[data-terminal-search-count]')!
+    expect(count.textContent).toBe('5 / 5+')
+    expect(count.getAttribute('data-incomplete')).toBe('true')
+    expect(count.getAttribute('data-stale')).toBeNull()
+
+    // stale only: the cost gate serves older results — "~N" (unchanged behavior).
+    setSnapshot(6, 6, true, false)
+    act(() => listeners.forEach((fn) => fn()))
+    expect(container!.querySelector('[data-terminal-search-count]')!.textContent).toBe('~6 / 6')
+
+    // both: older results AND a truncated index — the markers compose, "~N+".
+    setSnapshot(7, 7, true, true)
+    act(() => listeners.forEach((fn) => fn()))
+    const both = container!.querySelector('[data-terminal-search-count]')!
+    expect(both.textContent).toBe('~7 / 7+')
+    expect(both.getAttribute('data-stale')).toBe('true')
+    expect(both.getAttribute('data-incomplete')).toBe('true')
+
+    // neither: the exact label, no markers.
+    setSnapshot(8, 8, false, false)
+    act(() => listeners.forEach((fn) => fn()))
+    const exact = container!.querySelector('[data-terminal-search-count]')!
+    expect(exact.textContent).toBe('8 / 8')
+    expect(exact.getAttribute('data-stale')).toBeNull()
+    expect(exact.getAttribute('data-incomplete')).toBeNull()
   })
 })

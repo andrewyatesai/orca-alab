@@ -116,6 +116,7 @@ function makeWorkerState(): AtermWorkerState {
     searchMatchRects: [],
     searchResultsVersion: 0,
     searchResultsStale: false,
+    searchResultsIncomplete: false,
     searchGeneration: 0,
     searchMarkers: { fractions: [], activeFraction: null },
     spillExportCapable: false,

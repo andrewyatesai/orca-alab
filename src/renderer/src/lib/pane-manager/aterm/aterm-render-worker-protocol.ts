@@ -32,11 +32,7 @@ import type {
 // The once-per-generation font delivery + lazy font-class types live in
 // aterm-worker-font-protocol; re-exported so this file stays the wire contract's
 // single entry point.
-export type {
-  AtermFontClass,
-  AtermWorkerFontClass,
-  AtermWorkerFonts
-} from './aterm-worker-font-protocol'
+export type { AtermFontClass, AtermWorkerFontClass, AtermWorkerFonts }
 
 // ── Pane-scoped commands (main → worker; wire form adds `paneId`) ─────────────────
 
@@ -430,6 +426,8 @@ export type AtermWorkerState = {
    *  (an expensive index is not rebuilt per streaming frame; a trailing re-index
    *  always lands the final refresh). The UI surfaces this as the stale indicator. */
   searchResultsStale: boolean
+  /** Engine truncated the index (eviction / match cap, E9a): searchCount is a floor — "N+". */
+  searchResultsIncomplete: boolean
   /** Echo of the last APPLIED find's request generation — its searchFind query id
    *  (0 before any find). The main side treats results as pending while its newest
    *  issued find id is ahead. */

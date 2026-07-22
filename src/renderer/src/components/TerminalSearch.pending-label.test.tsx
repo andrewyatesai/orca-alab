@@ -34,6 +34,7 @@ function makeSurface(initial: { count: number; active: number; pending: boolean 
       searchMatchCount: () => state.count,
       searchActiveMatchIndex: () => state.active,
       searchResultsStale: () => false,
+      searchResultsIncomplete: () => false,
       searchIsPending: () => state.pending,
       onSearchStateChange: (handler) => {
         listeners.add(handler)

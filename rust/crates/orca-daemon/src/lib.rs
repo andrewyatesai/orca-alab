@@ -18,6 +18,7 @@ pub mod registry;
 pub mod resolver_health;
 pub mod rpc;
 pub mod shell_ready_barrier;
+pub mod stream_coalescing;
 #[cfg(unix)]
 pub mod termination_signals;
 pub mod token;

@@ -8,6 +8,7 @@ use crate::protocol::{
 };
 use crate::registry::Registry;
 use crate::rpc::dispatch_request;
+use crate::stream_coalescing::{drain_stream_items, StreamItem, StreamWireFormat};
 use orca_net::{encode_ndjson_line, NdjsonEvent, NdjsonSplitter, NDJSON_MAX_LINE_BYTES};
 use serde_json::Value;
 use std::borrow::Cow;
@@ -234,19 +235,19 @@ fn serve_stream<S: DaemonStream>(
     binary_stream: bool,
 ) {
     // Drain queued events to the socket on a dedicated thread so the read side can
-    // block on close detection independently. The channel's item type follows the
-    // negotiated wire format (JSON lines vs encoded binary frames).
+    // block on close detection independently. Items are SEMANTIC (session + text /
+    // event JSON); this writer thread encodes them per the negotiated wire format
+    // and coalesces adjacent same-session output (stream_coalescing).
     // Install the sender. Detached-while-idle output isn't buffered for raw replay —
     // the reattach snapshot (built from the engine) restores state instead.
-    let drain = if binary_stream {
-        let (tx, rx) = channel::<Vec<u8>>();
-        registry.register_stream_binary(client_id.clone(), tx);
-        spawn_stream_drain(writer, rx)
+    let (tx, rx) = channel::<StreamItem>();
+    registry.register_stream(client_id.clone(), tx);
+    let format = if binary_stream {
+        StreamWireFormat::Binary
     } else {
-        let (tx, rx) = channel::<String>();
-        registry.register_stream(client_id.clone(), tx);
-        spawn_stream_drain(writer, rx)
+        StreamWireFormat::Ndjson
     };
+    let drain = spawn_stream_drain(writer, rx, format);
     // A stream socket is daemon→client; the client rarely sends. Block until it
     // closes, then tear down — dropping the registry's sender ends the drain thread.
     while reader.next_line().is_some() {}
@@ -257,20 +258,18 @@ fn serve_stream<S: DaemonStream>(
     let _ = drain.join();
 }
 
-/// The stream socket's writer thread, generic over the channel item so both
-/// wire formats (String lines / Vec<u8> frames) share one drain loop.
-fn spawn_stream_drain<S, T>(mut writer: S, rx: std::sync::mpsc::Receiver<T>) -> thread::JoinHandle<()>
+/// The stream socket's writer thread: the ONE emitter for this client, so the
+/// coalescing loop in stream_coalescing can merge adjacent same-session data
+/// without any reordering risk.
+fn spawn_stream_drain<S>(
+    mut writer: S,
+    rx: std::sync::mpsc::Receiver<StreamItem>,
+    format: StreamWireFormat,
+) -> thread::JoinHandle<()>
 where
     S: Write + Send + 'static,
-    T: AsRef<[u8]> + Send + 'static,
 {
-    thread::spawn(move || {
-        while let Ok(item) = rx.recv() {
-            if writer.write_all(item.as_ref()).is_err() {
-                break;
-            }
-        }
-    })
+    thread::spawn(move || drain_stream_items(&mut writer, &rx, format))
 }
 
 #[cfg(test)]

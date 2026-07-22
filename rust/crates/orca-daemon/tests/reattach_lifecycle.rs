@@ -9,6 +9,7 @@
 
 use orca_daemon::registry::Registry;
 use orca_daemon::rpc::dispatch_request;
+use orca_daemon::stream_coalescing::{encode_stream_item, StreamItem, StreamWireFormat};
 use serde_json::{json, Value};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
@@ -16,6 +17,12 @@ use std::time::{Duration, Instant};
 
 fn dispatch(reg: &Arc<Registry>, client: &str, req: Value) -> Value {
     serde_json::from_str(&dispatch_request(&req, reg, client)).expect("valid JSON")
+}
+
+/// Encode a queued semantic item exactly as the NDJSON writer thread would, so
+/// line-level assertions survive the semantic-queue migration unchanged.
+fn ndjson_line(item: &StreamItem) -> String {
+    String::from_utf8(encode_stream_item(item, StreamWireFormat::Ndjson)).unwrap()
 }
 
 fn wait_until(mut pred: impl FnMut() -> bool, timeout: Duration) -> bool {
@@ -30,11 +37,11 @@ fn wait_until(mut pred: impl FnMut() -> bool, timeout: Duration) -> bool {
 }
 
 /// Scan a stream Receiver's `data` events for `needle` until seen or timeout.
-fn wait_for_data(rx: &Receiver<String>, session: &str, needle: &str, timeout: Duration) -> bool {
+fn wait_for_data(rx: &Receiver<StreamItem>, session: &str, needle: &str, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if let Ok(line) = rx.recv_timeout(Duration::from_millis(100)) {
-            let v: Value = serde_json::from_str(&line).expect("event JSON");
+        if let Ok(item) = rx.recv_timeout(Duration::from_millis(100)) {
+            let v: Value = serde_json::from_str(&ndjson_line(&item)).expect("event JSON");
             if v["event"] == json!("data")
                 && v["sessionId"] == json!(session)
                 && v["payload"]["data"]
@@ -70,7 +77,7 @@ fn cross_client_reattach_rebinds_routing_and_repaints() {
 
     // C1 (first app instance) creates a long-lived session and streams it.
     let c1 = "client-1";
-    let (tx1, _rx1) = std::sync::mpsc::channel::<String>();
+    let (tx1, _rx1) = std::sync::mpsc::channel::<StreamItem>();
     reg.register_stream(c1.to_string(), tx1);
     let created = dispatch(
         &reg,
@@ -107,7 +114,7 @@ fn cross_client_reattach_rebinds_routing_and_repaints() {
 
     // C2 (relaunched app) — a NEW clientId. Register its stream, then reattach.
     let c2 = "client-2";
-    let (tx2, rx2) = std::sync::mpsc::channel::<String>();
+    let (tx2, rx2) = std::sync::mpsc::channel::<StreamItem>();
     reg.register_stream(c2.to_string(), tx2);
     let reattach = dispatch(
         &reg,

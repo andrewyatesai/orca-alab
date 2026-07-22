@@ -7,6 +7,7 @@
 
 use orca_daemon::registry::Registry;
 use orca_daemon::rpc::dispatch_request;
+use orca_daemon::stream_coalescing::{encode_stream_item, StreamItem, StreamWireFormat};
 use serde_json::{json, Value};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -16,11 +17,17 @@ fn dispatch(reg: &Arc<Registry>, client: &str, req: Value) -> Value {
     serde_json::from_str(&dispatch_request(&req, reg, client)).expect("valid JSON")
 }
 
-fn wait_for_exit_code(rx: &Receiver<String>, session: &str, timeout: Duration) -> Option<i64> {
+/// Encode a queued semantic item exactly as the NDJSON writer thread would, so
+/// line-level assertions survive the semantic-queue migration unchanged.
+fn ndjson_line(item: &StreamItem) -> String {
+    String::from_utf8(encode_stream_item(item, StreamWireFormat::Ndjson)).unwrap()
+}
+
+fn wait_for_exit_code(rx: &Receiver<StreamItem>, session: &str, timeout: Duration) -> Option<i64> {
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if let Ok(line) = rx.recv_timeout(Duration::from_millis(100)) {
-            let v: Value = serde_json::from_str(&line).expect("event is JSON");
+        if let Ok(item) = rx.recv_timeout(Duration::from_millis(100)) {
+            let v: Value = serde_json::from_str(&ndjson_line(&item)).expect("event is JSON");
             if v["event"] == json!("exit") && v["sessionId"] == json!(session) {
                 return v["payload"]["code"].as_i64();
             }
@@ -67,7 +74,7 @@ fn shell_override_is_used_as_the_spawn_program() {
 fn write_to_unknown_session_emits_synthetic_exit() {
     let reg = Arc::new(Registry::new());
     let client = "c-ghost";
-    let (tx, rx) = channel::<String>();
+    let (tx, rx) = channel::<StreamItem>();
     reg.register_stream(client.to_string(), tx);
 
     let resp = dispatch(
@@ -89,7 +96,7 @@ fn write_to_unknown_session_emits_synthetic_exit() {
 fn resize_to_unknown_session_emits_synthetic_exit() {
     let reg = Arc::new(Registry::new());
     let client = "c-ghost2";
-    let (tx, rx) = channel::<String>();
+    let (tx, rx) = channel::<StreamItem>();
     reg.register_stream(client.to_string(), tx);
 
     dispatch(
@@ -146,7 +153,7 @@ fn get_cwd_unknown_session_errors() {
 fn kill_all_sessions_reaps_a_live_child() {
     let reg = Arc::new(Registry::new());
     let client = "c-killall";
-    let (tx, rx) = channel::<String>();
+    let (tx, rx) = channel::<StreamItem>();
     reg.register_stream(client.to_string(), tx);
 
     let created = dispatch(
@@ -173,7 +180,7 @@ fn kill_all_sessions_reaps_a_live_child() {
 fn graceful_kill_reaps_the_child() {
     let reg = Arc::new(Registry::new());
     let client = "c-graceful";
-    let (tx, rx) = channel::<String>();
+    let (tx, rx) = channel::<StreamItem>();
     reg.register_stream(client.to_string(), tx);
 
     dispatch(

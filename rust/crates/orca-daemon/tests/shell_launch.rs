@@ -8,6 +8,7 @@
 
 use orca_daemon::registry::Registry;
 use orca_daemon::rpc::dispatch_request;
+use orca_daemon::stream_coalescing::{encode_stream_item, StreamItem, StreamWireFormat};
 use serde_json::{json, Value};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -18,17 +19,23 @@ fn dispatch(reg: &Arc<Registry>, client: &str, req: Value) -> Value {
     serde_json::from_str(&dispatch_request(&req, reg, client)).expect("valid JSON")
 }
 
+/// Encode a queued semantic item exactly as the NDJSON writer thread would, so
+/// line-level assertions survive the semantic-queue migration unchanged.
+fn ndjson_line(item: &StreamItem) -> String {
+    String::from_utf8(encode_stream_item(item, StreamWireFormat::Ndjson)).unwrap()
+}
+
 /// Collect streamed `data` payloads for `session` until its `exit` event (or
 /// the timeout). Lets tests observe short-lived children (e.g. /bin/echo)
 /// whose sessions are reaped before a snapshot can be polled.
-fn collect_stream_output(rx: &Receiver<String>, session: &str, timeout: Duration) -> String {
+fn collect_stream_output(rx: &Receiver<StreamItem>, session: &str, timeout: Duration) -> String {
     let start = Instant::now();
     let mut out = String::new();
     while start.elapsed() < timeout {
-        let Ok(line) = rx.recv_timeout(Duration::from_millis(100)) else {
+        let Ok(item) = rx.recv_timeout(Duration::from_millis(100)) else {
             continue;
         };
-        let v: Value = serde_json::from_str(&line).expect("event is JSON");
+        let v: Value = serde_json::from_str(&ndjson_line(&item)).expect("event is JSON");
         if v["sessionId"] != json!(session) {
             continue;
         }
@@ -71,7 +78,7 @@ fn snapshot_ansi(reg: &Arc<Registry>, client: &str, sid: &str) -> String {
 fn plain_session_spawns_a_login_shell() {
     let reg = Arc::new(Registry::new());
     let client = "c-login";
-    let (tx, rx) = channel::<String>();
+    let (tx, rx) = channel::<StreamItem>();
     reg.register_stream(client.to_string(), tx);
     let created = dispatch(
         &reg,
@@ -94,7 +101,7 @@ fn plain_session_spawns_a_login_shell() {
 fn shell_args_from_the_payload_are_the_spawn_argv() {
     let reg = Arc::new(Registry::new());
     let client = "c-args";
-    let (tx, rx) = channel::<String>();
+    let (tx, rx) = channel::<StreamItem>();
     reg.register_stream(client.to_string(), tx);
     let created = dispatch(
         &reg,

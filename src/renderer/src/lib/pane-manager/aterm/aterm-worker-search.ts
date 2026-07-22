@@ -6,6 +6,10 @@
 import type { EngineHandle } from './aterm-worker-engine-build'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
 import { visibleMatchRange } from './aterm-search-visible-range'
+import {
+  createSearchMarkerModelCache,
+  type AtermSearchMarkerModel
+} from './aterm-search-marker-model'
 
 /** A match in absolute-row coords (the engine's native index space). */
 type WorkerMatch = { line: number; startCol: number; length: number }
@@ -26,13 +30,16 @@ export const SEARCH_FIND_FLAG_REGEX = 2
 export function answerSearchFindQuery(
   search: WorkerSearch,
   arg: number | undefined,
-  text: string | undefined
+  text: string | undefined,
+  /** The query id — doubles as the request generation echoed in STATE.searchGeneration. */
+  generation = 0
 ): string {
   const flags = arg ?? 0
   search.find(
     text ?? '',
     (flags & SEARCH_FIND_FLAG_CASE_SENSITIVE) !== 0,
-    (flags & SEARCH_FIND_FLAG_REGEX) !== 0
+    (flags & SEARCH_FIND_FLAG_REGEX) !== 0,
+    generation
   )
   return JSON.stringify({ count: search.count(), activeIndex: search.activeIndex() })
 }
@@ -46,9 +53,10 @@ function decodeMatches(flat: Uint32Array): WorkerMatch[] {
 }
 
 export type WorkerSearch = {
-  /** Run a new query NOW (user-initiated — never cost-gated). Request-generation
-   *  correlation lives in the id-correlated query channel, not here. */
-  find: (query: string, caseSensitive: boolean, isRegex: boolean) => void
+  /** Run a new query NOW (user-initiated — never cost-gated). `generation` is the
+   *  query channel's monotonic request id, echoed in the snapshot so the main side
+   *  can flag still-pending results; result correlation itself rides the channel. */
+  find: (query: string, caseSensitive: boolean, isRegex: boolean, generation?: number) => void
   next: () => void
   prev: () => void
   clear: () => void
@@ -72,6 +80,11 @@ export type WorkerSearch = {
   resultsVersion: () => number
   /** True while the cost gate is serving results older than the buffer content. */
   resultsStale: () => boolean
+  /** Echo of the last find's request generation (0 before any find). */
+  generation: () => number
+  /** Scrollbar marker model from the FULL sorted match list (bounded buckets);
+   *  memoized, so unchanged frames cost a reference compare. */
+  markerModel: () => AtermSearchMarkerModel
   /** Cancel the armed trailing-refresh timer (pane dispose). */
   dispose: () => void
 }
@@ -94,6 +107,8 @@ export function createWorkerSearch(
   let stale = false
   let lastRebuildMs = 0
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
+  let generation = 0
+  const markerCache = createSearchMarkerModelCache()
 
   const cancelRefreshTimer = (): void => {
     if (refreshTimer !== null) {
@@ -158,10 +173,11 @@ export function createWorkerSearch(
   }
 
   return {
-    find: (q, cs, regex) => {
+    find: (q, cs, regex, gen = 0) => {
       query = q
       caseSensitive = cs
       isRegex = regex
+      generation = gen
       dirty = false
       cancelRefreshTimer()
       if (!q) {
@@ -242,6 +258,14 @@ export function createWorkerSearch(
     },
     resultsVersion: () => resultsVersion,
     resultsStale: () => stale,
+    generation: () => generation,
+    markerModel: () => {
+      ensureFresh()
+      // Re-base by the oldest retained row: ring eviction keeps absolute rows
+      // growing, so raw lines would pin every marker to the bottom of the track.
+      const firstLine = e.search_display_origin - e.base_y
+      return markerCache(matches, active, firstLine, e.base_y + getRows())
+    },
     dispose: cancelRefreshTimer
   }
 

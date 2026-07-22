@@ -196,6 +196,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // GPU path: predictions paint on the stacked 2d overlay (webgl2 grid can't).
     getPredictionCells: () => prediction.overlayCells(),
     getScrollIntentTarget,
+    // Scrollbar match markers: the search API serves both paths (worker snapshot
+    // model / in-process computed model) and its change feed drives the repaint.
+    getSearchMarkers: () => searchState.searchApi.searchMarkerModel(),
+    onSearchStateChange: searchState.searchApi.onSearchStateChange,
     scheduleDraw,
     isDisposed: () => disposed
   })

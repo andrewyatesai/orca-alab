@@ -31,6 +31,9 @@ export type AtermSearchSurface = {
   /** True while streaming's cost gate serves results older than the buffer content
    *  (worker path) — rendered as the ~approximate-count indicator. */
   searchResultsStale: () => boolean
+  /** True while an issued find's results haven't landed (worker path): the count is
+   *  still the previous query's, so the label shows "~N, searching…" instead. */
+  searchIsPending: () => boolean
   /** Subscribe to async search-state updates; returns a disposer. On the default off-main
    *  worker path the count/active-index land a frame after find/next/prev, so the label
    *  must re-read when they arrive (no-op disposer in-process). */
@@ -106,12 +109,20 @@ export default function TerminalSearch({
   )
   const requestQuery = getFindRequestQuery(query)
 
-  // Reflect the aterm controller's exact match count ("active / total") + stale flag.
+  // Reflect the aterm controller's exact match count ("active / total") + stale flag,
+  // or an honest approximation while an issued find is still in flight on the worker
+  // path (the snapshot count is the PREVIOUS query's until the worker echoes back).
   const syncAtermMatchLabel = useCallback(() => {
     if (!atermSearch) {
       return
     }
     const total = atermSearch.searchMatchCount()
+    if (atermSearch.searchIsPending()) {
+      const searching = translate('auto.components.TerminalSearch.searchingPending', 'searching…')
+      setMatchLabel(total === 0 ? searching : `~${total}, ${searching}`)
+      setResultsStale(false)
+      return
+    }
     setMatchLabel(total === 0 ? '0' : `${atermSearch.searchActiveMatchIndex()} / ${total}`)
     setResultsStale(atermSearch.searchResultsStale())
   }, [atermSearch])
@@ -202,13 +213,25 @@ export default function TerminalSearch({
       armedFindRef.current = null
       runFind(requestQuery, caseSensitive, regex)
     }, SEARCH_DEBOUNCE_MS)
+    // Label the debounce window from the snapshot now — while an earlier find is
+    // still in flight it reads "~N, searching…" instead of claiming a stale count.
+    syncAtermMatchLabel()
     return () => {
       if (debounceTimerRef.current !== null) {
         clearTimeout(debounceTimerRef.current)
         debounceTimerRef.current = null
       }
     }
-  }, [requestQuery, atermSearch, isOpen, caseSensitive, regex, searchStateRef, runFind])
+  }, [
+    requestQuery,
+    atermSearch,
+    isOpen,
+    caseSensitive,
+    regex,
+    searchStateRef,
+    runFind,
+    syncAtermMatchLabel
+  ])
 
   // Worker path: search count/active-index arrive a frame after find/next/prev, so re-sync
   // the label when the worker pushes them. No-op disposer in-process (count is synchronous).

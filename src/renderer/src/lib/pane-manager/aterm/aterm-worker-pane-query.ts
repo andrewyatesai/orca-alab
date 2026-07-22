@@ -16,7 +16,8 @@ export function answerPaneQuery(pane: PaneRuntime, msg: AtermWorkerQuery): void 
       pane.post({ type: 'queryResult', id: msg.id, value: null })
       return
     }
-    const value = term ? term.query(msg.kind, msg.arg, msg.arg2, msg.text) : null
+    // msg.id doubles as the request generation the STATE echoes (searchGeneration).
+    const value = term ? term.query(msg.kind, msg.arg, msg.arg2, msg.text, msg.id) : null
     // A find scrolls the active match into view + changes the highlight rects —
     // repaint + STATE, exactly like the search nav commands.
     pane.frameScheduler.schedule()

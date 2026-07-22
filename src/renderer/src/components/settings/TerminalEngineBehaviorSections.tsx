@@ -1,4 +1,10 @@
 import type { GlobalSettings } from '../../../../shared/types'
+import {
+  DESKTOP_TERMINAL_SCROLLBACK_ROWS_DEFAULT,
+  DESKTOP_TERMINAL_SCROLLBACK_ROWS_MAX,
+  DESKTOP_TERMINAL_SCROLLBACK_ROWS_MIN,
+  normalizeDesktopTerminalScrollbackRows
+} from '../../../../shared/terminal-scrollback-policy'
 import { Input } from '../ui/input'
 import {
   NumberField,
@@ -57,9 +63,11 @@ export function TerminalEngineScrollbackSection({
               'Also selectable as presets in Terminal → Advanced.'
             )}
             value={settings.terminalScrollbackRows}
-            defaultValue={10_000}
-            min={1000}
-            max={100_000}
+            defaultValue={DESKTOP_TERMINAL_SCROLLBACK_ROWS_DEFAULT}
+            // Bounds come from the canonical policy: advertising more than the
+            // normalizer keeps (it clamps to 50k) would silently discard the input.
+            min={DESKTOP_TERMINAL_SCROLLBACK_ROWS_MIN}
+            max={DESKTOP_TERMINAL_SCROLLBACK_ROWS_MAX}
             step={1000}
             suffix={translate(
               'auto.components.settings.TerminalEnginePane.scrollback.rows.suffix',
@@ -67,7 +75,7 @@ export function TerminalEngineScrollbackSection({
             )}
             onChange={(value) =>
               updateSettings({
-                terminalScrollbackRows: Math.min(100_000, Math.max(1000, Math.round(value)))
+                terminalScrollbackRows: normalizeDesktopTerminalScrollbackRows(value)
               })
             }
           />

@@ -47,6 +47,8 @@ function makeState(overrides: Partial<AtermWorkerState> = {}): AtermWorkerState 
     searchActiveRect: null,
     searchResultsVersion: 0,
     searchResultsStale: false,
+    searchGeneration: 0,
+    searchMarkers: { fractions: [], activeFraction: null },
     searchMatchRects: [],
     spillExportCapable: false,
     dirtyRows: [],
@@ -105,7 +107,9 @@ describe('worker-backed term search state', () => {
       count: 3,
       activeIndex: 3,
       activeRect: null,
-      stale: true
+      stale: true,
+      markers: { fractions: [], activeFraction: null },
+      pending: false
     })
 
     // The guaranteed trailing refresh clears the flag → one more notification.

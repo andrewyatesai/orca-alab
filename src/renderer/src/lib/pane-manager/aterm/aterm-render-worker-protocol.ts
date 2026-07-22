@@ -17,6 +17,7 @@
 // contract without importing each other's runtime.
 
 import type { AtermThemeColors } from './aterm-theme-colors'
+import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
 import type { AtermWorkerRainCommand } from './aterm-worker-rain-protocol'
 import type { AtermWorkerSpillCommand } from './aterm-worker-spill-protocol'
 import type { AtermWorkerPredictCommand } from './aterm-worker-predict-protocol'
@@ -424,6 +425,13 @@ export type AtermWorkerState = {
    *  (an expensive index is not rebuilt per streaming frame; a trailing re-index
    *  always lands the final refresh). The UI surfaces this as the stale indicator. */
   searchResultsStale: boolean
+  /** Echo of the last APPLIED find's request generation — its searchFind query id
+   *  (0 before any find). The main side treats results as pending while its newest
+   *  issued find id is ahead. */
+  searchGeneration: number
+  /** Scrollbar match markers: bounded track fractions derived in the worker from the
+   *  FULL sorted match list (the on-screen searchMatchRects can't place off-screen ticks). */
+  searchMarkers: AtermSearchMarkerModel
   /** The engine exports the spill surface (spill_rev/spill_ptr/...): the loader
    *  reads the FIRST snapshot's value to flip the cross-pane spill seam live. */
   spillExportCapable: boolean

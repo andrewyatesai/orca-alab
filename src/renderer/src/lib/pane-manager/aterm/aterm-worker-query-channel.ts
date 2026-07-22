@@ -10,6 +10,7 @@ import {
   SEARCH_FIND_FLAG_CASE_SENSITIVE,
   SEARCH_FIND_FLAG_REGEX
 } from './aterm-worker-search'
+import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
 
 /** A detected link span returned by the async linkAt query. */
 export type AtermWorkerLinkHit = { url: string; kind: number; start_col: number; end_col: number }
@@ -48,6 +49,11 @@ export type AtermWorkerAsyncFacade = {
     activeIndex: number
     activeRect: { x: number; y: number; width: number; height: number } | null
     stale: boolean
+    /** Scrollbar marker model the worker derived from the full match list. */
+    markers: AtermSearchMarkerModel
+    /** True while an issued find hasn't been echoed back yet (count is the previous
+     *  query's) — the label shows "~N, searching…" instead of a stale claim. */
+    pending: boolean
   }
   /** Advance / step back / clear the worker's active match (the worker owns the match set;
    *  the main-thread searchController is empty on this path, so next/prev/clear must post). */
@@ -78,6 +84,9 @@ export type AtermWorkerQueryChannel = {
     caseSensitive: boolean,
     isRegex: boolean
   ) => Promise<AtermWorkerSearchFindResult | null>
+  /** Newest searchFind query id ISSUED on this channel (0 before any find). The STATE's
+   *  searchGeneration echoes the last APPLIED one, so `issued > echoed` = pending. */
+  latestSearchFindId: () => number
   /** Parse fence: resolves TRUE once the worker has handled every message posted
    *  before it — all prior 'process' bytes parsed AND their auto-replies already
    *  delivered (postMessage ordering). Resolves FALSE when the fence itself timed
@@ -110,11 +119,7 @@ export function createAtermWorkerQueryChannel(
   }
   const pending = new Map<number, Pending>()
 
-  const settle = (
-    id: number,
-    value: string | number | boolean | null,
-    byReply = true
-  ): void => {
+  const settle = (id: number, value: string | number | boolean | null, byReply = true): void => {
     const entry = pending.get(id)
     if (!entry) {
       return
@@ -155,6 +160,9 @@ export function createAtermWorkerQueryChannel(
   // The in-flight find's query id, or null. ONE slot: the newest find always wins,
   // whichever caller (search UI / addon facade) issued the older one.
   let pendingFindId: number | null = null
+  // Newest find id EVER issued (never cleared): the pending-label comparison against
+  // the STATE's searchGeneration echo needs it after the promise settles.
+  let latestFindId = 0
 
   const asString = async (kind: AtermWorkerQuery['kind'], arg?: number): Promise<string> => {
     const { value } = await send(kind, arg)
@@ -175,6 +183,7 @@ export function createAtermWorkerQueryChannel(
     serializeAsync: (scrollbackRows) => asString('serialize', scrollbackRows),
     serializeScrollbackAsync: (maxRows) => asString('serializeScrollback', maxRows),
     selectionTextAsync: () => asString('selectionText'),
+    latestSearchFindId: () => latestFindId,
     searchFindAsync: async (query, caseSensitive, isRegex) => {
       // Cancel the superseded in-flight find NOW: its awaiter resolves null instantly
       // (stale result discarded) instead of waiting out a busy worker or the timeout.
@@ -186,6 +195,8 @@ export function createAtermWorkerQueryChannel(
         (isRegex ? SEARCH_FIND_FLAG_REGEX : 0)
       const { id, promise } = sendTracked('searchFind', flags, undefined, query)
       pendingFindId = id
+      // A disposed channel returns id 0 — don't regress the monotonic latest.
+      latestFindId = Math.max(latestFindId, id)
       const { value } = await promise
       if (pendingFindId === id) {
         pendingFindId = null

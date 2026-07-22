@@ -117,7 +117,9 @@ export function createWorkerTerminal(
     kind: string,
     arg: number | undefined,
     arg2: number | undefined,
-    text?: string
+    text?: string,
+    /** The query id — a searchFind echoes it back as STATE.searchGeneration. */
+    queryId?: number
   ) => string | number | boolean | null
   /** Capped serialize for the debounced shutdown cache (full + scrollback-only). */
   serializedCache: () => { full: string; scrollback: string }
@@ -240,6 +242,8 @@ export function createWorkerTerminal(
         // set the cost-gate stale flag / bumped the version for THIS frame.
         searchResultsVersion: search.resultsVersion(),
         searchResultsStale: search.resultsStale(),
+        searchGeneration: search.generation(),
+        searchMarkers: search.markerModel(),
         searchMatchRects: search.visibleRects(),
         spillExportCapable,
         dirtyRows: dirtyRowTracker.build(rows, cols),
@@ -331,12 +335,12 @@ export function createWorkerTerminal(
       // (legacy modes emit bytes ≥ 0x80) so the report isn't truncated.
       return decodeMouseReport(bytes)
     },
-    query: (kind, arg, arg2, text) => {
+    query: (kind, arg, arg2, text, queryId) => {
       switch (kind) {
         case 'searchFind':
-          // Run the find NOW (user-initiated — never cost-gated); the query id
-          // correlates the answer to the request generation.
-          return answerSearchFindQuery(search, arg, text)
+          // Run the find NOW (user-initiated — never cost-gated); the query id IS the
+          // request generation — echoed via STATE.searchGeneration for the pending label.
+          return answerSearchFindQuery(search, arg, text, queryId ?? 0)
         case 'serialize':
           return e.serialize(arg ?? undefined)
         case 'serializeScrollback':

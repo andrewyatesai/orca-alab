@@ -45,6 +45,7 @@ function makeSurface(): {
     searchMatchCount: () => snapshot.count,
     searchActiveMatchIndex: () => snapshot.activeIndex,
     searchResultsStale: () => snapshot.stale,
+    searchIsPending: () => false,
     onSearchStateChange: (handler) => {
       listeners.push(handler)
       return () => undefined

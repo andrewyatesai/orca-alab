@@ -2,7 +2,7 @@ import type { TerminalLayoutSnapshot } from '../../../../shared/types'
 import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
 import type { PtyTransport } from './pty-transport'
 import { flushTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
-import { serializeTerminalLayout } from './layout-serialization'
+import { serializePaneFontSizeDeltas, serializeTerminalLayout } from './layout-serialization'
 import { serializePaneBuffer } from './pane-buffer-snapshot'
 import { mergeCapturedLeafState } from './merge-captured-leaf-state'
 import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
@@ -28,6 +28,9 @@ type CaptureTerminalShutdownLayoutArgs = {
   expandedPaneId: number | null
   paneTransports: ReadonlyMap<number, Pick<PtyTransport, 'getPtyId'>>
   paneTitlesByPaneId: Record<number, string>
+  /** Live per-pane Cmd+/- font sizes; persisted as leafId-keyed deltas (#8516). */
+  paneFontSizesByPaneId?: ReadonlyMap<number, number>
+  globalFontSize?: number
   existingLayout: TerminalLayoutSnapshot | undefined
   captureBuffers?: boolean
   clearedScrollbackLeafIds?: ReadonlySet<string>
@@ -70,6 +73,8 @@ export function captureTerminalShutdownLayout({
   expandedPaneId,
   paneTransports,
   paneTitlesByPaneId,
+  paneFontSizesByPaneId,
+  globalFontSize = 14,
   existingLayout,
   captureBuffers = true,
   clearedScrollbackLeafIds
@@ -119,12 +124,8 @@ export function captureTerminalShutdownLayout({
   }
 
   const activePaneId = manager.getActivePane()?.id ?? panes[0]?.id ?? null
-  const layout = serializeTerminalLayout(
-    container,
-    activePaneId,
-    expandedPaneId,
-    new Map(panes.map((pane) => [pane.id, pane.leafId]))
-  )
+  const leafIdByPaneId = new Map(panes.map((pane) => [pane.id, pane.leafId]))
+  const layout = serializeTerminalLayout(container, activePaneId, expandedPaneId, leafIdByPaneId)
   const currentLeafIds = new Set(panes.map((p) => p.leafId))
   const livePtyIdsByLeafId: Record<string, string> = {}
   const preservedPtyIdsByLeafId: Record<string, string> = {}
@@ -179,6 +180,17 @@ export function captureTerminalShutdownLayout({
     .map((p) => [p.leafId, paneTitlesByPaneId[p.id]] as const)
   if (titleEntries.length > 0) {
     layout.titlesByLeafId = Object.fromEntries(titleEntries)
+  }
+
+  if (paneFontSizesByPaneId) {
+    const fontSizeDeltasByLeafId = serializePaneFontSizeDeltas(
+      paneFontSizesByPaneId,
+      leafIdByPaneId,
+      globalFontSize
+    )
+    if (fontSizeDeltasByLeafId) {
+      layout.fontSizeDeltasByLeafId = fontSizeDeltasByLeafId
+    }
   }
 
   return layout

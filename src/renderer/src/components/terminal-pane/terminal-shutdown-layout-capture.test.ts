@@ -140,6 +140,40 @@ describe('captureTerminalShutdownLayout', () => {
     })
   })
 
+  it('captures per-pane font-size deltas by leaf id, omitting panes at the global size', async () => {
+    const { captureTerminalShutdownLayout } = await import('./terminal-shutdown-layout-capture')
+    const makePane = (id: number, leafId: string) => ({
+      id,
+      leafId,
+      stablePaneId: leafId,
+      terminal: mockTerminal(1_000),
+      serializeAddon: { serialize: vi.fn(() => '') }
+    })
+    const first = makePane(1, LEAF_ID)
+    const second = makePane(2, LEAF_ID_2)
+    const manager = {
+      getPanes: vi.fn(() => [first, second]),
+      getActivePane: vi.fn(() => first)
+    }
+
+    const layout = captureTerminalShutdownLayout({
+      manager: manager as never,
+      container: mockRootForSplit(1, 2),
+      expandedPaneId: null,
+      paneTransports: new Map(),
+      paneTitlesByPaneId: {},
+      paneFontSizesByPaneId: new Map([
+        [1, 18],
+        [2, 14]
+      ]),
+      globalFontSize: 14,
+      existingLayout: undefined,
+      captureBuffers: false
+    })
+
+    expect(layout.fontSizeDeltasByLeafId).toEqual({ [LEAF_ID]: 4 })
+  })
+
   it('skips local shutdown scrollback serialization while preserving layout metadata', async () => {
     const { captureTerminalShutdownLayout } = await import('./terminal-shutdown-layout-capture')
     const pane = {

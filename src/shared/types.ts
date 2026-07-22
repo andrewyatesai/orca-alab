@@ -1050,6 +1050,9 @@ export type TerminalLayoutSnapshot = {
   /** User-assigned pane titles, keyed by stable layout leaf UUID.
    *  Persisted alongside buffers via the existing session:set flow. */
   titlesByLeafId?: Record<string, string>
+  /** Per-pane Cmd+/- font-size deltas from the global terminal font size,
+   *  keyed by stable layout leaf UUID. Zero deltas are omitted. */
+  fontSizeDeltasByLeafId?: Record<string, number>
 }
 
 /** Minimal subset of OpenFile persisted across restarts.

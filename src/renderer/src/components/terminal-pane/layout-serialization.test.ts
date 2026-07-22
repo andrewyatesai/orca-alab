@@ -40,13 +40,17 @@ import {
   replayPayloadEndsWithCursorHidden,
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_TERMINAL_CURSOR_STYLE,
+  restorePaneFontSizes,
   restoreScrollbackBuffers,
+  serializePaneFontSizeDeltas,
   serializePaneTree,
   serializeTerminalLayout,
   replayTerminalLayout,
   EMPTY_LAYOUT,
   collectLeafIdsInOrder,
-  collectLeafIdsInReplayCreationOrder
+  collectLeafIdsInReplayCreationOrder,
+  TERMINAL_PANE_MAX_FONT_SIZE,
+  TERMINAL_PANE_MIN_FONT_SIZE
 } from './layout-serialization'
 
 // ---------------------------------------------------------------------------
@@ -526,5 +530,149 @@ describe('buildPostReplayLiveAgentReattachReset', () => {
     expect(buildPostReplayLiveAgentReattachReset('no dectcem at all')).toBe(
       POST_REPLAY_LIVE_AGENT_REATTACH_RESET
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// serializePaneFontSizeDeltas / restorePaneFontSizes (#8516)
+// ---------------------------------------------------------------------------
+describe('serializePaneFontSizeDeltas', () => {
+  it('maps paneId-keyed sizes to leafId-keyed deltas from the global size', () => {
+    const deltas = serializePaneFontSizeDeltas(
+      new Map([
+        [1, 18],
+        [2, 12]
+      ]),
+      new Map([
+        [1, LEAF_1],
+        [2, LEAF_2]
+      ]),
+      14
+    )
+    expect(deltas).toEqual({ [LEAF_1]: 4, [LEAF_2]: -2 })
+  })
+
+  it('omits zero deltas and returns undefined when no pane differs from the global size', () => {
+    const deltas = serializePaneFontSizeDeltas(
+      new Map([[1, 14]]),
+      new Map([[1, LEAF_1]]),
+      14
+    )
+    expect(deltas).toBeUndefined()
+  })
+
+  it('skips panes without a UUID leaf id so legacy ids never persist', () => {
+    const deltas = serializePaneFontSizeDeltas(
+      new Map([
+        [1, 18],
+        [2, 20],
+        [3, 21]
+      ]),
+      new Map([
+        [1, LEAF_1],
+        [2, 'pane:2']
+      ]),
+      14
+    )
+    expect(deltas).toEqual({ [LEAF_1]: 4 })
+  })
+})
+
+describe('restorePaneFontSizes', () => {
+  function createRestoreManager(paneIds: number[]) {
+    const panes = paneIds.map((id) => ({ id, terminal: { options: {} as { fontSize?: number } } }))
+    return {
+      panes,
+      manager: { getPanes: vi.fn(() => panes) } as unknown as Parameters<
+        typeof restorePaneFontSizes
+      >[0]
+    }
+  }
+
+  it('reapplies deltas to restored panes and returns paneId-keyed sizes for the zoom ref', () => {
+    const { panes, manager } = createRestoreManager([7, 8])
+    const restored = restorePaneFontSizes(
+      manager,
+      { [LEAF_1]: 4, [LEAF_2]: -2 },
+      new Map([
+        [LEAF_1, 7],
+        [LEAF_2, 8]
+      ]),
+      14
+    )
+    expect(panes[0].terminal.options.fontSize).toBe(18)
+    expect(panes[1].terminal.options.fontSize).toBe(12)
+    expect(restored).toEqual(
+      new Map([
+        [7, 18],
+        [8, 12]
+      ])
+    )
+  })
+
+  it('ignores leaf ids that were not restored and non-finite deltas', () => {
+    const { panes, manager } = createRestoreManager([7])
+    const restored = restorePaneFontSizes(
+      manager,
+      { [LEAF_1]: Number.NaN, [LEAF_2]: 3, [LEAF_3]: 2 },
+      new Map([
+        [LEAF_1, 7],
+        [LEAF_2, 99]
+      ]),
+      14
+    )
+    expect(panes[0].terminal.options.fontSize).toBeUndefined()
+    expect(restored.size).toBe(0)
+  })
+
+  it('clamps to the zoom bounds when the global font size changed since the delta was saved', () => {
+    const { panes, manager } = createRestoreManager([7, 8])
+    const restored = restorePaneFontSizes(
+      manager,
+      { [LEAF_1]: 10, [LEAF_2]: -10 },
+      new Map([
+        [LEAF_1, 7],
+        [LEAF_2, 8]
+      ]),
+      28
+    )
+    expect(panes[0].terminal.options.fontSize).toBe(TERMINAL_PANE_MAX_FONT_SIZE)
+    expect(panes[1].terminal.options.fontSize).toBe(TERMINAL_PANE_MIN_FONT_SIZE + 10)
+    expect(restored.get(7)).toBe(TERMINAL_PANE_MAX_FONT_SIZE)
+  })
+
+  it('round-trips serialize → restore across new pane ids (restart)', () => {
+    const deltas = serializePaneFontSizeDeltas(
+      new Map([
+        [1, 20],
+        [2, 14]
+      ]),
+      new Map([
+        [1, LEAF_1],
+        [2, LEAF_2]
+      ]),
+      14
+    )
+    const { panes, manager } = createRestoreManager([41, 42])
+    const restored = restorePaneFontSizes(
+      manager,
+      deltas,
+      new Map([
+        [LEAF_1, 41],
+        [LEAF_2, 42]
+      ]),
+      14
+    )
+    // Zoomed pane comes back at its size under fresh pane ids; unzoomed pane stays on the global size.
+    expect(restored).toEqual(new Map([[41, 20]]))
+    expect(panes[0].terminal.options.fontSize).toBe(20)
+    expect(panes[1].terminal.options.fontSize).toBeUndefined()
+  })
+
+  it('is a no-op for snapshots without deltas (reset path persists nothing)', () => {
+    const { panes, manager } = createRestoreManager([7])
+    const restored = restorePaneFontSizes(manager, undefined, new Map([[LEAF_1, 7]]), 14)
+    expect(restored.size).toBe(0)
+    expect(panes[0].terminal.options.fontSize).toBeUndefined()
   })
 })

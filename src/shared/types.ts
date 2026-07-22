@@ -2522,10 +2522,8 @@ export type TerminalColorOverrides = {
   brightMagenta?: string
   brightCyan?: string
   brightWhite?: string
-  // Why: xterm.js ITheme does not expose a `bold` key, but Ghostty users
-  // expect the setting to be preserved so a future renderer CSS override
-  // or xterm upgrade can honour it without a migration.
-  bold?: string
+  // Why no `bold` key: the aterm engine has no bold-color input (#8595); stale
+  // persisted values are tolerated on load and simply ignored.
 }
 
 export type TerminalQuickCommandScope =

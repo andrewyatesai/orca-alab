@@ -63,4 +63,16 @@ describe('composeActiveTerminalTheme', () => {
   it('returns null when given a null base theme', () => {
     expect(composeActiveTerminalTheme(null, settingsWith({}))).toBeNull()
   })
+
+  // Why: settings persisted before the `bold` override was removed (#8595) still
+  // carry the key; composition must tolerate it instead of failing schema-strict.
+  it('tolerates a stale persisted bold override key', () => {
+    const legacyOverrides = { foreground: '#00ff00', bold: '#ff00ff' }
+    const result = composeActiveTerminalTheme(
+      { background: '#101010', foreground: '#fafafa' },
+      settingsWith({ terminalColorOverrides: legacyOverrides })
+    )
+    expect(result!.foreground).toBe('#00ff00')
+    expect(result!.background).toBe('#101010')
+  })
 })

@@ -19,6 +19,8 @@ export type CreateOrAttachOptions = {
   terminalWindowsPowerShellImplementation?: 'auto' | 'powershell.exe' | 'pwsh.exe'
   shellReadySupported?: boolean
   shellReadyTimeoutMs?: number
+  /** Session emulator scrollback retention; absent keeps the Session default (5k). */
+  scrollbackRows?: number
   historySeed?: string
   startupIngress?: PtyStartupIngressIntent
   streamClient: {

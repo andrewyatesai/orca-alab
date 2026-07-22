@@ -17,7 +17,10 @@ import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type { Store } from '../persistence'
 import type { GlobalSettings, TuiAgent } from '../../shared/types'
 import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
-import { terminalOutputBacklogCapChars } from '../../shared/terminal-scrollback-policy'
+import {
+  normalizeDesktopTerminalScrollbackRows,
+  terminalOutputBacklogCapChars
+} from '../../shared/terminal-scrollback-policy'
 import type {
   PtyDeliveryWriteOff,
   PtyRendererDeliveryHealthReply,
@@ -2860,6 +2863,13 @@ export function registerPtyHandlers(
         env,
         ...(isMintedSessionId ? { isNewSession: true } : {})
       }
+      // Why: forward the user's scrollback setting so daemon-side retention isn't silently capped at the emulator's 5k default.
+      const runtimeSpawnScrollbackRows = getSettings?.()?.terminalScrollbackRows
+      if (runtimeSpawnScrollbackRows !== undefined) {
+        spawnOptions.scrollbackRows = normalizeDesktopTerminalScrollbackRows(
+          runtimeSpawnScrollbackRows
+        )
+      }
       spawnOptions.envToDelete = mergePtyEnvDeletions(
         mergePtyEnvDeletions(authEnvToDelete, args.envToDelete ?? []),
         isDaemonHostSpawn
@@ -3798,6 +3808,11 @@ export function registerPtyHandlers(
         cwd,
         env: spawnEnv,
         ...(isMintedSessionId ? { isNewSession: true } : {})
+      }
+      // Why: forward the user's scrollback setting so daemon-side retention isn't silently capped at the emulator's 5k default.
+      const spawnScrollbackRows = getSettings?.()?.terminalScrollbackRows
+      if (spawnScrollbackRows !== undefined) {
+        spawnOptions.scrollbackRows = normalizeDesktopTerminalScrollbackRows(spawnScrollbackRows)
       }
       if (combinedEnvToDelete) {
         spawnOptions.envToDelete = combinedEnvToDelete

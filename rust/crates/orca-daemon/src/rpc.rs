@@ -50,6 +50,22 @@ fn field_u16(payload: &Value, key: &str, default: u16) -> u16 {
         .unwrap_or(default as u64) as u16
 }
 
+/// Bounds mirror src/shared/terminal-scrollback-policy.ts so both daemons
+/// accept exactly the range the settings UI can produce.
+const SCROLLBACK_ROWS_MIN: u64 = 1_000;
+const SCROLLBACK_ROWS_MAX: u64 = 50_000;
+
+/// `scrollbackRows` retention for the session engine. Absent or non-integer
+/// (protocol skew, hostile client) keeps the historical `DEFAULT_SCROLLBACK`;
+/// out-of-range values clamp instead of erroring so a skewed client still gets
+/// a session.
+fn scrollback_rows(payload: &Value) -> usize {
+    match payload.get("scrollbackRows").and_then(Value::as_u64) {
+        Some(rows) => rows.clamp(SCROLLBACK_ROWS_MIN, SCROLLBACK_ROWS_MAX) as usize,
+        None => DEFAULT_SCROLLBACK,
+    }
+}
+
 /// A void ack. The Node daemon returns `{}` (not null) for side-effecting RPCs, so
 /// match its payload shape for wire byte-parity.
 fn void_ack(id: &str) -> String {
@@ -409,7 +425,7 @@ fn create_or_attach(
         terminal: HeadlessTerminal::with_scrollback(
             rows as usize,
             cols as usize,
-            DEFAULT_SCROLLBACK,
+            scrollback_rows(payload),
         ),
         pending: PendingOutput::default(),
     }));
@@ -974,4 +990,46 @@ fn rehydrate_sequences(
         s.push_str("\x1b[?1006h");
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DEFAULT: usize = DEFAULT_SCROLLBACK;
+
+    fn rows(payload: Value) -> usize {
+        scrollback_rows(&payload)
+    }
+
+    /// Protocol skew: a pre-field client omits `scrollbackRows` and MUST get the
+    /// historical default retention.
+    #[test]
+    fn scrollback_rows_absent_keeps_default() {
+        assert_eq!(rows(json!({ "sessionId": "s" })), DEFAULT);
+    }
+
+    #[test]
+    fn scrollback_rows_forwards_in_range_values() {
+        assert_eq!(rows(json!({ "scrollbackRows": 50_000 })), 50_000);
+        assert_eq!(rows(json!({ "scrollbackRows": 1_000 })), 1_000);
+        assert_eq!(rows(json!({ "scrollbackRows": 25_000 })), 25_000);
+    }
+
+    #[test]
+    fn scrollback_rows_clamps_out_of_range_values() {
+        assert_eq!(rows(json!({ "scrollbackRows": 0 })), 1_000);
+        assert_eq!(rows(json!({ "scrollbackRows": 10 })), 1_000);
+        assert_eq!(rows(json!({ "scrollbackRows": 10_000_000 })), 50_000);
+    }
+
+    /// Untrusted JSON: floats, negatives, strings, and null all fall back to the
+    /// default instead of erroring — a skewed/hostile client still gets a session.
+    #[test]
+    fn scrollback_rows_rejects_non_integer_values() {
+        assert_eq!(rows(json!({ "scrollbackRows": 50_000.5 })), DEFAULT);
+        assert_eq!(rows(json!({ "scrollbackRows": -1 })), DEFAULT);
+        assert_eq!(rows(json!({ "scrollbackRows": "50000" })), DEFAULT);
+        assert_eq!(rows(json!({ "scrollbackRows": null })), DEFAULT);
+    }
 }

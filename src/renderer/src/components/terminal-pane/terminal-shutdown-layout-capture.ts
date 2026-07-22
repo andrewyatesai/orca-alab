@@ -10,7 +10,7 @@ import { TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT } from '../../../../share
 import { clampUtf8TextTail, measureUtf8ByteLength } from '../../../../shared/utf8-byte-limits'
 import { serializeWithAbsoluteCursor } from '../../../../shared/terminal-serialize-absolute-cursor'
 
-const MAX_BUFFER_BYTES = TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT
+const DEFAULT_MAX_BUFFER_BYTES = TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT
 
 type ShutdownPane = Pick<
   ManagedPane,
@@ -33,6 +33,10 @@ type CaptureTerminalShutdownLayoutArgs = {
   globalFontSize?: number
   existingLayout: TerminalLayoutSnapshot | undefined
   captureBuffers?: boolean
+  /** P5: quit-time capture raises this to the disk-store limit (buffers migrate
+   *  straight to snapshot files); the default keeps sleep captures — which stay
+   *  resident in Zustand/session JSON — at the small session bound. */
+  bufferByteLimit?: number
   clearedScrollbackLeafIds?: ReadonlySet<string>
 }
 
@@ -49,8 +53,8 @@ function omitClearedLeafState(
   return Object.keys(next).length > 0 ? next : undefined
 }
 
-function fitsSessionScrollbackByteLimit(serialized: string): boolean {
-  return !measureUtf8ByteLength(serialized, { stopAfterBytes: MAX_BUFFER_BYTES }).exceededLimit
+function fitsScrollbackByteLimit(serialized: string, maxBufferBytes: number): boolean {
+  return !measureUtf8ByteLength(serialized, { stopAfterBytes: maxBufferBytes }).exceededLimit
 }
 
 function serializeShutdownPaneBuffer(pane: ShutdownPane, scrollbackRows: number): string {
@@ -77,6 +81,7 @@ export function captureTerminalShutdownLayout({
   globalFontSize = 14,
   existingLayout,
   captureBuffers = true,
+  bufferByteLimit = DEFAULT_MAX_BUFFER_BYTES,
   clearedScrollbackLeafIds
 }: CaptureTerminalShutdownLayoutArgs): TerminalLayoutSnapshot {
   const panes = manager.getPanes()
@@ -93,14 +98,14 @@ export function captureTerminalShutdownLayout({
         let serialized = serializeShutdownPaneBuffer(pane, scrollback)
         // Why: SSH sleep keeps this string in session JSON; cap by UTF-8
         // bytes so non-ASCII scrollback cannot bypass the intended bound.
-        if (!fitsSessionScrollbackByteLimit(serialized) && scrollback > 1) {
+        if (!fitsScrollbackByteLimit(serialized, bufferByteLimit) && scrollback > 1) {
           let lo = 1
           let hi = scrollback
           let best = ''
           while (lo <= hi) {
             const mid = Math.floor((lo + hi) / 2)
             const attempt = serializeShutdownPaneBuffer(pane, mid)
-            if (fitsSessionScrollbackByteLimit(attempt)) {
+            if (fitsScrollbackByteLimit(attempt, bufferByteLimit)) {
               best = attempt
               lo = mid + 1
             } else {
@@ -112,7 +117,7 @@ export function captureTerminalShutdownLayout({
           // finds nothing → best stays ''. Truncating the actual blob's UTF-8 tail keeps
           // the recent scrollback instead of dropping the WHOLE pane on restore. Also
           // covers a single line longer than the limit on the in-process path.
-          serialized = best || clampUtf8TextTail(serialized, MAX_BUFFER_BYTES).text
+          serialized = best || clampUtf8TextTail(serialized, bufferByteLimit).text
         }
         if (serialized.length > 0) {
           buffers[leafId] = serialized

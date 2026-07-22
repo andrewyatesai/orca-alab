@@ -12,6 +12,7 @@ import {
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import type { WorkspaceSessionState } from '../shared/types'
+import { capTerminalScrollbackSessionBuffer } from '../shared/workspace-session-terminal-buffers'
 import {
   TERMINAL_SCROLLBACK_REPLAY_BYTE_LIMIT,
   TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT
@@ -49,7 +50,11 @@ function snapshotPath(ref: string, snapshotRoot: string): string | null {
   return join(snapshotRoot, `${ref}.bin`)
 }
 
-function snapshotReadPaths(ref: string, storage?: TerminalScrollbackSnapshotStorage): string[] {
+/** Exported for the deep-restore reads in terminal-scrollback-snapshot-deep-read.ts. */
+export function snapshotReadPaths(
+  ref: string,
+  storage?: TerminalScrollbackSnapshotStorage
+): string[] {
   const primaryRoot = getSnapshotRoot(storage)
   const primaryPath = snapshotPath(ref, primaryRoot)
   if (!primaryPath) {
@@ -75,7 +80,8 @@ function trailingUtf8Bytes(value: string, maxBytes: number): Buffer {
   return bytes.subarray(start)
 }
 
-function readTrailingUtf8(path: string, maxBytes: number): string {
+/** Exported for the deep-restore tail read in terminal-scrollback-snapshot-deep-read.ts. */
+export function readTrailingUtf8(path: string, maxBytes: number): string {
   const size = statSync(path).size
   const length = Math.min(size, maxBytes)
   if (length <= 0) {
@@ -189,7 +195,12 @@ export function migrateWorkspaceSessionTerminalScrollbackSnapshots(
         refs[leafId] = ref
         layoutChanged = true
       } else {
-        remainingBuffers[leafId] = buffer
+        // Why the cap: quit-time buffers may carry up to the 5MB store budget; if the
+        // ref write failed they fall back to session JSON, which keeps the small bound.
+        remainingBuffers[leafId] = capTerminalScrollbackSessionBuffer(buffer)
+        if (remainingBuffers[leafId] !== buffer) {
+          layoutChanged = true
+        }
         if (refs[leafId]) {
           delete refs[leafId]
           layoutChanged = true

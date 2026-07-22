@@ -1414,6 +1414,7 @@ describe('registerPtyHandlers', () => {
         shellOverride?: string
         terminalWindowsWslDistro?: string | null
         terminalWindowsPowerShellImplementation?: string
+        scrollbackRows?: number
       }
 
       async function withWin32Platform<T>(fn: () => Promise<T>): Promise<T> {
@@ -1461,6 +1462,7 @@ describe('registerPtyHandlers', () => {
           enableGitHubAttribution?: boolean
           httpProxyUrl?: string
           httpProxyBypassRules?: string
+          terminalScrollbackRows?: number
         },
         processEnvOverrides?: Record<string, string | undefined>,
         // Why: daemon spawn tests exercise both WSL launch metadata from main and PR #2662 command threading for OMP.
@@ -1632,6 +1634,25 @@ describe('registerPtyHandlers', () => {
         const env = await daemonSpawnAndGetEnv({}, () => TEST_CODEX_HOME)
         expect(env.CODEX_HOME).toBe(TEST_CODEX_HOME)
         expect(env.ORCA_CODEX_HOME).toBe(TEST_CODEX_HOME)
+      })
+
+      it('forwards the terminalScrollbackRows setting into daemon spawn options (P4)', async () => {
+        const options = await daemonSpawnAndGetOptions(undefined, undefined, () => ({
+          terminalScrollbackRows: 50_000
+        }))
+        expect(options.scrollbackRows).toBe(50_000)
+      })
+
+      it('normalizes an out-of-policy terminalScrollbackRows before forwarding', async () => {
+        const options = await daemonSpawnAndGetOptions(undefined, undefined, () => ({
+          terminalScrollbackRows: 10_000_000
+        }))
+        expect(options.scrollbackRows).toBe(50_000)
+      })
+
+      it('omits scrollbackRows when the setting is absent (old-daemon parity)', async () => {
+        const options = await daemonSpawnAndGetOptions(undefined, undefined, () => ({}))
+        expect(options).not.toHaveProperty('scrollbackRows')
       })
 
       it('injects explicit proxy settings on the daemon path', async () => {

@@ -22,6 +22,7 @@ import type { SubprocessHandle } from './session'
 import { checkPtySpawnHealth } from './pty-subprocess'
 import { createNoopDaemonFileLog, type DaemonFileLog } from './daemon-file-log'
 import { isTuiAgent } from '../../shared/tui-agent-config'
+import { normalizeDesktopTerminalScrollbackRows } from '../../shared/terminal-scrollback-policy'
 import { parsePtyStartupIngressIntent } from '../../shared/pty-startup-ingress'
 import { isNativeWindowsLocalPtySpawn } from '../runtime/terminal-model-query-authority'
 import { unlinkOwnedDaemonPidFile, unlinkOwnedDaemonTokenFile } from './daemon-spawner'
@@ -698,6 +699,10 @@ export class DaemonServer {
             terminalWindowsWslDistro: p.terminalWindowsWslDistro,
             terminalWindowsPowerShellImplementation: p.terminalWindowsPowerShellImplementation,
             shellReadySupported: p.shellReadySupported,
+            // Why: RPC payloads are untrusted JSON; renormalize to the shared policy bounds, and keep absent ⇒ historical default.
+            ...(typeof p.scrollbackRows === 'number'
+              ? { scrollbackRows: normalizeDesktopTerminalScrollbackRows(p.scrollbackRows) }
+              : {}),
             historySeed: p.historySeed,
             startupIngress: parsePtyStartupIngressIntent(p.startupIngress, {
               allowWindowsEchoProjection: isNativeWindowsLocalPtySpawn({

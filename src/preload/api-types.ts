@@ -2417,6 +2417,19 @@ export type PreloadApi = {
     patch: (args: WorkspaceSessionPatch, hostId?: ExecutionHostId) => Promise<void>
     flush: () => Promise<void>
     readTerminalScrollback: (args: { ref: string }) => string | null
+    /** P5 deep restore: sync 512KB tail plus the offsets/fingerprint the async older-chunk stream continues from. */
+    readTerminalScrollbackTail: (args: { ref: string }) => {
+      text: string
+      olderChunkCursor: number
+      olderEndOffset: number
+      fingerprint: string
+    } | null
+    readTerminalScrollbackOlderChunk: (args: {
+      ref: string
+      cursor: number
+      endOffset: number
+      fingerprint: string
+    }) => Promise<{ text: string; nextCursor: number } | null>
     setSync: (args: WorkspaceSessionState, hostId?: ExecutionHostId) => void
   }
   remoteWorkspace: {

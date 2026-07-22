@@ -2882,7 +2882,8 @@
             "2148f65e04": "PowerShell",
             "ab589350e5": "{{value0}}에 대한 실행 명령을 작성할 수 없습니다.",
             "7a9b4af2af": "탭을 왼쪽으로 스크롤",
-            "232e075b07": "탭을 오른쪽으로 스크롤"
+            "232e075b07": "탭을 오른쪽으로 스크롤",
+            "nushell": "Nushell"
           },
           "TabBarCreateEntry": {
             "d62d63b807": "파일 생성",
@@ -2914,7 +2915,8 @@
           "shell": {
             "icons": {
               "d4ceaa227c": "Git",
-              "e9b2e70613": "WSL"
+              "e9b2e70613": "WSL",
+              "nushell": "Nu"
             }
           },
           "tab": {
@@ -6939,7 +6941,8 @@
             "tui": "TUI",
             "tuiDescription": "전체 화면 터미널 앱을 위한 개별 휠 보고."
           },
-          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here."
+          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here.",
+          "nushell": "Nushell"
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "{{value0}} 테마 미리보기",
@@ -11155,7 +11158,10 @@
           "loadingDistros": "배포판을 불러오는 중",
           "windowsDefault": "Windows 기본값",
           "rightClickBehavior": "오른쪽 클릭 동작",
-          "rightClickBehaviorDescription": "Windows에서 익숙한 terminal 마우스 동작을 선택하세요."
+          "rightClickBehaviorDescription": "Windows에서 익숙한 terminal 마우스 동작을 선택하세요.",
+          "nushell": "Nushell",
+          "nushellDescription": "Uses nu.exe for structured-data pipelines with Nushell syntax.",
+          "nushellUnavailable": "Selected, but Nushell was not detected on this machine."
         },
         "mac": {
           "notification": {

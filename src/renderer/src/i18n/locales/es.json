@@ -2882,7 +2882,8 @@
             "2148f65e04": "PowerShell",
             "ab589350e5": "No se pudo generar el comando de inicio para {{value0}}.",
             "7a9b4af2af": "Desplazar pestañas a la izquierda",
-            "232e075b07": "Desplazar pestañas a la derecha"
+            "232e075b07": "Desplazar pestañas a la derecha",
+            "nushell": "Nushell"
           },
           "TabBarCreateEntry": {
             "d62d63b807": "Crear archivo",
@@ -2914,7 +2915,8 @@
           "shell": {
             "icons": {
               "d4ceaa227c": "Git",
-              "e9b2e70613": "WSL"
+              "e9b2e70613": "WSL",
+              "nushell": "Nu"
             }
           },
           "tab": {
@@ -6954,7 +6956,8 @@
             "tui": "TUI",
             "tuiDescription": "Eventos discretos de rueda para apps de terminal de pantalla completa."
           },
-          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here."
+          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here.",
+          "nushell": "Nushell"
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "Vista previa del tema {{value0}}",
@@ -11155,7 +11158,10 @@
           "loadingDistros": "Cargando distribuciones",
           "windowsDefault": "Predeterminada de Windows",
           "rightClickBehavior": "Comportamiento del clic derecho",
-          "rightClickBehaviorDescription": "Elige el comportamiento del ratón en la terminal que coincida con tu memoria muscular de Windows."
+          "rightClickBehaviorDescription": "Elige el comportamiento del ratón en la terminal que coincida con tu memoria muscular de Windows.",
+          "nushell": "Nushell",
+          "nushellDescription": "Uses nu.exe for structured-data pipelines with Nushell syntax.",
+          "nushellUnavailable": "Selected, but Nushell was not detected on this machine."
         },
         "mac": {
           "notification": {

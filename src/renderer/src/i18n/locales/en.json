@@ -2882,7 +2882,8 @@
             "2148f65e04": "PowerShell",
             "ab589350e5": "Could not build launch command for {{value0}}.",
             "7a9b4af2af": "Scroll tabs left",
-            "232e075b07": "Scroll tabs right"
+            "232e075b07": "Scroll tabs right",
+            "nushell": "Nushell"
           },
           "TabBarCreateEntry": {
             "d62d63b807": "Create file",
@@ -2914,7 +2915,8 @@
           "shell": {
             "icons": {
               "d4ceaa227c": "Git",
-              "e9b2e70613": "WSL"
+              "e9b2e70613": "WSL",
+              "nushell": "Nu"
             }
           },
           "tab": {
@@ -6991,7 +6993,8 @@
             "tui": "TUI",
             "tuiDescription": "Discrete wheel reports for full-screen terminal apps."
           },
-          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here."
+          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here.",
+          "nushell": "Nushell"
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "Preview {{value0}} theme",
@@ -11155,7 +11158,10 @@
           "loadingDistros": "Loading distributions",
           "windowsDefault": "Windows default",
           "rightClickBehavior": "Right-click behavior",
-          "rightClickBehaviorDescription": "Pick the terminal mouse behavior that matches your Windows muscle memory."
+          "rightClickBehaviorDescription": "Pick the terminal mouse behavior that matches your Windows muscle memory.",
+          "nushell": "Nushell",
+          "nushellDescription": "Uses nu.exe for structured-data pipelines with Nushell syntax.",
+          "nushellUnavailable": "Selected, but Nushell was not detected on this machine."
         },
         "mac": {
           "notification": {

@@ -2105,13 +2105,9 @@ function mapRestPRMergeStateStatus(pr: RestPullRequest): string | undefined {
     case 'unknown':
     case undefined:
       return undefined
-    default: {
-      // Why: a new REST state must degrade to "no status", never silently pass as clean.
-      const unhandled: never = state
-      void unhandled
-      return undefined
-    }
   }
+  // Why: state is a cast REST string — a new REST state must degrade to "no status", never silently pass as clean.
+  return undefined
 }
 
 function derivePullRequestMergeable(data: PullRequestLookupData): PRMergeableState {

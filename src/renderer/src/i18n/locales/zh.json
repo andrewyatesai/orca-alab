@@ -2882,7 +2882,8 @@
             "2148f65e04": "PowerShell",
             "ab589350e5": "无法为 {{value0}} 构建启动命令。",
             "7a9b4af2af": "向左滚动标签页",
-            "232e075b07": "向右滚动标签页"
+            "232e075b07": "向右滚动标签页",
+            "nushell": "Nushell"
           },
           "TabBarCreateEntry": {
             "d62d63b807": "创建文件",
@@ -2914,7 +2915,8 @@
           "shell": {
             "icons": {
               "d4ceaa227c": "git",
-              "e9b2e70613": "WSL"
+              "e9b2e70613": "WSL",
+              "nushell": "Nu"
             }
           },
           "tab": {
@@ -6939,7 +6941,8 @@
             "tui": "TUI",
             "tuiDescription": "面向全屏终端应用的离散滚轮报告。"
           },
-          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here."
+          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here.",
+          "nushell": "Nushell"
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "预览 {{value0}} 主题",
@@ -11155,7 +11158,10 @@
           "loadingDistros": "正在加载发行版",
           "windowsDefault": "Windows 默认值",
           "rightClickBehavior": "右键单击行为",
-          "rightClickBehaviorDescription": "选择符合你在 Windows 上使用习惯的终端鼠标行为。"
+          "rightClickBehaviorDescription": "选择符合你在 Windows 上使用习惯的终端鼠标行为。",
+          "nushell": "Nushell",
+          "nushellDescription": "Uses nu.exe for structured-data pipelines with Nushell syntax.",
+          "nushellUnavailable": "Selected, but Nushell was not detected on this machine."
         },
         "mac": {
           "notification": {

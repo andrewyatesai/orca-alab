@@ -127,6 +127,7 @@ type TerminalMultiplexStream = {
   unsubscribeResize: () => void
   unsubscribeFit: () => void
   unsubscribeDriver: () => void
+  unsubscribeQueryReplyAuthority: () => void
   unregisterBinaryHandler: () => void
   // Why: the runtime drops the exit-waiter only on real PTY exit; abort on detach so a never-exiting agent terminal doesn't leak the waiter.
   exitWaiterAbort: AbortController
@@ -1779,6 +1780,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         stream.unsubscribeResize()
         stream.unsubscribeFit()
         stream.unsubscribeDriver()
+        stream.unsubscribeQueryReplyAuthority()
         stream.unregisterBinaryHandler()
         streams.delete(streamId)
         flushAllAckPendingOutput()
@@ -2188,6 +2190,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
           unsubscribeResize: () => {},
           unsubscribeFit: () => {},
           unsubscribeDriver: () => {},
+          unsubscribeQueryReplyAuthority: () => {},
           unregisterBinaryHandler: () => {},
           exitWaiterAbort: new AbortController()
         }
@@ -2208,7 +2211,11 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             stream.outputBatcher.push(data, meta)
           })
           // Why: a multiplexed stream feeds a remote xterm view with query authority, so the main model responder yields while attached (terminal-query-authority.md).
-          const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(ptyId)
+          // Desktop/web viewers pass their clientId so the #9156 election can name them; mobile stays governed by the mobile floor election.
+          const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(
+            ptyId,
+            isMobile ? null : (request.client?.id ?? null)
+          )
           stream.unsubscribeData = () => {
             releaseViewSubscriber()
             unsubscribeStreamData()
@@ -2281,7 +2288,9 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             seq: layoutSeq,
             truncated:
               initialOutputOverflowed ||
-              (serialized ? read.truncated : isTerminalReadPayloadIncomplete(read))
+              (serialized ? read.truncated : isTerminalReadPayloadIncomplete(read)),
+            // Why in the ack (#9156 Critic): a headless-serve viewer must know its verdict before the first drained query, or a TUI probing DA1/CPR at attach hangs in the zero-answerer window.
+            queryReplyAuthority: runtime.getTerminalQueryReplyAuthority?.(ptyId)
           })
           sendSnapshotFrames((opcode, payload) => sendFrame(request.streamId, opcode, payload), {
             kind: 'scrollback',
@@ -2353,6 +2362,23 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
               streamId: request.streamId,
               driver: runtime.getDriver(ptyId)
             })
+            stream.unsubscribeQueryReplyAuthority =
+              runtime.subscribeToQueryReplyAuthorityChanges?.(ptyId, (authority) => {
+                emit({
+                  type: 'query-reply-authority-changed',
+                  streamId: request.streamId,
+                  authority
+                })
+              }) ?? (() => {})
+            // Why: an election between the subscribe-ack and this listener install would otherwise be lost; re-emitting the current verdict closes that gap.
+            const authority = runtime.getTerminalQueryReplyAuthority?.(ptyId)
+            if (authority) {
+              emit({
+                type: 'query-reply-authority-changed',
+                streamId: request.streamId,
+                authority
+              })
+            }
           }
           stream.unsubscribeResize = runtime.subscribeToTerminalResize(ptyId, (event) => {
             stream.outputBatcher.flush()
@@ -2652,7 +2678,11 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             outputBatcher?.push(data)
           })
           // Why: the legacy JSON stream can feed a live xterm view, so register as a view subscriber; worst case is a withheld model reply, safer than a double reply.
-          const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(ptyId)
+          // Legacy desktop viewers always answer (they predate the authority protocol), so electing them by clientId keeps exactly one answerer.
+          const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(
+            ptyId,
+            isMobile ? null : (clientId ?? null)
+          )
           unsubscribeData = () => {
             releaseViewSubscriber()
             unsubscribeStreamData()
@@ -2918,7 +2948,11 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         outputBatcher?.push(data, meta)
       })
       // Why: capture live bytes before mobile-fit awaits; registering presence first would suppress main while no view held the query.
-      const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(ptyId)
+      // Legacy desktop viewers always answer (they predate the authority protocol), so electing them by clientId keeps exactly one answerer.
+      const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(
+        ptyId,
+        isMobile ? null : (clientId ?? null)
+      )
       unsubscribeData = () => {
         releaseViewSubscriber()
         unsubscribeStreamData()

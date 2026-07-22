@@ -321,6 +321,7 @@ import type {
   RuntimeSyncWindowGraph,
   RuntimeTerminalCreateRequestPayload,
   RuntimeTerminalDriverState,
+  RuntimeTerminalQueryReplyAuthority,
   RuntimeTerminalPresentation
 } from '../shared/runtime-types'
 import type {
@@ -3087,6 +3088,9 @@ export type PreloadApi = {
     ) => () => void
     onTerminalDriverChanged: (
       callback: (event: { ptyId: string; driver: RuntimeTerminalDriverState }) => void
+    ) => () => void
+    onTerminalQueryReplyAuthorityChanged: (
+      callback: (event: { ptyId: string; authority: RuntimeTerminalQueryReplyAuthority }) => void
     ) => () => void
     onBrowserDriverChanged: (
       callback: (event: { browserPageId: string; driver: RuntimeBrowserDriverState }) => void

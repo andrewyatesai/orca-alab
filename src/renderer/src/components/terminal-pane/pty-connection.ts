@@ -50,6 +50,7 @@ import {
 import { requestStablePaneFit } from '@/lib/pane-manager/pane-fit-resize-observer'
 import { getFitOverrideForPty, bindPanePtyId } from '@/lib/pane-manager/mobile-fit-overrides'
 import { isPtyLocked } from '@/lib/pane-manager/mobile-driver-state'
+import { isQueryReplyAuthorityForThisView } from '@/lib/pane-manager/query-reply-authority-state'
 import { reconcilePtySizeAcrossFrames, type PtySizeReconcileHandle } from './pty-size-reconcile'
 import { shouldClaimRemoteDesktopViewport } from './remote-desktop-viewport-claim'
 import { getAppliedSizeReadE2eDelayMs } from './pty-applied-size-read-e2e-delay'
@@ -3759,7 +3760,15 @@ export function connectPanePty(
     : createIpcPtyTransport(transportOptions)
   const canSendDesktopQueryReply = (): boolean => {
     const ptyId = transport.getPtyId()
-    return !ptyId || !isPtyLocked(ptyId)
+    if (!ptyId) {
+      return true
+    }
+    // Why: exactly one view may answer any query (#9156) — the mobile lock and the
+    // runtime's authority election both gate every reply path through here.
+    return (
+      !isPtyLocked(ptyId) &&
+      isQueryReplyAuthorityForThisView(ptyId, transport.getQueryReplyViewerClientId?.() ?? null)
+    )
   }
   // Why: parser/capability handlers bypass the ordinary onData guard. Keep
   // desktop silent while the elected mobile xterm owns query replies.
@@ -3837,7 +3846,8 @@ export function connectPanePty(
   // shim has no color service so it never auto-replies to OSC 10/11). The aterm
   // canvas owns the theme, so it answers from its seeded fg/bg.
   const respondToTerminalOscColorQueries = createTerminalOscColorQueryResponder(
-    (data) => transport.sendInput(data),
+    // Why sendDesktopQueryReplyImmediate: OSC 10/11 replies must honor the #9156 authority gate (a raw send here was the one ungated reply path) and beat the remote input debounce (#7329).
+    sendDesktopQueryReplyImmediate,
     () => {
       const colors = resolveLiveAtermController()?.themeColors()
       return colors ? { fg: colors.fg, bg: colors.bg } : null

@@ -4657,10 +4657,13 @@ export function registerPtyHandlers(
         recordPtyRendererDeliveryPressure()
       }
       syncPtyBackgroundedDelivery(args.id, 'gate-mark')
+      // Why: hiding the host pane changes the #9156 reply-authority election (a remote viewer may take over); the runtime cannot see gate marks itself.
+      runtime?.notifyTerminalQueryReplyAuthorityMayHaveChanged?.(args.id)
       return
     }
     const { droppedWhileHidden } = unmarkHiddenRendererPty(args.id)
     syncPtyBackgroundedDelivery(args.id, 'gate-unmark')
+    runtime?.notifyTerminalQueryReplyAuthorityMayHaveChanged?.(args.id)
     // Why: a reload/remount may have replaced the view that latched restore-needed, so re-emit on unhide; a redundant replay is cheap/idempotent, a missed restore corrupts the pane.
     if (droppedWhileHidden) {
       sendModelRestoreNeededMarker(args.id, 'unhide', runtime?.getPtyOutputSequence(args.id))

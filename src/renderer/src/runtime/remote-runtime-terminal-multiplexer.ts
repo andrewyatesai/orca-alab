@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- Why: the remote terminal multiplexer owns one bridged subscription, stream lifecycle, binary frame parsing, and remote lock events as a single transport contract. */
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
+import type { RuntimeTerminalQueryReplyAuthority } from '../../../shared/runtime-types'
 import {
   TerminalStreamOpcode,
   decodeTerminalStreamFrame,
@@ -19,7 +20,7 @@ type RuntimeEnvironmentSubscriptionHandle = {
 
 type TerminalMultiplexEvent =
   | { type: 'ready' }
-  | { type: 'subscribed'; streamId: number }
+  | { type: 'subscribed'; streamId: number; queryReplyAuthority?: unknown }
   | { type: 'end'; streamId: number }
   | { type: 'error'; streamId: number; message?: string }
   | {
@@ -34,6 +35,7 @@ type TerminalMultiplexEvent =
       streamId: number
       driver: { kind: 'idle' } | { kind: 'desktop' } | { kind: 'mobile'; clientId: string }
     }
+  | { type: 'query-reply-authority-changed'; streamId: number; authority: unknown }
   | { type: string; streamId?: number; [key: string]: unknown }
 
 export type RemoteRuntimeMultiplexedTerminalCallbacks = {
@@ -50,6 +52,10 @@ export type RemoteRuntimeMultiplexedTerminalCallbacks = {
   onDriverChanged?: (
     driver: { kind: 'idle' } | { kind: 'desktop' } | { kind: 'mobile'; clientId: string }
   ) => void
+  // Why: the #9156 reply-authority verdict — delivered in the subscribe ack (so a
+  // headless-serve viewer knows it answers before the first drained query) and on
+  // every re-election. Old hosts never send it; absence fails open viewer-side.
+  onQueryReplyAuthorityChanged?: (authority: RuntimeTerminalQueryReplyAuthority) => void
   onTransportClose?: () => void
 }
 
@@ -428,6 +434,15 @@ class RemoteRuntimeTerminalMultiplexer {
         return
       }
       stream.callbacks.onDriverChanged?.(event.driver)
+    } else if (event.type === 'subscribed') {
+      // Why: the ack's verdict must land before the snapshot/output frames feed the engine, or a drained attach-time reply races the election (#9156).
+      if (isTerminalQueryReplyAuthority(event.queryReplyAuthority)) {
+        stream.callbacks.onQueryReplyAuthorityChanged?.(event.queryReplyAuthority)
+      }
+    } else if (event.type === 'query-reply-authority-changed') {
+      if (isTerminalQueryReplyAuthority(event.authority)) {
+        stream.callbacks.onQueryReplyAuthorityChanged?.(event.authority)
+      }
     }
   }
 
@@ -927,5 +942,20 @@ function isTerminalDriverState(
     driver.kind === 'idle' ||
     driver.kind === 'desktop' ||
     (driver.kind === 'mobile' && typeof driver.clientId === 'string')
+  )
+}
+
+function isTerminalQueryReplyAuthority(
+  value: unknown
+): value is RuntimeTerminalQueryReplyAuthority {
+  if (!value || typeof value !== 'object' || !('kind' in value)) {
+    return false
+  }
+  const authority = value as { kind?: unknown; clientId?: unknown }
+  return (
+    authority.kind === 'host-renderer' ||
+    authority.kind === 'model' ||
+    ((authority.kind === 'mobile' || authority.kind === 'remote-viewer') &&
+      typeof authority.clientId === 'string')
   )
 }

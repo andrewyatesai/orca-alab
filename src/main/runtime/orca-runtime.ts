@@ -353,6 +353,7 @@ import type {
   RuntimeMobileSessionTabsSnapshot,
   RuntimeBrowserDriverState,
   RuntimeTerminalDriverState,
+  RuntimeTerminalQueryReplyAuthority,
   RuntimeSyncWindowGraph,
   RuntimeWorktreeListResult,
   BrowserTabInfo,
@@ -761,6 +762,8 @@ import {
   registerConptyDa1OverrideInstaller,
   shouldModelAnswerHiddenPtyQueries
 } from './terminal-model-query-authority'
+// Why: the query-reply election derives "visible host" from the same hidden-mark state the delivery gate reads, so election and delivery cannot diverge (#9156).
+import { isHiddenRendererPty } from '../ipc/pty-hidden-delivery-gate'
 import {
   getTerminalViewAttributes,
   registerTerminalViewAttributesApplier
@@ -1527,6 +1530,11 @@ type RuntimeNotifier = {
   // and so a future write coordinator can use the same signal as scheduling
   // input. See docs/mobile-presence-lock.md.
   terminalDriverChanged(ptyId: string, driver: DriverState): void
+  // Why: pushes the #9156 reply-authority verdict to the host renderer; optional so partial notifier stubs keep working.
+  terminalQueryReplyAuthorityChanged?(
+    ptyId: string,
+    authority: RuntimeTerminalQueryReplyAuthority
+  ): void
   browserDriverChanged?(browserPageId: string, driver: RuntimeBrowserDriverState): void
 }
 
@@ -2558,10 +2566,21 @@ export class OrcaRuntimeService {
   // Why: Phase-5 query-responder suppression — a terminal-RPC subscribe
   // stream feeds a remote xterm view (mobile/web/remote desktop) that answers
   // queries with view authority, so main must yield while one is attached
-  // (terminal-query-authority.md). Ref-counted per PTY because multiple
-  // streams can attach concurrently; mobileSubscribers is consulted too so
-  // grace-window mobile records keep suppressing.
-  private remoteTerminalViewSubscriberCounts = new Map<string, number>()
+  // (terminal-query-authority.md). Ordered per PTY because multiple streams
+  // can attach concurrently and the #9156 election picks the earliest
+  // addressable (clientId-bearing) subscriber; mobileSubscribers is consulted
+  // too so grace-window mobile records keep suppressing.
+  private remoteTerminalViewSubscribers = new Map<
+    string,
+    { clientId: string | null; seq: number }[]
+  >()
+  private nextRemoteTerminalViewSubscriberSeq = 1
+  private queryReplyAuthorityListeners = new Map<
+    string,
+    Set<(authority: RuntimeTerminalQueryReplyAuthority) => void>
+  >()
+  // Why: fingerprint of the last pushed verdict per PTY so churny presence updates only notify on actual authority change.
+  private lastNotifiedTerminalQueryReplyAuthority = new Map<string, string>()
 
   // Why: per-PTY driver state. The "driver" is whoever currently owns the
   // input/resize floor. While `kind === 'mobile'` the desktop renderer drops
@@ -3299,7 +3318,14 @@ export class OrcaRuntimeService {
   }
 
   setNotifier(notifier: RuntimeNotifier | null): void {
+    const hadNotifier = this.notifier !== null
     this.notifier = notifier
+    // Why: the host-renderer election rung exists iff a renderer window is attached; on flip, re-elect every watched PTY so a viewer isn't left silenced by a stale host-renderer verdict (#9156).
+    if (hadNotifier !== (notifier !== null)) {
+      for (const ptyId of [...this.remoteTerminalViewSubscribers.keys()]) {
+        this.notifyTerminalQueryReplyAuthorityMayHaveChanged(ptyId)
+      }
+    }
     // Why: run the one-shot fork-upstream backfill once a renderer is attached,
     // so existing forks self-correct on launch and the result can be broadcast.
     if (notifier && !this.forkBackfillStarted) {
@@ -7413,17 +7439,23 @@ export class OrcaRuntimeService {
     } catch (err) {
       console.error('[runtime] remote view presence listener threw', { ptyId, err })
     }
+    this.notifyTerminalQueryReplyAuthorityMayHaveChanged(ptyId)
   }
 
   /** Registered by terminal-RPC subscribe/multiplex streams: while a remote
    *  view subscriber is attached its xterm answers queries with view
    *  authority and the model responder must stay silent. Returns an
-   *  idempotent release. */
-  registerRemoteTerminalViewSubscriber(ptyId: string): () => void {
-    this.remoteTerminalViewSubscriberCounts.set(
-      ptyId,
-      (this.remoteTerminalViewSubscriberCounts.get(ptyId) ?? 0) + 1
-    )
+   *  idempotent release. `clientId` (desktop/web viewers only) makes the
+   *  subscriber electable as #9156 reply authority; identity-less legacy
+   *  streams still suppress the model responder but cannot win the election. */
+  registerRemoteTerminalViewSubscriber(ptyId: string, clientId?: string | null): () => void {
+    const entry = { clientId: clientId ?? null, seq: this.nextRemoteTerminalViewSubscriberSeq++ }
+    const entries = this.remoteTerminalViewSubscribers.get(ptyId)
+    if (entries) {
+      entries.push(entry)
+    } else {
+      this.remoteTerminalViewSubscribers.set(ptyId, [entry])
+    }
     this.notifyRemoteTerminalViewPresenceChanged(ptyId)
     let released = false
     return () => {
@@ -7431,32 +7463,40 @@ export class OrcaRuntimeService {
         return
       }
       released = true
-      const next = (this.remoteTerminalViewSubscriberCounts.get(ptyId) ?? 1) - 1
-      if (next <= 0) {
-        this.remoteTerminalViewSubscriberCounts.delete(ptyId)
-      } else {
-        this.remoteTerminalViewSubscriberCounts.set(ptyId, next)
+      const current = this.remoteTerminalViewSubscribers.get(ptyId)
+      if (current) {
+        const index = current.findIndex((candidate) => candidate.seq === entry.seq)
+        if (index !== -1) {
+          current.splice(index, 1)
+        }
+        if (current.length === 0) {
+          this.remoteTerminalViewSubscribers.delete(ptyId)
+        }
       }
       this.notifyRemoteTerminalViewPresenceChanged(ptyId)
     }
   }
 
   hasRemoteTerminalViewSubscriber(ptyId: string): boolean {
-    if ((this.remoteTerminalViewSubscriberCounts.get(ptyId) ?? 0) > 0) {
+    if ((this.remoteTerminalViewSubscribers.get(ptyId)?.length ?? 0) > 0) {
       return true
     }
     return (this.mobileSubscribers.get(ptyId)?.size ?? 0) > 0
   }
 
   isMobileTerminalQueryReplyAuthority(ptyId: string, clientId: string): boolean {
+    return this.getElectedMobileTerminalQueryReplyClientId(ptyId) === clientId
+  }
+
+  private getElectedMobileTerminalQueryReplyClientId(ptyId: string): string | null {
     // Why: a passive phone watching desktop-sized output must not race the
     // desktop xterm. Mobile becomes reply authority only with the mobile floor.
     if (this.getDriver(ptyId).kind !== 'mobile') {
-      return false
+      return null
     }
     const subscribers = this.mobileSubscribers.get(ptyId)
     if (!subscribers) {
-      return false
+      return null
     }
     // Why: soft-leave resubscribe preserves the original subscription time but
     // reinserts the record. Elect fitted responders from that stable age, not
@@ -7470,7 +7510,56 @@ export class OrcaRuntimeService {
         earliest = subscriber
       }
     }
-    return earliest?.clientId === clientId
+    return earliest?.clientId ?? null
+  }
+
+  /** #9156 election: exactly one party may answer any embedded terminal query.
+   *  Precedence: elected mobile floor holder → visible host renderer →
+   *  earliest addressable remote viewer → model responder. */
+  getTerminalQueryReplyAuthority(ptyId: string): RuntimeTerminalQueryReplyAuthority {
+    const mobileClientId = this.getElectedMobileTerminalQueryReplyClientId(ptyId)
+    if (mobileClientId !== null) {
+      return { kind: 'mobile', clientId: mobileClientId }
+    }
+    // Why notifier presence: headless serve without an attached renderer window has no host pane to answer; a hidden-marked pane has no bytes to answer from.
+    if (this.notifier !== null && !isHiddenRendererPty(ptyId)) {
+      return { kind: 'host-renderer' }
+    }
+    const entries = this.remoteTerminalViewSubscribers.get(ptyId)
+    if (entries) {
+      for (const entry of entries) {
+        if (entry.clientId !== null) {
+          return { kind: 'remote-viewer', clientId: entry.clientId }
+        }
+      }
+    }
+    return { kind: 'model' }
+  }
+
+  subscribeToQueryReplyAuthorityChanges(
+    ptyId: string,
+    listener: (authority: RuntimeTerminalQueryReplyAuthority) => void
+  ): () => void {
+    return addListenerToMap(this.queryReplyAuthorityListeners, ptyId, listener)
+  }
+
+  /** Public because pty IPC must re-elect on hidden mark/unmark — the runtime
+   *  cannot observe those transitions itself. Deduped on the verdict so
+   *  presence churn without an authority flip stays silent. */
+  notifyTerminalQueryReplyAuthorityMayHaveChanged(ptyId: string): void {
+    const authority = this.getTerminalQueryReplyAuthority(ptyId)
+    const fingerprint = `${authority.kind}:${'clientId' in authority ? authority.clientId : ''}`
+    if (this.lastNotifiedTerminalQueryReplyAuthority.get(ptyId) === fingerprint) {
+      return
+    }
+    this.lastNotifiedTerminalQueryReplyAuthority.set(ptyId, fingerprint)
+    this.notifier?.terminalQueryReplyAuthorityChanged?.(ptyId, authority)
+    const listeners = this.queryReplyAuthorityListeners.get(ptyId)
+    if (listeners) {
+      for (const listener of listeners) {
+        listener(authority)
+      }
+    }
   }
 
   subscribeToFitOverrideChanges(
@@ -9466,7 +9555,8 @@ export class OrcaRuntimeService {
     advertisedUrlWatcher.unbindPty(ptyId)
     // Clean up new mobile state for this PTY
     this.mobileSubscribers.delete(ptyId)
-    this.remoteTerminalViewSubscriberCounts.delete(ptyId)
+    this.remoteTerminalViewSubscribers.delete(ptyId)
+    this.lastNotifiedTerminalQueryReplyAuthority.delete(ptyId)
     this.mobileDisplayModes.delete(ptyId)
     this.resizeListeners.delete(ptyId)
     this.lastRendererSizes.delete(ptyId)
@@ -9592,6 +9682,8 @@ export class OrcaRuntimeService {
         listener(next)
       }
     }
+    // Why: the mobile floor holds top election precedence, so a driver flip can change the #9156 reply authority.
+    this.notifyTerminalQueryReplyAuthorityMayHaveChanged(ptyId)
   }
 
   // Why: the host's own fit cascade (window resize, split drag, tab reveal,

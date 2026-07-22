@@ -4025,3 +4025,106 @@ describe('terminal multiplex RPC', () => {
     }
   })
 })
+
+describe('terminal multiplex query-reply authority (#9156)', () => {
+  it('carries the authority verdict in the subscribe ack and streams re-elections', async () => {
+    const authorityListenerRef: {
+      current?: (authority: { kind: string; clientId?: string }) => void
+    } = {}
+    const registerRemoteTerminalViewSubscriber = vi.fn().mockReturnValue(vi.fn())
+    const unsubscribeAuthority = vi.fn()
+    const subscribeToQueryReplyAuthorityChanges = vi.fn(
+      (_ptyId: string, listener: (authority: { kind: string; clientId?: string }) => void) => {
+        authorityListenerRef.current = listener
+        return unsubscribeAuthority
+      }
+    )
+    const getTerminalQueryReplyAuthority = vi
+      .fn()
+      .mockReturnValue({ kind: 'remote-viewer', clientId: 'desktop-1' })
+    const harness = startDesktopMultiplexSubscribe({
+      registerRemoteTerminalViewSubscriber,
+      subscribeToQueryReplyAuthorityChanges,
+      getTerminalQueryReplyAuthority
+    } as never)
+    await vi.waitFor(() =>
+      expect(harness.messages.some((msg) => JSON.parse(msg).result?.type === 'ready')).toBe(true)
+    )
+    sendDesktopMultiplexSubscribe(harness.handlers)
+    await vi.waitFor(() =>
+      expect(harness.messages.some((msg) => JSON.parse(msg).result?.type === 'subscribed')).toBe(
+        true
+      )
+    )
+
+    // The desktop viewer registers with its clientId so the election can name it.
+    expect(registerRemoteTerminalViewSubscriber).toHaveBeenCalledWith('pty-1', 'desktop-1')
+    // Critic note: the verdict rides the subscribe ack so a headless-serve viewer
+    // knows it answers before the first drained query reaches its engine.
+    const subscribed = harness.messages
+      .map((msg) => JSON.parse(msg).result)
+      .find((event) => event?.type === 'subscribed')
+    expect(subscribed.queryReplyAuthority).toEqual({ kind: 'remote-viewer', clientId: 'desktop-1' })
+
+    // The listener-install gap is closed by re-emitting the current verdict.
+    await vi.waitFor(() =>
+      expect(
+        harness.messages.some(
+          (msg) => JSON.parse(msg).result?.type === 'query-reply-authority-changed'
+        )
+      ).toBe(true)
+    )
+    expect(subscribeToQueryReplyAuthorityChanges).toHaveBeenCalledWith(
+      'pty-1',
+      expect.any(Function)
+    )
+
+    // A later re-election streams to the viewer.
+    authorityListenerRef.current?.({ kind: 'host-renderer' })
+    const authorityEvents = harness.messages
+      .map((msg) => JSON.parse(msg).result)
+      .filter((event) => event?.type === 'query-reply-authority-changed')
+    expect(authorityEvents.at(-1)?.authority).toEqual({ kind: 'host-renderer' })
+
+    harness.cleanups.get('terminal-multiplex:conn-desktop-first-paint')?.()
+    await harness.dispatchPromise
+    // Detach releases the authority subscription.
+    expect(unsubscribeAuthority).toHaveBeenCalled()
+  })
+
+  it('registers mobile multiplex subscribers without an electable clientId', async () => {
+    const registerRemoteTerminalViewSubscriber = vi.fn().mockReturnValue(vi.fn())
+    const harness = startDesktopMultiplexSubscribe({
+      registerRemoteTerminalViewSubscriber,
+      handleMobileSubscribe: vi.fn().mockResolvedValue(true),
+      handleMobileUnsubscribe: vi.fn(),
+      serializeBudgetedMobileSessionSnapshot: vi.fn().mockResolvedValue(null),
+      serializeTerminalBuffer: vi.fn().mockResolvedValue({ data: '', cols: 45, rows: 20 })
+    } as never)
+    await vi.waitFor(() =>
+      expect(harness.messages.some((msg) => JSON.parse(msg).result?.type === 'ready')).toBe(true)
+    )
+    harness.handlers.get(0)?.(
+      decodeTerminalStreamFrame(
+        encodeTerminalStreamFrame({
+          opcode: TerminalStreamOpcode.Subscribe,
+          streamId: 0,
+          seq: 1,
+          payload: encodeTerminalStreamJson({
+            streamId: 9,
+            terminal: 'terminal-1',
+            client: { id: 'phone-A', type: 'mobile' },
+            viewport: { cols: 45, rows: 20 }
+          })
+        })
+      )!
+    )
+    await vi.waitFor(() => expect(registerRemoteTerminalViewSubscriber).toHaveBeenCalled())
+
+    // Mobile stays governed by the mobile floor election, never the viewer election.
+    expect(registerRemoteTerminalViewSubscriber).toHaveBeenCalledWith('pty-1', null)
+
+    harness.cleanups.get('terminal-multiplex:conn-desktop-first-paint')?.()
+    await harness.dispatchPromise
+  })
+})

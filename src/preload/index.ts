@@ -81,6 +81,7 @@ import type {
   RuntimeSyncWindowGraph,
   RuntimeTerminalCreateRequestPayload,
   RuntimeTerminalDriverState,
+  RuntimeTerminalQueryReplyAuthority,
   RuntimeTerminalPresentation
 } from '../shared/runtime-types'
 import type { RuntimeRpcResponse } from '../shared/runtime-rpc-envelope'
@@ -3998,6 +3999,19 @@ const api = {
       ) => callback(data)
       ipcRenderer.on('runtime:terminalDriverChanged', listener)
       return () => ipcRenderer.removeListener('runtime:terminalDriverChanged', listener)
+    },
+    onTerminalQueryReplyAuthorityChanged: (
+      callback: (event: { ptyId: string; authority: RuntimeTerminalQueryReplyAuthority }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: {
+          ptyId: string
+          authority: RuntimeTerminalQueryReplyAuthority
+        }
+      ) => callback(data)
+      ipcRenderer.on('runtime:terminalQueryReplyAuthorityChanged', listener)
+      return () => ipcRenderer.removeListener('runtime:terminalQueryReplyAuthorityChanged', listener)
     },
     onBrowserDriverChanged: (
       callback: (event: { browserPageId: string; driver: RuntimeBrowserDriverState }) => void

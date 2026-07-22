@@ -36,6 +36,10 @@ import { splitRemoteAltScreenSnapshot } from './remote-runtime-pty-alt-screen-sn
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { replaceFitOverridePtyId, setFitOverride } from '@/lib/pane-manager/mobile-fit-overrides'
 import { replaceDriverPtyId, setDriverForPty } from '@/lib/pane-manager/mobile-driver-state'
+import {
+  clearQueryReplyAuthorityForPty,
+  setQueryReplyAuthorityForPty
+} from '@/lib/pane-manager/query-reply-authority-state'
 import { isWebTerminalSurfaceTabId, toHostSessionTabId } from '@/runtime/web-terminal-surface-id'
 import { listRemoteRuntimeSessionTabsDeduped } from '@/runtime/remote-runtime-session-tabs-inflight'
 import { subscribeAcceptedWebSessionTerminalHandle } from '@/runtime/web-session-terminal-handle-events'
@@ -763,6 +767,10 @@ export function createRemoteRuntimePtyTransport(
           multiplexedStream = null
           multiplexedStreamHandle = null
           clearPendingViewportClaim()
+          // Why: a dead stream's verdict is stale; unknown fails open so this viewer keeps answering until the next subscribe ack re-elects.
+          if (subscribedPtyId) {
+            clearQueryReplyAuthorityForPty(subscribedPtyId)
+          }
           // Why: only a runtime-confirmed host exit may report onExit/onPtyExit;
           // an ambiguous stream end routes to disconnect/resubscribe (#9151).
           void classifyRemoteStreamEnd(subscribedHandle, subscribedPtyId)
@@ -782,6 +790,11 @@ export function createRemoteRuntimePtyTransport(
             setDriverForPty(subscribedPtyId, driver)
           }
         },
+        onQueryReplyAuthorityChanged: (authority) => {
+          if (isCurrentSubscription() && subscribedPtyId) {
+            setQueryReplyAuthorityForPty(subscribedPtyId, authority)
+          }
+        },
         onTransportClose: () => {
           transportClosed = true
           if (generation !== subscriptionGeneration) {
@@ -795,6 +808,10 @@ export function createRemoteRuntimePtyTransport(
           }
           multiplexedStream = null
           multiplexedStreamHandle = null
+          // Why: a dead transport's verdict is stale; unknown fails open until the resubscribe ack re-elects.
+          if (subscribedPtyId) {
+            clearQueryReplyAuthorityForPty(subscribedPtyId)
+          }
           scheduleResubscribeAfterTransportClose()
         }
       }
@@ -1071,6 +1088,11 @@ export function createRemoteRuntimePtyTransport(
 
     getRuntimeEnvironmentId() {
       return currentRuntimeEnvironmentId
+    },
+
+    getQueryReplyViewerClientId() {
+      // Why: the #9156 election names remote viewers by their subscribe clientId; the reply gate matches against this identity.
+      return clientId
     },
 
     async serializeBuffer(opts) {

@@ -229,6 +229,7 @@ type MockTransport = {
   resize: ReturnType<typeof vi.fn>
   getPtyId: ReturnType<typeof vi.fn>
   getConnectionId: ReturnType<typeof vi.fn>
+  getQueryReplyViewerClientId?: ReturnType<typeof vi.fn>
   serializeBuffer?: ReturnType<typeof vi.fn>
 }
 
@@ -4909,6 +4910,90 @@ describe('connectPanePty', () => {
       expect(transport.sendInputImmediate).not.toHaveBeenCalled()
     } finally {
       setDriverForPty(ptyId, { kind: 'idle' })
+    }
+  })
+
+  it('drained aterm reply is discarded when this view is not reply authority', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const { setQueryReplyAuthorityForPty, _resetQueryReplyAuthorityStateForTest } = await import(
+      '@/lib/pane-manager/query-reply-authority-state'
+    )
+
+    const ptyId = 'pty-authority-drain'
+    // Another view (a remote viewer) holds the #9156 reply authority.
+    setQueryReplyAuthorityForPty(ptyId, { kind: 'remote-viewer', clientId: 'viewer-elsewhere' })
+    try {
+      const transport = createMockTransport(ptyId)
+      transportFactoryQueue.push(transport)
+      mockStoreState = {
+        ...mockStoreState,
+        tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId }] },
+        ptyIdsByTabId: { 'tab-1': [ptyId] }
+      }
+
+      const pane = createPane(1)
+      connectPanePty(pane as never, createManager(1) as never, createDeps() as never)
+      const routePtyInput = (pane as { routePtyInput?: (data: string) => void }).routePtyInput
+      expect(routePtyInput).toBeTypeOf('function')
+
+      // The aterm reply drain forwards engine-generated replies through this sink.
+      routePtyInput?.('\x1b[?1;2c')
+      routePtyInput?.('\x1b[24;80R')
+      routePtyInput?.('\x1b]11;rgb:1111/1111/1111\x07')
+      expect(transport.sendInput).not.toHaveBeenCalled()
+      expect(transport.sendInputImmediate).not.toHaveBeenCalled()
+
+      // Re-election back to the host renderer restores forwarding.
+      setQueryReplyAuthorityForPty(ptyId, { kind: 'host-renderer' })
+      routePtyInput?.('\x1b[24;80R')
+      expect(transport.sendInputImmediate).toHaveBeenCalledWith('\x1b[24;80R')
+    } finally {
+      _resetQueryReplyAuthorityStateForTest()
+    }
+  })
+
+  it('remote viewer pane forwards drained replies only when the verdict names its clientId', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const { setQueryReplyAuthorityForPty, _resetQueryReplyAuthorityStateForTest } = await import(
+      '@/lib/pane-manager/query-reply-authority-state'
+    )
+
+    const ptyId = 'remote:env-1@@pty-authority-viewer'
+    try {
+      const transport = createMockTransport(ptyId)
+      transport.getQueryReplyViewerClientId = vi.fn(() => 'viewer-A')
+      transportFactoryQueue.push(transport)
+      mockStoreState = {
+        ...mockStoreState,
+        tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId }] },
+        ptyIdsByTabId: { 'tab-1': [ptyId] }
+      }
+
+      const pane = createPane(1)
+      connectPanePty(pane as never, createManager(1) as never, createDeps() as never)
+      const routePtyInput = (pane as { routePtyInput?: (data: string) => void }).routePtyInput
+      expect(routePtyInput).toBeTypeOf('function')
+
+      // Subscribe-ack named THIS viewer (headless serve): replies flow.
+      setQueryReplyAuthorityForPty(ptyId, { kind: 'remote-viewer', clientId: 'viewer-A' })
+      routePtyInput?.('\x1b[24;80R')
+      expect(transport.sendInputImmediate).toHaveBeenCalledWith('\x1b[24;80R')
+
+      // The host renderer takes over (pane revealed there): this viewer yields.
+      transport.sendInput.mockClear()
+      transport.sendInputImmediate.mockClear()
+      setQueryReplyAuthorityForPty(ptyId, { kind: 'host-renderer' })
+      routePtyInput?.('\x1b[24;80R')
+      expect(transport.sendInput).not.toHaveBeenCalled()
+      expect(transport.sendInputImmediate).not.toHaveBeenCalled()
+
+      // No verdict at all (pre-#9156 host): fail open, keep answering.
+      transport.sendInputImmediate.mockClear()
+      _resetQueryReplyAuthorityStateForTest()
+      routePtyInput?.('\x1b[24;80R')
+      expect(transport.sendInputImmediate).toHaveBeenCalledWith('\x1b[24;80R')
+    } finally {
+      _resetQueryReplyAuthorityStateForTest()
     }
   })
 
@@ -10968,6 +11053,50 @@ describe('connectPanePty', () => {
     )
 
     binding.dispose()
+  })
+
+  it('OSC color replies honor the query-reply authority gate', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const { setQueryReplyAuthorityForPty, _resetQueryReplyAuthorityStateForTest } = await import(
+      '@/lib/pane-manager/query-reply-authority-state'
+    )
+    const transport = createMockTransport('pty-id')
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-id'
+    })
+    transportFactoryQueue.push(transport)
+    // A remote viewer holds the #9156 authority: this hidden host pane must not answer.
+    setQueryReplyAuthorityForPty('pty-id', { kind: 'remote-viewer', clientId: 'viewer-elsewhere' })
+    try {
+      const pane = createPane(1)
+      const manager = createManager(1)
+      const binding = connectPanePty(
+        pane as never,
+        manager as never,
+        createDeps({
+          isVisibleRef: { current: false },
+          startup: { command: 'codex' }
+        }) as never
+      )
+      await flushAsyncTicks(6)
+
+      const queries = '\x1b]10;?\x1b\\\x1b]11;?\x1b\\'
+      capturedDataCallback.current?.(`${queries}startup frame\r\n`)
+      expect(transport.sendInput).not.toHaveBeenCalledWith('\x1b]10;rgb:eeee/eeee/eeee\x1b\\')
+      expect(transport.sendInput).not.toHaveBeenCalledWith('\x1b]11;rgb:1111/1111/1111\x1b\\')
+
+      // Re-elected host renderer answers again.
+      setQueryReplyAuthorityForPty('pty-id', { kind: 'host-renderer' })
+      capturedDataCallback.current?.(`${queries}second frame\r\n`)
+      expect(transport.sendInput).toHaveBeenCalledWith('\x1b]10;rgb:eeee/eeee/eeee\x1b\\')
+      expect(transport.sendInput).toHaveBeenCalledWith('\x1b]11;rgb:1111/1111/1111\x1b\\')
+
+      binding.dispose()
+    } finally {
+      _resetQueryReplyAuthorityStateForTest()
+    }
   })
 
   it('keeps split hidden Codex terminal queries on the live xterm path', async () => {

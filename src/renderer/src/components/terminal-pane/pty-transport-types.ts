@@ -130,6 +130,10 @@ export type PtyTransport = {
   /** The runtime captured by this transport; legacy remote PTY ids do not
    * encode their owner, and current worktree settings may have changed. */
   getRuntimeEnvironmentId?: () => string | null
+  /** This view's identity in the #9156 query-reply authority election: the
+   *  remote subscribe clientId for remote-viewer transports, absent/null for
+   *  host (IPC) transports. */
+  getQueryReplyViewerClientId?: () => string | null
   getLocalSessionMetadata?: () => LocalPtySessionMetadata | null
   /** Drop cross-chunk parser carries (partial OSC-9999 prefix). Called when a
    *  model-restore marker reports dropped bytes — a carry spanning the gap

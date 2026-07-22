@@ -1,6 +1,7 @@
 import { formatMarkdownReviewNotes, type MarkdownReviewNote } from './markdown-review-notes'
 
-export type MarkdownReviewNoteClipboardWriter = (text: string) => Promise<void>
+// Why: the production seam resolves a verified boolean; these callers only await.
+export type MarkdownReviewNoteClipboardWriter = (text: string) => Promise<boolean | void>
 
 export async function copyMarkdownReviewNotesForAgent({
   notes,

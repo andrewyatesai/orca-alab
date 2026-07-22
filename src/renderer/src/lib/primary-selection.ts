@@ -11,7 +11,8 @@ let nativePasteSuppressionUntil = 0
 
 type SelectionClipboardApi = {
   readSelectionClipboardText: (options?: ReadClipboardTextOptions) => Promise<string>
-  writeSelectionClipboardText: (text: string) => Promise<void>
+  // Why: the production seam resolves a verified boolean; this caller only awaits.
+  writeSelectionClipboardText: (text: string) => Promise<boolean | void>
 }
 
 function isLinuxUserAgent(userAgent: string): boolean {

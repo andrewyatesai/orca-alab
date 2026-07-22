@@ -11,23 +11,23 @@ vi.mock('fs/promises', () => ({ readFile: (path: string) => readFileMock(path) }
 
 // The user-stack half resolves through system-fonts' family→bytes seam; mock it
 // so tests control which families exist and which file each resolves to.
-const resolveFaceMock =
-  vi.fn<
-    (
-      family: string,
-      weight?: number
-    ) => Promise<{
-      primary: Uint8Array | null
-      bold: Uint8Array | null
-      primaryPath: string | null
-    }>
-  >()
+const resolveFaceMock = vi.fn<
+  (
+    family: string,
+    weight?: number
+  ) => Promise<{
+    primary: Uint8Array | null
+    bold: Uint8Array | null
+    primaryPath: string | null
+  }>
+>()
 vi.mock('./system-fonts', () => ({
   resolveTerminalFontFaceBytes: (family: string, weight?: number) => resolveFaceMock(family, weight)
 }))
 
 import { cjkRegionFromLocale } from './terminal-fallback-fonts'
 import type { TerminalFallbackFonts } from './terminal-fallback-fonts'
+import type * as TerminalFallbackFontsModule from './terminal-fallback-fonts'
 
 describe('cjkRegionFromLocale (Han-unification region selection)', () => {
   it('maps Japanese locales to ja', () => {
@@ -231,7 +231,7 @@ describe('getTerminalFallbackFonts (user fallback stacks)', () => {
     })
   }
 
-  async function freshModule(): Promise<typeof import('./terminal-fallback-fonts')> {
+  async function freshModule(): Promise<typeof TerminalFallbackFontsModule> {
     vi.resetModules()
     return import('./terminal-fallback-fonts')
   }

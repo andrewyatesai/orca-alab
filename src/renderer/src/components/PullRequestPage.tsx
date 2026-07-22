@@ -213,6 +213,7 @@ import type {
   PRCheckDetail,
   PRComment
 } from '../../../shared/types'
+import { getCheckConclusion, getCheckCounts } from './pr-check-counts'
 import {
   getTaskSourceCacheScope,
   getTaskSourceRuntimeSettings,
@@ -4250,10 +4251,6 @@ const CHECK_SORT_ORDER: Record<string, number> = {
   success: 5
 }
 
-function getCheckConclusion(check: PRCheckDetail): NonNullable<PRCheckDetail['conclusion']> {
-  return check.conclusion ?? 'pending'
-}
-
 function getCheckStatusLabel(check: PRCheckDetail): string {
   const conclusion = getCheckConclusion(check)
   if (conclusion === 'success') {
@@ -4284,46 +4281,6 @@ function getCheckStatusLabel(check: PRCheckDetail): string {
     return 'In progress'
   }
   return 'Pending'
-}
-
-function getCheckCounts(checks: PRCheckDetail[]): {
-  passing: number
-  failing: number
-  needsAction: number
-  pending: number
-  skipped: number
-  neutral: number
-} {
-  return checks.reduce(
-    (counts, check) => {
-      // Why: exhaustive switch, no default — a new conclusion must fail
-      // lint:switch-exhaustiveness instead of silently landing in a bucket.
-      switch (getCheckConclusion(check)) {
-        case 'success':
-          counts.passing += 1
-          break
-        case 'action_required':
-          counts.needsAction += 1
-          break
-        case 'failure':
-        case 'cancelled':
-        case 'timed_out':
-          counts.failing += 1
-          break
-        case 'skipped':
-          counts.skipped += 1
-          break
-        case 'neutral':
-          counts.neutral += 1
-          break
-        case 'pending':
-          counts.pending += 1
-          break
-      }
-      return counts
-    },
-    { passing: 0, failing: 0, needsAction: 0, pending: 0, skipped: 0, neutral: 0 }
-  )
 }
 
 function getChecksSummaryLabel(checks: PRCheckDetail[]): string {

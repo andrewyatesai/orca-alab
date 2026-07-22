@@ -4,6 +4,9 @@ function getCheckConclusion(check: PRCheckDetail): NonNullable<PRCheckDetail['co
   return check.conclusion ?? 'pending'
 }
 
+// Why: dedupe the fail-closed warning — check lists re-derive on every poll.
+const warnedUnknownConclusions = new Set<string>()
+
 export function deriveTaskPagePRCheckSummary(checks: PRCheckDetail[]): GitHubPRCheckSummary {
   if (checks.length === 0) {
     return { state: 'none', total: 0, passed: 0, failed: 0, pending: 0 }
@@ -14,9 +17,12 @@ export function deriveTaskPagePRCheckSummary(checks: PRCheckDetail[]): GitHubPRC
   let pending = 0
 
   for (const check of checks) {
-    // Why: exhaustive switch, no default — a new conclusion must fail
-    // lint:switch-exhaustiveness instead of silently counting as passed.
-    switch (getCheckConclusion(check)) {
+    // Why: (string & {}) keeps the switch lint-exhaustive over the declared union while
+    // the IPC/relay input stays open — a version-skewed producer can send unknown values.
+    const conclusion = getCheckConclusion(check) as
+      | NonNullable<PRCheckDetail['conclusion']>
+      | (string & {})
+    switch (conclusion) {
       case 'success':
       case 'neutral':
       case 'skipped':
@@ -35,6 +41,18 @@ export function deriveTaskPagePRCheckSummary(checks: PRCheckDetail[]): GitHubPRC
       case 'pending':
         pending += 1
         break
+      default: {
+        // Why: fail closed — an uncounted unknown would leave failed=0/pending=0
+        // and render a false green 'success' for a state we don't understand.
+        if (!warnedUnknownConclusions.has(conclusion)) {
+          warnedUnknownConclusions.add(conclusion)
+          console.warn(
+            `[task-page:checks] unknown check conclusion counted as failed: ${conclusion}`
+          )
+        }
+        failed += 1
+        break
+      }
     }
   }
 

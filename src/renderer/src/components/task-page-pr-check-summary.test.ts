@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { deriveTaskPagePRCheckSummary } from './task-page-pr-check-summary'
 import type { PRCheckDetail } from '../../../shared/types'
@@ -84,6 +84,28 @@ describe('deriveTaskPagePRCheckSummary', () => {
       failed: 0,
       pending: 1
     })
+  })
+
+  it('fails closed on an out-of-union conclusion instead of reading green', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      // Why: conclusions cross IPC/relay as JSON — a version-skewed producer can send values outside the union.
+      expect(
+        deriveTaskPagePRCheckSummary([
+          check({ conclusion: 'success' }),
+          check({ conclusion: 'stale' as PRCheckDetail['conclusion'] })
+        ])
+      ).toEqual({
+        state: 'failure',
+        total: 2,
+        passed: 1,
+        failed: 1,
+        pending: 0
+      })
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('counts action_required as failed so a blocked PR never reads as passing', () => {

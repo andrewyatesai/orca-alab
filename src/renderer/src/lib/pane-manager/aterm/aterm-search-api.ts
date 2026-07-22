@@ -2,16 +2,32 @@ import { atermSearchMatchRect } from './aterm-search-overlay'
 import type { AtermSearchController, AtermSearchMatch } from './aterm-search'
 import type { AtermMetrics } from './aterm-grid-reflow'
 import type { AtermTerminal } from './aterm_wasm.js'
-import type { AtermWorkerAsyncFacade } from './aterm-worker-query-channel'
+import type {
+  AtermWorkerAsyncFacade,
+  AtermWorkerSearchFindResult
+} from './aterm-worker-query-channel'
 
 /** The find/next/prev/clear/count/index/rect surface the controller exposes. */
 export type AtermSearchApi = {
   findMatches: (query: string, caseSensitive: boolean, isRegex: boolean) => number
+  /** Awaitable find for the search UI's pending state: resolves the post-find
+   *  `{count, activeIndex}`, or null when a newer find superseded this one (its
+   *  result must be discarded — the newer request owns the pending state). Resolves
+   *  synchronously in-process; a worker round-trip on the worker path. */
+  findMatchesAsync: (
+    query: string,
+    caseSensitive: boolean,
+    isRegex: boolean
+  ) => Promise<AtermWorkerSearchFindResult | null>
   findNextMatch: () => void
   findPreviousMatch: () => void
   clearSearch: () => void
   searchMatchCount: () => number
   searchActiveMatchIndex: () => number
+  /** True while the worker's cost gate serves results older than the buffer content
+   *  (streaming; see aterm-worker-search) — the UI's stale indicator. Always false
+   *  in-process, where refresh is immediate. */
+  searchResultsStale: () => boolean
   /** Subscribe to search-state changes that land asynchronously (the worker pushes
    *  count/active-index a frame after a posted find/next/prev). Returns a disposer;
    *  a no-op disposer in-process, where the count updates synchronously. */
@@ -52,6 +68,18 @@ export function buildAtermSearchApi(deps: AtermSearchApiDeps): AtermSearchApi {
   return {
     findMatches: (query, caseSensitive, isRegex) =>
       isDisposed() ? 0 : searchController.find(query, caseSensitive, isRegex),
+    findMatchesAsync: (query, caseSensitive, isRegex) => {
+      if (isDisposed()) {
+        return Promise.resolve({ count: 0, activeIndex: 0 })
+      }
+      // Worker path: the channel correlates the result to THIS request and cancels a
+      // superseded one instantly. Skips the (empty there) main-thread controller.
+      if (facade.searchFindAsync) {
+        return facade.searchFindAsync(query, caseSensitive, isRegex)
+      }
+      const count = searchController.find(query, caseSensitive, isRegex)
+      return Promise.resolve({ count, activeIndex: searchController.activeIndex() })
+    },
     // Nav/clear run in the worker on that path (the main-thread controller is empty there);
     // in-process they fall back to the controller, which holds the real matches.
     findNextMatch: () => (facade.searchNext ? facade.searchNext() : searchController.next()),
@@ -64,6 +92,7 @@ export function buildAtermSearchApi(deps: AtermSearchApiDeps): AtermSearchApi {
     },
     searchMatchCount: () => workerSearch()?.count ?? searchController.count(),
     searchActiveMatchIndex: () => workerSearch()?.activeIndex ?? searchController.activeIndex(),
+    searchResultsStale: () => workerSearch()?.stale ?? false,
     onSearchStateChange: (handler) => facade.onSearchStateChange?.(handler) ?? (() => undefined),
     searchActiveMatchRect: () => {
       const workerState = workerSearch()

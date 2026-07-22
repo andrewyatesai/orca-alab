@@ -11,6 +11,7 @@ import {
   type AtermWorkerRainTarget
 } from './aterm-worker-rain-dispatch'
 import { dispatchAtermWorkerPredictCommand } from './aterm-worker-predictor'
+import { answerPaneQuery } from './aterm-worker-pane-query'
 import type {
   AtermWorkerPaneEvent,
   AtermWorkerPaneRuntimeCommand
@@ -67,6 +68,10 @@ export type PaneRuntime = {
   fellBackToCpu: boolean
   /** Set by 'dispose' — an engine still building when it flips is freed on arrival. */
   disposed: boolean
+  /** Newest searchFind query id seen at message ARRIVAL (the entry records it before
+   *  the QoS scheduler may defer execution behind a flood backlog), so a queued find
+   *  that was superseded is answered null without paying the engine search. */
+  latestSearchFindQueryId: number
   /** Window-space effects chrome (device px; 0/0 = none). Stored on the pane so a
    *  GPU→CPU rebuild re-applies it and every STATE snapshot echoes it. */
   chrome: { pad: number; head: number }
@@ -313,10 +318,6 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       }
       return
     }
-    case 'searchFind':
-      term?.searchFind(msg.query, msg.caseSensitive, msg.isRegex)
-      scheduleDraw()
-      return
     case 'searchNext':
       term?.searchNext()
       scheduleDraw()
@@ -348,13 +349,7 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       }
       return
     }
-    case 'query': {
-      // 'flush' is a parse fence, not an engine read: reaching it means every
-      // earlier message (process bytes + their posted replies) was handled, so
-      // answer directly — even with no engine yet.
-      const value =
-        msg.kind === 'flush' ? true : term ? term.query(msg.kind, msg.arg, msg.arg2) : null
-      pane.post({ type: 'queryResult', id: msg.id, value })
-    }
+    case 'query':
+      answerPaneQuery(pane, msg)
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type ReactElement, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useCallback, type ReactElement, type ReactNode } from 'react'
 import { ChevronUp, ChevronDown, X, CaseSensitive, Regex } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -6,15 +6,31 @@ import type { SearchState } from '@/components/terminal-pane/keyboard-handlers'
 import { translate } from '@/i18n/i18n'
 import { getFindRequestQuery } from '@/lib/find-query-bounds'
 
+/** Find-as-you-type debounce: a full-scrollback search per KEYSTROKE stalls the engine
+ *  at deep scrollback; one search per settled ~75ms window keeps typing smooth while
+ *  still feeling immediate. Enter bypasses it (flushes the armed find now). */
+export const SEARCH_DEBOUNCE_MS = 75
+
 /** The aterm in-page renderer's search surface (subset of AtermPaneController).
  *  find/next/prev/clear route through the canvas controller. */
 export type AtermSearchSurface = {
   findMatches: (query: string, caseSensitive: boolean, isRegex: boolean) => number
+  /** Awaitable find (drives the pending indicator): resolves the post-find
+   *  `{count, activeIndex}`, or null when a newer find superseded this request —
+   *  the stale result must be discarded, never shown. */
+  findMatchesAsync: (
+    query: string,
+    caseSensitive: boolean,
+    isRegex: boolean
+  ) => Promise<{ count: number; activeIndex: number } | null>
   findNextMatch: () => void
   findPreviousMatch: () => void
   clearSearch: () => void
   searchMatchCount: () => number
   searchActiveMatchIndex: () => number
+  /** True while streaming's cost gate serves results older than the buffer content
+   *  (worker path) — rendered as the ~approximate-count indicator. */
+  searchResultsStale: () => boolean
   /** Subscribe to async search-state updates; returns a disposer. On the default off-main
    *  worker path the count/active-index land a frame after find/next/prev, so the label
    *  must re-read when they arrive (no-op disposer in-process). */
@@ -76,16 +92,73 @@ export default function TerminalSearch({
   const regex = regexEnabled
   // Match-count label ("3 / 12"), driven by the aterm controller's exact counts.
   const [matchLabel, setMatchLabel] = useState('')
+  // Find in flight (debounce settled, result not landed) — rendered as the pending "…".
+  const [pending, setPending] = useState(false)
+  // Streaming cost gate serving results older than the content — "~" approximate label.
+  const [resultsStale, setResultsStale] = useState(false)
+  // Monotonic find generation: only the NEWEST request may clear pending / set the
+  // label, so a slow superseded find can never overwrite fresher results.
+  const findSeqRef = useRef(0)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The armed-but-not-yet-run find (for the Enter debounce bypass).
+  const armedFindRef = useRef<{ query: string; caseSensitive: boolean; regex: boolean } | null>(
+    null
+  )
   const requestQuery = getFindRequestQuery(query)
 
-  // Reflect the aterm controller's exact match count ("active / total").
+  // Reflect the aterm controller's exact match count ("active / total") + stale flag.
   const syncAtermMatchLabel = useCallback(() => {
     if (!atermSearch) {
       return
     }
     const total = atermSearch.searchMatchCount()
     setMatchLabel(total === 0 ? '0' : `${atermSearch.searchActiveMatchIndex()} / ${total}`)
+    setResultsStale(atermSearch.searchResultsStale())
   }, [atermSearch])
+
+  // Issue the find NOW; pending shows until THIS request's result lands. A null
+  // resolution means a newer find superseded it — that newer one owns the label.
+  const runFind = useCallback(
+    (findQuery: string, findCaseSensitive: boolean, findRegex: boolean) => {
+      if (!atermSearch) {
+        return
+      }
+      const seq = ++findSeqRef.current
+      setPending(true)
+      void atermSearch.findMatchesAsync(findQuery, findCaseSensitive, findRegex).then((result) => {
+        if (seq !== findSeqRef.current) {
+          return
+        }
+        setPending(false)
+        if (result) {
+          setMatchLabel(result.count === 0 ? '0' : `${result.activeIndex} / ${result.count}`)
+          setResultsStale(atermSearch.searchResultsStale())
+        } else {
+          // Timed-out/disposed round-trip: fall back to the snapshot-backed label
+          // (onSearchStateChange re-syncs it when the worker's state lands).
+          syncAtermMatchLabel()
+        }
+      })
+    },
+    [atermSearch, syncAtermMatchLabel]
+  )
+
+  // Enter bypass: run the debounced find IMMEDIATELY instead of waiting out the timer.
+  // Returns true when a find was armed (Enter searched now instead of navigating).
+  const flushArmedFind = useCallback((): boolean => {
+    if (debounceTimerRef.current === null) {
+      return false
+    }
+    clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = null
+    const armed = armedFindRef.current
+    armedFindRef.current = null
+    if (!armed) {
+      return false
+    }
+    runFind(armed.query, armed.caseSensitive, armed.regex)
+    return true
+  }, [runFind])
 
   const findNext = useCallback(() => {
     if (atermSearch) {
@@ -108,22 +181,34 @@ export default function TerminalSearch({
   useEffect(() => {
     // Keep the ref in sync so the keyboard handler (Cmd+G / Cmd+Shift+G)
     // can read the current search state without lifting it to parent state.
+    // Deliberately OUTSIDE the debounce: the handler must see each keystroke.
     searchStateRef.current = { query: requestQuery ?? '', caseSensitive, regex }
 
     if (!isOpen || !requestQuery) {
+      // Clearing is immediate (never debounced) and invalidates any in-flight find.
+      armedFindRef.current = null
+      findSeqRef.current++
+      setPending(false)
+      setResultsStale(false)
       atermSearch?.clearSearch()
       setMatchLabel('')
       return
     }
-    // Run the canvas search (highlight + scroll-to-match) honoring both case
-    // sensitivity and the regex toggle (the engine compiles the pattern). Read the count
-    // from the snapshot-backed getters (findMatches' return is 0 on the worker path, where
-    // matches land async) — the onSearchStateChange subscription below re-syncs when they do.
-    if (atermSearch) {
-      atermSearch.findMatches(requestQuery, caseSensitive, regex)
-      syncAtermMatchLabel()
+    // Debounced find-as-you-type: one engine search per settled window, not one per
+    // keystroke. The armed args let Enter flush the very same find immediately.
+    armedFindRef.current = { query: requestQuery, caseSensitive, regex }
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null
+      armedFindRef.current = null
+      runFind(requestQuery, caseSensitive, regex)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        clearTimeout(debounceTimerRef.current)
+        debounceTimerRef.current = null
+      }
     }
-  }, [requestQuery, atermSearch, isOpen, caseSensitive, regex, searchStateRef, syncAtermMatchLabel])
+  }, [requestQuery, atermSearch, isOpen, caseSensitive, regex, searchStateRef, runFind])
 
   // Worker path: search count/active-index arrive a frame after find/next/prev, so re-sync
   // the label when the worker pushes them. No-op disposer in-process (count is synchronous).
@@ -140,13 +225,21 @@ export default function TerminalSearch({
 
       if (e.key === 'Escape') {
         onClose()
-      } else if (e.key === 'Enter' && e.shiftKey) {
-        findPrevious()
       } else if (e.key === 'Enter') {
-        findNext()
+        // Enter bypasses the debounce: a still-armed find runs NOW; otherwise it
+        // navigates. (A posted nav lands after any in-flight find — worker FIFO —
+        // so it always steps the fresh result set.)
+        if (flushArmedFind()) {
+          return
+        }
+        if (e.shiftKey) {
+          findPrevious()
+        } else {
+          findNext()
+        }
       }
     },
-    [onClose, findNext, findPrevious]
+    [onClose, findNext, findPrevious, flushArmedFind]
   )
 
   if (!isOpen) {
@@ -169,13 +262,27 @@ export default function TerminalSearch({
         className="min-w-0 flex-1 border-none bg-transparent text-sm text-popover-foreground outline-none placeholder:text-muted-foreground"
       />
 
-      {matchLabel && (
+      {pending ? (
+        // Visible pending state: the debounce settled but the engine result hasn't
+        // landed yet (worker round-trip / large scrollback).
         <span
           className="shrink-0 px-1 text-xs tabular-nums text-muted-foreground"
-          data-terminal-search-count
+          data-terminal-search-pending
         >
-          {matchLabel}
+          …
         </span>
+      ) : (
+        matchLabel && (
+          <span
+            className="shrink-0 px-1 text-xs tabular-nums text-muted-foreground"
+            data-terminal-search-count
+            data-stale={resultsStale || undefined}
+          >
+            {/* "~" = approximate: streaming's cost gate is serving results older than
+                the buffer; the guaranteed trailing re-index removes it when it lands. */}
+            {resultsStale ? `~${matchLabel}` : matchLabel}
+          </span>
+        )
       )}
 
       <SearchButton

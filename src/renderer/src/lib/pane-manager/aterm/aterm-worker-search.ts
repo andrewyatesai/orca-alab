@@ -5,9 +5,37 @@
 
 import type { EngineHandle } from './aterm-worker-engine-build'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
+import { visibleMatchRange } from './aterm-search-visible-range'
 
 /** A match in absolute-row coords (the engine's native index space). */
 type WorkerMatch = { line: number; startCol: number; length: number }
+
+// Cost gate (P6 interim rule until the engine's incremental index lands): a re-index
+// whose LAST full rebuild took longer than this refresh tick is not re-run on every
+// streaming frame — the stale results are served (flagged) and the trailing timer
+// does the guaranteed final re-index.
+export const SEARCH_REFRESH_TICK_MS = 100
+
+// searchFind rides the numeric query `arg` as a bitfield (the query wire shape has no
+// boolean fields); both ends import these so the encoding can't drift.
+export const SEARCH_FIND_FLAG_CASE_SENSITIVE = 1
+export const SEARCH_FIND_FLAG_REGEX = 2
+
+/** Decode a searchFind query's wire args (text + flag bits), run it NOW, and answer
+ *  the post-find state as the JSON payload the query channel parses. */
+export function answerSearchFindQuery(
+  search: WorkerSearch,
+  arg: number | undefined,
+  text: string | undefined
+): string {
+  const flags = arg ?? 0
+  search.find(
+    text ?? '',
+    (flags & SEARCH_FIND_FLAG_CASE_SENSITIVE) !== 0,
+    (flags & SEARCH_FIND_FLAG_REGEX) !== 0
+  )
+  return JSON.stringify({ count: search.count(), activeIndex: search.activeIndex() })
+}
 
 function decodeMatches(flat: Uint32Array): WorkerMatch[] {
   const matches: WorkerMatch[] = []
@@ -18,6 +46,8 @@ function decodeMatches(flat: Uint32Array): WorkerMatch[] {
 }
 
 export type WorkerSearch = {
+  /** Run a new query NOW (user-initiated — never cost-gated). Request-generation
+   *  correlation lives in the id-correlated query channel, not here. */
   find: (query: string, caseSensitive: boolean, isRegex: boolean) => void
   next: () => void
   prev: () => void
@@ -37,9 +67,22 @@ export type WorkerSearch = {
   /** Device-pixel rects of ALL on-screen matches (for the main-thread overlay), each
    *  flagged active so the overlay can paint the active one stronger. */
   visibleRects: () => AtermWorkerState['searchMatchRects']
+  /** Bumped on every re-index — lets the snapshot diff detect a result-set change
+   *  even when count/active happen to be identical (result versioning). */
+  resultsVersion: () => number
+  /** True while the cost gate is serving results older than the buffer content. */
+  resultsStale: () => boolean
+  /** Cancel the armed trailing-refresh timer (pane dispose). */
+  dispose: () => void
 }
 
-export function createWorkerSearch(handle: EngineHandle, getRows: () => number): WorkerSearch {
+export function createWorkerSearch(
+  handle: EngineHandle,
+  getRows: () => number,
+  /** Fired after the trailing timer re-indexes (no frame may follow the last content
+   *  change, so the owner must post a fresh STATE — the guaranteed final refresh). */
+  onAsyncRefresh?: () => void
+): WorkerSearch {
   const e = handle.engine
   let matches: WorkerMatch[] = []
   let active = -1
@@ -47,24 +90,71 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
   let caseSensitive = false
   let isRegex = false
   let dirty = false
+  let resultsVersion = 0
+  let stale = false
+  let lastRebuildMs = 0
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
-  const run = (): void => {
+  const cancelRefreshTimer = (): void => {
+    if (refreshTimer !== null) {
+      clearTimeout(refreshTimer)
+      refreshTimer = null
+    }
+  }
+
+  // Every re-index funnels through here so the cost gate always has a fresh price.
+  const runMeasured = (): void => {
+    const t0 = performance.now()
     matches = query ? decodeMatches(handle.search(query, caseSensitive, isRegex)) : []
+    lastRebuildMs = performance.now() - t0
+    resultsVersion++
+    dirty = false
+    stale = false
   }
   const reindexPreservingActive = (): void => {
     if (!query) {
       return
     }
-    run()
+    runMeasured()
     active = matches.length === 0 ? -1 : Math.min(Math.max(active, 0), matches.length - 1)
   }
-  // Re-index at most once since the last markDirty — called before every read/nav
-  // so the coalesced rebuild lands on the first access per frame.
-  const ensureFresh = (): void => {
-    if (dirty) {
-      reindexPreservingActive()
-      dirty = false
+  // Trailing refresh: armed when the cost gate skips, fires after a cost-proportional
+  // delay (bounds re-index duty cycle ≤ ~50% during streaming) and doubles as the
+  // guaranteed FINAL refresh once output stops — no permanently-stale display.
+  const armRefreshTimer = (): void => {
+    if (refreshTimer !== null) {
+      return
     }
+    refreshTimer = setTimeout(
+      () => {
+        refreshTimer = null
+        if (dirty && query) {
+          reindexPreservingActive()
+          onAsyncRefresh?.()
+        }
+      },
+      Math.max(SEARCH_REFRESH_TICK_MS, lastRebuildMs)
+    )
+  }
+  // Re-index at most once since the last markDirty — called before every read/nav
+  // so the coalesced rebuild lands on the first access per frame. Cost-gated: an
+  // expensive index (rebuild > tick) is NOT rebuilt per frame while streaming;
+  // the stale results are served (flagged in the snapshot) until the trailing
+  // timer re-indexes.
+  const ensureFresh = (): void => {
+    if (!dirty) {
+      return
+    }
+    if (!query) {
+      dirty = false
+      return
+    }
+    if (lastRebuildMs > SEARCH_REFRESH_TICK_MS) {
+      stale = true
+      armRefreshTimer()
+      return
+    }
+    reindexPreservingActive()
   }
 
   return {
@@ -73,12 +163,15 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
       caseSensitive = cs
       isRegex = regex
       dirty = false
+      cancelRefreshTimer()
       if (!q) {
         matches = []
         active = -1
+        stale = false
+        resultsVersion++
         return
       }
-      run()
+      runMeasured()
       // Select the LAST match (closest to the live bottom), matching the main path.
       active = matches.length > 0 ? matches.length - 1 : -1
       if (active >= 0) {
@@ -106,6 +199,9 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
       caseSensitive = false
       isRegex = false
       dirty = false
+      stale = false
+      resultsVersion++
+      cancelRefreshTimer()
     },
     markDirty: () => {
       dirty = true
@@ -129,14 +225,24 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
     visibleRects: () => {
       ensureFresh()
       const rects: NonNullable<AtermWorkerState['searchMatchRects']> = []
-      for (let i = 0; i < matches.length; i++) {
+      if (matches.length === 0) {
+        return rects
+      }
+      // Only probe the on-screen band (matches are line-sorted) — the previous full
+      // scan was O(all matches) per frame.
+      const firstLine = e.search_display_origin - e.display_offset
+      const { start, end } = visibleMatchRange(matches, firstLine, firstLine + getRows())
+      for (let i = start; i < end; i++) {
         const rect = rectFor(matches[i])
         if (rect) {
           rects.push({ ...rect, active: i === active })
         }
       }
       return rects
-    }
+    },
+    resultsVersion: () => resultsVersion,
+    resultsStale: () => stale,
+    dispose: cancelRefreshTimer
   }
 
   // Absolute match line → on-screen device-pixel rect, or null when scrolled off

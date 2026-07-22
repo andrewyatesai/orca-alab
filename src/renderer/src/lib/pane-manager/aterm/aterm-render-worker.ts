@@ -125,6 +125,7 @@ function createPane(paneId: number): PaneRuntime {
     canvas: null,
     fellBackToCpu: false,
     disposed: false,
+    latestSearchFindQueryId: 0,
     chrome: { pad: 0, head: 0 },
     // Both per-pane by design: dirty/suspend state and the serialize-cache timers
     // must be isolated so one pane's dispose/suspend can't touch another's.
@@ -154,7 +155,13 @@ function createPane(paneId: number): PaneRuntime {
 /** Wrap a built engine in the worker terminal and size it. Cursor focus/blink state
  *  arrives shortly after via commands from the main-thread blink timer. */
 function startTerminal(pane: PaneRuntime, handle: EngineHandle): void {
-  pane.term = createWorkerTerminal(handle, () => pane.chrome)
+  // The search cost gate's trailing re-index may land with no frame following it
+  // (output already stopped) — post a render-free STATE so the final refresh ships.
+  pane.term = createWorkerTerminal(
+    handle,
+    () => pane.chrome,
+    () => pane.frameScheduler.scheduleStatePost()
+  )
   pane.engineSetters = handle.engine as unknown as EngineSettingSetters
   pane.engine = handle.engine
   pane.engineKind = handle.kind
@@ -381,7 +388,13 @@ function dispatch(msg: AtermWorkerRequest): void {
   }
   // Route every per-pane runtime command through the QoS scheduler: focused/cheap work
   // runs now; a background flood defers so it can't starve keystroke echo.
-  if (panes.has(msg.paneId)) {
+  const pane = panes.get(msg.paneId)
+  if (pane) {
+    // Record the newest find id at ARRIVAL (submit may defer it behind a flood
+    // backlog) so execution can skip superseded finds without running the engine.
+    if (msg.type === 'query' && msg.kind === 'searchFind') {
+      pane.latestSearchFindQueryId = msg.id
+    }
     commandScheduler.submit(msg)
   }
 }

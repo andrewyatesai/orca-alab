@@ -41,6 +41,13 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  returns the match count. Empty query clears highlights. `isRegex` compiles the
    *  query as a regex (invalid pattern → 0 matches). */
   findMatches: (query: string, caseSensitive: boolean, isRegex: boolean) => number
+  /** Awaitable find (the search UI's pending state): resolves the post-find
+   *  `{count, activeIndex}`, or null when a newer find superseded this one. */
+  findMatchesAsync: (
+    query: string,
+    caseSensitive: boolean,
+    isRegex: boolean
+  ) => Promise<{ count: number; activeIndex: number } | null>
   /** Move the active highlight to the next match (wraps); scrolls into view. */
   findNextMatch: () => void
   /** Move the active highlight to the previous match (wraps); scrolls into view. */
@@ -51,6 +58,9 @@ export type AtermPaneController = AtermRendererReplySurface & {
   searchMatchCount: () => number
   /** 1-based active match index, or 0 when there are no matches. */
   searchActiveMatchIndex: () => number
+  /** True while streaming's cost gate serves search results older than the buffer
+   *  content (worker path; see aterm-worker-search) — the UI's stale indicator. */
+  searchResultsStale: () => boolean
   /** Subscribe to async search-state updates (worker path pushes count/active-index a
    *  frame after find/next/prev); returns a disposer. No-op disposer in-process. */
   onSearchStateChange: (handler: () => void) => () => void

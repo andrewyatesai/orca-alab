@@ -168,6 +168,8 @@ function makeWorkerState(overrides: Partial<AtermWorkerState> = {}): AtermWorker
     searchCount: 0,
     searchActiveIndex: 0,
     searchActiveRect: null,
+    searchResultsVersion: 0,
+    searchResultsStale: false,
     searchMatchRects: [],
     spillExportCapable: false,
     dirtyRows: [],

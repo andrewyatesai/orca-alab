@@ -181,14 +181,10 @@ export type AtermWorkerSetCursorHollow = { type: 'setCursorHollow'; hollow: bool
 export type AtermWorkerSetHover =
   | { type: 'setHover'; row: number; col: number }
   | { type: 'setHover'; clear: true }
-/** Search: the worker runs find/next/prev/clear, paints highlights, and reports
- *  count/activeIndex/rect in the snapshot. */
-export type AtermWorkerSearchFind = {
-  type: 'searchFind'
-  query: string
-  caseSensitive: boolean
-  isRegex: boolean
-}
+/** Search nav/clear: the worker owns the match set and reports count/activeIndex/rect
+ *  in the snapshot. A find is NOT a command — it rides the id-correlated 'query'
+ *  channel ('searchFind') so the main thread can correlate results to a request
+ *  generation and cancel superseded finds. */
 export type AtermWorkerSearchNext = { type: 'searchNext' }
 export type AtermWorkerSearchPrev = { type: 'searchPrev' }
 export type AtermWorkerSearchClear = { type: 'searchClear' }
@@ -233,14 +229,21 @@ export type AtermWorkerQuery = {
     | 'cellText'
     | 'cellWide'
     | 'linkAt'
+    // Run a find NOW and answer with `{count, activeIndex}` JSON. Rides the query
+    // channel (not a command) so the monotonic id doubles as the request GENERATION:
+    // the main thread cancels a superseded find's promise instantly, and the worker
+    // skips executing a queued find once a newer one has arrived.
+    | 'searchFind'
     // Parse fence: answered inline by the worker loop, so a resolved reply proves
     // every message posted before it (process bytes + their side-channel replies)
     // has been handled. The replay guard keys its drop window on this.
     | 'flush'
-  /** kind-specific numeric arg (scrollbackRows / row / etc.). */
+  /** kind-specific numeric arg (scrollbackRows / row / searchFind flag bits / etc.). */
   arg?: number
   /** kind-specific second numeric arg (col for cellText/cellWide/linkAt). */
   arg2?: number
+  /** kind-specific string arg (the searchFind query text). */
+  text?: string
 }
 /** GPU acquire failed for this pane — rebuild it as CPU on the SAME canvas (it can't
  *  be re-transferred) reusing the stored init params, so it still renders off-main. */
@@ -293,7 +296,6 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetCursorBlinkPhase
   | AtermWorkerSetCursorHollow
   | AtermWorkerSetHover
-  | AtermWorkerSearchFind
   | AtermWorkerSearchNext
   | AtermWorkerSearchPrev
   | AtermWorkerSearchClear
@@ -415,6 +417,13 @@ export type AtermWorkerState = {
   searchCount: number
   searchActiveIndex: number
   searchActiveRect: { x: number; y: number; width: number; height: number } | null
+  /** Result versioning: bumped on every re-index, so a result-set change is
+   *  detectable even when count/active happen to be identical. */
+  searchResultsVersion: number
+  /** True while the worker's cost gate serves results older than the buffer content
+   *  (an expensive index is not rebuilt per streaming frame; a trailing re-index
+   *  always lands the final refresh). The UI surfaces this as the stale indicator. */
+  searchResultsStale: boolean
   /** The engine exports the spill surface (spill_rev/spill_ptr/...): the loader
    *  reads the FIRST snapshot's value to flip the cross-pane spill seam live. */
   spillExportCapable: boolean

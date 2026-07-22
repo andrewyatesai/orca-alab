@@ -147,7 +147,12 @@ export function createWorkerBackedTerm(deps: {
     // shells), not on the next PTY chunk.
     const selectionChanged = rangeKey(next.selectionRange) !== rangeKey(state.selectionRange)
     const searchChanged =
-      next.searchCount !== state.searchCount || next.searchActiveIndex !== state.searchActiveIndex
+      next.searchCount !== state.searchCount ||
+      next.searchActiveIndex !== state.searchActiveIndex ||
+      // Result versioning: a re-index can change match POSITIONS with identical
+      // count/active, and the stale flag must reach the search UI's indicator.
+      next.searchResultsVersion !== state.searchResultsVersion ||
+      next.searchResultsStale !== state.searchResultsStale
     // The glitch deadline changed (a ghost armed/ticked/expired): re-arm the controller's
     // one timer. Includes → null (a confirmed/flushed guess disarms) so no stale timer
     // outlives the heal. Unchanged (both null in the common no-ghost steady state) → no fire.
@@ -342,9 +347,10 @@ export function createWorkerBackedTerm(deps: {
     authorize_notifications: (allowed: boolean) =>
       post({ type: 'setNotificationsAuthorized', allowed }),
     search: (query: string, caseSensitive: boolean, isRegex?: boolean) => {
-      post({ type: 'searchFind', query, caseSensitive, isRegex: isRegex ?? false })
-      // Counts/highlights come back via the snapshot; the search controller reads them
-      // from the controller's snapshot-backed getters (Stage D wires the search API).
+      // ONE find transport: the id-correlated query channel (a newer find cancels this
+      // one). Sync callers can't await, so drop the promise — counts/highlights come
+      // back via the snapshot; awaitable callers use searchFindAsync directly.
+      void queryChannel.searchFindAsync(query, caseSensitive, isRegex ?? false)
       return new Uint32Array(0)
     },
 
@@ -388,13 +394,17 @@ export function createWorkerBackedTerm(deps: {
     selectionTextAsync: queryChannel.selectionTextAsync,
     linkAtAsync: queryChannel.linkAtAsync,
     clearHover: () => post({ type: 'setHover', clear: true }),
-    // The worker runs search + pushes count/active-index/rect in each snapshot; expose
-    // them so the controller's search-count UI reflects real matches (term.search() can't
-    // return them synchronously over the seam).
+    // Awaitable find with request-generation semantics (the search UI's pending state):
+    // resolves the post-find count/active, or null when a newer find superseded it.
+    searchFindAsync: queryChannel.searchFindAsync,
+    // The worker runs search + pushes count/active-index/rect/stale in each snapshot;
+    // expose them so the controller's search-count UI reflects real matches
+    // (term.search() can't return them synchronously over the seam).
     searchStateSnapshot: () => ({
       count: state.searchCount,
       activeIndex: state.searchActiveIndex,
-      activeRect: state.searchActiveRect
+      activeRect: state.searchActiveRect,
+      stale: state.searchResultsStale
     }),
     // Search nav/clear run in the worker (it owns the match set), so post the commands —
     // the main-thread searchController has no matches on this path. next/prev advance the

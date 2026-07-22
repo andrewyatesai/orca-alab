@@ -473,6 +473,7 @@ import type {
   WorkspaceCleanupScanResult
 } from '../shared/workspace-cleanup'
 import type { KeybindingActionId, KeybindingFileSnapshot } from '../shared/keybindings'
+import type { CustomKeybinding } from '../shared/custom-keybindings'
 
 type GitLabRepoSelectorArgs = {
   repoPath: string
@@ -2186,6 +2187,8 @@ export type PreloadApi = {
       actionId: KeybindingActionId
       bindings: string[] | null
     }) => Promise<KeybindingFileSnapshot>
+    customUpsert: (args: { entry: CustomKeybinding }) => Promise<KeybindingFileSnapshot>
+    customRemove: (args: { id: string }) => Promise<KeybindingFileSnapshot>
     reload: () => Promise<KeybindingFileSnapshot>
     openFile: () => Promise<KeybindingFileSnapshot>
     revealFile: () => Promise<KeybindingFileSnapshot>

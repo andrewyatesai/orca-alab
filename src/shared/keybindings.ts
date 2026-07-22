@@ -1,5 +1,7 @@
 /* eslint-disable max-lines -- Why: keep the shortcut registry, parser, formatter, and conflict detector in one shared module so main/renderer/browser/Settings can't drift. */
 import type { TuiAgent } from './types'
+// Why: type-only import — custom-keybindings.ts imports this module at runtime, so a value import would be circular.
+import type { ResolvedCustomKeybinding } from './custom-keybindings'
 import { ALL_TUI_AGENTS, TUI_AGENT_DISPLAY_NAMES } from './tui-agent-display-names'
 
 export type KeybindingScope =
@@ -112,6 +114,13 @@ export type KeybindingActionId =
   | 'terminal.splitDown'
   | 'terminal.switchInputSource'
 
+/** Ids for user-defined custom shortcuts live in a reserved namespace so they can never collide with the fixed union. */
+export type CustomKeybindingActionId = `custom.${string}`
+
+export function isCustomKeybindingActionId(value: string): value is CustomKeybindingActionId {
+  return value.startsWith('custom.')
+}
+
 export type KeybindingOverrides = Partial<Record<KeybindingActionId, string[]>>
 
 export type KeybindingFileDiagnostic = {
@@ -128,6 +137,8 @@ export type KeybindingFileSnapshot = {
   overrides: KeybindingOverrides
   commonOverrides: KeybindingOverrides
   platformOverrides: Partial<Record<KeybindingPlatform, KeybindingOverrides>>
+  /** User-defined custom shortcuts (file section "custom"); empty when absent. */
+  custom: ResolvedCustomKeybinding[]
   diagnostics: KeybindingFileDiagnostic[]
 }
 
@@ -181,13 +192,23 @@ type ParsedKeybinding = {
 type NormalizeKeybindingOptions = {
   allowBareKeybindings?: boolean
   allowShiftOnlyKeybindings?: boolean
+  // Why: custom sendText chords may deliberately shadow a printable key (iTerm2 remap semantics);
+  // fixed actions must never get this, so it is separate from allowBareKeybindings/isSafeBareKey.
+  allowPrintableBareKeys?: boolean
 }
 
 export type KeybindingValidationResult = { ok: true; value: string } | { ok: false; error: string }
 
 export type KeybindingConflict = {
   binding: string
-  actionIds: KeybindingActionId[]
+  actionIds: (KeybindingActionId | CustomKeybindingActionId)[]
+}
+
+/** Structural view of a custom entry used by conflict detection (full type lives in custom-keybindings.ts). */
+export type CustomKeybindingConflictEntry = {
+  id: CustomKeybindingActionId
+  title: string
+  bindings: readonly string[]
 }
 
 export type FindKeybindingConflictOptions = {
@@ -1397,6 +1418,13 @@ function normalizeKeybindingWithOptions(
     !parsed.meta &&
     !parsed.control &&
     !parsed.alt
+  const isPrintableBareAllowed =
+    options.allowPrintableBareKeys === true &&
+    !parsed.mod &&
+    !parsed.meta &&
+    !parsed.control &&
+    !parsed.alt &&
+    isPrintableBareKeyToken(parsed.key)
   if (
     !parsed.mod &&
     !parsed.meta &&
@@ -1404,11 +1432,45 @@ function normalizeKeybindingWithOptions(
     !parsed.alt &&
     !isShiftInsert &&
     !isBareAllowed &&
-    !isShiftOnlyAllowed
+    !isShiftOnlyAllowed &&
+    !isPrintableBareAllowed
   ) {
     return { ok: false, error: 'Include at least one modifier key.' }
   }
   return { ok: true, value: canonicalizeParsedKeybinding(parsed) }
+}
+
+function isPrintableBareKeyToken(key: string): boolean {
+  if (key.length === 1 && ((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9'))) {
+    return true
+  }
+  return PUNCTUATION_KEY_TOKENS.has(key) || key === 'Space'
+}
+
+/**
+ * Chord validation for user-defined custom shortcuts: bare printable keys and
+ * Shift-only chords are deliberate remaps there, unlike fixed actions.
+ */
+export function normalizeCustomKeybindingChord(binding: string): KeybindingValidationResult {
+  const result = normalizeKeybindingWithOptions(binding, {
+    allowBareKeybindings: true,
+    allowShiftOnlyKeybindings: true,
+    allowPrintableBareKeys: true
+  })
+  // Why: double-tap synthetic inputs never reach the terminal keydown path, so a DoubleTap custom chord would silently never fire.
+  if (result.ok && isDoubleTapBinding(result.value)) {
+    return { ok: false, error: 'Double-tap shortcuts are not supported for custom shortcuts.' }
+  }
+  return result
+}
+
+/** True when the chord uses no modifiers beyond Shift — i.e. it shadows ordinary typing. */
+export function keybindingChordHasNoNonShiftModifiers(binding: string): boolean {
+  const parsed = parseKeybinding(binding)
+  if (!parsed || parsed.doubleTapModifier) {
+    return false
+  }
+  return !parsed.mod && !parsed.meta && !parsed.control && !parsed.alt
 }
 
 export function normalizeKeybinding(binding: string): KeybindingValidationResult {
@@ -1743,6 +1805,21 @@ export function keybindingFromInput(
   return keybindingFromInputWithOptions(input, platform)
 }
 
+/** Chord capture for custom-shortcut recording; same option set as normalizeCustomKeybindingChord. */
+export function keybindingFromInputForCustom(
+  input: KeybindingInput,
+  platform: NodeJS.Platform
+): KeybindingValidationResult {
+  if (input.doubleTapModifier) {
+    return { ok: false, error: 'Double-tap shortcuts are not supported for custom shortcuts.' }
+  }
+  return keybindingFromInputWithOptions(input, platform, {
+    allowBareKeybindings: true,
+    allowShiftOnlyKeybindings: true,
+    allowPrintableBareKeys: true
+  })
+}
+
 export function keybindingFromInputForAction(
   actionId: KeybindingActionId,
   input: KeybindingInput,
@@ -2062,6 +2139,15 @@ function keybindingConflictIdentity(binding: string, platform: NodeJS.Platform):
   return parsed ? keybindingConflictIdentityForParsed(parsed, platform) : binding
 }
 
+/** True when two chords resolve to the same conflict identity on the platform (e.g. Mod+C vs Cmd+C on macOS). */
+export function keybindingsShareConflictIdentity(
+  first: string,
+  second: string,
+  platform: NodeJS.Platform
+): boolean {
+  return keybindingConflictIdentity(first, platform) === keybindingConflictIdentity(second, platform)
+}
+
 function keybindingConflictIdentities(
   actionId: KeybindingActionId,
   binding: string,
@@ -2235,9 +2321,13 @@ function formatKeyToken(token: string): string {
 export function findKeybindingConflicts(
   platform: NodeJS.Platform,
   overrides?: KeybindingOverrides,
-  options: FindKeybindingConflictOptions = {}
+  options: FindKeybindingConflictOptions = {},
+  customEntries?: readonly CustomKeybindingConflictEntry[]
 ): KeybindingConflict[] {
-  const owners = new Map<string, { binding: string; actionIds: Set<KeybindingActionId> }>()
+  const owners = new Map<
+    string,
+    { binding: string; actionIds: Set<KeybindingActionId | CustomKeybindingActionId> }
+  >()
   const ignoredActionIds = new Set(options.ignoredActionIds ?? [])
   const customizedActions = new Set(
     Object.keys(overrides ?? {}).filter(
@@ -2261,7 +2351,9 @@ export function findKeybindingConflicts(
           const current = owners.get(conflictKey) ?? { binding, actionIds: new Set() }
           if (
             !isDigitIndexActionId(definition.id) &&
-            Array.from(current.actionIds).some((actionId) => isDigitIndexActionId(actionId))
+            Array.from(current.actionIds).some(
+              (actionId) => isKeybindingActionId(actionId) && isDigitIndexActionId(actionId)
+            )
           ) {
             current.binding = binding
           }
@@ -2272,9 +2364,24 @@ export function findKeybindingConflicts(
     }
   }
 
+  // Why: custom entries are terminal-scope user config by definition — every collision they join is reportable.
+  for (const entry of customEntries ?? []) {
+    for (const binding of entry.bindings) {
+      const conflictKey = `terminal\u0000${keybindingConflictIdentity(binding, platform)}`
+      const current = owners.get(conflictKey) ?? { binding, actionIds: new Set() }
+      current.actionIds.add(entry.id)
+      owners.set(conflictKey, current)
+    }
+  }
+
   const seenConflictKeys = new Set<string>()
   return Array.from(owners.values())
-    .filter(({ actionIds }) => actionIds.size > 1 && setIntersects(actionIds, customizedActions))
+    .filter(
+      ({ actionIds }) =>
+        actionIds.size > 1 &&
+        (setIntersects(actionIds, customizedActions) ||
+          Array.from(actionIds).some((actionId) => isCustomKeybindingActionId(actionId)))
+    )
     .map(({ binding, actionIds }) => ({
       binding,
       actionIds: Array.from(actionIds)
@@ -2289,7 +2396,7 @@ export function findKeybindingConflicts(
     })
 }
 
-function setIntersects<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
+function setIntersects(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
   for (const value of left) {
     if (right.has(value)) {
       return true

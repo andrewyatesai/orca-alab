@@ -943,7 +943,10 @@ function removeConflictingWebOverrides(
     const conflictingOverrides = new Set<KeybindingActionId>()
     for (const conflict of conflicts) {
       for (const actionId of conflict.actionIds) {
-        if (Object.prototype.hasOwnProperty.call(next, actionId)) {
+        if (
+          isKeybindingActionId(actionId) &&
+          Object.prototype.hasOwnProperty.call(next, actionId)
+        ) {
           conflictingOverrides.add(actionId)
         }
       }
@@ -1009,6 +1012,8 @@ function getWebKeybindingSnapshot(): KeybindingFileSnapshot {
     overrides,
     commonOverrides,
     platformOverrides,
+    // Why: custom shortcuts are desktop-only in v1; the browser build reports none and rejects writes.
+    custom: [],
     diagnostics
   }
 }
@@ -1078,6 +1083,10 @@ function createWebKeybindingsApi(): WebKeybindingsApi {
     get: () => Promise.resolve(getWebKeybindingSnapshot()),
     ensureFile: () => Promise.resolve(getWebKeybindingSnapshot()),
     setAction: async ({ actionId, bindings }) => writeWebKeybindingAction(actionId, bindings),
+    customUpsert: () =>
+      Promise.reject(new Error('Custom shortcuts are not available in the browser.')),
+    customRemove: () =>
+      Promise.reject(new Error('Custom shortcuts are not available in the browser.')),
     reload: () => {
       const snapshot = getWebKeybindingSnapshot()
       notifyWebKeybindingListeners(snapshot)

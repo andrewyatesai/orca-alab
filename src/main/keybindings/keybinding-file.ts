@@ -6,7 +6,9 @@ import {
   formatKeybindingList,
   getKeybindingDefinition,
   getKeybindingPlatform,
+  isCustomKeybindingActionId,
   isKeybindingActionId,
+  keybindingsShareConflictIdentity,
   normalizeKeybindingArrayForAction,
   normalizeKeybindingListForAction,
   type KeybindingActionId,
@@ -15,12 +17,22 @@ import {
   type KeybindingOverrides,
   type KeybindingPlatform
 } from '../../shared/keybindings'
+import {
+  resolveKeybindingTitle,
+  type CustomKeybinding,
+  type ResolvedCustomKeybinding
+} from '../../shared/custom-keybindings'
+import {
+  parseCustomKeybindingSection,
+  serializeCustomKeybindingEntry,
+  validateCustomKeybindingForWrite
+} from './custom-keybinding-section'
 
 type JsonObject = Record<string, unknown>
 
 const FILE_VERSION = 1
 const PLATFORM_KEYS: readonly KeybindingPlatform[] = ['darwin', 'linux', 'win32']
-const ROOT_KEYS = new Set(['$schema', 'version', 'keybindings', 'platforms'])
+const ROOT_KEYS = new Set(['$schema', 'version', 'keybindings', 'platforms', 'custom'])
 
 export function getUserKeybindingsPath(homePath: string): string {
   return join(homePath, '.orca', 'keybindings.json')
@@ -212,23 +224,67 @@ function parsePlatformOverrides(
 function removeConflictingOverrides(
   platform: KeybindingPlatform,
   overrides: KeybindingOverrides,
+  custom: readonly ResolvedCustomKeybinding[],
   diagnostics: KeybindingFileDiagnostic[]
-): KeybindingOverrides {
-  let next = { ...overrides }
+): { overrides: KeybindingOverrides; custom: ResolvedCustomKeybinding[] } {
+  const next = { ...overrides }
+  const nextCustom = custom.map((entry) => ({ ...entry, bindings: [...entry.bindings] }))
   for (let attempt = 0; attempt < 20; attempt++) {
-    const conflicts = findKeybindingConflicts(platform, next)
+    const conflicts = findKeybindingConflicts(platform, next, {}, nextCustom)
     const conflictingOverrides = new Set<KeybindingActionId>()
+    let removedCustomBinding = false
 
     for (const conflict of conflicts) {
-      for (const actionId of conflict.actionIds) {
-        if (Object.prototype.hasOwnProperty.call(next, actionId)) {
-          conflictingOverrides.add(actionId)
+      const customIds = conflict.actionIds.filter((actionId) =>
+        isCustomKeybindingActionId(actionId)
+      )
+      if (customIds.length === 0) {
+        for (const actionId of conflict.actionIds) {
+          if (
+            isKeybindingActionId(actionId) &&
+            Object.prototype.hasOwnProperty.call(next, actionId)
+          ) {
+            conflictingOverrides.add(actionId)
+          }
         }
+        continue
+      }
+      // Why: custom entries are the droppable side — remove only the offending chord (the entry
+      // survives with its other bindings) and never drop a built-in override over a custom clash.
+      // In a custom-only clash the first entry keeps the chord, mirroring first-entry-wins matching.
+      const hasBuiltInSide = conflict.actionIds.length > customIds.length
+      const droppableIds = new Set(hasBuiltInSide ? customIds : customIds.slice(1))
+      const prunedTitles: string[] = []
+      for (const entry of nextCustom) {
+        if (!droppableIds.has(entry.id)) {
+          continue
+        }
+        const remaining = entry.bindings.filter(
+          (binding) => !keybindingsShareConflictIdentity(binding, conflict.binding, platform)
+        )
+        if (remaining.length !== entry.bindings.length) {
+          entry.bindings = remaining
+          removedCustomBinding = true
+          prunedTitles.push(entry.title)
+        }
+      }
+      if (prunedTitles.length > 0) {
+        const keptTitles = conflict.actionIds
+          .filter((actionId) => !droppableIds.has(actionId as ResolvedCustomKeybinding['id']))
+          .map((actionId) => resolveKeybindingTitle(actionId, nextCustom))
+        diagnostics.push({
+          severity: 'error',
+          section: 'custom',
+          message: `Conflicting shortcut ${formatKeybindingList([conflict.binding], platform)} was removed from ${prunedTitles.join(', ')}; it is bound to ${keptTitles.join(', ')}.`
+        })
       }
     }
 
     if (conflictingOverrides.size === 0) {
-      return next
+      if (!removedCustomBinding) {
+        return { overrides: next, custom: nextCustom }
+      }
+      continue
     }
 
     for (const actionId of conflictingOverrides) {
@@ -242,7 +298,7 @@ function removeConflictingOverrides(
         .join(', ')}.`
     })
   }
-  return next
+  return { overrides: next, custom: nextCustom }
 }
 
 export function readKeybindingFile(
@@ -260,6 +316,7 @@ export function readKeybindingFile(
       overrides: {},
       commonOverrides: {},
       platformOverrides: {},
+      custom: [],
       diagnostics: [
         {
           severity: 'error',
@@ -279,7 +336,13 @@ export function readKeybindingFile(
     ...commonOverrides,
     ...platformOverrides[keybindingPlatform]
   }
-  const overrides = removeConflictingOverrides(keybindingPlatform, mergedOverrides, diagnostics)
+  const parsedCustom = parseCustomKeybindingSection(document.custom, diagnostics)
+  const { overrides, custom } = removeConflictingOverrides(
+    keybindingPlatform,
+    mergedOverrides,
+    parsedCustom,
+    diagnostics
+  )
 
   return {
     path,
@@ -288,6 +351,7 @@ export function readKeybindingFile(
     overrides,
     commonOverrides,
     platformOverrides,
+    custom,
     diagnostics
   }
 }
@@ -380,13 +444,14 @@ export function seedLegacyTabSwitchBindings(
   return { seeded: pins.length > 0, snapshot }
 }
 
-// Why: the one-shot seed migration and Settings writes must produce the same
-// on-disk document shape; a single assembly path keeps them from drifting.
-function writeActivePlatformSection(
+// Why: the one-shot seed migration, Settings writes, and custom-entry writes
+// must produce the same on-disk document shape; a single assembly path keeps
+// them from drifting.
+function writeKeybindingDocument(
   path: string,
   platform: NodeJS.Platform,
   fallbackCommonOverrides: KeybindingOverrides,
-  mutateActivePlatform: (activePlatform: JsonObject) => void
+  mutateDocument: (document: JsonObject, activePlatform: JsonObject) => void
 ): KeybindingFileSnapshot {
   const keybindingPlatform = getKeybindingPlatform(platform)
   const readResult = readJsonDocument(path)
@@ -408,7 +473,6 @@ function writeActivePlatformSection(
   const activePlatform = isJsonObject(platforms[keybindingPlatform])
     ? { ...(platforms[keybindingPlatform] as JsonObject) }
     : {}
-  mutateActivePlatform(activePlatform)
 
   document.version = FILE_VERSION
   document.keybindings = common
@@ -419,8 +483,23 @@ function writeActivePlatformSection(
     win32: isJsonObject(platforms.win32) ? platforms.win32 : {},
     [keybindingPlatform]: activePlatform
   }
+  mutateDocument(document, activePlatform)
   writeJsonDocument(path, document)
   return readKeybindingFile(path, platform)
+}
+
+function writeActivePlatformSection(
+  path: string,
+  platform: NodeJS.Platform,
+  fallbackCommonOverrides: KeybindingOverrides,
+  mutateActivePlatform: (activePlatform: JsonObject) => void
+): KeybindingFileSnapshot {
+  return writeKeybindingDocument(
+    path,
+    platform,
+    fallbackCommonOverrides,
+    (_document, activePlatform) => mutateActivePlatform(activePlatform)
+  )
 }
 
 export function writeKeybindingOverride(
@@ -442,9 +521,13 @@ export function writeKeybindingOverride(
   } else {
     candidateOverrides[actionId] = normalizedBindings
   }
-  const blockingConflict = findKeybindingConflicts(keybindingPlatform, candidateOverrides).find(
-    (conflict) => conflict.actionIds.includes(actionId)
-  )
+  // Why: write-time blocking must see both populations so Settings can never save either side of a built-in↔custom collision.
+  const blockingConflict = findKeybindingConflicts(
+    keybindingPlatform,
+    candidateOverrides,
+    {},
+    currentSnapshot.custom
+  ).find((conflict) => conflict.actionIds.includes(actionId))
   if (blockingConflict) {
     throw new Error(
       `${formatKeybindingList([blockingConflict.binding], keybindingPlatform)} conflicts with another shortcut.`
@@ -466,4 +549,70 @@ export function writeKeybindingOverride(
       }
     }
   )
+}
+
+export function upsertCustomKeybinding(
+  path: string,
+  platform: NodeJS.Platform,
+  entry: CustomKeybinding
+): KeybindingFileSnapshot {
+  const resolved = validateCustomKeybindingForWrite(entry)
+  const keybindingPlatform = getKeybindingPlatform(platform)
+  const currentSnapshot = readKeybindingFile(path, platform)
+  const existingIndex = currentSnapshot.custom.findIndex(
+    (candidate) => candidate.id === resolved.id
+  )
+  const candidateCustom =
+    existingIndex === -1
+      ? [...currentSnapshot.custom, resolved]
+      : currentSnapshot.custom.map((candidate, index) =>
+          index === existingIndex ? resolved : candidate
+        )
+  const blockingConflict = findKeybindingConflicts(
+    keybindingPlatform,
+    currentSnapshot.overrides,
+    {},
+    candidateCustom
+  ).find((conflict) => conflict.actionIds.includes(resolved.id))
+  if (blockingConflict) {
+    const counterparts = blockingConflict.actionIds
+      .filter((actionId) => actionId !== resolved.id)
+      .map((actionId) => resolveKeybindingTitle(actionId, candidateCustom))
+    throw new Error(
+      `${formatKeybindingList([blockingConflict.binding], keybindingPlatform)} conflicts with ${counterparts.join(', ')}.`
+    )
+  }
+
+  return writeKeybindingDocument(path, platform, currentSnapshot.commonOverrides, (document) => {
+    const rawCustom = Array.isArray(document.custom) ? [...(document.custom as unknown[])] : []
+    const rawIndex = rawCustom.findIndex(
+      (raw) => isJsonObject(raw) && (raw as JsonObject).id === resolved.id
+    )
+    const serialized = serializeCustomKeybindingEntry(
+      resolved,
+      rawIndex === -1 ? undefined : rawCustom[rawIndex]
+    )
+    if (rawIndex === -1) {
+      rawCustom.push(serialized)
+    } else {
+      rawCustom[rawIndex] = serialized
+    }
+    document.custom = rawCustom
+  })
+}
+
+export function removeCustomKeybinding(
+  path: string,
+  platform: NodeJS.Platform,
+  id: string
+): KeybindingFileSnapshot {
+  const currentSnapshot = readKeybindingFile(path, platform)
+  return writeKeybindingDocument(path, platform, currentSnapshot.commonOverrides, (document) => {
+    if (!Array.isArray(document.custom)) {
+      return
+    }
+    document.custom = (document.custom as unknown[]).filter(
+      (raw) => !(isJsonObject(raw) && (raw as JsonObject).id === id)
+    )
+  })
 }

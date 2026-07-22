@@ -8,7 +8,10 @@ import type { PtyTransport } from './pty-transport'
 import { resolveTerminalShortcutAction } from './terminal-shortcut-policy'
 import type { MacOptionAsAlt } from './terminal-shortcut-policy'
 import { createTerminalNativeOnlyShortcutTracker } from './terminal-native-only-shortcut'
+import { createTerminalCustomSendTextSuppression } from './terminal-custom-sendtext-suppression'
 import { createTerminalImeDeferredNewlineSender } from './terminal-ime-deferred-newline'
+import { sendTerminalQuickCommandToPane } from './terminal-quick-command-dispatch'
+import type { ResolvedCustomKeybinding } from '../../../../shared/custom-keybindings'
 import {
   ATERM_KEY_MOD_ALT,
   ATERM_KEY_MOD_SUPER,
@@ -55,7 +58,8 @@ export function resolveTerminalKeyboardShortcutAction(
   isKittyKeyboardActivePane: Parameters<typeof resolveTerminalShortcutAction>[7],
   layoutBaseCharacterForCode: Parameters<typeof resolveTerminalShortcutAction>[8],
   getWindowsShiftEnterEncoding: Parameters<typeof resolveTerminalShortcutAction>[9],
-  isWindowsTerminalHost: NonNullable<Parameters<typeof resolveTerminalShortcutAction>[10]>
+  isWindowsTerminalHost: NonNullable<Parameters<typeof resolveTerminalShortcutAction>[10]>,
+  customKeybindings?: Parameters<typeof resolveTerminalShortcutAction>[11]
 ): ReturnType<typeof resolveTerminalShortcutAction> {
   // Why: keep the host callback required at the production boundary so a
   // caller cannot silently fall back to client-OS byte routing.
@@ -70,7 +74,8 @@ export function resolveTerminalKeyboardShortcutAction(
     isKittyKeyboardActivePane,
     layoutBaseCharacterForCode,
     getWindowsShiftEnterEncoding,
-    isWindowsTerminalHost
+    isWindowsTerminalHost,
+    customKeybindings
   )
 }
 
@@ -222,6 +227,7 @@ type KeyboardHandlersDeps = {
   macOptionAsAltRef: React.RefObject<MacOptionAsAlt>
   paneKittyKeyboardModesRef?: React.RefObject<Map<number, TerminalKittyKeyboardModeTracker>>
   keybindings?: KeybindingOverrides
+  customKeybindings?: readonly ResolvedCustomKeybinding[]
   terminalShortcutPolicy?: TerminalShortcutPolicy
 }
 
@@ -257,6 +263,7 @@ export function useTerminalKeyboardShortcuts({
   macOptionAsAltRef,
   paneKittyKeyboardModesRef,
   keybindings,
+  customKeybindings,
   terminalShortcutPolicy = 'orca-first'
 }: KeyboardHandlersDeps): void {
   const panePtyBindings = panePtyBindingsRef?.current
@@ -282,6 +289,7 @@ export function useTerminalKeyboardShortcuts({
     // location from its own keydown event and clear it on keyup.
     let optionKeyLocation = 0
     const nativeOnlyShortcutTracker = createTerminalNativeOnlyShortcutTracker()
+    const customSendTextSuppression = createTerminalCustomSendTextSuppression()
     const deferredNewlineSender = createTerminalImeDeferredNewlineSender()
     const onModifierDown = (e: KeyboardEvent): void => {
       if (e.key === 'Alt') {
@@ -326,6 +334,7 @@ export function useTerminalKeyboardShortcuts({
       // Why: replace stale state only for this physical key so rollover cannot
       // disarm a still-held native-only chord before its Kitty keyup arrives.
       nativeOnlyShortcutTracker.prepareKeyDown(e)
+      customSendTextSuppression.prepareKeyDown(e)
       const manager = managerRef.current
       if (!manager) {
         return
@@ -421,7 +430,8 @@ export function useTerminalKeyboardShortcuts({
         isKittyKeyboardActivePane,
         getLayoutBaseCharacterForCode,
         getActivePaneWindowsShiftEnterEncoding,
-        isActivePaneWindowsTerminalHost
+        isActivePaneWindowsTerminalHost,
+        customKeybindings
       )
       if (!action) {
         return
@@ -435,6 +445,37 @@ export function useTerminalKeyboardShortcuts({
         return
       }
 
+      if (action.type === 'consumeKey') {
+        // Repeat of a once-per-press custom chord: swallow fully so neither the
+        // byte rewrites nor the engine encoder see the held key.
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        return
+      }
+
+      if (action.type === 'runQuickCommand') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        const pane = activePane
+        if (!pane) {
+          return
+        }
+        const command = (useAppStore.getState().settings?.terminalQuickCommands ?? []).find(
+          (candidate) => candidate.id === action.quickCommandId
+        )
+        // Why: stale reference after the quick command was deleted; Settings surfaces the dangling state.
+        if (!command) {
+          return
+        }
+        sendTerminalQuickCommandToPane({
+          command,
+          pane,
+          tabId,
+          transport: paneTransportsRef.current.get(pane.id)
+        })
+        return
+      }
+
       if (action.type === 'sendInput') {
         // preventDefault here does not cancel a pending IME commit (the
         // compositionend still fires and aterm forwards the glyph), so it is safe
@@ -442,6 +483,11 @@ export function useTerminalKeyboardShortcuts({
         // browser newline from also reaching the helper textarea.
         e.preventDefault()
         e.stopImmediatePropagation()
+        // Why: a bare/Shift-only custom chord must also swallow IME direct-inserted
+        // text that arrives via beforeinput without honoring the canceled keydown.
+        if (action.suppressTextInsertion) {
+          customSendTextSuppression.armKeyDown(e)
+        }
         const pane = activePane
         if (!pane) {
           return
@@ -695,7 +741,10 @@ export function useTerminalKeyboardShortcuts({
     }
 
     const onNativeOnlyShortcutCompanion = (e: KeyboardEvent): void => {
-      if (nativeOnlyShortcutTracker.consumeCompanion(e)) {
+      // Both trackers share the pairing mechanics; consult both so a custom
+      // sendText key's companions are swallowed like a native-only chord's.
+      const nativeOnly = nativeOnlyShortcutTracker.consumeCompanion(e)
+      if (nativeOnly || customSendTextSuppression.consumeCompanion(e)) {
         // Why: canceling only the companion keypress prevents Chromium's text
         // insertion without canceling the keydown default used by the OS switch.
         if (e.type === 'keypress') {
@@ -708,7 +757,11 @@ export function useTerminalKeyboardShortcuts({
     // Why: modern Chromium can skip keypress and insert via beforeinput; block
     // only this chord's text so an IME commit in the same window remains intact.
     const onNativeOnlyBeforeInput = (e: Event): void => {
-      if (!(e instanceof InputEvent) || !nativeOnlyShortcutTracker.shouldSuppressBeforeInput(e)) {
+      if (
+        !(e instanceof InputEvent) ||
+        (!nativeOnlyShortcutTracker.shouldSuppressBeforeInput(e) &&
+          !customSendTextSuppression.shouldSuppressBeforeInput(e))
+      ) {
         return
       }
       e.preventDefault()
@@ -717,6 +770,7 @@ export function useTerminalKeyboardShortcuts({
 
     const onNativeOnlyBlur = (): void => {
       nativeOnlyShortcutTracker.clear()
+      customSendTextSuppression.clear()
     }
 
     window.addEventListener('keydown', onModifierDown, { capture: true })
@@ -760,6 +814,7 @@ export function useTerminalKeyboardShortcuts({
     macOptionAsAltRef,
     paneKittyKeyboardModesRef,
     keybindings,
+    customKeybindings,
     terminalShortcutPolicy,
     tabId,
     worktreeId

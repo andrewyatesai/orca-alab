@@ -1,4 +1,13 @@
-import { keybindingMatchesAction, type KeybindingOverrides } from '../../../../shared/keybindings'
+import {
+  keybindingChordHasNoNonShiftModifiers,
+  keybindingMatchesAction,
+  type KeybindingActionId,
+  type KeybindingOverrides
+} from '../../../../shared/keybindings'
+import {
+  matchCustomKeybinding,
+  type ResolvedCustomKeybinding
+} from '../../../../shared/custom-keybindings'
 import type { WindowsShiftEnterEncoding } from './terminal-windows-shift-enter'
 
 export type TerminalShortcutEvent = {
@@ -9,6 +18,8 @@ export type TerminalShortcutEvent = {
   altKey: boolean
   shiftKey: boolean
   repeat?: boolean
+  // Why: threaded from the DOM event so custom entries can hard-gate on open IME compositions.
+  isComposing?: boolean
 }
 
 export type MacOptionAsAlt = 'true' | 'false' | 'left' | 'right'
@@ -40,7 +51,13 @@ export type TerminalShortcutAction =
   | { type: 'closeActivePane' }
   | { type: 'splitActivePane'; direction: 'vertical' | 'horizontal' }
   | { type: 'scrollViewport'; position: 'top' | 'bottom' }
-  | { type: 'sendInput'; data: string }
+  // suppressTextInsertion: set for bare/Shift-only custom chords — the handler must also
+  // swallow the key's companion keypress/beforeinput so the character is never typed.
+  | { type: 'sendInput'; data: string; suppressTextInsertion?: boolean }
+  // Run a user-configured terminal Quick Command (custom keybinding action).
+  | { type: 'runQuickCommand'; quickCommandId: string }
+  // Fully swallow the keystroke (repeat of a once-per-press custom chord).
+  | { type: 'consumeKey' }
   // Encode `key`+`mods` through the ACTIVE pane's engine (live keyboard mode)
   // and send the result — for chords the browser/OS would otherwise mangle
   // (Cmd chords hard-nulled by the encoder's metaKey firewall, macOS Option
@@ -56,6 +73,23 @@ export type TerminalShortcutAction =
       fallback: string
     }
   | { type: 'switchInputSource' }
+
+// Why: the repeat-precedence guard for custom entries must mirror the !repeat ladder in
+// resolveTerminalShortcutAction — keep this list in sync with the keybindingMatchesAction calls there.
+const REPEAT_GATED_TERMINAL_ACTION_IDS: readonly KeybindingActionId[] = [
+  'terminal.copySelection',
+  'terminal.search',
+  'terminal.clear',
+  'terminal.focusPreviousPane',
+  'terminal.focusNextPane',
+  'terminal.equalizePaneSizes',
+  'terminal.expandPane',
+  'terminal.setTitle',
+  'terminal.clearPaneTitle',
+  'terminal.closePane',
+  'terminal.splitRight',
+  'terminal.splitDown'
+]
 
 /** Un-shifted ASCII character for a physical key code (letters, digits, punctuation map), or undefined. */
 function resolveUnshiftedCharacterForCode(code: string | undefined): string | undefined {
@@ -93,7 +127,8 @@ export function resolveTerminalShortcutAction(
   // Why: lazy so agent-state lookup for the pane's Windows encoding runs only on Shift+Enter, not every keystroke.
   getWindowsShiftEnterEncoding?: () => WindowsShiftEnterEncoding,
   // Why: keybindings follow the client OS, but byte protocols follow the PTY host — they differ for macOS clients on Windows runtimes.
-  isWindowsTerminalHost: () => boolean = () => isWindows
+  isWindowsTerminalHost: () => boolean = () => isWindows,
+  customKeybindings?: readonly ResolvedCustomKeybinding[]
 ): TerminalShortcutAction | null {
   const platform: NodeJS.Platform = isMac ? 'darwin' : isWindows ? 'win32' : 'linux'
 
@@ -149,6 +184,37 @@ export function resolveTerminalShortcutAction(
 
     if (keybindingMatchesAction('terminal.splitDown', event, platform, keybindings)) {
       return { type: 'splitActivePane', direction: 'horizontal' }
+    }
+  }
+
+  // Custom user entries sit between the configurable ladder above (built-ins win a shared
+  // chord) and the hardcoded byte rewrites below (a user remap of e.g. Shift+Enter must win).
+  // Hard IME gate: never match mid-composition — candidate-window keystrokes stay untouched.
+  if (event.isComposing !== true && event.key !== 'Process' && customKeybindings?.length) {
+    const custom = matchCustomKeybinding(customKeybindings, event, platform)
+    // Why: repeats skip the !repeat ladder above, so a held built-in chord would otherwise
+    // fall through to a same-chord custom entry; write-time conflict blocking is only defense #1.
+    const shadowedByBuiltIn =
+      custom !== null &&
+      REPEAT_GATED_TERMINAL_ACTION_IDS.some((actionId) =>
+        keybindingMatchesAction(actionId, event, platform, keybindings)
+      )
+    if (custom && !shadowedByBuiltIn) {
+      if (custom.entry.action.type === 'runQuickCommand') {
+        // Why: command-like customs are once-per-press; swallowing repeats keeps a held chord
+        // from falling through to the byte rewrites below or reaching the engine encoder.
+        return event.repeat
+          ? { type: 'consumeKey' }
+          : { type: 'runQuickCommand', quickCommandId: custom.entry.action.quickCommandId }
+      }
+      if (custom.entry.decodedText !== undefined) {
+        // sendText fires on key repeat — it substitutes for typing, so a held remapped key auto-repeats.
+        return {
+          type: 'sendInput',
+          data: custom.entry.decodedText,
+          suppressTextInsertion: keybindingChordHasNoNonShiftModifiers(custom.binding)
+        }
+      }
     }
   }
 

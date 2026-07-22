@@ -4,12 +4,15 @@ import {
   type KeybindingFileSnapshot,
   type KeybindingOverrides
 } from '../../shared/keybindings'
+import type { CustomKeybinding } from '../../shared/custom-keybindings'
 import {
   ensureKeybindingFile,
   getUserKeybindingsPath,
   migrateLegacyKeybindings,
   readKeybindingFile,
+  removeCustomKeybinding,
   seedLegacyTabSwitchBindings,
+  upsertCustomKeybinding,
   writeKeybindingOverride
 } from './keybinding-file'
 
@@ -86,6 +89,16 @@ export class KeybindingService {
     bindings: string[] | null
   ): KeybindingFileSnapshot {
     this.snapshot = writeKeybindingOverride(this.configPath, this.platform, actionId, bindings)
+    return this.snapshot
+  }
+
+  upsertCustom(entry: CustomKeybinding): KeybindingFileSnapshot {
+    this.snapshot = upsertCustomKeybinding(this.configPath, this.platform, entry)
+    return this.snapshot
+  }
+
+  removeCustom(id: string): KeybindingFileSnapshot {
+    this.snapshot = removeCustomKeybinding(this.configPath, this.platform, id)
     return this.snapshot
   }
 }

@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain, shell } from 'electron'
+import type { CustomKeybinding } from '../../shared/custom-keybindings'
 import type { KeybindingActionId, KeybindingFileSnapshot } from '../../shared/keybindings'
 import type { KeybindingService } from '../keybindings/keybinding-service'
 import { rebuildAppMenu } from '../menu/register-app-menu'
@@ -33,6 +34,18 @@ export function registerKeybindingHandlers(service: KeybindingService): void {
       return snapshot
     }
   )
+
+  ipcMain.handle('keybindings:customUpsert', (_event, args: { entry: CustomKeybinding }) => {
+    const snapshot = service.upsertCustom(args.entry)
+    broadcastKeybindingsChanged(snapshot)
+    return snapshot
+  })
+
+  ipcMain.handle('keybindings:customRemove', (_event, args: { id: string }) => {
+    const snapshot = service.removeCustom(args.id)
+    broadcastKeybindingsChanged(snapshot)
+    return snapshot
+  })
 
   ipcMain.handle('keybindings:reload', () => {
     const snapshot = service.reload()

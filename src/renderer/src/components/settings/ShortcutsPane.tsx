@@ -3,18 +3,19 @@ import {
   findKeybindingConflicts,
   formatKeybindingList,
   getEffectiveKeybindingsForAction,
-  getKeybindingDefinition,
   keybindingFromInputForAction,
   normalizeKeybindingListForAction,
   type KeybindingActionId,
   type KeybindingInput
 } from '../../../../shared/keybindings'
+import { resolveKeybindingTitle } from '../../../../shared/custom-keybindings'
 import {
   EMPTY_DISABLED_TUI_AGENTS,
   disabledAgentTabActionIds,
   groupDefinitions
 } from './shortcut-groups'
 import { useAppStore } from '../../store'
+import { CustomShortcutsSection } from './CustomShortcutsSection'
 import { KeybindingsFileActions } from './KeybindingsFileActions'
 import { SettingsSubsectionHeader } from './SettingsFormControls'
 import { getShortcutTerminalStatus } from './shortcut-terminal-status'
@@ -61,6 +62,7 @@ export function ShortcutsPane(): React.JSX.Element {
   )
   const updateSettings = useAppStore((state) => state.updateSettings)
   const keybindings = useAppStore((state) => state.keybindings)
+  const customKeybindings = useAppStore((state) => state.customKeybindings)
   const keybindingSnapshot = useAppStore((state) => state.keybindingSnapshot)
   const disabledTuiAgents = useAppStore(
     (state) => state.settings?.disabledTuiAgents ?? EMPTY_DISABLED_TUI_AGENTS
@@ -96,12 +98,15 @@ export function ShortcutsPane(): React.JSX.Element {
     [disabledTuiAgents]
   )
   const conflictByAction = useMemo(() => {
-    const result = new Map<KeybindingActionId, string[]>()
-    for (const conflict of findKeybindingConflicts(platform, keybindings, {
-      ignoredActionIds: ignoredConflictActionIds
-    })) {
+    const result = new Map<string, string[]>()
+    for (const conflict of findKeybindingConflicts(
+      platform,
+      keybindings,
+      { ignoredActionIds: ignoredConflictActionIds },
+      customKeybindings
+    )) {
       const labels = conflict.actionIds
-        .map((id) => getKeybindingDefinition(id)?.title ?? id)
+        .map((id) => resolveKeybindingTitle(id, customKeybindings))
         .join(', ')
       for (const actionId of conflict.actionIds) {
         result.set(actionId, [
@@ -111,7 +116,7 @@ export function ShortcutsPane(): React.JSX.Element {
       }
     }
     return result
-  }, [ignoredConflictActionIds, keybindings])
+  }, [customKeybindings, ignoredConflictActionIds, keybindings])
   const shortcutGroups = useMemo<ShortcutRowsByGroup[]>(
     () =>
       groups.map((group) => ({
@@ -182,13 +187,16 @@ export function ShortcutsPane(): React.JSX.Element {
       (normalizedResult.length === 0 && defaults.length === 0)
         ? removeBindingOverride(keybindings, actionId)
         : { ...keybindings, [actionId]: normalizedResult }
-    const blockingConflict = findKeybindingConflicts(platform, next, {
-      ignoredActionIds: ignoredConflictActionIds
-    }).find((conflict) => conflict.actionIds.includes(actionId))
+    const blockingConflict = findKeybindingConflicts(
+      platform,
+      next,
+      { ignoredActionIds: ignoredConflictActionIds },
+      customKeybindings
+    ).find((conflict) => conflict.actionIds.includes(actionId))
     if (blockingConflict) {
       const labels = blockingConflict.actionIds
         .filter((id) => id !== actionId)
-        .map((id) => getKeybindingDefinition(id)?.title ?? id)
+        .map((id) => resolveKeybindingTitle(id, customKeybindings))
         .join(', ')
       setErrors((prev) => ({
         ...prev,
@@ -416,6 +424,12 @@ export function ShortcutsPane(): React.JSX.Element {
             }}
           />
         </div>
+
+        <CustomShortcutsSection
+          platform={platform}
+          conflictByAction={conflictByAction}
+          query={shortcutQuery}
+        />
       </section>
     </div>
   )

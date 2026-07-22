@@ -49,16 +49,34 @@ export function buildMobileAiVaultResumeCommand(args: {
     args.hostPlatform === 'win32'
       ? resolveWindowsShellStartupFamily(args.hostTerminalWindowsShell)
       : undefined
+  const codexHome = getMobileAiVaultResumeCodexHome(args.session.codexHome, args.hostPlatform)
+  // Why: pi resumes only by transcript path (#8876); without one there is no
+  // valid resume target, so launch pi fresh instead of a bare-id --session
+  // argument the CLI rejects.
+  if (args.session.agent === 'pi' && !args.session.filePath?.trim()) {
+    return buildAiVaultResumeShellCommand({
+      resumeCommand: args.commandOverride?.trim() || 'pi',
+      cwd: args.session.cwd,
+      platform: args.hostPlatform,
+      codexHome,
+      shell
+    })
+  }
   return buildAiVaultResumeCommand({
     agent: args.session.agent,
-    sessionId: args.session.sessionId,
+    // Why: pi's --session locator is the transcript path (#8876); the shared
+    // builder path-swaps omp only, so hand pi the path as its session id.
+    sessionId:
+      args.session.agent === 'pi' && args.session.filePath?.trim()
+        ? args.session.filePath.trim()
+        : args.session.sessionId,
     // Why: OMP resumes by absolute transcript path (custom OMP dir / WSL-store
     // sessions miss on an id lookup), so mobile forwards it like desktop does.
     resumeFilePath: args.session.filePath,
     cwd: args.session.cwd,
     platform: args.hostPlatform,
     commandOverride: args.commandOverride,
-    codexHome: getMobileAiVaultResumeCodexHome(args.session.codexHome, args.hostPlatform),
+    codexHome,
     shell
   })
 }
@@ -95,7 +113,14 @@ export function buildMobileAiVaultResumeLaunch(args: {
   if (isResumableTuiAgent(args.session.agent)) {
     const startupPlan = buildAgentResumeStartupPlan({
       agent: args.session.agent,
-      providerSession: { key: 'session_id', id: args.session.sessionId },
+      providerSession: {
+        key: 'session_id',
+        id: args.session.sessionId,
+        // Why: pi resumes by transcript path, never by bare session id (#8876).
+        ...(args.session.agent === 'pi' && args.session.filePath
+          ? { transcriptPath: args.session.filePath }
+          : {})
+      },
       cmdOverrides,
       platform: args.hostPlatform,
       shell,

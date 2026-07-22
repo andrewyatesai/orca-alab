@@ -196,6 +196,79 @@ describe('ai vault resume command runtime', () => {
     )
   })
 
+  it('resumes pi sessions by transcript path through the startup plan', () => {
+    // Regression: pi rejects `--session <id>` (#8876), so the provider session
+    // must carry filePath as the transcript-path resume locator.
+    const state = makeState({
+      worktreePath: 'C:\\Users\\alice\\repo',
+      localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
+    })
+
+    const command = buildQueuedAiVaultResumeCommand({
+      state,
+      worktreeId: 'repo-1::worktree-1',
+      session: {
+        agent: 'pi',
+        sessionId: 'pi-session-1',
+        filePath: '/home/alice/.pi/agent/sessions/repo/sess.jsonl',
+        cwd: '/home/alice/repo',
+        codexHome: null
+      }
+    })
+
+    expect(command).toBe(
+      "cd '/home/alice/repo' && pi '--session' '/home/alice/.pi/agent/sessions/repo/sess.jsonl'"
+    )
+    expect(command).not.toContain('pi-session-1')
+  })
+
+  it('falls back to a path-based pi resume when no startup plan can be built', () => {
+    // Why: invalid configured CLI args void the startup plan; the fallback must
+    // still resume pi by path, never by the bare session id.
+    const state = makeState({
+      worktreePath: 'C:\\Users\\alice\\repo',
+      localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
+    })
+    state.settings = { ...state.settings, agentDefaultArgs: { pi: "'" } } as never
+
+    expect(
+      buildQueuedAiVaultResumeCommand({
+        state,
+        worktreeId: 'repo-1::worktree-1',
+        session: {
+          agent: 'pi',
+          sessionId: 'pi-session-1',
+          filePath: '/home/alice/.pi/agent/sessions/repo/sess.jsonl',
+          cwd: '/home/alice/repo',
+          codexHome: null
+        }
+      })
+    ).toBe("cd '/home/alice/repo' && pi --session '/home/alice/.pi/agent/sessions/repo/sess.jsonl'")
+  })
+
+  it('launches pi fresh when the vault session has no transcript path', () => {
+    // Why: without a transcript path pi has nothing to resume from, so the
+    // command must not carry a bare session id the CLI rejects (#8876).
+    const state = makeState({
+      worktreePath: 'C:\\Users\\alice\\repo',
+      localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
+    })
+
+    const command = buildQueuedAiVaultResumeCommand({
+      state,
+      worktreeId: 'repo-1::worktree-1',
+      session: {
+        agent: 'pi',
+        sessionId: 'pi-session-1',
+        cwd: '/home/alice/repo',
+        codexHome: null
+      }
+    })
+
+    expect(command).toBe("cd '/home/alice/repo' && pi")
+    expect(command).not.toContain('pi-session-1')
+  })
+
   it('copies syntax that matches the configured cmd shell', () => {
     const state = makeState({
       worktreePath: 'C:\\Users\\alice\\repo',

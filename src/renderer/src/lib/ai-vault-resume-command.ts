@@ -92,7 +92,14 @@ function buildAiVaultResumeForWorktree(args: AiVaultResumeWorktreeArgs): AiVault
   if (isResumableTuiAgent(args.session.agent)) {
     const startupPlan = buildAgentResumeStartupPlan({
       agent: args.session.agent,
-      providerSession: { key: 'session_id', id: args.session.sessionId },
+      providerSession: {
+        key: 'session_id',
+        id: args.session.sessionId,
+        // Why: pi resumes by transcript path, never by bare session id (#8876).
+        ...(args.session.agent === 'pi' && args.session.filePath
+          ? { transcriptPath: args.session.filePath }
+          : {})
+      },
       cmdOverrides: {
         ...args.state.settings?.agentCmdOverrides,
         ...(args.commandOverride?.trim() ? { [args.session.agent]: args.commandOverride } : {})
@@ -120,10 +127,30 @@ function buildAiVaultResumeForWorktree(args: AiVaultResumeWorktreeArgs): AiVault
     }
   }
 
+  // Why: pi resumes only by transcript path (#8876); without one there is no
+  // valid resume target, so launch pi fresh instead of a bare-id --session
+  // argument the CLI rejects.
+  if (args.session.agent === 'pi' && !args.session.filePath?.trim()) {
+    return {
+      command: buildAiVaultResumeShellCommand({
+        resumeCommand: args.commandOverride?.trim() || 'pi',
+        cwd: args.session.cwd,
+        platform,
+        codexHome,
+        shell: liveShell
+      })
+    }
+  }
+
   return {
     command: buildAiVaultResumeCommand({
       agent: args.session.agent,
-      sessionId: args.session.sessionId,
+      // Why: pi's --session locator is the transcript path (#8876); the shared
+      // builder path-swaps omp only, so hand pi the path as its session id.
+      sessionId:
+        args.session.agent === 'pi' && args.session.filePath?.trim()
+          ? args.session.filePath.trim()
+          : args.session.sessionId,
       // Why: OMP resumes by absolute transcript path, so local rebuilds must
       // forward it too — otherwise a custom OMP_CODING_AGENT_DIR / WSL-store
       // session would resume by id against the default store and miss.

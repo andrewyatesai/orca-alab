@@ -76,6 +76,35 @@ describe('buildMobileAiVaultResumeCommand', () => {
     ).toBe("cd '/Users/ada/repo' && omp --resume '/Users/ada/.omp/agent/sessions/repo/sess.jsonl'")
   })
 
+  it('resumes pi sessions by transcript path, never by bare session id', () => {
+    // Regression: pi rejects `--session <id>` (#8876); the forwarded filePath
+    // is the only valid resume locator.
+    const command = buildMobileAiVaultResumeCommand({
+      session: session({
+        agent: 'pi',
+        sessionId: 'pi-session-1',
+        filePath: '/Users/ada/.pi/agent/sessions/repo/sess.jsonl',
+        cwd: '/Users/ada/repo'
+      }),
+      hostPlatform: 'darwin'
+    })
+    expect(command).toBe(
+      "cd '/Users/ada/repo' && pi --session '/Users/ada/.pi/agent/sessions/repo/sess.jsonl'"
+    )
+    expect(command).not.toContain('pi-session-1')
+  })
+
+  it('launches pi fresh when the session has no transcript path', () => {
+    // Why: without a transcript path pi has nothing to resume from, so the
+    // command must not carry a bare session id the CLI rejects (#8876).
+    const command = buildMobileAiVaultResumeCommand({
+      session: session({ agent: 'pi', sessionId: 'pi-session-1', filePath: '' }),
+      hostPlatform: 'darwin'
+    })
+    expect(command).toBe("cd '/Users/ada/repo' && pi")
+    expect(command).not.toContain('pi-session-1')
+  })
+
   it('uses direct cmd syntax when the host Windows terminal is already cmd', () => {
     // Why: resume text is typed into the live host tab. Nested `cmd /d /s /c`
     // wrappers break interactive cmd quoting (see buildAiVaultResumeShellCommand).
@@ -144,6 +173,33 @@ describe('buildMobileAiVaultResumeLaunch', () => {
       agentArgs: '--model opus',
       agentEnv: { ANTHROPIC_BASE_URL: 'http://localhost:3000' }
     })
+  })
+
+  it('plans pi resume from the transcript path, not the session id', () => {
+    // Regression: the launch plan's provider session must carry filePath as
+    // pi's transcript-path locator — a bare session id builds no plan (#8876).
+    const launch = buildMobileAiVaultResumeLaunch({
+      session: session({
+        agent: 'pi',
+        sessionId: 'pi-session-1',
+        filePath: '/Users/ada/.pi/agent/sessions/repo/sess.jsonl',
+        cwd: '/Users/ada/repo'
+      }),
+      hostPlatform: 'darwin'
+    })
+    expect(launch.command).toBe(
+      "cd '/Users/ada/repo' && pi '--session' '/Users/ada/.pi/agent/sessions/repo/sess.jsonl'"
+    )
+    expect(launch.launchAgent).toBe('pi')
+  })
+
+  it('does not resume pi by bare session id when the transcript path is missing', () => {
+    const launch = buildMobileAiVaultResumeLaunch({
+      session: session({ agent: 'pi', sessionId: 'pi-session-1', filePath: '' }),
+      hostPlatform: 'darwin'
+    })
+    expect(launch.command).toBe("cd '/Users/ada/repo' && pi")
+    expect(launch.command).not.toContain('pi-session-1')
   })
 })
 

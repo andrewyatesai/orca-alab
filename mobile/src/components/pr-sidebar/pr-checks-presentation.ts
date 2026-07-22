@@ -18,31 +18,39 @@ export type MobileStatusToken =
 
 export type CheckOutcome = 'success' | 'pending' | 'failure' | 'neutral'
 
-const FAILURE_CONCLUSIONS = new Set<PRCheckDetail['conclusion']>([
-  'failure',
-  'cancelled',
-  'timed_out'
-])
-
-const SUCCESS_CONCLUSIONS = new Set<PRCheckDetail['conclusion']>(['success'])
-
 // Why: a check that is queued/in_progress, or completed with a null/`pending`
 // conclusion, is still pending — never render it as a failure (U5 edge case).
 export function checkOutcome(check: PRCheckDetail): CheckOutcome {
   if (check.status !== 'completed') {
     return 'pending'
   }
-  if (check.conclusion === null || check.conclusion === 'pending') {
+  if (check.conclusion === null) {
     return 'pending'
   }
-  if (FAILURE_CONCLUSIONS.has(check.conclusion)) {
-    return 'failure'
+  switch (check.conclusion) {
+    case 'pending':
+      return 'pending'
+    case 'failure':
+    case 'cancelled':
+    case 'timed_out':
+    // Why: action_required (e.g. a workflow awaiting approval) blocks merge; it
+    // must count as failing so the badge/chip never read green while blocked.
+    case 'action_required':
+      return 'failure'
+    case 'success':
+      return 'success'
+    // neutral / skipped are non-blocking — treat as neutral, not failure.
+    case 'neutral':
+    case 'skipped':
+      return 'neutral'
+    default: {
+      // Why: conclusion is untyped over the wire; fail closed on unknown values
+      // so the checks list never silently reads green for a new GitHub state.
+      const unknown: never = check.conclusion
+      console.warn('[pr-checks-presentation] unknown check conclusion', { conclusion: unknown })
+      return 'failure'
+    }
   }
-  if (SUCCESS_CONCLUSIONS.has(check.conclusion)) {
-    return 'success'
-  }
-  // neutral / skipped are non-blocking — treat as neutral, not failure.
-  return 'neutral'
 }
 
 // Sort order: failures first (most actionable), then pending, then success /
@@ -141,6 +149,8 @@ export function checkStatusLabel(check: PRCheckDetail): string {
       return 'Cancelled'
     case 'timed_out':
       return 'Timed out'
+    case 'action_required':
+      return 'Action required'
     case 'neutral':
       return 'Neutral'
     case 'skipped':

@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PRCheckDetail } from '../../../../src/shared/types'
 import {
   checkOutcome,
+  checkStatusLabel,
   firstFailingCheckKey,
   getPRReviewerRows,
   prCheckKey,
@@ -36,6 +37,20 @@ describe('checkOutcome', () => {
   it('maps neutral/skipped to neutral (non-blocking)', () => {
     expect(checkOutcome(check({ conclusion: 'neutral' }))).toBe('neutral')
     expect(checkOutcome(check({ conclusion: 'skipped' }))).toBe('neutral')
+  })
+  it('maps action_required to failure (blocks merge — never green/neutral)', () => {
+    expect(checkOutcome(check({ conclusion: 'action_required' }))).toBe('failure')
+  })
+  it('fails closed on an unknown conclusion instead of falling through to neutral', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(
+        checkOutcome(check({ conclusion: 'brand_new_state' as PRCheckDetail['conclusion'] }))
+      ).toBe('failure')
+      expect(warn).toHaveBeenCalledOnce()
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 
@@ -109,6 +124,15 @@ describe('summarizePRChecks', () => {
   it('reports success when all pass', () => {
     expect(summarizePRChecks([check({ conclusion: 'success' })]).outcome).toBe('success')
   })
+  it('counts action_required as failed so a blocked PR never summarizes green', () => {
+    const summary = summarizePRChecks([
+      check({ conclusion: 'success' }),
+      check({ conclusion: 'action_required' })
+    ])
+    expect(summary).toMatchObject({ total: 2, passed: 1, pending: 0, failed: 1 })
+    expect(summary.outcome).toBe('failure')
+    expect(summary.label).toBe('1 failing · 1 passed')
+  })
   it('reports a neutral-only set as neutral with a labeled count (not empty success)', () => {
     const summary = summarizePRChecks([
       check({ conclusion: 'neutral' }),
@@ -122,6 +146,12 @@ describe('summarizePRChecks', () => {
       outcome: 'neutral'
     })
     expect(summary.label).toBe('2 neutral')
+  })
+})
+
+describe('checkStatusLabel', () => {
+  it('labels action_required as "Action required", not "Pending"', () => {
+    expect(checkStatusLabel(check({ conclusion: 'action_required' }))).toBe('Action required')
   })
 })
 

@@ -6,7 +6,8 @@ const API_VERSION = '2022-11-28'
 const MAX_RELEASE_BODY_LENGTH = 120_000
 const TRUNCATION_NOTICE =
   '\n\n---\nRelease notes were truncated because GitHub release bodies are limited to 125,000 characters.'
-const DESKTOP_RELEASE_TAG_PATTERN = /^v(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/
+// Why: major 0 is the constellation snapshot namespace, never an app release.
+const DESKTOP_RELEASE_TAG_PATTERN = /^v([1-9]\d*)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/
 
 export function parseDesktopReleaseTag(tag) {
   const match = DESKTOP_RELEASE_TAG_PATTERN.exec(tag)

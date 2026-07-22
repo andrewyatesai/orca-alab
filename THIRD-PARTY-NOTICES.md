@@ -65,86 +65,56 @@ shipped binaries; they are listed for completeness and marked as such.
 
 Four of the artifacts — the two aterm wasm modules, `orca_node.node`, and
 `orca-daemon` — compile in crates of the aterm terminal engine, vendored
-at `rust/aterm/` and licensed under the Apache License, Version 2.0 (full text
-in the appendix). Apache-2.0 §4(d) requires carrying the following NOTICE,
+at `rust/aterm/` and licensed under the Apache License, Version 2.0, with
+per-crate exceptions declared in its NOTICE (full text in the appendix).
+Apache-2.0 §4(d) requires carrying the following NOTICE,
 reproduced verbatim from `rust/aterm/NOTICE`:
 
 ```
 aterm
 Copyright 2026 Andrew Yates
 
-This product is licensed under the Apache License, Version 2.0 (the "License").
-You may obtain a copy of the License in the LICENSE file at the root of this
-repository, or at http://www.apache.org/licenses/LICENSE-2.0.
+Unless a file or component says otherwise, aterm source is licensed under the
+Apache License, Version 2.0. See LICENSE.
 
-The terminal as a whole, and every crate under `crates/` and `apps/` except
-where a more specific license is declared below, is original work of The aterm
-Authors and is distributed under Apache-2.0. aterm is a foundations-first,
-zero-external-dependency project: it deliberately avoids the registry-dependency
-tree, so this ledger is short by design. It will be kept current as the single
-source of truth for any third-party code carried in-tree.
+The aterm-gpu-web and aterm-wasm crates, and individual files marked with
+`SPDX-License-Identifier: MIT`, are licensed under the MIT License. See
+LICENSE-MIT. The aterm-wasm crate was normalized to MIT for this distribution.
 
-================================================================================
-THIRD-PARTY SOFTWARE
-================================================================================
+This source distribution includes modified copies of these upstream crates:
 
-The following components are vendored (copied in-tree) from third-party
-projects. Their original licenses apply to the corresponding files and are
-reproduced in full at the referenced paths. Their SPDX-License-Identifier
-headers identify them at the file level.
+- indexmap 2.14.0, Apache-2.0 OR MIT (`vendor/indexmap/`)
+- libm 0.2.16, MIT (`vendor/libm/`)
+- pkg-config 0.3.33, MIT OR Apache-2.0 (`vendor/pkg-config/`)
+- smol_str 0.2.2, MIT OR Apache-2.0 (`vendor/smol_str/`)
+- winit 0.30.13, Apache-2.0 (`vendor/winit/`)
+- winnow 0.7.15, MIT (`vendor/winnow/`)
 
---------------------------------------------------------------------------------
-1. lz4_flex  (vendored as crate `aterm-lz4`)
---------------------------------------------------------------------------------
+Each vendored crate retains its upstream license text. The winit copy contains
+aterm modifications to macOS application behavior and Wayland seat/data-device
+handling; modified and added files carry prominent notices.
 
-   Component   : aterm-lz4 — block-mode-only subset of the LZ4 compressor.
-   Upstream    : lz4_flex 0.11.5  (https://github.com/pseitz/lz4_flex)
-   Author      : Pascal Seitz et al.
-   License     : MIT
-   SPDX        : MIT  (crate as a whole: "MIT AND Apache-2.0")
-   License text: crates/aterm-lz4/LICENSE-MIT
+`crates/aterm-lz4/` is a modified, block-mode-only subset derived from
+lz4_flex 0.11.5 by Pascal Seitz and contributors. Its upstream-derived files
+are MIT-licensed and carry local compatibility, lint, and verification changes.
+See `crates/aterm-lz4/LICENSE-MIT`.
 
-   The files under `crates/aterm-lz4/src/block/`, `crates/aterm-lz4/src/sink.rs`,
-   `crates/aterm-lz4/src/fastcpy.rs`, and `crates/aterm-lz4/src/fastcpy_unsafe.rs`
-   are copied verbatim from upstream lz4_flex 0.11.5 and remain under the MIT
-   license (see crates/aterm-lz4/LICENSE-MIT). Only `crates/aterm-lz4/src/lib.rs`
-   carries local aterm modifications (crate docs, module wiring, re-exports) and
-   is therefore dual-licensed "Apache-2.0 AND MIT". The crate's `Cargo.toml`
-   declares `license = "MIT AND Apache-2.0"` accordingly.
+Bundled fonts and font fixtures retain their own terms:
 
-   MIT License (MIT)
+- DejaVu Sans Mono: Bitstream Vera and DejaVu terms in
+  `crates/aterm-render/assets/DejaVuSansMono.LICENSE.txt`.
+- Symbols Nerd Font Mono 3.4.0: MIT terms in
+  `crates/aterm-render/assets/SymbolsNerdFont-LICENSE.txt`.
+- JetBrains Mono test fixture: SIL Open Font License 1.1 in
+  `crates/aterm-render/tests/fixtures/OFL.txt`.
 
-   Copyright (c) 2020 Pascal Seitz
+Generated Unicode segmentation, width, emoji-presentation, and compatibility
+tables derive from Unicode data. Unicode copyright and permission terms are in
+UNICODE-LICENSE.txt.
 
-   Permission is hereby granted, free of charge, to any person obtaining a copy
-   of this software and associated documentation files (the "Software"), to deal
-   in the Software without restriction, including without limitation the rights
-   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   copies of the Software, and to permit persons to whom the Software is
-   furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-   SOFTWARE.
-
-================================================================================
-UNICODE DATA
-================================================================================
-
-The crate `aterm-grapheme` ships lookup tables generated from the Unicode
-Character Database (Unicode 16.0.0) — `crates/aterm-grapheme/src/tables/width.rs`
-and `crates/aterm-grapheme/src/tables/gcb.rs`. These tables are generated data,
-not vendored source: they are produced by aterm's own generator from the UCD and
-are distributed under Apache-2.0 as part of aterm. Use of the underlying Unicode
-data is governed by the Unicode License Agreement
-(https://www.unicode.org/license.txt).
+The public source snapshot deliberately excludes private operational notes,
+release credentials, internal proof packets, and unused traced art inputs. It
+includes no executable binary, installer, or managed ALab tool package.
 ```
 
 The aterm crates compiled into the shipped artifacts therefore carry, beyond
@@ -1070,4 +1040,35 @@ Apache-2.0-only crates listed above (`ab_glyph_rasterizer`,
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+```
+
+## Upstream Orca (MIT License)
+
+Orca: ALab Edition is a downstream fork of
+[Orca](https://github.com/stablyai/orca). Portions of this software derived
+from upstream Orca are Copyright (c) 2026 Lovecast Inc. and distributed under
+the MIT License, reproduced in full below as required by its terms:
+
+```
+MIT License
+
+Copyright (c) 2026 Lovecast Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```

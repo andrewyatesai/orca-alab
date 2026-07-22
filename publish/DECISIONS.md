@@ -30,11 +30,12 @@ strategy before it can stage.
 
 ## Versioning
 
-The app versions as `X.Y.Z-fork.N` (see `docs/reference/fork-versioning.md`),
-which does not follow the constellation's `major.minor.dev` scheme. The
-attestation records the version as committed in `publish/config.sh`; release
-binaries (dmg/zip) are distributed via GitHub Releases on the dev repo, not via
-this snapshot.
+The public constellation version of this snapshot is `0.1.0` (committed as
+VERSION_DEFAULT in `publish/config.sh`), following the constellation's
+`major.minor.dev` scheme so `promote` accepts it. The app itself versions
+independently as `X.Y.Z-fork.N` (see `docs/reference/fork-versioning.md`);
+release binaries (dmg/zip) are distributed via GitHub Releases on the dev
+repo, not via this snapshot.
 
 ## Verification policy
 
@@ -59,3 +60,22 @@ baseline. It is structurally blocked today on four independent walls:
    the `rust/aterm` submodule has a public home (`alabsystems/aterm`).
 
 Until those campaigns run, the landing snapshot remains the staged boundary.
+
+## v0.2.0 boundary revision (2026-07-22 release audit)
+
+The v0.1.0 snapshot shipped the dev repo's README/walkthrough verbatim, which
+made false claims on a 6-file snapshot (build instructions with no source,
+"built from this repository", links to the empty alabsystems/aterm). Fixes:
+
+- Transform T1 now **replaces** README.md at export with a purpose-written
+  public landing page: downloads point at THIS repo's Releases (binaries are
+  mirrored there, since the org rewrite forbids referencing the dev org), the
+  two version lines (v0.x snapshot tags vs 1.4.x-fork.N app versions) are
+  explained, and aterm is described without linking an empty repo.
+- FEATURE_WALKTHROUGH.md is **excluded** until a public-appropriate edition
+  exists — its provenance commands and file citations dangle without source.
+- The README hero image moved to `resources/readme-hero.jpg` (exported), so
+  the landing page keeps its product visual.
+- Relicensed: LICENSE is Apache-2.0, NOTICE carries fork copyright, upstream
+  MIT notice preserved in THIRD-PARTY-NOTICES.md (which also re-quotes the
+  aterm NOTICE at the current pin).

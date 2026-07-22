@@ -3,6 +3,7 @@
   "version": "1.4.147-fork.1",
   "description": "Next-gen IDE for parallel agentic development",
   "homepage": "https://github.com/andrewyatesai/orca-alab",
+  "license": "Apache-2.0",
   "author": "stablyai",
   "bin": {
     "orca": "./out/cli/index.js",

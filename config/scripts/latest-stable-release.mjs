@@ -3,7 +3,9 @@
 import { pathToFileURL } from 'node:url'
 
 const API_VERSION = '2022-11-28'
-const DESKTOP_STABLE_TAG_PATTERN = /^v([0-9]+)\.([0-9]+)\.([0-9]+)$/
+// Why: major 0 is the constellation snapshot namespace (publication engine),
+// never a desktop app release; matching it would misreport "latest stable".
+const DESKTOP_STABLE_TAG_PATTERN = /^v([1-9][0-9]*)\.([0-9]+)\.([0-9]+)$/
 
 export function parseDesktopStableTag(tag) {
   const match = DESKTOP_STABLE_TAG_PATTERN.exec(tag)

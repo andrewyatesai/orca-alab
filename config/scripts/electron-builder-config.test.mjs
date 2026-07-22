@@ -98,10 +98,10 @@ describe('electron-builder config', () => {
     expect(electronBuilderConfig.publish).toMatchObject({
       provider: 'github',
       owner: 'andrewyatesai',
-      repo: 'orc'
+      repo: 'orca-alab'
     })
     reloadConfigWithEnv({ ORCA_PUBLIC_IDENTITY: '1' }, (config) => {
-      expect(config.publish).toMatchObject({ owner: 'andrewyatesai', repo: 'orc' })
+      expect(config.publish).toMatchObject({ owner: 'andrewyatesai', repo: 'orca-alab' })
     })
   })
 

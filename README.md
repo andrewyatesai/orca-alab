@@ -31,8 +31,33 @@ Those product capabilities come from upstream Orca. See the
 guide, supported agents, screenshots, and official releases.
 
 <p align="center">
-  <img src="docs/assets/readme-hero.jpg" alt="Orca running coding agents in parallel worktrees" width="960" />
+  <img src="resources/readme-hero.jpg" alt="Orca running coding agents in parallel worktrees" width="960" />
 </p>
+
+## Why ALab Edition?
+
+If you spend your day in terminals full of coding agents, this edition is
+built for you:
+
+- **Speed.** A Rust terminal engine with optimized CPU and GPU WebAssembly
+  renderers keeps panes responsive under agent output floods, and predictive
+  echo keeps typing instant even on slow or remote sessions.
+- **Efficiency.** Focus-aware rendering QoS spends your machine's power on the
+  pane you're looking at — background terminals batch and yield instead of
+  burning CPU.
+- **Stability.** Terminal sessions live in a Rust daemon with detach/reattach
+  and session recovery, so agents keep running and their scrollback survives
+  app restarts and crashes. Failure recovery is verified by end-to-end crash
+  tests, not promised.
+- **A terminal with personality.** aterm's cursor and typing effects — trail
+  crossfades, fresh-ink typing, feathered ribbon ends, per-session matrix
+  rain, and the nyan-rainbow cursor default.
+- **Batteries included.** ALab package bundling ships compiler and solver
+  support with the terminal, so agent workflows that build and verify code
+  work out of the box.
+
+The [feature walkthrough](FEATURE_WALKTHROUGH.md) shows each of these in the
+product; the section below covers the engineering underneath.
 
 ## What ALab Edition improves
 
@@ -110,7 +135,7 @@ Clone with the aterm submodule and install dependencies:
 
 ```bash
 git clone --depth 1 --recurse-submodules https://github.com/andrewyatesai/orca-alab.git
-cd orc
+cd orca-alab
 pnpm install --frozen-lockfile
 pnpm dev
 ```
@@ -190,4 +215,8 @@ and may not match the latest upstream commit at every point in time. Please repo
 edition-specific issues in [this repository](https://github.com/andrewyatesai/orca-alab/issues)
 and upstream issues in the [Orca issue tracker](https://github.com/stablyai/orca/issues).
 
-Orca and this edition are distributed under the [MIT License](LICENSE).
+Orca: ALab Edition is distributed under the [Apache License 2.0](LICENSE),
+Copyright 2026 Andrew Yates (see [NOTICE](NOTICE)). Portions derived from
+upstream Orca remain Copyright (c) 2026 Lovecast Inc. under the MIT License;
+the upstream notice is preserved in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

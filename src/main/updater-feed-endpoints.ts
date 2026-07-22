@@ -13,7 +13,7 @@ const PUBLIC_UPSTREAM_REPO_SLUG = 'stablyai/orca'
 
 /** GitHub `owner/repo` that hosts this fork's releases and update manifests.
  *  Must match the publish block in config/electron-builder.config.cjs. */
-export const UPDATE_FEED_REPO_SLUG = 'andrewyatesai/orc'
+export const UPDATE_FEED_REPO_SLUG = 'andrewyatesai/orca-alab'
 
 // Why: public Orca points these at onorca.dev, the upstream vendor's service —
 // which can remotely re-prompt users to update (nudge) and serves the public

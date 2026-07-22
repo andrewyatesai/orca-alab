@@ -23,11 +23,11 @@ Orca vendors prebuilt WebAssembly engine artifacts (the aterm terminal renderer 
 ```bash
 # CI or a throwaway build env — latest snapshot only, no history.
 # Still contains every current file, so it builds offline.
-git clone --depth 1 https://github.com/andrewyatesai/orc.git
+git clone --depth 1 https://github.com/andrewyatesai/orca-alab.git
 
 # Contributors who stay online — keeps full history (log/blame/upstream
 # merges all work) but fetches large blobs lazily on checkout instead of upfront.
-git clone --filter=blob:none https://github.com/andrewyatesai/orc.git
+git clone --filter=blob:none https://github.com/andrewyatesai/orca-alab.git
 ```
 
 Use `--depth 1` for build/CI environments; use `--filter=blob:none` for day-to-day development where you want history but not the multi-hundred-MB upfront download. (A partial clone fetches blobs on demand, so it is not suitable for a genuinely air-gapped machine — use a full or `--depth 1` clone there.)

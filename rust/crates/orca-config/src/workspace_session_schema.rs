@@ -18,6 +18,7 @@
 //! exotic URLs (documented at the helper).
 
 use orca_agents::is_tui_agent;
+use orca_agents::tui_agent_startup::{get_agent_resume_argv, ProviderSessionKey};
 use orca_core::terminal_tab_id::is_valid_terminal_tab_id;
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
@@ -611,12 +612,13 @@ fn p_last_visited(value: Option<&Value>, path: &[String]) -> PResult {
 
 // ─── Sleeping agents (workspace-session-sleeping-agents.ts) ─────────
 
-const RESUMABLE_TUI_AGENTS: [&str; 9] = [
+const RESUMABLE_TUI_AGENTS: [&str; 10] = [
     "claude",
     "codex",
     "gemini",
     "antigravity",
     "opencode",
+    "pi",
     "mimo-code",
     "droid",
     "grok",
@@ -649,8 +651,8 @@ fn normalize_session_id(value: Option<&Value>) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// `normalizeAgentProviderSession` + the inner z.object: the object strips
-/// `transcriptPath`, so the parsed value is always `{ key, id }`.
+/// `normalizeAgentProviderSession` + the inner z.object: `transcriptPath` is
+/// preserved (trimmed, control-char rejected) — Pi resumes by it (#8876).
 fn normalize_agent_provider_session(raw: &Value) -> Option<Value> {
     let record = raw.as_object()?;
     let key = record.get("key").and_then(Value::as_str)?;
@@ -658,7 +660,16 @@ fn normalize_agent_provider_session(raw: &Value) -> Option<Value> {
         return None;
     }
     let id = normalize_session_id(record.get("id"))?;
-    Some(json!({ "key": key, "id": id }))
+    // `readTranscriptPathFromKeys`: non-strings are ignored, not an error.
+    let transcript_path = record
+        .get("transcriptPath")
+        .and_then(Value::as_str)
+        .map(js_trim)
+        .filter(|t| !t.is_empty() && !has_unsafe_control_chars(t));
+    match transcript_path {
+        Some(path) => Some(json!({ "key": key, "id": id, "transcriptPath": path })),
+        None => Some(json!({ "key": key, "id": id })),
+    }
 }
 
 /// `sleepingAgentLaunchEnvSchema` preprocess: any bad key/value invalidates the
@@ -731,10 +742,17 @@ fn parse_sleeping_record(value: &Value) -> Option<Value> {
         return None;
     }
     out.insert("agent".to_string(), agent.clone());
-    out.insert(
-        "providerSession".to_string(),
-        normalize_agent_provider_session(obj.get("providerSession")?)?,
-    );
+    let provider_session = normalize_agent_provider_session(obj.get("providerSession")?)?;
+    // Record-level refine: a hydrated record must be directly resumable — Pi
+    // additionally needs its transcript path, agents must use their key (#8876).
+    let key = ProviderSessionKey::from_label(provider_session["key"].as_str()?)?;
+    get_agent_resume_argv(
+        agent.as_str()?,
+        key,
+        provider_session["id"].as_str()?,
+        provider_session.get("transcriptPath").and_then(Value::as_str),
+    )?;
+    out.insert("providerSession".to_string(), provider_session);
     let prompt = obj.get("prompt")?;
     if !prompt.is_string() {
         return None;

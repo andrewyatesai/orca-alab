@@ -382,15 +382,25 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
         }
         duplicateCommitAbsorb = null
         noteEffectsKeystroke()
+        // Send the real keystroke to the PTY FIRST — input delivery is sacred and
+        // must NEVER be gated behind the speculative predictive-echo path. A
+        // predict-path throw (worker seam under load) used to propagate out of
+        // this handler BEFORE inputSink, silently swallowing the keystroke.
+        inputSink(data)
         // Predictive echo: track each typed printable as a speculative ghost (the
         // engine declines non-printables/wraps itself). Skipped for paste (bulk,
         // not per-key echo) and IME (committed via compositionend, not here).
+        // Guarded: a speculative-ghost failure can never affect the already-sent
+        // input.
         if (predictionEcho) {
-          for (const ch of data) {
-            predictionEcho.noteChar(ch)
+          try {
+            for (const ch of data) {
+              predictionEcho.noteChar(ch)
+            }
+          } catch {
+            // Speculative only; the real input already reached the PTY above.
           }
         }
-        inputSink(data)
       }
     }
     // Always clear so the sink-bound textarea never accumulates sent characters.

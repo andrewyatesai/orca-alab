@@ -113,7 +113,7 @@ export function migrateLegacyDaemonSessionDirs(
 /**
  * One-time tightening sweep for files written by older builds at umask
  * defaults. POSIX chmods the tree; Windows follows the secure-file ACL
- * pattern (docs/windows-secure-file-acl-hardening.md): restrict the store
+ * pattern (docs/reference/windows-secure-file-acl-hardening.md): restrict the store
  * root asynchronously once and let NTFS inheritance cover children.
  */
 export function tightenDaemonSessionStorePermissions(sessionsRoot: string): void {

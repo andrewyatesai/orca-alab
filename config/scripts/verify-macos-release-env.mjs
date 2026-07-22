@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+// Why: forks without an Apple Developer ID can still publish; the opt-out must
+// be explicit and loud so a signed pipeline never silently degrades to ad-hoc.
+if (process.env.ORCA_ALLOW_UNSIGNED === '1') {
+  console.warn('ORCA_ALLOW_UNSIGNED=1: building an UNSIGNED, UNNOTARIZED release artifact.')
+  console.warn('Gatekeeper will require right-click > Open (or xattr -d com.apple.quarantine).')
+  process.exit(0)
+}
+
 const required = [
   'APPLE_ID',
   'APPLE_APP_SPECIFIC_PASSWORD',

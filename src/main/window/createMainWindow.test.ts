@@ -388,7 +388,8 @@ describe('createMainWindow', () => {
     expect(webContents.setBackgroundThrottling).not.toHaveBeenCalledWith(false)
 
     expect(webContents.setBackgroundThrottling).toHaveBeenCalledWith(true)
-    expect(windowHandlers.get('restore')).toHaveLength(1)
+    // Why: restore has two intended listeners — repaint (registered first, on darwin) and the minimized-state relay.
+    expect(windowHandlers.get('restore')).toHaveLength(2)
     expect(windowHandlers.get('show')).toHaveLength(1)
     expect(windowHandlers.get('focus')).toHaveLength(1)
 

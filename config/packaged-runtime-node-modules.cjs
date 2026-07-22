@@ -32,6 +32,11 @@ const PACKAGED_RUNTIME_PACKAGE_ROOTS = [
   'zod'
 ]
 const WINDOWS_PACKAGED_RUNTIME_PACKAGE_ROOTS = ['windows-native-registry']
+// Why: pnpm skips this win32-gated optional on macOS/Linux hosts (lockfile os: [win32]),
+// so the win32 target's packaged closure must be synthesizable without resolving it.
+const WINDOWS_PACKAGED_RUNTIME_FALLBACK_CLOSURES = {
+  'windows-native-registry': ['windows-native-registry', 'node-addon-api']
+}
 
 const NODE_PTY_PREBUILD_PREFIX_BY_PLATFORM = {
   darwin: 'darwin-',
@@ -163,7 +168,21 @@ function collectPackagedRuntimePackages(electronPlatformName = process.platform)
     ...(electronPlatformName === 'win32' ? WINDOWS_PACKAGED_RUNTIME_PACKAGE_ROOTS : [])
   ]
   for (const packageName of packageRoots) {
-    visit(packageName)
+    try {
+      visit(packageName)
+    } catch (error) {
+      const fallbackClosure = WINDOWS_PACKAGED_RUNTIME_FALLBACK_CLOSURES[packageName]
+      // Why: only non-Windows hosts may substitute the closure; a Windows build
+      // missing the real addon must keep failing loudly.
+      if (!fallbackClosure || process.platform === 'win32') {
+        throw error
+      }
+      for (const fallbackName of fallbackClosure) {
+        if (!packages.has(fallbackName)) {
+          packages.set(fallbackName, join(projectDir, 'node_modules', ...fallbackName.split('/')))
+        }
+      }
+    }
   }
 
   // Why: @parcel/watcher loads its native .node addon from a platform-specific

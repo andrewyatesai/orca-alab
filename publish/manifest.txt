@@ -1,0 +1,6 @@
+README.md
+FEATURE_WALKTHROUGH.md
+LICENSE
+THIRD-PARTY-NOTICES.md
+.gitleaks.toml
+resources/build/icon.png

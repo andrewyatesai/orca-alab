@@ -1,5 +1,5 @@
 From acee85156eea075dfc147add64d6dc152d6272d1 Mon Sep 17 00:00:00 2001
-From: Andrew Yates <ayates@m10-MacBook-M4-Max-36GB-1TB.local>
+From: Andrew Yates <andrewyates.name@gmail.com>
 Date: Sun, 14 Jun 2026 01:36:17 -0700
 Subject: [PATCH] feat(execute_direct): opt-in AY_DIRECT_SOLVE_TIMEOUT_MS
  wall-clock deadline

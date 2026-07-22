@@ -28,6 +28,7 @@ import { loadHosts } from '../src/transport/host-store'
 import { removeHostAndCloseClient } from '../src/transport/host-removal-lifecycle'
 import { pickResumeWorktree } from '../src/worktree/resume-worktree'
 import type { RpcClient } from '../src/transport/rpc-client'
+import { sendSingleFlightRequest } from '../src/transport/request-single-flight'
 import {
   useAllHostClients,
   useCloseHost,
@@ -137,11 +138,11 @@ function clientKey(client: RpcClient): number {
 
 function fetchStats(
   client: RpcClient,
+  hostId: string,
   setStats: (s: StatsSummary) => void,
   disposed: () => boolean
 ) {
-  client
-    .sendRequest('stats.summary')
+  sendSingleFlightRequest(client, hostId, 'stats.summary')
     .then((response) => {
       if (disposed()) {
         return
@@ -179,9 +180,8 @@ function fetchWorktreeInfo(
     })
   }
 
-  client
-    // Why: worktree.ps defaults to 200 and silently truncates; request all so counts are accurate.
-    .sendRequest('worktree.ps', { limit: 10000 })
+  // Why: worktree.ps defaults to 200 and silently truncates; request all so counts are accurate.
+  sendSingleFlightRequest(client, hostId, 'worktree.ps', { limit: 10000 })
     .then((response) => {
       if (disposed()) {
         return
@@ -222,8 +222,7 @@ function fetchAccountsSnapshot(
   ) => void,
   disposed: () => boolean
 ) {
-  client
-    .sendRequest('accounts.list')
+  sendSingleFlightRequest(client, hostId, 'accounts.list')
     .then((response) => {
       if (disposed()) {
         return
@@ -245,9 +244,9 @@ function fetchTaskProviders(
   disposed: () => boolean
 ) {
   Promise.all([
-    client.sendRequest('settings.get'),
-    client.sendRequest('preflight.check'),
-    client.sendRequest('linear.status')
+    sendSingleFlightRequest(client, hostId, 'settings.get'),
+    sendSingleFlightRequest(client, hostId, 'preflight.check'),
+    sendSingleFlightRequest(client, hostId, 'linear.status')
   ])
     .then(([settingsResponse, preflightResponse, linearResponse]) => {
       if (disposed()) {
@@ -397,7 +396,7 @@ export default function HomeScreen() {
       })
       for (const entry of allClientsRef.current) {
         if (entry.client.getState() === 'connected') {
-          fetchStats(entry.client, setStats, () => stale)
+          fetchStats(entry.client, entry.hostId, setStats, () => stale)
           fetchWorktreeInfo(entry.client, entry.hostId, setWorktreeInfo, () => stale)
           fetchAccountsSnapshot(entry.client, entry.hostId, setAccountsByHost, () => stale)
           fetchTaskProviders(entry.client, entry.hostId, setTaskProvidersByHost, () => stale)
@@ -504,7 +503,7 @@ export default function HomeScreen() {
           }
           if (!statsFetched) {
             statsFetched = true
-            fetchStats(entry.client, setStats, () => false)
+            fetchStats(entry.client, entry.hostId, setStats, () => false)
             fetchWorktreeInfo(entry.client, entry.hostId, setWorktreeInfo, () => false)
             fetchTaskProviders(entry.client, entry.hostId, setTaskProvidersByHost, () => false)
           }

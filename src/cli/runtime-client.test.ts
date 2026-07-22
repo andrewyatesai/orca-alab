@@ -125,6 +125,12 @@ describe.skipIf(process.platform === 'win32')('RuntimeClient', () => {
       },
       graph: {
         state: 'not_running'
+      },
+      // Why: daemon status is probed even when the app never started, so
+      // orphaned daemon sessions stay visible in `orca status` (edc1f2033).
+      daemon: {
+        reachable: false,
+        sessionCount: 0
       }
     })
   })

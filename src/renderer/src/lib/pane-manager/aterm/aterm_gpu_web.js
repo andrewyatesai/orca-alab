@@ -969,6 +969,34 @@ export class AtermGpuTerminal {
         return v2;
     }
     /**
+     * Budgeted, resumable variant of [`AtermGpuTerminal::search`] (P1.1):
+     * GPU-module parity with the aterm-wasm export — see that crate's
+     * `search_budgeted` for the full cursor/staleness/equality contract. Runs
+     * at most `row_budget` rows per call; the returned cursor resumes; a
+     * stale/foreign cursor, a new pattern, or changed content restarts from
+     * scratch. Empty query or invalid regex: an immediate empty `complete`
+     * result (and an empty query drops any in-flight state).
+     * @param {string} query
+     * @param {boolean} case_sensitive
+     * @param {boolean} is_regex
+     * @param {number | null | undefined} resume_cursor
+     * @param {number} row_budget
+     * @returns {BudgetedSearchResult}
+     */
+    search_budgeted(query, case_sensitive, is_regex, resume_cursor, row_budget) {
+        const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermgputerminal_search_budgeted(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex, isLikeNone(resume_cursor) ? 0x100000001 : (resume_cursor) >>> 0, row_budget);
+        return BudgetedSearchResult.__wrap(ret);
+    }
+    /**
+     * Drop any in-flight [`AtermGpuTerminal::search_budgeted`] state (frees
+     * the partial index; outstanding cursors go stale and restart if resumed).
+     */
+    search_budgeted_cancel() {
+        wasm.atermgputerminal_search_budgeted_cancel(this.__wbg_ptr);
+    }
+    /**
      * Absolute row of display row 0 at the live bottom. A match at absolute
      * `line` is at display row `line - origin + display_offset`.
      * @returns {number}
@@ -1936,6 +1964,83 @@ export class AtermGpuTerminal {
     }
 }
 if (Symbol.dispose) AtermGpuTerminal.prototype[Symbol.dispose] = AtermGpuTerminal.prototype.free;
+
+/**
+ * One slice of a budgeted search ([`AtermGpuTerminal::search_budgeted`]).
+ * Same shape as the aterm-wasm module's `BudgetedSearchResult` (each wasm
+ * module exports its own copy of the boundary type).
+ */
+export class BudgetedSearchResult {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(BudgetedSearchResult.prototype);
+        obj.__wbg_ptr = ptr;
+        BudgetedSearchResultFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        BudgetedSearchResultFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_budgetedsearchresult_free(ptr, 0);
+    }
+    /**
+     * Whether the search has covered every retained row.
+     * @returns {boolean}
+     */
+    get complete() {
+        const ret = wasm.budgetedsearchresult_complete(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Token to resume with; `undefined` once complete.
+     * @returns {number | undefined}
+     */
+    get cursor() {
+        const ret = wasm.budgetedsearchresult_cursor(this.__wbg_ptr);
+        return ret === 0x100000001 ? undefined : ret;
+    }
+    /**
+     * True when the results may be truncated (eviction or the match cap).
+     * @returns {boolean}
+     */
+    get incomplete_index() {
+        const ret = wasm.budgetedsearchresult_incomplete_index(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Matches accumulated so far as flat `[abs_line, start_col, len]` triplets
+     * (same coordinate contract as [`AtermGpuTerminal::search`]).
+     * @returns {Uint32Array}
+     */
+    get matches() {
+        const ret = wasm.budgetedsearchresult_matches(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Rows scanned so far (progress numerator; restarts reset it).
+     * @returns {number}
+     */
+    get rows_fed() {
+        const ret = wasm.budgetedsearchresult_rows_fed(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Total rows this search will scan (progress denominator).
+     * @returns {number}
+     */
+    get total_rows() {
+        const ret = wasm.budgetedsearchresult_total_rows(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) BudgetedSearchResult.prototype[Symbol.dispose] = BudgetedSearchResult.prototype.free;
 
 /**
  * A detected link under a cell: its text/URL, the half-open display-column span
@@ -3207,6 +3312,9 @@ function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bin
 const AtermGpuTerminalFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_atermgputerminal_free(ptr >>> 0, 1));
+const BudgetedSearchResultFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_budgetedsearchresult_free(ptr >>> 0, 1));
 const LinkHitFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_linkhit_free(ptr >>> 0, 1));

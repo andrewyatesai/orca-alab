@@ -20,8 +20,10 @@ import {
   type WorkerResidentFonts
 } from './aterm-worker-font-registry'
 import type { AtermThemeColors } from './aterm-theme-colors'
+import { copyBudgetedStep, type EngineBudgetedSearchStep } from './aterm-engine-budgeted-search'
 
 export type { WorkerResidentFonts } from './aterm-worker-font-registry'
+export type { EngineBudgetedSearchStep } from './aterm-engine-budgeted-search'
 
 // SINGLE-FLIGHT init per module: the glue's idempotency guard (`if (wasm !==
 // undefined) return`) is race-able — overlapping FIRST init() calls (concurrent
@@ -163,6 +165,19 @@ export type EngineHandle = {
   framebuffer: () => { width: number; height: number }
   /** Run the engine search; both CPU and GPU honor isRegex (3-arg parity). */
   search: (query: string, caseSensitive: boolean, isRegex: boolean) => Uint32Array
+  /** Budgeted resumable search (P1.1): at most `rowBudget` rows of index +
+   *  verify work per call; pass the returned cursor to continue, or a
+   *  different pattern / stale cursor to restart. Optional while Orca and
+   *  aterm generated artifacts roll independently (absent → one-shot search). */
+  searchBudgeted?: (
+    query: string,
+    caseSensitive: boolean,
+    isRegex: boolean,
+    cursor: number | undefined,
+    rowBudget: number
+  ) => EngineBudgetedSearchStep
+  /** Drop any in-flight budgeted search state (frees the partial index). */
+  searchBudgetedCancel?: () => void
   dispose: () => void
 }
 
@@ -272,6 +287,9 @@ export async function buildCpuEngine(
     render,
     framebuffer: () => ({ width, height }),
     search: (q, cs, regex) => t.search(q, cs, regex),
+    searchBudgeted: (q, cs, regex, cursor, rowBudget) =>
+      copyBudgetedStep(t.search_budgeted(q, cs, regex, cursor, rowBudget)),
+    searchBudgetedCancel: () => t.search_budgeted_cancel(),
     dispose: () => {
       try {
         t.free()
@@ -337,6 +355,9 @@ export async function buildGpuEngine(
     // GPU search now forwards isRegex (parity with the CPU binding after the aterm
     // 3-arg widening), so regex search works on the default GPU worker path.
     search: (q, cs, regex) => t.search(q, cs, regex),
+    searchBudgeted: (q, cs, regex, cursor, rowBudget) =>
+      copyBudgetedStep(t.search_budgeted(q, cs, regex, cursor, rowBudget)),
+    searchBudgetedCancel: () => t.search_budgeted_cancel(),
     dispose: () => {
       try {
         t.free()

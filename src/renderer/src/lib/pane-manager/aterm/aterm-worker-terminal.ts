@@ -10,7 +10,7 @@ import { workerWasmHeapBytes, type EngineHandle } from './aterm-worker-engine-bu
 import { createWorkerPredictor, type WorkerPredictor } from './aterm-worker-predictor'
 import { applyAtermWorkerThemeSet } from './aterm-worker-theme-apply'
 import { hasAtermSpillExports } from './aterm-spill-engine-read'
-import { createWorkerSearch } from './aterm-worker-search'
+import { answerSearchFindQuery, createWorkerSearch } from './aterm-worker-search'
 import { answerWorkerTerminalQuery } from './aterm-worker-terminal-query'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
 import { createAtermWorkerEffectsTick } from './aterm-worker-effects-tick'
@@ -123,10 +123,20 @@ export function createWorkerTerminal(
   query: (
     kind: string,
     arg: number | undefined,
-    arg2: number | undefined,
-    text?: string,
-    queryId?: number
+    arg2: number | undefined
   ) => string | number | boolean | null
+  /** Run a searchFind query through the sliced budgeted path: `respond` fires exactly
+   *  once with the post-find `{count, activeIndex}` JSON — synchronously when the find
+   *  completes in one slice, later otherwise — or null when the run was cancelled
+   *  (`isCancelled` observed a newer find between slices, or a newer find/clear
+   *  superseded it). */
+  searchFindQuery: (
+    arg: number | undefined,
+    text: string | undefined,
+    queryId: number,
+    isCancelled: (() => boolean) | undefined,
+    respond: (value: string | null) => void
+  ) => void
   /** Capped serialize for the debounced shutdown cache (full + scrollback-only). */
   serializedCache: () => { full: string; scrollback: string }
   dispose: () => void
@@ -345,8 +355,9 @@ export function createWorkerTerminal(
       // (legacy modes emit bytes ≥ 0x80) so the report isn't truncated.
       return decodeMouseReport(bytes)
     },
-    query: (kind, arg, arg2, text, queryId) =>
-      answerWorkerTerminalQuery(e, search, kind, arg, arg2, text, queryId),
+    query: (kind, arg, arg2) => answerWorkerTerminalQuery(e, kind, arg, arg2),
+    searchFindQuery: (arg, text, queryId, isCancelled, respond) =>
+      answerSearchFindQuery(search, arg, text, queryId, isCancelled, respond),
     // Cap the cached serialize so the debounced push + the sync shutdown read stay
     // bounded (ample scrollback for session restore; the awaitable save paths use the
     // uncapped query round-trip).

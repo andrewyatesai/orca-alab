@@ -912,6 +912,11 @@ export class AtermTerminal {
      * display rows via [`AtermTerminal::search_display_origin`] /
      * [`AtermTerminal::scroll_search_line_into_view`], which stay correct as the
      * viewport scrolls. Empty `query` (or a regex error) yields an empty array.
+     *
+     * One-shot: pays the whole index build in this call and DROPS the
+     * engine's incomplete-results signal. Prefer
+     * [`AtermTerminal::search_budgeted`], which slices the work across calls
+     * and reports `incomplete_index`.
      * @param {string} query
      * @param {boolean} case_sensitive
      * @param {boolean} is_regex
@@ -924,6 +929,45 @@ export class AtermTerminal {
         var v2 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v2;
+    }
+    /**
+     * Budgeted, resumable variant of [`AtermTerminal::search`] (P1.1): runs at
+     * most `row_budget` rows of index-build + verification per call and
+     * returns a [`BudgetedSearchResult`] with a cursor to continue, so the
+     * host can slice a deep-scrollback search across event-loop turns and
+     * CANCEL a superseded query mid-search (drop the cursor; the next call
+     * with a different pattern supersedes the in-flight state).
+     *
+     * Pass `resume_cursor: None` (or a stale/foreign value) to start; pass
+     * each step's `cursor` back to continue. A cursor is only valid for the
+     * same pattern/options and unchanged content — any mismatch restarts from
+     * scratch (fresh cursor, progress reset), never stale results. On the
+     * final step (`complete == true`) the matches equal a one-shot
+     * [`AtermTerminal::search`], and — unlike that legacy API, which drops the
+     * flag — `incomplete_index` reports when eviction or the match cap
+     * truncated the results. Empty query or invalid regex: an immediate
+     * empty `complete` result (matches the legacy API's silence on
+     * half-typed regexes).
+     * @param {string} query
+     * @param {boolean} case_sensitive
+     * @param {boolean} is_regex
+     * @param {number | null | undefined} resume_cursor
+     * @param {number} row_budget
+     * @returns {BudgetedSearchResult}
+     */
+    search_budgeted(query, case_sensitive, is_regex, resume_cursor, row_budget) {
+        const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_search_budgeted(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex, isLikeNone(resume_cursor) ? 0x100000001 : (resume_cursor) >>> 0, row_budget);
+        return BudgetedSearchResult.__wrap(ret);
+    }
+    /**
+     * Drop any in-flight [`AtermTerminal::search_budgeted`] state (frees the
+     * partial index; outstanding cursors go stale and restart if resumed).
+     * Call when the find UI closes or the query is abandoned between slices.
+     */
+    search_budgeted_cancel() {
+        wasm.atermterminal_search_budgeted_cancel(this.__wbg_ptr);
     }
     /**
      * Absolute row of display row 0 at the live bottom (`display_offset == 0`):
@@ -1911,6 +1955,85 @@ export class AtermTerminal {
 if (Symbol.dispose) AtermTerminal.prototype[Symbol.dispose] = AtermTerminal.prototype.free;
 
 /**
+ * One slice of a budgeted search ([`AtermTerminal::search_budgeted`]).
+ */
+export class BudgetedSearchResult {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(BudgetedSearchResult.prototype);
+        obj.__wbg_ptr = ptr;
+        BudgetedSearchResultFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        BudgetedSearchResultFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_budgetedsearchresult_free(ptr, 0);
+    }
+    /**
+     * Whether the search has covered every retained row.
+     * @returns {boolean}
+     */
+    get complete() {
+        const ret = wasm.budgetedsearchresult_complete(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Token to resume with; `undefined` once complete.
+     * @returns {number | undefined}
+     */
+    get cursor() {
+        const ret = wasm.budgetedsearchresult_cursor(this.__wbg_ptr);
+        return ret === 0x100000001 ? undefined : ret;
+    }
+    /**
+     * True when the results may be truncated: index eviction dropped old
+     * rows, or the engine's match cap was reached. (The legacy
+     * [`AtermTerminal::search`] export silently drops this signal.)
+     * @returns {boolean}
+     */
+    get incomplete_index() {
+        const ret = wasm.budgetedsearchresult_incomplete_index(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Matches accumulated so far as flat `[abs_line, start_col, len]` triplets
+     * (same coordinate contract as [`AtermTerminal::search`]). Partial until
+     * [`complete`](Self::complete); already-reported matches keep their order
+     * and positions across slices of one search.
+     * @returns {Uint32Array}
+     */
+    get matches() {
+        const ret = wasm.budgetedsearchresult_matches(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Rows scanned so far (progress numerator; restarts reset it).
+     * @returns {number}
+     */
+    get rows_fed() {
+        const ret = wasm.budgetedsearchresult_rows_fed(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Total rows this search will scan (progress denominator).
+     * @returns {number}
+     */
+    get total_rows() {
+        const ret = wasm.budgetedsearchresult_total_rows(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) BudgetedSearchResult.prototype[Symbol.dispose] = BudgetedSearchResult.prototype.free;
+
+/**
  * A detected link under a cell: its text/URL, the half-open display-column span
  * it covers, and a `kind` discriminant (0=osc8, 1=url, 2=file_path, 3=other).
  */
@@ -2177,6 +2300,9 @@ function __wbg_get_imports() {
 const AtermTerminalFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_atermterminal_free(ptr >>> 0, 1));
+const BudgetedSearchResultFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_budgetedsearchresult_free(ptr >>> 0, 1));
 const LinkHitFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_linkhit_free(ptr >>> 0, 1));

@@ -395,6 +395,21 @@ export class AtermGpuTerminal {
      */
     search(query: string, case_sensitive: boolean, is_regex: boolean): Uint32Array;
     /**
+     * Budgeted, resumable variant of [`AtermGpuTerminal::search`] (P1.1):
+     * GPU-module parity with the aterm-wasm export — see that crate's
+     * `search_budgeted` for the full cursor/staleness/equality contract. Runs
+     * at most `row_budget` rows per call; the returned cursor resumes; a
+     * stale/foreign cursor, a new pattern, or changed content restarts from
+     * scratch. Empty query or invalid regex: an immediate empty `complete`
+     * result (and an empty query drops any in-flight state).
+     */
+    search_budgeted(query: string, case_sensitive: boolean, is_regex: boolean, resume_cursor: number | null | undefined, row_budget: number): BudgetedSearchResult;
+    /**
+     * Drop any in-flight [`AtermGpuTerminal::search_budgeted`] state (frees
+     * the partial index; outstanding cursors go stale and restart if resumed).
+     */
+    search_budgeted_cancel(): void;
+    /**
      * Drop the current selection so the highlight clears on the next render.
      */
     selection_clear(): void;
@@ -1067,6 +1082,42 @@ export class AtermGpuTerminal {
 }
 
 /**
+ * One slice of a budgeted search ([`AtermGpuTerminal::search_budgeted`]).
+ * Same shape as the aterm-wasm module's `BudgetedSearchResult` (each wasm
+ * module exports its own copy of the boundary type).
+ */
+export class BudgetedSearchResult {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Whether the search has covered every retained row.
+     */
+    readonly complete: boolean;
+    /**
+     * Token to resume with; `undefined` once complete.
+     */
+    readonly cursor: number | undefined;
+    /**
+     * True when the results may be truncated (eviction or the match cap).
+     */
+    readonly incomplete_index: boolean;
+    /**
+     * Matches accumulated so far as flat `[abs_line, start_col, len]` triplets
+     * (same coordinate contract as [`AtermGpuTerminal::search`]).
+     */
+    readonly matches: Uint32Array;
+    /**
+     * Rows scanned so far (progress numerator; restarts reset it).
+     */
+    readonly rows_fed: number;
+    /**
+     * Total rows this search will scan (progress denominator).
+     */
+    readonly total_rows: number;
+}
+
+/**
  * A detected link under a cell: its text/URL, the half-open display-column span
  * it covers, and a `kind` discriminant (0=osc8, 1=url, 2=file_path, 3=other).
  * Mirrors `the aterm-wasm crate`'s `LinkHit` so the host link input is unchanged.
@@ -1153,6 +1204,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_atermgputerminal_free: (a: number, b: number) => void;
+    readonly __wbg_budgetedsearchresult_free: (a: number, b: number) => void;
     readonly __wbg_linkhit_free: (a: number, b: number) => void;
     readonly __wbg_selectionrange_free: (a: number, b: number) => void;
     readonly atermgputerminal_adapter_info: (a: number) => [number, number];
@@ -1233,6 +1285,8 @@ export interface InitOutput {
     readonly atermgputerminal_scroll_to_bottom: (a: number) => void;
     readonly atermgputerminal_scroll_to_top: (a: number) => void;
     readonly atermgputerminal_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly atermgputerminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly atermgputerminal_search_budgeted_cancel: (a: number) => void;
     readonly atermgputerminal_search_display_origin: (a: number) => number;
     readonly atermgputerminal_selection_clear: (a: number) => void;
     readonly atermgputerminal_selection_extend: (a: number, b: number, c: number) => void;
@@ -1310,6 +1364,12 @@ export interface InitOutput {
     readonly atermgputerminal_take_response: (a: number) => [number, number];
     readonly atermgputerminal_title: (a: number) => [number, number];
     readonly atermgputerminal_width: (a: number) => number;
+    readonly budgetedsearchresult_complete: (a: number) => number;
+    readonly budgetedsearchresult_cursor: (a: number) => number;
+    readonly budgetedsearchresult_incomplete_index: (a: number) => number;
+    readonly budgetedsearchresult_matches: (a: number) => [number, number];
+    readonly budgetedsearchresult_rows_fed: (a: number) => number;
+    readonly budgetedsearchresult_total_rows: (a: number) => number;
     readonly encode_key_with_mode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly linkhit_end_col: (a: number) => number;
     readonly linkhit_kind: (a: number) => number;

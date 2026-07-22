@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_atermgputerminal_free: (a: number, b: number) => void;
+export const __wbg_budgetedsearchresult_free: (a: number, b: number) => void;
 export const __wbg_linkhit_free: (a: number, b: number) => void;
 export const __wbg_selectionrange_free: (a: number, b: number) => void;
 export const atermgputerminal_adapter_info: (a: number) => [number, number];
@@ -82,6 +83,8 @@ export const atermgputerminal_scroll_search_line_into_view: (a: number, b: numbe
 export const atermgputerminal_scroll_to_bottom: (a: number) => void;
 export const atermgputerminal_scroll_to_top: (a: number) => void;
 export const atermgputerminal_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const atermgputerminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+export const atermgputerminal_search_budgeted_cancel: (a: number) => void;
 export const atermgputerminal_search_display_origin: (a: number) => number;
 export const atermgputerminal_selection_clear: (a: number) => void;
 export const atermgputerminal_selection_extend: (a: number, b: number, c: number) => void;
@@ -159,6 +162,12 @@ export const atermgputerminal_take_osc_events: (a: number) => [number, number];
 export const atermgputerminal_take_response: (a: number) => [number, number];
 export const atermgputerminal_title: (a: number) => [number, number];
 export const atermgputerminal_width: (a: number) => number;
+export const budgetedsearchresult_complete: (a: number) => number;
+export const budgetedsearchresult_cursor: (a: number) => number;
+export const budgetedsearchresult_incomplete_index: (a: number) => number;
+export const budgetedsearchresult_matches: (a: number) => [number, number];
+export const budgetedsearchresult_rows_fed: (a: number) => number;
+export const budgetedsearchresult_total_rows: (a: number) => number;
 export const encode_key_with_mode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
 export const linkhit_end_col: (a: number) => number;
 export const linkhit_kind: (a: number) => number;

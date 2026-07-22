@@ -10,9 +10,14 @@ import {
   createSearchMarkerModelCache,
   type AtermSearchMarkerModel
 } from './aterm-search-marker-model'
+import {
+  createSlicedFindRunner,
+  decodeMatches,
+  type WorkerMatch,
+  type WorkerSearchFindRun
+} from './aterm-worker-search-sliced-find'
 
-/** A match in absolute-row coords (the engine's native index space). */
-type WorkerMatch = { line: number; startCol: number; length: number }
+export type { WorkerSearchFindRun } from './aterm-worker-search-sliced-find'
 
 // Cost gate (P6 interim rule until the engine's incremental index lands): a re-index
 // whose LAST full rebuild took longer than this refresh tick is not re-run on every
@@ -25,38 +30,53 @@ export const SEARCH_REFRESH_TICK_MS = 100
 export const SEARCH_FIND_FLAG_CASE_SENSITIVE = 1
 export const SEARCH_FIND_FLAG_REGEX = 2
 
-/** Decode a searchFind query's wire args (text + flag bits), run it NOW, and answer
- *  the post-find state as the JSON payload the query channel parses. */
+/** Decode a searchFind query's wire args (text + flag bits), run it — sliced through
+ *  the budgeted engine API when available — and `respond` the post-find state as the
+ *  JSON payload the query channel parses (null when the run was cancelled). `respond`
+ *  fires synchronously when the find completes in one slice (small buffers / the
+ *  one-shot fallback), asynchronously otherwise. */
 export function answerSearchFindQuery(
   search: WorkerSearch,
   arg: number | undefined,
   text: string | undefined,
   /** The query id — doubles as the request generation echoed in STATE.searchGeneration. */
-  generation = 0
-): string {
+  generation = 0,
+  isCancelled?: () => boolean,
+  respond?: (value: string | null) => void
+): void {
   const flags = arg ?? 0
   search.find(
     text ?? '',
     (flags & SEARCH_FIND_FLAG_CASE_SENSITIVE) !== 0,
     (flags & SEARCH_FIND_FLAG_REGEX) !== 0,
-    generation
+    generation,
+    {
+      isCancelled,
+      onDone: (completed) =>
+        respond?.(
+          completed
+            ? JSON.stringify({ count: search.count(), activeIndex: search.activeIndex() })
+            : null
+        )
+    }
   )
-  return JSON.stringify({ count: search.count(), activeIndex: search.activeIndex() })
-}
-
-function decodeMatches(flat: Uint32Array): WorkerMatch[] {
-  const matches: WorkerMatch[] = []
-  for (let i = 0; i + 3 <= flat.length; i += 3) {
-    matches.push({ line: flat[i], startCol: flat[i + 1], length: flat[i + 2] })
-  }
-  return matches
 }
 
 export type WorkerSearch = {
-  /** Run a new query NOW (user-initiated — never cost-gated). `generation` is the
+  /** Run a new query (user-initiated — never cost-gated). `generation` is the
    *  query channel's monotonic request id, echoed in the snapshot so the main side
-   *  can flag still-pending results; result correlation itself rides the channel. */
-  find: (query: string, caseSensitive: boolean, isRegex: boolean, generation?: number) => void
+   *  can flag still-pending results; result correlation itself rides the channel.
+   *  With the budgeted engine API the query runs in message-loop-yielding slices
+   *  (a NEW find/clear — or `run.isCancelled` — cancels the in-flight run, whose
+   *  `run.onDone(false)` then settles its query); results/generation land only on
+   *  completion, so a cancelled run's matches never surface. */
+  find: (
+    query: string,
+    caseSensitive: boolean,
+    isRegex: boolean,
+    generation?: number,
+    run?: WorkerSearchFindRun
+  ) => void
   next: () => void
   prev: () => void
   clear: () => void
@@ -172,27 +192,60 @@ export function createWorkerSearch(
     reindexPreservingActive()
   }
 
+  // Adopt a COMPLETED find (sliced or one-shot). Everything the legacy synchronous
+  // find published lands here in one step, so a cancelled sliced run — which never
+  // reaches this — leaves state untouched and its partial matches never surface.
+  const completeFind = (found: WorkerMatch[], gen: number, costMs: number): void => {
+    matches = found
+    lastRebuildMs = costMs
+    resultsVersion++
+    dirty = false
+    stale = false
+    generation = gen
+    // Select the LAST match (closest to the live bottom), matching the main path.
+    active = matches.length > 0 ? matches.length - 1 : -1
+    if (active >= 0) {
+      e.scroll_search_line_into_view(matches[active].line)
+    }
+  }
+
+  // The P1.1 sliced find runner: budgeted engine calls that yield to the worker
+  // message loop between slices; a cancelled run never reaches completeFind.
+  const slicedFind = createSlicedFindRunner(handle, completeFind)
+
   return {
-    find: (q, cs, regex, gen = 0) => {
+    find: (q, cs, regex, gen = 0, run) => {
+      // A new find supersedes any in-flight sliced run (its query settles to null —
+      // the main side already cancelled that promise when it issued this find).
+      slicedFind.cancel()
       query = q
       caseSensitive = cs
       isRegex = regex
-      generation = gen
       dirty = false
       cancelRefreshTimer()
       if (!q) {
+        generation = gen
         matches = []
         active = -1
         stale = false
         resultsVersion++
+        handle.searchBudgetedCancel?.()
+        run?.onDone?.(true)
         return
       }
-      runMeasured()
-      // Select the LAST match (closest to the live bottom), matching the main path.
-      active = matches.length > 0 ? matches.length - 1 : -1
-      if (active >= 0) {
-        e.scroll_search_line_into_view(matches[active].line)
+      if (!handle.searchBudgeted) {
+        // Artifact-skew fallback (engine without the budgeted API): the legacy
+        // blocking one-shot find.
+        generation = gen
+        runMeasured()
+        active = matches.length > 0 ? matches.length - 1 : -1
+        if (active >= 0) {
+          e.scroll_search_line_into_view(matches[active].line)
+        }
+        run?.onDone?.(true)
+        return
       }
+      slicedFind.start(q, cs, regex, gen, run)
     },
     next: () => {
       ensureFresh()
@@ -209,6 +262,8 @@ export function createWorkerSearch(
       }
     },
     clear: () => {
+      slicedFind.cancel()
+      handle.searchBudgetedCancel?.()
       matches = []
       active = -1
       query = ''
@@ -266,7 +321,12 @@ export function createWorkerSearch(
       const firstLine = e.search_display_origin - e.base_y
       return markerCache(matches, active, firstLine, e.base_y + getRows())
     },
-    dispose: cancelRefreshTimer
+    dispose: () => {
+      // Settle any in-flight sliced find BEFORE the engine is freed (its cancel
+      // touches the engine's budgeted state), then drop the trailing timer.
+      slicedFind.cancel()
+      cancelRefreshTimer()
+    }
   }
 
   // Absolute match line → on-screen device-pixel rect, or null when scrolled off

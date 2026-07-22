@@ -376,8 +376,39 @@ export class AtermTerminal {
      * display rows via [`AtermTerminal::search_display_origin`] /
      * [`AtermTerminal::scroll_search_line_into_view`], which stay correct as the
      * viewport scrolls. Empty `query` (or a regex error) yields an empty array.
+     *
+     * One-shot: pays the whole index build in this call and DROPS the
+     * engine's incomplete-results signal. Prefer
+     * [`AtermTerminal::search_budgeted`], which slices the work across calls
+     * and reports `incomplete_index`.
      */
     search(query: string, case_sensitive: boolean, is_regex: boolean): Uint32Array;
+    /**
+     * Budgeted, resumable variant of [`AtermTerminal::search`] (P1.1): runs at
+     * most `row_budget` rows of index-build + verification per call and
+     * returns a [`BudgetedSearchResult`] with a cursor to continue, so the
+     * host can slice a deep-scrollback search across event-loop turns and
+     * CANCEL a superseded query mid-search (drop the cursor; the next call
+     * with a different pattern supersedes the in-flight state).
+     *
+     * Pass `resume_cursor: None` (or a stale/foreign value) to start; pass
+     * each step's `cursor` back to continue. A cursor is only valid for the
+     * same pattern/options and unchanged content — any mismatch restarts from
+     * scratch (fresh cursor, progress reset), never stale results. On the
+     * final step (`complete == true`) the matches equal a one-shot
+     * [`AtermTerminal::search`], and — unlike that legacy API, which drops the
+     * flag — `incomplete_index` reports when eviction or the match cap
+     * truncated the results. Empty query or invalid regex: an immediate
+     * empty `complete` result (matches the legacy API's silence on
+     * half-typed regexes).
+     */
+    search_budgeted(query: string, case_sensitive: boolean, is_regex: boolean, resume_cursor: number | null | undefined, row_budget: number): BudgetedSearchResult;
+    /**
+     * Drop any in-flight [`AtermTerminal::search_budgeted`] state (frees the
+     * partial index; outstanding cursors go stale and restart if resumed).
+     * Call when the find UI closes or the query is abandoned between slices.
+     */
+    search_budgeted_cancel(): void;
     /**
      * Drop the current selection so the highlight clears on the next render.
      */
@@ -1065,6 +1096,44 @@ export class AtermTerminal {
 }
 
 /**
+ * One slice of a budgeted search ([`AtermTerminal::search_budgeted`]).
+ */
+export class BudgetedSearchResult {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Whether the search has covered every retained row.
+     */
+    readonly complete: boolean;
+    /**
+     * Token to resume with; `undefined` once complete.
+     */
+    readonly cursor: number | undefined;
+    /**
+     * True when the results may be truncated: index eviction dropped old
+     * rows, or the engine's match cap was reached. (The legacy
+     * [`AtermTerminal::search`] export silently drops this signal.)
+     */
+    readonly incomplete_index: boolean;
+    /**
+     * Matches accumulated so far as flat `[abs_line, start_col, len]` triplets
+     * (same coordinate contract as [`AtermTerminal::search`]). Partial until
+     * [`complete`](Self::complete); already-reported matches keep their order
+     * and positions across slices of one search.
+     */
+    readonly matches: Uint32Array;
+    /**
+     * Rows scanned so far (progress numerator; restarts reset it).
+     */
+    readonly rows_fed: number;
+    /**
+     * Total rows this search will scan (progress denominator).
+     */
+    readonly total_rows: number;
+}
+
+/**
  * A detected link under a cell: its text/URL, the half-open display-column span
  * it covers, and a `kind` discriminant (0=osc8, 1=url, 2=file_path, 3=other).
  */
@@ -1149,6 +1218,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_atermterminal_free: (a: number, b: number) => void;
+    readonly __wbg_budgetedsearchresult_free: (a: number, b: number) => void;
     readonly __wbg_linkhit_free: (a: number, b: number) => void;
     readonly __wbg_selectionrange_free: (a: number, b: number) => void;
     readonly atermterminal_add_fallback_font: (a: number, b: number, c: number) => [number, number];
@@ -1226,6 +1296,8 @@ export interface InitOutput {
     readonly atermterminal_scroll_to_bottom: (a: number) => void;
     readonly atermterminal_scroll_to_top: (a: number) => void;
     readonly atermterminal_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly atermterminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly atermterminal_search_budgeted_cancel: (a: number) => void;
     readonly atermterminal_search_display_origin: (a: number) => number;
     readonly atermterminal_selection_clear: (a: number) => void;
     readonly atermterminal_selection_extend: (a: number, b: number, c: number) => void;
@@ -1303,6 +1375,12 @@ export interface InitOutput {
     readonly atermterminal_take_response: (a: number) => [number, number];
     readonly atermterminal_title: (a: number) => [number, number];
     readonly atermterminal_width: (a: number) => number;
+    readonly budgetedsearchresult_complete: (a: number) => number;
+    readonly budgetedsearchresult_cursor: (a: number) => number;
+    readonly budgetedsearchresult_incomplete_index: (a: number) => number;
+    readonly budgetedsearchresult_matches: (a: number) => [number, number];
+    readonly budgetedsearchresult_rows_fed: (a: number) => number;
+    readonly budgetedsearchresult_total_rows: (a: number) => number;
     readonly encode_key_with_mode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly linkhit_end_col: (a: number) => number;
     readonly linkhit_kind: (a: number) => number;

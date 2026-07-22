@@ -4,6 +4,7 @@ import type {
   GhosttyImportPreview
 } from '../../shared/types'
 import { HEX_COLOR_RE } from '../../shared/color-validation'
+import { MAX_TERMINAL_LINE_HEIGHT } from '../../shared/terminal-line-height-settings'
 import { parsePaddingValue, parseStrictInt } from './numeric-config-values'
 
 const PALETTE_INDEX_MAP: Record<number, keyof TerminalColorOverrides> = {
@@ -177,7 +178,7 @@ export function mapGhosttyToOrca(
 
     // Why: only percentages translate to xterm's line-height ratio; Ghostty's
     // pixel form depends on the rendered cell height, which we can't know here.
-    // The settings UI clamps terminalLineHeight to [1, 3], so reject outside it.
+    // The settings UI clamps terminalLineHeight to the shared bound; reject outside it.
     'adjust-cell-height': (v) => {
       const match = /^\+?(\d+(?:\.\d+)?)%$/.exec(v.trim())
       if (!match) {
@@ -185,7 +186,7 @@ export function mapGhosttyToOrca(
       }
       const percent = Number(match[1])
       const rawLineHeight = 1 + percent / 100
-      if (rawLineHeight > 3) {
+      if (rawLineHeight > MAX_TERMINAL_LINE_HEIGHT) {
         return null
       }
       const lineHeight = Math.round(100 + percent) / 100

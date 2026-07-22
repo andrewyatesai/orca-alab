@@ -38,9 +38,14 @@ describe('deriveSessionStatus', () => {
     )
   })
 
-  it('reports done for a vanished session with no exit evidence', () => {
+  it('reports ended (unknown outcome, never done) for a vanished session with no exit event', () => {
+    // The #9263 shape: reaped during a stream disconnect / daemon restart —
+    // exitCode stays null, so there is no completion evidence either.
     expect(deriveSessionStatus({ isAlive: false, exitCode: null, foregroundProcess: 'zsh' })).toBe(
-      'done'
+      'ended'
+    )
+    expect(deriveSessionStatus({ isAlive: false, exitCode: null, foregroundProcess: null })).toBe(
+      'ended'
     )
   })
 })
@@ -73,5 +78,14 @@ describe('orderAttentionQueue', () => {
       { id: 'n-new', status: 'needs-you', lastActivityAt: 300 } as const
     ])
     expect(queue.map((entry) => entry.id)).toEqual(['n-new', 'n-old', 'f-new', 'd-old'])
+  })
+
+  it('keeps ended (unknown outcome) sessions in the finished band', () => {
+    const queue = orderAttentionQueue([
+      { id: 'e', status: 'ended', lastActivityAt: 250 } as const,
+      { id: 'n', status: 'needs-you', lastActivityAt: 100 } as const,
+      { id: 'd', status: 'done', lastActivityAt: 300 } as const
+    ])
+    expect(queue.map((entry) => entry.id)).toEqual(['n', 'd', 'e'])
   })
 })

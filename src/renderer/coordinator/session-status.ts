@@ -3,7 +3,7 @@
 // infer): getForegroundProcess, the exit stream event, and liveness.
 import { isShellProcess } from '../../shared/shell-process-detection'
 
-export type CoordinatorSessionStatus = 'working' | 'needs-you' | 'done' | 'failed'
+export type CoordinatorSessionStatus = 'working' | 'needs-you' | 'done' | 'failed' | 'ended'
 
 export type SessionStatusSignals = {
   isAlive: boolean
@@ -16,8 +16,12 @@ export type SessionStatusSignals = {
 
 export function deriveSessionStatus(signals: SessionStatusSignals): CoordinatorSessionStatus {
   if (!signals.isAlive) {
-    // A vanished session with no exit event has no failure evidence → done.
-    return signals.exitCode === null || signals.exitCode === 0 ? 'done' : 'failed'
+    if (signals.exitCode === null) {
+      // Why: vanished with no exit event (daemon restart, reap during a stream
+      // disconnect) is an unknown outcome — never the green done treatment.
+      return 'ended'
+    }
+    return signals.exitCode === 0 ? 'done' : 'failed'
   }
   if (signals.foregroundProcess !== null && isShellProcess(signals.foregroundProcess)) {
     // The shell itself owns the PTY foreground → the session sits at a prompt
@@ -53,7 +57,7 @@ type AttentionCandidate = {
 }
 
 /** The attention queue: sessions needing input or finished — needs-you first,
- *  then done/failed, newest activity first within each band (the design's
+ *  then done/failed/ended, newest activity first within each band (the design's
  *  "needs-you/done first, newest first"). Working sessions never queue. */
 export function orderAttentionQueue<T extends AttentionCandidate>(sessions: readonly T[]): T[] {
   const band = (status: CoordinatorSessionStatus): number => (status === 'needs-you' ? 0 : 1)

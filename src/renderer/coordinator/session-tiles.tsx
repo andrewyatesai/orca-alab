@@ -14,27 +14,37 @@ const STATUS_LABELS: Record<CoordinatorSessionStatus, string> = {
   working: 'Working',
   'needs-you': 'Needs you',
   done: 'Done',
-  failed: 'Failed'
+  failed: 'Failed',
+  ended: 'Ended'
 }
 
+// Why: exhaustive switch with no default — a new status must pick its own
+// presentation instead of silently inheriting one (never-silently-green).
 export function StatusChip({ status }: { status: CoordinatorSessionStatus }): React.JSX.Element {
-  if (status === 'failed') {
-    return <Badge variant="destructive">{STATUS_LABELS.failed}</Badge>
+  switch (status) {
+    case 'failed':
+      return <Badge variant="destructive">{STATUS_LABELS.failed}</Badge>
+    case 'done':
+      return (
+        <Badge
+          variant="outline"
+          className="border-status-success-border bg-status-success-background text-status-success"
+        >
+          {STATUS_LABELS.done}
+        </Badge>
+      )
+    case 'ended':
+      // Unknown outcome (vanished without an exit event): muted, not success.
+      return (
+        <Badge variant="outline" className="text-muted-foreground">
+          {STATUS_LABELS.ended}
+        </Badge>
+      )
+    case 'needs-you':
+      return <Badge variant="default">{STATUS_LABELS['needs-you']}</Badge>
+    case 'working':
+      return <Badge variant="secondary">{STATUS_LABELS.working}</Badge>
   }
-  if (status === 'done') {
-    return (
-      <Badge
-        variant="outline"
-        className="border-status-success-border bg-status-success-background text-status-success"
-      >
-        {STATUS_LABELS.done}
-      </Badge>
-    )
-  }
-  if (status === 'needs-you') {
-    return <Badge variant="default">{STATUS_LABELS['needs-you']}</Badge>
-  }
-  return <Badge variant="secondary">{STATUS_LABELS.working}</Badge>
 }
 
 const PREVIEW_LINES = 6

@@ -142,39 +142,41 @@ web crate.
 | aho-corasick | 1.1.4 | Unlicense OR MIT | crates.io |
 | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 | crates.io |
 | arrayvec | 0.7.6 | MIT OR Apache-2.0 | crates.io |
-| aterm-alloc | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-bits | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-codec | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-containment | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-core | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-effects | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-error | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-error-derive | 0.56.0 | Apache-2.0 | in-tree (build-time proc-macro) |
-| aterm-ffi-types | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-gpu | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-alloc | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-bits | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-codec | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-containment | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-core | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-effects | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-error | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-error-derive | 0.58.0 | Apache-2.0 | in-tree (build-time proc-macro) |
+| aterm-ffi-types | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-gpu | 0.58.0 | Apache-2.0 | in-tree |
 | aterm-gpu-web | 0.0.1 | MIT | in-tree |
-| aterm-grapheme | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-grid | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-hash | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-lexicon | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-log | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-lz4 | 0.56.0 | MIT AND Apache-2.0 | in-tree |
-| aterm-parser | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-policy | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-predict | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-provenance | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-render | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-render-api | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-rle | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-scene | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-scrollback | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-search | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-selection | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-shell-integration | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-sixel | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-tempfile | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-types | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-vi | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-grapheme | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-grid | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-hash | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-lexicon | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-log | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-lz4 | 0.58.0 | MIT AND Apache-2.0 | in-tree |
+| aterm-parser | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-policy | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-predict | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-provenance | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-render | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-render-api | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-rle | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-scene | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-scrollback | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-search | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-selection | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-shell-integration | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-sixel | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-spec | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-spec-macros | 0.58.0 | Apache-2.0 | in-tree (build-time proc-macro) |
+| aterm-tempfile | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-types | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-vi | 0.58.0 | Apache-2.0 | in-tree |
 | aterm-wasm | 0.0.1 | MIT | in-tree |
 | bit-set | 0.9.1 | Apache-2.0 OR MIT | crates.io |
 | bit-vec | 0.9.1 | Apache-2.0 OR MIT | crates.io |
@@ -287,31 +289,33 @@ bundled SQLite C library, which is in the public domain
 | --- | --- | --- | --- |
 | ahash | 0.8.12 | MIT OR Apache-2.0 | crates.io |
 | aho-corasick | 1.1.4 | Unlicense OR MIT | crates.io |
-| aterm-alloc | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-bits | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-codec | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-containment | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-core | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-error | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-error-derive | 0.56.0 | Apache-2.0 | in-tree (build-time proc-macro) |
-| aterm-ffi-types | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-grapheme | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-grid | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-hash | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-log | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-lz4 | 0.56.0 | MIT AND Apache-2.0 | in-tree |
-| aterm-parser | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-policy | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-provenance | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-rle | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-scrollback | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-search | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-selection | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-shell-integration | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-sixel | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-tempfile | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-types | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-vi | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-alloc | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-bits | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-codec | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-containment | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-core | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-error | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-error-derive | 0.58.0 | Apache-2.0 | in-tree (build-time proc-macro) |
+| aterm-ffi-types | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-grapheme | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-grid | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-hash | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-log | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-lz4 | 0.58.0 | MIT AND Apache-2.0 | in-tree |
+| aterm-parser | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-policy | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-provenance | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-rle | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-scrollback | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-search | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-selection | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-shell-integration | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-sixel | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-spec | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-spec-macros | 0.58.0 | Apache-2.0 | in-tree (build-time proc-macro) |
+| aterm-tempfile | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-types | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-vi | 0.58.0 | Apache-2.0 | in-tree |
 | bitflags | 2.13.0 | MIT OR Apache-2.0 | crates.io |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 | crates.io |
 | convert_case | 0.11.0 | MIT | crates.io |
@@ -411,31 +415,33 @@ Orca receives it under BSD-3-Clause — text in the appendix).
 | --- | --- | --- | --- |
 | aho-corasick | 1.1.4 | Unlicense OR MIT | in-tree (vendored) |
 | anyhow | 1.0.102 | MIT OR Apache-2.0 | in-tree (vendored) |
-| aterm-alloc | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-bits | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-codec | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-containment | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-core | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-error | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-error-derive | 0.56.0 | Apache-2.0 | in-tree (build-time proc-macro) |
-| aterm-ffi-types | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-grapheme | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-grid | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-hash | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-log | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-lz4 | 0.56.0 | MIT AND Apache-2.0 | in-tree |
-| aterm-parser | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-policy | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-provenance | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-rle | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-scrollback | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-search | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-selection | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-shell-integration | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-sixel | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-tempfile | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-types | 0.56.0 | Apache-2.0 | in-tree |
-| aterm-vi | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-alloc | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-bits | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-codec | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-containment | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-core | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-error | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-error-derive | 0.58.0 | Apache-2.0 | in-tree (build-time proc-macro) |
+| aterm-ffi-types | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-grapheme | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-grid | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-hash | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-log | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-lz4 | 0.58.0 | MIT AND Apache-2.0 | in-tree |
+| aterm-parser | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-policy | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-provenance | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-rle | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-scrollback | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-search | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-selection | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-shell-integration | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-sixel | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-spec | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-spec-macros | 0.58.0 | Apache-2.0 | in-tree (build-time proc-macro) |
+| aterm-tempfile | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-types | 0.58.0 | Apache-2.0 | in-tree |
+| aterm-vi | 0.58.0 | Apache-2.0 | in-tree |
 | bitflags | 1.3.2 | MIT/Apache-2.0 | in-tree (vendored) |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 | in-tree (vendored) |
 | downcast-rs | 1.2.1 | MIT/Apache-2.0 | in-tree (vendored) |

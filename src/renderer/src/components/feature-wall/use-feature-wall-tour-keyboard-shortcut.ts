@@ -15,7 +15,9 @@ export function useFeatureWallTourKeyboardShortcut({
       return
     }
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (!isScreenSubmitShortcut(event)) {
+      // Why: key repeat would otherwise skip several walkthrough screens while
+      // the user holds the documented shortcut for a fraction too long.
+      if (event.repeat || !isScreenSubmitShortcut(event)) {
         return
       }
       event.preventDefault()

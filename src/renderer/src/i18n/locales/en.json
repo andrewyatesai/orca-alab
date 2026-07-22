@@ -11632,14 +11632,18 @@
             "25ec5356d6": "Setup"
           },
           "FeatureWallModal": {
-            "33dca8bbbe": "A short, workflow-by-workflow tour of Orca.",
-            "3567e147c8": "Get to know Orca"
+            "33dca8bbbe": "11 guided screens · about 4 minutes",
+            "3567e147c8": "Explore Orca: ALab Edition",
+            "a120000001": "Return to Orca",
+            "a130000001": "Finish setup",
+            "a130000002": "13 guided screens · about 6 minutes",
+            "a140000001": "14 guided screens · about 7 minutes"
           },
           "FeatureWallPreview": {
             "a666384798": "Also in this workflow"
           },
           "FeatureWallRail": {
-            "69ea857689": "Completed",
+            "69ea857689": "Viewed",
             "7593d15f94": "Workflows"
           },
           "FeatureWallSetupChecklist": {
@@ -11661,7 +11665,12 @@
             "522cce9e33": "Add project"
           },
           "FeatureWallTourPanel": {
-            "af7d622f6f": "Optional"
+            "af7d622f6f": "Optional",
+            "a120000001": "{{value0}} of {{value1}}",
+            "a120000002": "Learn more",
+            "a120000004": "Step {{value0}} of {{value1}}: {{value2}}",
+            "a120000003": "Tour progress",
+            "a120000005": "Learn more about {{value0}}"
           },
           "KeepAwakeCard": {
             "209713d3c7": "Optional"
@@ -11724,7 +11733,8 @@
             "b13375617e": "Worktree picker truncates names",
             "72f9e516a3": "pressing",
             "fe47c9c9e8": "Workspace ready",
-            "61ffda7601": "Creating workspace"
+            "61ffda7601": "Creating workspace",
+            "c130000001": "Open workspace"
           },
           "WorkbenchAnimatedVisual": {
             "633a91e358": "Thinking…",
@@ -11750,7 +11760,14 @@
             "16877e038d": "splits down",
             "a2b114dad0": "splits right ·",
             "0bc9ad0cd1": "Same pane:",
-            "fc84f17fe7": "Codex session started"
+            "fc84f17fe7": "Codex session started",
+            "h130000001": "› renders metrics",
+            "h130000002": "› updates avatar",
+            "h130000003": "› exports CSV",
+            "h130000004": "› toggles dark mode",
+            "h130000005": "review src/auth for missing error handling",
+            "h130000006": "fix failing checkout test",
+            "h130000007": "timeout checkout"
           },
           "agent": {
             "capability": {
@@ -11817,14 +11834,87 @@
             "orchestration": {
               "OrchestrationPage": {
                 "30b509a467": "2 children",
-                "862605d066": "2 child workspaces"
+                "862605d066": "2 child workspaces",
+                "h130000001": "Splitting auth rewrite into 2 PRs…",
+                "h130000002": "Writing the users table migration…",
+                "h130000003": "Sketching withSession middleware…",
+                "h130000004": "Adding the email_verified column…",
+                "h130000005": "Wiring withSession middleware…",
+                "h130000006": "PR 1/2 ready",
+                "h130000007": "PR 2/2 ready",
+                "h130000008": "redesign auth flow",
+                "h130000009": "PR 1/2: migrate users.sql",
+                "h130000010": "PR 2/2: withSession middleware",
+                "h130000050": "Dependency",
+                "h130000051": "Decision",
+                "h130000052": "Recovery",
+                "h130000011": "Decision gate · answer required",
+                "h130000012": "Relaying your decision · false + explicit backfill",
+                "h130000013": "Human decision received · applying backfill…",
+                "h130000014": "Task 1 complete · schema contract ready",
+                "h130000015": "Dependency satisfied · releasing Task 2",
+                "h130000016": "Schema ready · wiring middleware…",
+                "h130000017": "Blocked · auth contract check failed",
+                "h130000018": "Blocker owned · recovery required",
+                "h130000019": "Recovery · rebase, then rerun the check",
+                "h130000020": "Rebased · rerunning contract check…",
+                "h130000021": "Recovered · contract checks pass",
+                "h130000022": "Coordinator accepted the recovered run",
+                "h130000023": "Plan",
+                "h130000024": "Coordinator maps the dependency graph",
+                "h130000025": "Dispatch",
+                "h130000026": "Task 1 starts; Task 2 stays gated",
+                "h130000027": "Dependency",
+                "h130000028": "Middleware waits for the schema contract",
+                "h130000029": "Question",
+                "h130000030": "A worker pauses the graph for an answer",
+                "h130000031": "Human decision",
+                "h130000032": "You resolve the data-policy gate",
+                "h130000033": "Released",
+                "h130000034": "Task 1 unlocks its dependent worker",
+                "h130000035": "Blocker",
+                "h130000036": "A failed check returns to the coordinator",
+                "h130000037": "Recovery",
+                "h130000038": "Coordinator assigns a rebase and rerun",
+                "h130000039": "Coordinator result",
+                "h130000040": "2 tasks complete · 1 human decision · 1 recovery",
+                "h130000041": "Released · schema ready",
+                "h130000042": "Task 2 waits on Task 1",
+                "h130000043": "Answer required",
+                "h130000044": "Human-approved · false + backfill",
+                "h130000045": "Gate pending",
+                "h130000046": "Recovered · checks pass",
+                "h130000047": "Rebase + rerun active",
+                "h130000048": "Coordinator owns blocker",
+                "h130000049": "Watching worker checks",
+                "h130000063": "2-worker dependency graph",
+                "h130000064": "2 workers · Task 2 depends on Task 1",
+                "h130000053": "Mapping 2 tasks and their dependency…",
+                "h130000054": "Waiting for migration dispatch…",
+                "h130000055": "Waiting on Task 1 schema contract",
+                "h130000056": "Dispatching migration worker…",
+                "h130000057": "Adding email_verified + backfill…",
+                "h130000058": "Holding middleware behind Task 1…",
+                "h130000059": "Question · Default legacy rows to false?",
+                "h130000060": "Coordinator · auth rewrite",
+                "h130000061": "Task 1 · migrate users.sql",
+                "h130000062": "Task 2 · withSession (after Task 1)",
+                "h150000001": "You resolved the gate · false + explicit backfill",
+                "h150000002": "Relay",
+                "h150000003": "Coordinator relays your approved policy"
               },
               "StatusesPage": {
                 "2f549fc0ba": "src/auth/session.test.ts",
                 "139e3d7458": "Updated",
                 "7b26349cb2": "pnpm migrate latest",
                 "78f0318ac1": "Wants to run",
-                "79971d1539": "redesign auth flow"
+                "79971d1539": "redesign auth flow",
+                "h130000001": "Edit",
+                "h130000002": "Bash",
+                "h130000003": "Read",
+                "h130000004": "Looking at the session middleware now…",
+                "h130000005": "Typecheck passes. Pulling on the login route next.",
+                "h130000006": "Adding tests for the redirect path."
               },
               "UsageAccountsCard": {
                 "6986b36708": "Surface rate limits and swap accounts inline.",
@@ -11845,7 +11935,14 @@
                 "0470aaed99": "Weekly",
                 "f421abf962": "Session",
                 "5e45fb1238": "Updated 1m ago",
-                "6a4b1d3c38": "Codex"
+                "6a4b1d3c38": "Codex",
+                "h130000001": "0% used",
+                "h130000002": "96% used",
+                "h130000003": "Resets in 5h",
+                "h130000004": "Resets in 47m",
+                "h130000005": "Team",
+                "h130000006": "0% used 5h · 4% used wk",
+                "h130000007": "96% used 47m"
               },
               "orchestration": {
                 "cards": {
@@ -11908,6 +12005,466 @@
             "0d6efe9cf4": "Recommended on macOS when projects or worktrees live in protected folders.",
             "dac08ec03e": "Opening...",
             "6e3d62b816": "Open Full Disk Access"
+          },
+          "AnywhereWorkflowVisuals": {
+            "e110000001": "Orca desktop",
+            "e110000002": "Choose and guide work",
+            "e110000003": "Orca runtime",
+            "e110000004": "This computer or a paired remote runtime",
+            "e110000005": "Orca Mobile",
+            "e110000006": "Monitor and reply",
+            "e110000007": "Desktop source of truth",
+            "e110000008": "Agent attention",
+            "e110000009": "Safe reconnects",
+            "e110000010": "Visible app scope",
+            "e110000011": "Capabilities checked",
+            "e110000012": "Terminal",
+            "e110000013": "Editor",
+            "e110000014": "Accessibility snapshot",
+            "e110000015": "window “Terminal”",
+            "e110000016": "group “Session controls”",
+            "e110000017": "button “Reconnect”",
+            "e110000018": "text “Agent waiting”",
+            "e110000019": "Inspect, click, type, scroll, and drag when the selected app advertises them.",
+            "e110000020": "Full client",
+            "e110000021": "Runtime",
+            "e110000022": "Optional downstream",
+            "e110000023": "SSH project host",
+            "e110000024": "Runs Git, files, and terminals",
+            "e110000025": "Access",
+            "e110000026": "Native helper + advertised actions",
+            "e110000027": "Advertised actions only",
+            "e110000028": "Companion",
+            "e110000029": "Beta",
+            "e130000001": "On demand",
+            "e130000002": "Workspace environment",
+            "e130000003": "Provisioned from orca.yaml",
+            "e130000004": "Quick Commands",
+            "e130000005": "Notifications",
+            "e130000006": "Monitor + reply",
+            "e130000007": "macOS only · Accessibility + Screen Recording",
+            "e150000001": "Invoke advertised action",
+            "e150000002": "Visible result",
+            "e150000003": "Agent connected"
+          },
+          "FeatureWallTourSurface": {
+            "a110000001": "Continue",
+            "a110000002": "Back",
+            "a120000003": "Done",
+            "a120000004": "Reopen any time from Help > Explore Orca."
+          },
+          "ReviewShipWorkflowVisual": {
+            "c110000001": "src/terminal/session.ts",
+            "c110000002": "Revision · 3 changes",
+            "c110000003": "export async function restoreSession(id: string) {",
+            "c110000004": "return reconnect(id)",
+            "c110000005": "const session = await reconnect(id)",
+            "c110000006": "return verifyScrollback(session)",
+            "c110000007": "Review note",
+            "c110000008": "Preserve restored scrollback before the pane becomes visible.",
+            "c110000009": "Review to publish",
+            "c110000010": "Annotate",
+            "c110000011": "Revise",
+            "c110000012": "Run checks",
+            "c110000013": "Publish",
+            "c110000014": "Pull / merge request",
+            "c110000015": "Checks passing",
+            "header": {
+              "title": "Review and ship",
+              "detail": "Compare, recover, confirm, then close the workspace loop"
+            },
+            "timeline": {
+              "title": "Review path"
+            },
+            "footer": {
+              "disclaimer": "Storyboard only: checks, conflicts, and provider results depend on the repository and Git host."
+            },
+            "candidate": {
+              "title": "Candidate comparison",
+              "a": "Candidate A",
+              "aFiles": "3 files",
+              "b": "Candidate B",
+              "bFiles": "5 files",
+              "focused": "Focused"
+            },
+            "panel": {
+              "progress": "{{value0}} of 10 · Review path"
+            },
+            "evidence": {
+              "archive": "Example end state · workspace archived.",
+              "blocker": "Example blocker",
+              "blockerDetail": "A focused check fails or a merge conflict needs review.",
+              "commit": "Confirm commit + push",
+              "compare": "Open both diffs, then choose a candidate to refine.",
+              "decision": "Human decision before checks or Git write actions.",
+              "note": "Review note: preserve restored scrollback before revealing the pane.",
+              "passed": "Example result · checks pass",
+              "rereview": "Human approval · recovered diff and refreshed checks reviewed",
+              "resolve": "Resolve in workspace",
+              "retry": "Retry focused checks",
+              "review": "Confirm PR / MR",
+              "send": "Send revision",
+              "stage": "Stage focused hunk · src/terminal/session.ts"
+            },
+            "story": {
+              "annotate": {
+                "detail": "Keep feedback attached to the candidate and request another pass.",
+                "title": "Annotate + send revision"
+              },
+              "archive": {
+                "detail": "Move the completed example out of the active workspace list.",
+                "title": "Workspace archived"
+              },
+              "blocked": {
+                "detail": "Keep a failed check or merge conflict visible instead of skipping it.",
+                "title": "Failed check / conflict"
+              },
+              "compare": {
+                "detail": "Inspect parallel diffs before choosing a direction.",
+                "title": "Compare candidates"
+              },
+              "confirm": {
+                "detail": "Keep Git writes distinct from opening a pull or merge request.",
+                "title": "Confirm commit + push, then PR / MR"
+              },
+              "decision": {
+                "detail": "Recheck the revised diff before validation or Git write actions.",
+                "title": "Review decision"
+              },
+              "passed": {
+                "detail": "Use the refreshed result as input to the final human decision.",
+                "title": "Checks pass"
+              },
+              "rereview": {
+                "detail": "Human approval covers the recovered diff before staging or writes.",
+                "title": "Re-review resolved diff"
+              },
+              "stage": {
+                "detail": "Stage only the reviewed hunk before Git writes.",
+                "title": "Stage focused hunk"
+              },
+              "retry": {
+                "detail": "Return to the same workspace context, address the blocker, and retry.",
+                "title": "Return, resolve + retry"
+              }
+            }
+          },
+          "ScaleWorkflowVisuals": {
+            "d110000001": "Automations",
+            "d110000002": "Saved work, on demand or on schedule",
+            "d110000003": "2 saved workflows",
+            "d110000004": "Regression triage",
+            "d110000005": "Scheduled · Weekdays at 9:00 AM UTC",
+            "d110000006": "Dependency review",
+            "d110000007": "Manual · Fresh workspace",
+            "d110000008": "Recent runs",
+            "d110000009": "Completed",
+            "d110000010": "2 minutes ago",
+            "d110000011": "Scheduled",
+            "d110000012": "Tomorrow at 9:00 AM UTC",
+            "d130000001": "Running precheck",
+            "d130000002": "Validating the target before dispatch",
+            "d130000003": "Precheck failed",
+            "d130000004": "Run preserved · fix and rerun",
+            "d130000005": "Rerunning",
+            "d130000006": "Same saved workflow · fresh workspace",
+            "d130000007": "Scheduled · Weekdays · Precheck enabled",
+            "d130000008": "History and output retained",
+            "d140000001": "Previous attempt · Precheck failed",
+            "d140000002": "Target unavailable · run retained",
+            "d140000003": "Recovered on rerun",
+            "d140000004": "Fresh workspace · history and output retained"
+          },
+          "WorkspacesAnimatedVisual": {
+            "f110000001": "Base branch",
+            "f110000002": "Isolated worktree + branch",
+            "f110000003": "Agent activity in isolated workspaces",
+            "f110000004": "set up orca.yaml",
+            "f110000005": "fix login race condition",
+            "f110000006": "speed up CI pipeline",
+            "f110000007": "Codex",
+            "f110000008": "Claude Code",
+            "f110000009": "OpenCode",
+            "f110000010": "Same task, three candidates",
+            "f110000011": "Candidate",
+            "f110000012": "Checks",
+            "f110000013": "Diff",
+            "f110000014": "1 task → 1 winner",
+            "f110000016": "Ready",
+            "f110000017": "Working",
+            "f110000018": "Complete",
+            "f110000019": "Winner",
+            "f110000020": "Archived",
+            "f110000021": "Start with one task on main",
+            "f110000022": "Fan out into three isolated worktrees",
+            "f110000023": "Codex, Claude, and OpenCode work in parallel",
+            "f110000025": "Candidates finished · compare checks and diff outcomes",
+            "f110000026": "Codex chosen as the winner",
+            "f110000027": "Winner kept · two alternatives archived",
+            "f140000001": "Git project · base branch"
+          },
+          "TerminalProjectWorkflowVisuals": {
+            "b110000001": "Shell",
+            "b110000002": "Codex",
+            "b110000003": "Last login: today on console",
+            "b110000004": "codex",
+            "b110000005": "Agent session attached",
+            "b110000006": "Ready in the active workspace terminal.",
+            "b110000008": "Session",
+            "b110000009": "Persistence",
+            "b110000010": "Sessions survive reconnects",
+            "b110000011": "Layout",
+            "b110000012": "Tabs and nested splits",
+            "b110000013": "Engine",
+            "b110000014": "aterm · Rust",
+            "b110000015": "This computer",
+            "b110000016": "Use Orca on this device",
+            "b110000017": "SSH host",
+            "b110000018": "Connect to an existing machine over SSH",
+            "b110000019": "Paired Orca runtime",
+            "b110000020": "Pair with Orca running on another computer",
+            "b110000021": "Add project",
+            "b110000022": "Choose where work runs, then how the codebase gets there.",
+            "b110000023": "1 · Location",
+            "b110000024": "Where project operations run",
+            "b110000025": "2 · Codebase",
+            "b110000026": "How code gets there",
+            "b110000027": "Open existing folder",
+            "b110000028": "Keep the current checkout and branch",
+            "b110000029": "Clone repository",
+            "b110000030": "Clone into the chosen location",
+            "b110000031": "Create project",
+            "b110000032": "Start from an empty folder",
+            "b130000001": "Host reboot",
+            "b130000002": "Layout + scrollback restore",
+            "b130000003": "Warm restart",
+            "b130000004": "Live process reattaches",
+            "b140000001": "Native host or WSL on Windows"
+          },
+          "feature-wall-step-localization": {
+            "g120000001": "Terminal first",
+            "g120000002": "Start in a terminal—project or scratch",
+            "g120000003": "When a workspace is active, Orca opens its terminal by default. Run any CLI agent, split tabs and panes, and return to persistent sessions after reconnecting.",
+            "g120000004": "Add a project",
+            "g120000005": "Bring in a codebase",
+            "g120000006": "Choose where project operations run—this computer, an SSH host, or a paired Orca runtime—then open an existing folder, clone a repository, or create a project. Existing checkouts stay on their current branch.",
+            "g120000007": "Tasks",
+            "g120000008": "Turn tasks into ready-to-run work",
+            "g120000009": "Connect the providers you use, browse GitHub, GitLab, Linear, and Jira work, then carry an issue or review into a workspace as linked context.",
+            "g120000010": "Workspaces",
+            "g120000011": "Keep every task isolated",
+            "g120000012": "Each Git workspace gets its own worktree, branch, terminals, files, browser state, and agent sessions so parallel work does not collide.",
+            "g120000013": "Agent fleet",
+            "g120000014": "See every agent at a glance",
+            "g120000015": "Run any terminal-based agent. For supported agents, see which sessions are working, waiting, blocked, or done without opening every terminal.",
+            "g120000016": "Workbench",
+            "g120000017": "Keep implementation context together",
+            "g120000018": "Move between terminal splits, the editor, files, ports, and the embedded browser; send selected UI context to agents with Design Mode.",
+            "g120000019": "Review & ship",
+            "g120000020": "Review, revise, then publish",
+            "g120000021": "Annotate local diffs and send one focused revision bundle to the agent. With a connected Git provider, inspect hosted checks and prepare a commit plus pull or merge request.",
+            "g120000022": "Orchestration",
+            "g120000023": "Coordinate work that needs a team",
+            "g120000024": "Give a coordinator dependent tasks, let workers report progress or blockers, and collect their results into one accountable run.",
+            "g120000025": "Automations",
+            "g120000026": "Make recurring work repeatable",
+            "g120000027": "Save a prompt and target, then run it manually or on a schedule. Remote targets must be reachable; each run can use a fresh or existing workspace and stays visible in history.",
+            "g120000028": "Remote & mobile",
+            "g120000029": "Keep work moving away from this machine",
+            "g120000030": "After one-time pairing, Orca Mobile acts as a companion for monitoring and follow-ups while the desktop/runtime remains the source of truth. Projects can run there or on a separate SSH host.",
+            "g120000031": "Computer Use",
+            "g120000032": "Operate desktop apps with guardrails",
+            "g120000033": "Computer Use ships native helpers per platform. On macOS, grant Accessibility and Screen Recording; on every platform, check capabilities before inspecting a visible app and invoking advertised actions. Use Orca's browser tools for pages inside Orca.",
+            "g120000034": "Beta",
+            "g120000035": "Mobile beta",
+            "g130000001": "Browser & Design Mode",
+            "g130000002": "Turn rendered UI into precise agent context",
+            "g130000003": "Open a real Chromium page for the workspace, select an element in Design Mode, and send its DOM and computed styles, plus a source hint and cropped screenshot when available, to an agent. Import cookies into a selected browser profile only when you choose to reuse an authenticated session. Review the context, hot-reload the result, and verify the changed state.",
+            "g130000004": "CLI & Skills",
+            "g130000005": "Let agents drive Orca itself",
+            "g130000006": "The Orca CLI and version-matched bundled, personal, repository, and plugin skills let agents operate workspaces, terminals, files, browsers, and automations. Discovery follows the host that runs the work—local, SSH, or paired runtime.",
+            "g130000007": "Orca opens a workspace terminal by default—or a local scratch terminal before a project exists. Run any CLI agent, split tabs or panes, and review then launch Quick Commands. Project commands from orca.yaml stay inert until you approve the current shared content; changes require re-review. GPU/CPU rendering, focus-aware QoS, predictive echo, full-scrollback search, inline images, terminal effects, and bundled build tools support heavy agent work. Warm sessions reattach after an app restart; after a host reboot, Orca restores layout and scrollback, not exited processes.",
+            "g130000008": "Race approaches",
+            "g130000009": "Plan, fan out, and keep the winner",
+            "g130000010": "Create several isolated workspaces from the same base, give agents the same task, compare their diffs and checks, keep the best result, then archive the alternatives.",
+            "g130000011": "Agents & attention",
+            "g130000012": "Intervene now, recover context later",
+            "g130000013": "Run supported or custom terminal agents, then use statuses, the optional Agents feed, and notifications to reach waiting or blocked work. Search Agent Session History, inspect a log when available, jump to its worktree, or resume when the transcript has conversation content and the target workspace and host are compatible. Manual leaves agent permission checks enabled; full autonomy asks supported agents to bypass them. Neither makes worktrees a machine-security sandbox.",
+            "g130000014": "Move through code and context without friction",
+            "g130000015": "Use Quick Open and the Jump Palette across workspace tabs, files, settings, actions, ports, and rich previews; drag context into an agent prompt. Use the default-on Floating Workspace for cross-repo or scratch terminal, agent, Markdown, and browser tabs. Its directory and tabs stay local while an SSH or paired-runtime workspace is focused. Optional Voice Dictation transcribes into the focused pane after model and microphone setup.",
+            "g130000016": "Compare, recover, and publish deliberately",
+            "g130000017": "Compare candidate diffs, annotate lines, send a revision bundle, and stage focused hunks. Resolve conflicts or failed checks, recover from a checkpoint when needed, explicitly confirm publishing, then archive the finished workspace.",
+            "g130000018": "Coordinate work with dependencies",
+            "g130000019": "Use a simple workspace race for independent approaches. When tasks depend on one another, give a coordinator a worker graph, pause for human decisions when workers raise questions, relay those decisions, recover blockers, and collect the results into one accountable run.",
+            "g130000020": "Save a prompt and target, add an optional precheck, then run manually or on a schedule in a fresh or existing workspace. Inspect history, recover failed runs, and rerun when the selected local or remote target is reachable.",
+            "g130000021": "Run projects locally, over SSH, on a paired runtime, or in an on-demand environment described by orca.yaml. After one-time pairing, Orca Mobile remains a companion for notifications, monitoring, Quick Commands, and follow-ups; the desktop/runtime coordinates the session, while the selected local or SSH host retains execution authority.",
+            "g140000006": "Choose where project operations run—this computer (native or WSL), an SSH host, or a paired Orca runtime—then open an existing folder, clone a repository, or create a project. Existing checkouts stay on their current branch.",
+            "g140000001": "Use the Workspace Board to organize existing workspaces in status lanes. For a Git project, fan one task into isolated worktrees from the same base, compare each diff and check result, keep the winner, then archive alternatives. Folder-only projects keep sharing their original root; the board does not launch or merge the race.",
+            "g140000002": "Compare candidate diffs, annotate lines, and send a revision bundle. If checks fail or conflicts surface, return to the same workspace, resolve, and retry; then have a human re-review the resolved diff and refreshed checks before staging focused hunks. Confirm Git writes and PR/MR publishing separately, then archive the finished workspace.",
+            "g140000003": "App emulators",
+            "g140000004": "Drive iOS and Android test devices",
+            "g140000005": "On a Mac with Xcode, open Orca's workspace-scoped iOS Simulator pane. On macOS, Linux, or Windows, target a booted Android emulator or physical ADB device through the same CLI namespace and stream it into Orca's workspace Emulator pane; an AVD can also keep its own window open. Let an agent load the version-matched skill, discover the exact device, inspect accessibility or logs, act, and verify; iOS control is local to the Mac.",
+            "g150000001": "Choose where project operations run—this computer (native or WSL), an SSH host, or a paired Orca runtime—then open an existing folder, clone a repository, or create a project. Existing checkouts stay on their current branch. When you later create a Git workspace, configured repository setup/install commands can run automatically in its new worktree after you approve shared orca.yaml command content; changes require re-review."
+          },
+          "feature-wall-workflow-localization": {
+            "f120000001": "Start",
+            "f120000002": "Terminal · Projects",
+            "f120000003": "Start in a local scratch terminal or resume the active workspace terminal, then add another codebase and runtime when you need one.",
+            "f120000004": "Plan",
+            "f120000005": "Tasks · Workspaces",
+            "f120000006": "Turn incoming work into an isolated environment with its context attached.",
+            "f120000007": "Build",
+            "f120000008": "Agents · Workbench",
+            "f120000009": "Run the agents you already use and keep implementation context in one place.",
+            "f120000010": "Ship",
+            "f120000011": "Review · Checks · Publish",
+            "f120000012": "Turn an agent result into a reviewed, provider-ready change.",
+            "f120000013": "Scale",
+            "f120000014": "Orchestration · Automations",
+            "f120000015": "Coordinate dependent work and make repeatable jobs run on demand or on schedule.",
+            "f120000016": "Anywhere",
+            "f120000017": "SSH · Mobile · Computer Use",
+            "f120000018": "Connect the desktop and its mobile companion through an Orca runtime, reach separate project hosts over SSH, and, where supported, operate visible desktop apps.",
+            "f130000001": "Agents · Workbench · Browser",
+            "f130000002": "Guide the agents you already use, keep implementation context together, and verify UI work in place.",
+            "f130000003": "CLI & Skills · Orchestration · Automations",
+            "f130000004": "Let agents operate Orca, coordinate dependent work, and make repeatable jobs run on demand or on schedule.",
+            "f140000001": "SSH · Mobile · Emulators · Computer Use",
+            "f140000002": "Reach remote work, keep an eye on it from Mobile, exercise apps on iOS or Android, and, where supported, operate visible desktop software."
+          },
+          "feature-wall-terminal-shell": {
+            "h130000001": "Persistent shell session ready"
+          },
+          "CliSkillsWorkflowVisual": {
+            "j130000001": "Agent control loop",
+            "j130000009": "Bundled",
+            "j130000010": "Repository",
+            "j130000011": "Personal",
+            "j130000012": "Plugin",
+            "j130000014": "Discover",
+            "j130000015": "Create",
+            "j130000016": "Operate",
+            "j130000017": "Verify",
+            "j130000002": "Agent terminal · SSH build host",
+            "j130000003": "Example Orca state",
+            "j130000004": "Version-matched skill loaded",
+            "j130000005": "Workspace appeared",
+            "j130000006": "Browser element targeted",
+            "j130000007": "Result verified",
+            "j130000008": "JSON output keeps agent actions inspectable and scriptable.",
+            "j130000018": "Resolved CLI · orca-dev (development example)",
+            "j130000019": "Post-click snapshot · status observed",
+            "j140000020": "button"
+          },
+          "WorkbenchContextWorkflowVisual": {
+            "i130000008": "Terminal",
+            "i130000009": "session.ts",
+            "i130000001": "Preview",
+            "i130000010": "1 · Find",
+            "i130000011": "2 · Edit",
+            "i130000012": "3 · Attach",
+            "i130000013": "4 · Preview",
+            "i130000002": "Files",
+            "i130000003": "Selected context",
+            "i130000004": "Session recovery",
+            "i130000005": "Layout and scrollback remain available after a host restart.",
+            "i130000006": "Agent context",
+            "i130000007": "Check the recovery behavior and update the tests."
+          },
+          "BrowserDesignPayloadSummary": {
+            "a140000001": "DOM",
+            "a150000001": "Computed styles",
+            "a150000002": "Source hint · when available",
+            "a150000003": "Cropped PNG · when available",
+            "a140000005": "Attached",
+            "a140000006": "Destination · Claude in this workspace",
+            "a140000007": "Review before sending—captured context may include visible site content.",
+            "a140000008": "Sensitive-context boundary · captured context may include visible site content.",
+            "a150000005": "Sensitive-context boundary · captured context may include visible site content. Profile or cookie reuse is opt-in.",
+            "a150000004": "Review before sending—captured context may include visible site content. Profile or cookie reuse is opt-in.",
+            "profile": {
+              "label": "Browser profile",
+              "value": "Workspace QA"
+            },
+            "cookies": {
+              "label": "Cookie import",
+              "value": "Off · choose to enable"
+            }
+          },
+          "FeatureWallStepVisual": {
+            "k130000001": "Illustrative example",
+            "k150000001": "Illustrative example: Orca opens the active workspace terminal, or a local scratch terminal before any project exists. Review and run a project Quick Command, then see GPU/CPU rendering, focus-aware QoS, predictive echo, full-scrollback search, inline images, effects, and bundled build tools. A live session reattaches after a warm restart; a host reboot restores layout and scrollback.",
+            "k150000002": "Illustrative example: choose this computer or WSL, SSH, or a paired runtime, then open, clone, or create the codebase without changing the current checkout.",
+            "k150000003": "Illustrative example: connect a task provider, open an issue as workspace context, wait while it is read, then open the ready workspace.",
+            "k150000004": "Illustrative example: move an existing workspace card and see lane counts update, fan one Git task into isolated worktrees, compare checks and diffs, explicitly select the winner, and archive alternatives.",
+            "k150000005": "Illustrative example: monitor agent attention, reply and recover sessions, switch accounts, then search Agent Session History; resume only with conversation content and a compatible target, jump to an owned worktree, or inspect an available local log.",
+            "k150000006": "Illustrative example: use Quick Open and the Jump Palette, make and autosave an edit, attach context, preview rich files, and dictate into the focused pane after model and microphone setup. The default-on local Floating Workspace holds cross-repository agents, scratch terminals, notes, and browser tabs while remote work stays remote.",
+            "k150000007": "Illustrative example: select rendered UI, review the DOM, computed styles, optional source hint and cropped screenshot, destination, and sensitive context, send it to the workspace agent, then verify the updated page.",
+            "k150000008": "Illustrative example: compare candidates, annotate a revision, and make a human review decision. Resolve failed checks or conflicts in the same workspace, rerun checks, then have a human re-review the resolved diff and refreshed checks before staging. Confirm Git and review-request writes separately, then archive.",
+            "k150000009": "Illustrative example: on an SSH host, discover a version-matched skill, create a worktree through the orca relay, inspect snapshots, act on an element reference, then verify with a fresh snapshot.",
+            "k150000010": "Illustrative example: coordinate dependent tasks, pause when a worker asks a question, have a human resolve the decision gate, let the coordinator relay that approved decision, recover a failed contract check, and accept the accountable result.",
+            "k150000011": "Illustrative example: save scheduled or manual work with a precheck, preserve failed history, recover on rerun, and inspect the completed result.",
+            "k150000012": "Illustrative example: keep SSH execution owned by the remote host, restore forwarded ports after reconnect, provision an orca.yaml environment, and monitor or reply from Mobile.",
+            "k150000013": "Illustrative example: select an exact iOS or Android device, inspect accessibility and logs, recover a missing or stale target by retrying emulator-5554, tap Email, type agent@example.com, and verify the updated profile state.",
+            "k150000014": "Illustrative example: check platform capabilities and permissions, limit work to visible apps, inspect Terminal accessibility, invoke the advertised Reconnect action, and see the visible result “Agent connected.”",
+            "k150000015": "Illustrative example: choose this computer or WSL, SSH, or a paired runtime and open an existing folder without changing its branch. After the project is added, explicitly create a Git workspace; Orca creates its isolated worktree, runs the approved shared orca.yaml setup command there, and leaves the workspace terminal and completed setup output visible."
+          },
+          "MobileEmulatorsWorkflowVisual": {
+            "m140000001": "Workspace app test loop",
+            "m140000002": "Exact device selected",
+            "m140000003": "iOS Simulator",
+            "m140000004": "Local Mac · Xcode required",
+            "m140000005": "Live Orca emulator pane",
+            "m140000006": "Attach workspace device",
+            "m140000007": "Inspect accessibility",
+            "m140000008": "Tap, type, gesture",
+            "m140000009": "Android emulator / device",
+            "m140000010": "macOS · Linux · Windows",
+            "m140000011": "Visible Android emulator window",
+            "m140000012": "Discover booted ADB device",
+            "m140000013": "Install, launch, inspect logs",
+            "m140000014": "Tap, type, verify",
+            "m140000015": "No active or stale target",
+            "m140000016": "List, attach, or boot",
+            "m140000017": "Retry with explicit device ID",
+            "m140000018": "iOS control stays on the Mac that owns Simulator. Emulator actions can change the running app and its test data, so inspect the target before acting.",
+            "m150000001": "Live Orca emulator pane",
+            "m150000002": "Stream, install, launch, inspect logs",
+            "m150000003": "Device connected",
+            "m150000004": "Tap Email · type agent@example.com",
+            "m150000005": "Verified app state",
+            "m150000006": "Profile email · agent@example.com"
+          },
+          "RemoteMobileWorkflowVisual": {
+            "b140000001": "Full client",
+            "b140000002": "Orca desktop",
+            "b140000003": "Choose and guide work",
+            "b140000004": "Runtime",
+            "b140000005": "Orca runtime",
+            "b140000006": "Desktop source of truth",
+            "b140000007": "Companion",
+            "b140000008": "Orca Mobile",
+            "b140000009": "Monitor and reply",
+            "b140000010": "Beta",
+            "b140000011": "Operational SSH path",
+            "b140000012": "Optional downstream",
+            "b140000013": "SSH project host",
+            "b140000026": "Terminal",
+            "b140000027": "Git",
+            "b140000028": "Files",
+            "b140000014": "Forwarded port :3000",
+            "b140000015": "Preview in the Orca browser",
+            "b140000016": "SSH disconnects",
+            "b140000017": "Reconnect + recover",
+            "b140000018": "SSH owner retained",
+            "b140000019": "The workspace stays assigned to the remote host; saved port forwards return after reconnect, never as local execution.",
+            "b140000020": "On demand",
+            "b140000021": "Workspace environment",
+            "b140000022": "Provisioned from orca.yaml",
+            "b140000023": "Mobile companion",
+            "b140000024": "Notifications + follow-ups",
+            "b140000025": "Monitor · reply · Quick Commands",
+            "b140000029": "Coordination + session authority"
           }
         },
         "tips": {
@@ -13826,6 +14383,213 @@
           "b3d7e0f1a8": "merge request",
           "a2c6d9e0f7": "Merge Request",
           "91b5c8d7e6": "GitLab"
+        }
+      }
+    },
+    "fw": {
+      "agentAttention": {
+        "f130000001": "Agent fleet",
+        "f130000002": "Supported and custom terminal agents",
+        "f130000003": "Reconnected · 3 sessions restored",
+        "f130000004": "Active sessions",
+        "f130000005": "3 agents",
+        "f130000006": "Claude",
+        "f130000007": "Supported",
+        "f130000044": "Working",
+        "f130000008": "Refining the reconnect flow",
+        "f130000009": "Codex",
+        "f130000024": "Needs attention",
+        "f130000010": "Needs approval to run focused tests",
+        "f130000011": "Running the approved test suite",
+        "f130000012": "Tracing session state",
+        "f130000013": "Release QA",
+        "f130000014": "Custom CLI",
+        "f130000045": "Done",
+        "f130000015": "Checked Windows and SSH behavior",
+        "f130000016": "Session response",
+        "f130000017": "Transcript + scrollback restored",
+        "f130000018": "You",
+        "f130000019": "Run the focused test suite.",
+        "f130000020": "Waiting for an agent request…",
+        "f130000021": "Continuing in the same terminal session.",
+        "f130000022": "Inbox",
+        "f130000023": "Needs attention · resolved",
+        "f130000025": "Watching all sessions",
+        "f130000026": "Opened from Inbox · reply sent to Codex",
+        "f130000027": "Jump directly to waiting or blocked work.",
+        "f130000028": "Open in Inbox",
+        "f130000029": "Usage & accounts",
+        "f130000030": "Example state",
+        "f130000031": "Codex account",
+        "f130000032": "Team",
+        "f130000033": "Personal",
+        "f130000034": "{{value0}}% used · resets in 5h",
+        "f130000035": "Claude weekly",
+        "f130000036": "41% used",
+        "f130000037": "Switched from Personal at 94% used",
+        "f130000046": "Switch to Team · 18% used",
+        "f130000038": "Autonomy boundary",
+        "f130000039": "Worktrees isolate files, not the machine. Full autonomy uses your host access.",
+        "f130000040": "Manual",
+        "f130000041": "Asks before sensitive actions",
+        "f130000042": "Full autonomy",
+        "f130000043": "Fewer approval prompts",
+        "vault": {
+          "title": "Agent Session History",
+          "optional": "Optional · experimental",
+          "search": "Workspace scope · reconnect",
+          "result": "Codex · reconnect flow",
+          "jump": "Jump to owned worktree",
+          "resume": "Resume · content + compatible target",
+          "log": "View log · local path available"
+        }
+      },
+      "automation": {
+        "phase": {
+          "precheck": "Precheck",
+          "failed": "Recover",
+          "rerun": "Rerun",
+          "completed": "Inspect"
+        }
+      },
+      "workbenchContext": {
+        "file": {
+          "src": "src",
+          "terminal": "terminal",
+          "session": "session.ts",
+          "readme": "README.md",
+          "image": "flow.png",
+          "csv": "results.csv"
+        },
+        "code": {
+          "function": "export async function restoreSession(id: string) {",
+          "reconnect": "  const session = await reconnect(id)",
+          "verify": "  return verifyScrollback(session)",
+          "verifyRestored": "  return verifyRestoredScrollback(session)"
+        },
+        "selection": "session.ts:20",
+        "preview": {
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "image": "Image",
+          "csv": "CSV"
+        },
+        "attachment": "session.ts:20",
+        "search": {
+          "query": "session",
+          "session": "session.ts",
+          "path": "src/terminal",
+          "test": "session.test.ts"
+        },
+        "floating": {
+          "agent": "Cross-repo agent",
+          "terminal": "Scratch terminal",
+          "note": "Markdown note",
+          "browser": "Browser tab",
+          "title": "Floating Workspace",
+          "default": "Default on",
+          "boundary": "Chosen local directory · stays local during SSH/runtime focus"
+        },
+        "voice": {
+          "title": "Optional Voice Dictation",
+          "model": "Model + microphone ready",
+          "target": "Transcript → focused pane"
+        },
+        "edit": {
+          "saved": "Saved"
+        },
+        "jump": {
+          "title": "Jump Palette",
+          "action": "Ports → Open :3000"
+        }
+      },
+      "terminalFirst": {
+        "quickCommands": {
+          "title": "Quick Commands · trust boundary",
+          "project": "Project orca.yaml · inert until review; changes require re-review",
+          "user": "User-owned commands · run normally",
+          "review": "Review project command · checks",
+          "trusted": "Trusted for this content",
+          "run": "Run checks"
+        },
+        "capabilities": {
+          "output": {
+            "action": "Agent output flood",
+            "result": "Focused GPU/WebGL · CPU fallback · background QoS"
+          },
+          "input": {
+            "action": "Remote typing",
+            "result": "Predictive echo confirmed · effects available"
+          },
+          "search": {
+            "action": "Search “failed”",
+            "result": "12 full-scrollback matches"
+          },
+          "media": {
+            "action": "Agent build + artifacts",
+            "result": "Inline images · bundled compilers + solvers"
+          }
+        }
+      },
+      "workspaces": {
+        "board": {
+          "todo": "Todo",
+          "progress": "In progress",
+          "review": "In review",
+          "done": "Done",
+          "title": "Workspace board",
+          "boundary": "Existing workspaces · user-assigned status"
+        },
+        "winnerRationale": "Human choice · all checks passed; smallest focused diff",
+        "winnerEvidence": "Codex · 18/18 · +42 −8"
+      },
+      "addProject": {
+        "story": "Illustrative action → progress → result",
+        "stage": {
+          "action": "Action",
+          "progress": "Progress"
+        },
+        "hostStep": "1 · Execution host",
+        "selected": "Selected",
+        "codebaseStep": "2 · Codebase path",
+        "confirm": "User confirms · Add this project",
+        "project": {
+          "branch": "Existing checkout · branch unchanged",
+          "added": "Project added"
+        },
+        "workspace": {
+          "detail": "session-recovery",
+          "action": "User action · Create workspace"
+        },
+        "worktree": {
+          "detail": "Isolated worktree · branch feature/session-recovery",
+          "title": "New Git worktree"
+        },
+        "setup": {
+          "command": "orca.yaml scripts.setup · pnpm install",
+          "title": "Approved shared setup runs"
+        },
+        "result": {
+          "ready": "Workspace ready",
+          "detail": "Terminal open · repository setup complete"
+        },
+        "boundary": "Illustrative · Shared orca.yaml setup runs automatically for new Git worktrees only after the repository command content is approved; changes require re-review. Commands and duration vary by repository and host."
+      },
+      "walkthrough": {
+        "moreBelow": "More below",
+        "collapseDescription": "Collapse description",
+        "expandDescription": "Show full description"
+      },
+      "cliSkills": {
+        "commandName": "orca"
+      },
+      "mobileEmulators": {
+        "deviceId": "emulator-5554"
+      },
+      "tasks": {
+        "provider": {
+          "github": "GitHub",
+          "repository": "stablyai/orca"
         }
       }
     }

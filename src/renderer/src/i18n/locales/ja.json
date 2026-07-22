@@ -10676,7 +10676,7 @@
             "openWorkspaceBeforeResuming": "Open a workspace before resuming a session.",
             "localWorkspacesOnly": "履歴からの再開はローカルワークスペースでのみ利用できます。",
             "agentSessionQueued": "{{value0}} session queued",
-            "sessionHistory": "Agent Session History",
+            "sessionHistory": "エージェントセッション履歴",
             "shownRecent": "{{value0}} shown · {{value1}} recent",
             "resumePastSessions": "Resume past sessions",
             "refreshSessionHistory": "Refresh Session History",
@@ -11623,23 +11623,27 @@
             "56a0271428": "隔離されたワークスペース",
             "ef737dcee1": "GitHub と Linear タスク",
             "ac51c061e2": "codex",
-            "47f16ecf34": "Ship several things at once. Each workspace keeps its branch, terminal, and agent activity together.",
-            "70aa182266": "Hand off a goal and walk away. A coordinator agent fans out and ships parallel PRs.",
-            "f10c14dd9d": "Skip the tab-switching. Pick from your GitHub or Linear backlog and start a workspace in one click.",
-            "5d6ee181b6": "Open any workspace to return to its terminal, then split panes for tests, logs, and agents."
+            "47f16ecf34": "複数の作業を同時に公開します。各ワークスペースでは、ブランチ、ターミナル、エージェントのアクティビティがまとまっています。",
+            "70aa182266": "ゴールを渡したら、あとは任せられます。コーディネーターエージェントが作業を並列化し、複数の PR を公開します。",
+            "f10c14dd9d": "タブの切り替えは不要です。GitHub または Linear のバックログから選び、ワンクリックでワークスペースを開始します。",
+            "5d6ee181b6": "任意のワークスペースを開いてターミナルに戻り、テスト、ログ、エージェント用にペインを分割します。"
           },
           "FeatureWallBody": {
             "25ec5356d6": "設定"
           },
           "FeatureWallModal": {
-            "33dca8bbbe": "Orca のワークフローごとの短いツアー。",
-            "3567e147c8": "Orca を知る"
+            "33dca8bbbe": "全 11 画面のガイド · 約 4 分",
+            "3567e147c8": "Orca を探索: ALab Edition",
+            "a120000001": "Orca に戻る",
+            "a130000001": "セットアップを完了",
+            "a130000002": "全 13 画面のガイド · 約 6 分",
+            "a140000001": "全 14 画面のガイド · 約 7 分"
           },
           "FeatureWallPreview": {
             "a666384798": "このワークフローでも"
           },
           "FeatureWallRail": {
-            "69ea857689": "完了",
+            "69ea857689": "閲覧済み",
             "7593d15f94": "ワークフロー"
           },
           "FeatureWallSetupChecklist": {
@@ -11661,7 +11665,12 @@
             "522cce9e33": "プロジェクトの追加"
           },
           "FeatureWallTourPanel": {
-            "af7d622f6f": "任意"
+            "af7d622f6f": "任意",
+            "a120000001": "{{value0}} / {{value1}}",
+            "a120000002": "詳しく見る",
+            "a120000004": "ステップ {{value0}} / {{value1}}: {{value2}}",
+            "a120000003": "ツアーの進捗",
+            "a120000005": "{{value0}}について詳しく見る"
           },
           "KeepAwakeCard": {
             "209713d3c7": "任意"
@@ -11696,8 +11705,8 @@
             "ab2901bce6": "チェック",
             "d7f80060ca": "ソース管理",
             "8e715588e4": "検索",
-            "a6c8b9e32f": "Checks passed",
-            "f4d5e1a7b2": "3 checks"
+            "a6c8b9e32f": "チェック合格",
+            "f4d5e1a7b2": "3 件のチェック"
           },
           "ReviewShipAnimatedVisual": {
             "4d99496b8c": "PR を作成する",
@@ -11724,7 +11733,8 @@
             "b13375617e": "ワークツリーピッカーが名前を切り捨てる",
             "72f9e516a3": "押す",
             "fe47c9c9e8": "ワークスペースの準備完了",
-            "61ffda7601": "ワークスペースの作成"
+            "61ffda7601": "ワークスペースの作成",
+            "c130000001": "ワークスペースを開く"
           },
           "WorkbenchAnimatedVisual": {
             "633a91e358": "考え…",
@@ -11750,7 +11760,14 @@
             "16877e038d": "分割する",
             "a2b114dad0": "右に分割します ·",
             "0bc9ad0cd1": "同じペイン:",
-            "fc84f17fe7": "Codex セッションが開始されました"
+            "fc84f17fe7": "Codex セッションが開始されました",
+            "h130000001": "› メトリクスを表示",
+            "h130000002": "› アバターを更新",
+            "h130000003": "› CSV をエクスポート",
+            "h130000004": "› ダークモードを切り替え",
+            "h130000005": "src/auth のエラー処理漏れをレビュー",
+            "h130000006": "失敗している checkout テストを修正",
+            "h130000007": "checkout のタイムアウト"
           },
           "agent": {
             "capability": {
@@ -11800,7 +11817,7 @@
                 },
                 "ship": {
                   "styles": {
-                    "90cdcd2ecc": ".ravs-ship-root { position: absolute; inset: 0; } .ravs-ship-stack { position: absolute; inset: 0; display: grid; grid-template-columns: 232px minmax(0,1fr); gap: 14px; padding: 4px 2px; /* Why: cards size to their content rather than stretch to the parent's full height, so the two cards don't show empty space below their content. */ align-items: start; } /* Source Control mini-sidebar — ahead-count header, commit textarea + split Commit button, then a CHANGES section with file rows. The file rows are the surface the \"reading\" pulse animates over. */ .ravs-sc-card { display: flex; flex-direction: column; background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(24,24,27,0.04); } /* Both card headers share the same fixed height so the SC card and PR dialog align across the top edge regardless of header content. */ .ravs-sc-header, .ravs-pr-head { height: 36px; box-sizing: border-box; } .ravs-sc-header { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-bottom: 1px solid var(--border); } .ravs-sc-ahead { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--foreground, #18181b); } .ravs-sc-ahead svg { color: var(--muted-foreground, #71717a); } .ravs-sc-commit-area { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; } .ravs-sc-textarea { position: relative; border: 1px solid var(--border); border-radius: 6px; background: var(--editor-surface, var(--card)); padding: 6px 26px 6px 8px; min-height: 56px; font-size: 12px; line-height: 1.45; color: var(--foreground, #18181b); white-space: pre-wrap; word-break: break-word; overflow: hidden; } .ravs-sc-textarea .ravs-placeholder { color: rgba(113,113,122,0.7); } .ravs-sc-sparkle { position: absolute; right: 6px; top: 6px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--muted-foreground, #71717a); background: transparent; transition: color 160ms ease, background 160ms ease; } .ravs-sc-sparkle.is-scanning { color: rgb(109 40 217); background: color-mix(in srgb, rgb(139 92 246) 18%, transparent); } .ravs-sc-split { display: flex; align-items: stretch; } /* Why: Commit + Create PR are surrounding chrome — the violet AI affordances are the focal points. Render them as quiet secondary buttons so they don't compete with the sparkle/scan signals. */ .ravs-sc-split .ravs-primary { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 10px; background: var(--secondary, #f5f5f5); color: var(--secondary-foreground, #171717); font-size: 11px; font-weight: 500; border-radius: 6px 0 0 6px; border: 1px solid var(--border); transition: background 240ms ease, border-color 240ms ease, color 240ms ease; } .ravs-sc-split .ravs-chev { display: inline-flex; align-items: center; justify-content: center; width: 22px; background: var(--secondary, #f5f5f5); color: var(--muted-foreground, #71717a); border-radius: 0 6px 6px 0; border: 1px solid var(--border); border-left: 1px solid var(--border); transition: background 240ms ease, border-color 240ms ease, color 240ms ease; } /* Why: when AI has filled the commit message, tint the Commit button green to signal \"ready to commit\". Uses the same success-green family as the PR flash so the two beats rhyme. Mix is intentionally strong (~28%) — at 14% it disappeared next to the violet sparkle and PR flash, so users only saw the PR change color. */ .ravs-sc-split.is-ready .ravs-primary, .ravs-sc-split.is-ready .ravs-chev { background: color-mix(in srgb, rgb(34 197 94) 28%, var(--secondary, #f5f5f5)); border-color: rgb(34 197 94); color: rgb(21 128 61); transition: background 220ms ease, border-color 220ms ease, color 220ms ease; } .ravs-sc-split.is-ready .ravs-chev { border-left-color: rgba(34, 197, 94, 0.55); } .ravs-sc-changes-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground, #71717a); } .ravs-sc-changes-count { color: var(--foreground, #18181b); font-weight: 600; margin-left: 2px; } .ravs-sc-view-all { font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted-foreground, #71717a); } .ravs-sc-files { display: flex; flex-direction: column; padding: 2px 6px 8px; flex: 1; min-height: 0; overflow: hidden; } .ravs-sc-file { display: grid; grid-template-columns: 14px minmax(0,1fr) 12px; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 4px; font-size: 11px; line-height: 1.35; color: var(--foreground, #18181b); position: relative; transition: background 220ms ease; } .ravs-sc-ficon { color: rgb(180 83 9); display: inline-flex; } .ravs-sc-fname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ravs-sc-fmark { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-align: right; color: rgb(180 83 9); } .ravs-sc-file.is-reading { background: color-mix(in srgb, rgb(139 92 246) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(139 92 246) 28%, transparent); } /* PR dialog — matches the .ravs-sc-card chrome (same border, radius, elevation) so the two cards read as one design language. */ .ravs-pr-dialog { background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 2px rgba(24,24,27,0.04); display: flex; flex-direction: column; min-width: 0; overflow: hidden; } .ravs-pr-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 1px solid var(--border); } .ravs-pr-title-text { font-size: 11px; font-weight: 500; color: var(--foreground, #18181b); } /* Icon-only AI-assist chip — mirrors .ravs-sc-sparkle so the affordance reads identically across both cards. */ .ravs-pr-gen-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border-radius: 4px; color: var(--muted-foreground, #71717a); background: transparent; border: 0; cursor: pointer; transition: color 160ms ease, background 160ms ease; } .ravs-pr-gen-btn:hover { background: rgba(24,24,27,0.06); color: var(--foreground, #18181b); } .ravs-pr-gen-btn.is-scanning { color: rgb(109 40 217); background: color-mix(in srgb, rgb(139 92 246) 18%, transparent); } .ravs-pr-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; } .ravs-pr-field { display: flex; flex-direction: column; gap: 4px; } .ravs-pr-field-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground, #71717a); } .ravs-pr-base { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--foreground, #18181b); background: var(--editor-surface, var(--card)); align-self: flex-start; } .ravs-pr-base svg { color: var(--muted-foreground, #71717a); } .ravs-pr-input { position: relative; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--editor-surface, var(--card)); min-height: 28px; font-size: 12px; line-height: 1.45; color: var(--foreground, #18181b); white-space: pre-wrap; word-break: break-word; overflow: hidden; } .ravs-pr-input.is-body { min-height: 50px; font-size: 11px; line-height: 1.4; } .ravs-pr-input .ravs-placeholder { color: rgba(113,113,122,0.7); } .ravs-pr-footer { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-top: 2px; } .ravs-pr-btn { font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: 6px; line-height: 1; border: 1px solid transparent; outline: none; } .ravs-pr-btn:focus, .ravs-pr-btn:focus-visible { outline: none; } /* Cancel reads as a quiet ghost button so it doesn't compete with the affirmative Create PR action. */ .ravs-pr-btn.is-outline { background: transparent; color: var(--muted-foreground, #71717a); border-color: transparent; } .ravs-pr-btn.is-outline:hover { background: rgba(24,24,27,0.05); color: var(--foreground, #18181b); } /* Quiet secondary fill — see the .ravs-sc-split note above. The flash ring still uses success-green so the \"PR created\" beat reads. The Create-PR button is slightly larger than Cancel so the affirmative action remains the bigger target. */ .ravs-pr-btn.is-solid { background: var(--secondary, #f5f5f5); color: var(--secondary-foreground, #171717); border-color: var(--border); font-size: 12px; padding: 7px 14px; transition: background 220ms ease, border-color 220ms ease, color 220ms ease, box-shadow 220ms ease; } .ravs-pr-btn.is-solid.is-ready { background: color-mix(in srgb, rgb(34 197 94) 28%, var(--secondary, #f5f5f5)); border-color: rgb(34 197 94); color: rgb(21 128 61); } .ravs-pr-btn.is-solid.is-flash { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.30); } .ravs-cursor { position: absolute; z-index: 40; pointer-events: none; transition: transform 600ms cubic-bezier(.45,.05,.2,1), opacity 200ms ease; transform: translate(-30px, 220px); opacity: 0; } .ravs-cursor.is-visible { opacity: 1; } .ravs-cursor .ravs-ripple { position: absolute; left: -6px; top: -6px; width: 28px; height: 28px; border-radius: 999px; border: 2px solid rgba(24,24,27,0.5); opacity: 0; } .ravs-cursor.is-clicking .ravs-ripple { animation: ravs-ripple 460ms ease-out forwards; } @keyframes ravs-ripple { 0% { transform: scale(0.4); opacity: 0.9; } 100% { transform: scale(1.4); opacity: 0; } } .ravs-caret { display: inline-block; width: 1.5px; height: 1em; background: currentColor; vertical-align: -2px; margin-left: 1px; animation: ravs-caret-blink 1.05s steps(1) infinite; } @keyframes ravs-caret-blink { 0%, 50% { opacity: 1 } 51%, 100% { opacity: 0 } }"
+                    "90cdcd2ecc": ".ravs-ship-root { position: absolute; inset: 0; } .ravs-ship-stack { position: absolute; inset: 0; display: grid; grid-template-columns: 232px minmax(0,1fr); gap: 14px; padding: 4px 2px; /* Why: cards size to their content rather than stretch to the parent's full height, so the two cards don't show empty space below their content. */ align-items: start; } /* Source Control mini-sidebar — ahead-count header, commit textarea + split Commit button, then a CHANGES section with file rows. The file rows are the surface the \"reading\" pulse animates over. */ .ravs-sc-card { display: flex; flex-direction: column; background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(24,24,27,0.04); } /* Both card headers share the same fixed height so the SC card and PR dialog align across the top edge regardless of header content. */ .ravs-sc-header, .ravs-pr-head { height: 36px; box-sizing: border-box; } .ravs-sc-header { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-bottom: 1px solid var(--border); } .ravs-sc-ahead { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--foreground, #18181b); } .ravs-sc-ahead svg { color: var(--muted-foreground, #71717a); } .ravs-sc-commit-area { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; } .ravs-sc-textarea { position: relative; border: 1px solid var(--border); border-radius: 6px; background: var(--editor-surface, var(--card)); padding: 6px 26px 6px 8px; min-height: 56px; font-size: 12px; line-height: 1.45; color: var(--foreground, #18181b); white-space: pre-wrap; word-break: break-word; overflow: hidden; } .ravs-sc-textarea .ravs-placeholder { color: rgba(113,113,122,0.7); } .ravs-sc-sparkle { position: absolute; right: 6px; top: 6px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--muted-foreground, #71717a); background: transparent; transition: color 160ms ease, background 160ms ease; } .ravs-sc-sparkle.is-scanning { color: rgb(109 40 217); background: color-mix(in srgb, rgb(139 92 246) 18%, transparent); } .ravs-sc-split { display: inline-flex; align-items: stretch; } /* Why: Commit + Create PR are surrounding chrome — the violet AI affordances are the focal points. Render them as quiet secondary buttons so they don't compete with the sparkle/scan signals. */ .ravs-sc-split .ravs-primary { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 10.5rem; padding: 5px 10px; background: var(--secondary, #f5f5f5); color: var(--secondary-foreground, #171717); font-size: 11px; font-weight: 500; border-radius: 6px 0 0 6px; border: 1px solid var(--border); transition: background 240ms ease, border-color 240ms ease, color 240ms ease; } .ravs-sc-split .ravs-chev { display: inline-flex; align-items: center; justify-content: center; width: 22px; background: var(--secondary, #f5f5f5); color: var(--muted-foreground, #71717a); border-radius: 0 6px 6px 0; border: 1px solid var(--border); border-left: 1px solid var(--border); transition: background 240ms ease, border-color 240ms ease, color 240ms ease; } /* Why: when AI has filled the commit message, tint the Commit button green to signal \"ready to commit\". Uses the same success-green family as the PR flash so the two beats rhyme. Mix is intentionally strong (~28%) — at 14% it disappeared next to the violet sparkle and PR flash, so users only saw the PR change color. */ .ravs-sc-split.is-ready .ravs-primary, .ravs-sc-split.is-ready .ravs-chev { background: color-mix(in srgb, rgb(34 197 94) 28%, var(--secondary, #f5f5f5)); border-color: rgb(34 197 94); color: rgb(21 128 61); transition: background 220ms ease, border-color 220ms ease, color 220ms ease; } .ravs-sc-split.is-ready .ravs-chev { border-left-color: rgba(34, 197, 94, 0.55); } .ravs-sc-changes-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground, #71717a); } .ravs-sc-changes-count { color: var(--foreground, #18181b); font-weight: 600; margin-left: 2px; } .ravs-sc-view-all { font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted-foreground, #71717a); } .ravs-sc-files { display: flex; flex-direction: column; padding: 2px 6px 8px; flex: 1; min-height: 0; overflow: hidden; } .ravs-sc-file { display: grid; grid-template-columns: 14px minmax(0,1fr) 12px; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 4px; font-size: 11px; line-height: 1.35; color: var(--foreground, #18181b); position: relative; transition: background 220ms ease; } .ravs-sc-ficon { color: rgb(180 83 9); display: inline-flex; } .ravs-sc-fname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ravs-sc-fmark { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-align: right; color: rgb(180 83 9); } .ravs-sc-file.is-reading { background: color-mix(in srgb, rgb(139 92 246) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(139 92 246) 28%, transparent); } /* PR dialog — matches the .ravs-sc-card chrome (same border, radius, elevation) so the two cards read as one design language. */ .ravs-pr-dialog { background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 2px rgba(24,24,27,0.04); display: flex; flex-direction: column; min-width: 0; overflow: hidden; } .ravs-pr-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 1px solid var(--border); } .ravs-pr-title-text { font-size: 11px; font-weight: 500; color: var(--foreground, #18181b); } /* Icon-only AI-assist chip — mirrors .ravs-sc-sparkle so the affordance reads identically across both cards. */ .ravs-pr-gen-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border-radius: 4px; color: var(--muted-foreground, #71717a); background: transparent; border: 0; cursor: pointer; transition: color 160ms ease, background 160ms ease; } .ravs-pr-gen-btn:hover { background: rgba(24,24,27,0.06); color: var(--foreground, #18181b); } .ravs-pr-gen-btn.is-scanning { color: rgb(109 40 217); background: color-mix(in srgb, rgb(139 92 246) 18%, transparent); } .ravs-pr-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; } .ravs-pr-field { display: flex; flex-direction: column; gap: 4px; } .ravs-pr-field-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground, #71717a); } .ravs-pr-base { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--foreground, #18181b); background: var(--editor-surface, var(--card)); align-self: flex-start; } .ravs-pr-base svg { color: var(--muted-foreground, #71717a); } .ravs-pr-input { position: relative; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--editor-surface, var(--card)); min-height: 28px; font-size: 12px; line-height: 1.45; color: var(--foreground, #18181b); white-space: pre-wrap; word-break: break-word; overflow: hidden; } .ravs-pr-input.is-body { min-height: 50px; font-size: 11px; line-height: 1.4; } .ravs-pr-input .ravs-placeholder { color: rgba(113,113,122,0.7); } .ravs-pr-footer { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-top: 2px; } .ravs-pr-btn { font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: 6px; line-height: 1; border: 1px solid transparent; outline: none; } .ravs-pr-btn:focus, .ravs-pr-btn:focus-visible { outline: none; } /* Cancel reads as a quiet ghost button so it doesn't compete with the affirmative Create PR action. */ .ravs-pr-btn.is-outline { background: transparent; color: var(--muted-foreground, #71717a); border-color: transparent; } .ravs-pr-btn.is-outline:hover { background: rgba(24,24,27,0.05); color: var(--foreground, #18181b); } /* Quiet secondary fill — see the .ravs-sc-split note above. The flash ring still uses success-green so the \"PR created\" beat reads. The Create-PR button is slightly larger than Cancel so the affirmative action remains the bigger target. */ .ravs-pr-btn.is-solid { background: var(--secondary, #f5f5f5); color: var(--secondary-foreground, #171717); border-color: var(--border); font-size: 12px; padding: 7px 14px; transition: background 220ms ease, border-color 220ms ease, color 220ms ease, box-shadow 220ms ease; } .ravs-pr-btn.is-solid.is-ready { background: color-mix(in srgb, rgb(34 197 94) 28%, var(--secondary, #f5f5f5)); border-color: rgb(34 197 94); color: rgb(21 128 61); } .ravs-pr-btn.is-solid.is-flash { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.30); } .ravs-cursor { position: absolute; z-index: 40; pointer-events: none; transition: transform 600ms cubic-bezier(.45,.05,.2,1), opacity 200ms ease; transform: translate(-30px, 220px); opacity: 0; } .ravs-cursor.is-visible { opacity: 1; } .ravs-cursor .ravs-ripple { position: absolute; left: -6px; top: -6px; width: 28px; height: 28px; border-radius: 999px; border: 2px solid rgba(24,24,27,0.5); opacity: 0; } .ravs-cursor.is-clicking .ravs-ripple { animation: ravs-ripple 460ms ease-out forwards; } @keyframes ravs-ripple { 0% { transform: scale(0.4); opacity: 0.9; } 100% { transform: scale(1.4); opacity: 0; } } .ravs-caret { display: inline-block; width: 1.5px; height: 1em; background: currentColor; vertical-align: -2px; margin-left: 1px; animation: ravs-caret-blink 1.05s steps(1) infinite; } @keyframes ravs-caret-blink { 0%, 50% { opacity: 1 } 51%, 100% { opacity: 0 } }"
                   }
                 }
               }
@@ -11817,14 +11834,87 @@
             "orchestration": {
               "OrchestrationPage": {
                 "30b509a467": "子供2人",
-                "862605d066": "2 つの子ワークスペース"
+                "862605d066": "2 つの子ワークスペース",
+                "h130000001": "認証の書き換えを 2 つの PR に分割中…",
+                "h130000002": "users テーブルのマイグレーションを作成中…",
+                "h130000003": "withSession ミドルウェアを設計中…",
+                "h130000004": "email_verified 列を追加中…",
+                "h130000005": "withSession ミドルウェアを接続中…",
+                "h130000006": "PR 1/2 の準備完了",
+                "h130000007": "PR 2/2 の準備完了",
+                "h130000008": "認証フローを再設計",
+                "h130000009": "PR 1/2: users.sql を移行",
+                "h130000010": "PR 2/2: withSession ミドルウェア",
+                "h130000050": "依存関係",
+                "h130000051": "判断",
+                "h130000052": "復旧",
+                "h130000011": "判断ゲート · 回答が必要",
+                "h130000012": "あなたの判断を中継中 · false + 明示的な backfill",
+                "h130000013": "人による判断を受信 · backfill を適用中…",
+                "h130000014": "タスク 1 完了 · スキーマ契約の準備完了",
+                "h130000015": "依存関係を解決 · タスク 2 を開始",
+                "h130000016": "スキーマ準備完了 · ミドルウェアを接続中…",
+                "h130000017": "ブロック中 · 認証契約チェックに失敗",
+                "h130000018": "ブロッカーを担当中 · 復旧が必要",
+                "h130000019": "復旧 · リベース後にチェックを再実行",
+                "h130000020": "リベース完了 · 契約チェックを再実行中…",
+                "h130000021": "復旧完了 · 契約チェックに合格",
+                "h130000022": "コーディネーターが復旧後の実行を承認",
+                "h130000023": "計画",
+                "h130000024": "コーディネーターが依存関係グラフを作成",
+                "h130000025": "割り当て",
+                "h130000026": "タスク 1 を開始、タスク 2 はゲートで待機",
+                "h130000027": "依存関係",
+                "h130000028": "ミドルウェアはスキーマ契約を待機",
+                "h130000029": "質問",
+                "h130000030": "ワーカーが回答待ちでグラフを一時停止",
+                "h130000031": "人による判断",
+                "h130000032": "あなたがデータポリシーのゲートを解決",
+                "h130000033": "解放済み",
+                "h130000034": "タスク 1 が依存ワーカーを解放",
+                "h130000035": "ブロッカー",
+                "h130000036": "失敗したチェックをコーディネーターに返却",
+                "h130000037": "復旧",
+                "h130000038": "コーディネーターがリベースと再実行を割り当て",
+                "h130000039": "コーディネーターの結果",
+                "h130000040": "2 タスク完了 · 人による判断 1 件 · 復旧 1 件",
+                "h130000041": "解放済み · スキーマ準備完了",
+                "h130000042": "タスク 2 はタスク 1 を待機",
+                "h130000043": "回答が必要",
+                "h130000044": "人が承認済み · false + backfill",
+                "h130000045": "ゲートで待機中",
+                "h130000046": "復旧完了 · チェックに合格",
+                "h130000047": "リベース + 再実行中",
+                "h130000048": "コーディネーターがブロッカーを担当",
+                "h130000049": "ワーカーのチェックを監視中",
+                "h130000063": "2 ワーカーの依存関係グラフ",
+                "h130000064": "2 ワーカー · タスク 2 はタスク 1 に依存",
+                "h130000053": "2 つのタスクと依存関係を構成中…",
+                "h130000054": "マイグレーションの割り当てを待機中…",
+                "h130000055": "タスク 1 のスキーマ契約を待機中",
+                "h130000056": "マイグレーションワーカーを割り当て中…",
+                "h130000057": "email_verified + バックフィルを追加中…",
+                "h130000058": "ミドルウェアをタスク 1 の完了まで保留中…",
+                "h130000059": "質問 · 既存の行をデフォルトで false にしますか？",
+                "h130000060": "コーディネーター · 認証の書き換え",
+                "h130000061": "タスク 1 · users.sql を移行",
+                "h130000062": "タスク 2 · withSession（タスク 1 の後）",
+                "h150000001": "あなたがゲートを解決 · false + 明示的な backfill",
+                "h150000002": "中継",
+                "h150000003": "コーディネーターが承認済みのポリシーを中継"
               },
               "StatusesPage": {
                 "2f549fc0ba": "src/auth/session.test.ts",
                 "139e3d7458": "更新されました",
                 "7b26349cb2": "pnpm 移行最新",
                 "78f0318ac1": "実行をリクエスト中",
-                "79971d1539": "認証フローを再設計する"
+                "79971d1539": "認証フローを再設計する",
+                "h130000001": "編集",
+                "h130000002": "Bash",
+                "h130000003": "読み取り",
+                "h130000004": "セッションミドルウェアを確認中…",
+                "h130000005": "型チェックに合格しました。次にログインルートを確認します。",
+                "h130000006": "リダイレクトパスのテストを追加中です。"
               },
               "UsageAccountsCard": {
                 "6986b36708": "表面レート制限とインラインのスワップ口座。",
@@ -11845,7 +11935,14 @@
                 "0470aaed99": "毎週",
                 "f421abf962": "セッション",
                 "5e45fb1238": "1分前に更新されました",
-                "6a4b1d3c38": "Codex"
+                "6a4b1d3c38": "Codex",
+                "h130000001": "0% 使用",
+                "h130000002": "96% 使用",
+                "h130000003": "5時間後にリセット",
+                "h130000004": "47分後にリセット",
+                "h130000005": "チーム",
+                "h130000006": "0% 使用 5時間 · 週 4% 使用",
+                "h130000007": "96% 使用 47分"
               },
               "orchestration": {
                 "cards": {
@@ -11876,17 +11973,17 @@
             "c2df599513": "CLI とスキルをインストール"
           },
           "ConnectIntegrationsList": {
-            "3dddb2d565": "connected for tasks",
-            "33b650af52": "Connect where your team tracks work. Orca starts workspaces with the issue title, link, and context already attached.",
-            "5b3577a492": "connected for review status",
+            "3dddb2d565": "タスク用に接続済み",
+            "33b650af52": "チームが作業を追跡しているサービスを接続します。Orca は Issue のタイトル、リンク、コンテキストを添付した状態でワークスペースを開始します。",
+            "5b3577a492": "レビューステータス用に接続済み",
             "list_end": ", and ",
             "list_pair": " and ",
             "list_mid": ", ",
-            "code_host_tasks_summary": "issues available as tasks · add Linear or Jira if your team plans work there",
-            "code_host_tasks_caption": "Your code host's issues also work as tasks.",
-            "review_step_title": "See PR status while agents work",
-            "review_step_description": "Connect a review provider so Orca can show PR or MR status, checks, and reviews.",
-            "task_step_title": "Start agents on your tasks without leaving Orca"
+            "code_host_tasks_summary": "Issue をタスクとして利用可能 · チームが Linear または Jira で計画する場合は追加",
+            "code_host_tasks_caption": "コードホストの Issue もタスクとして利用できます。",
+            "review_step_title": "エージェントの作業中に PR ステータスを確認",
+            "review_step_description": "レビュープロバイダーを接続すると、Orca で PR または MR のステータス、チェック、レビューを確認できます。",
+            "task_step_title": "Orca を離れずにタスクへエージェントを割り当てて開始"
           },
           "connect": {
             "integration": {
@@ -11908,6 +12005,466 @@
             "0d6efe9cf4": "プロジェクトや worktree が保護されたフォルダーにある場合、macOS で推奨されます。",
             "dac08ec03e": "開いています...",
             "6e3d62b816": "フルディスクアクセスを開く"
+          },
+          "AnywhereWorkflowVisuals": {
+            "e110000001": "Orca デスクトップ",
+            "e110000002": "作業を選択して指示",
+            "e110000003": "Orca ランタイム",
+            "e110000004": "このコンピューターまたはペアリング済みのリモートランタイム",
+            "e110000005": "Orca Mobile",
+            "e110000006": "監視して返信",
+            "e110000007": "デスクトップが正本",
+            "e110000008": "エージェントの要対応項目",
+            "e110000009": "安全な再接続",
+            "e110000010": "表示中のアプリに限定",
+            "e110000011": "機能を確認済み",
+            "e110000012": "ターミナル",
+            "e110000013": "エディター",
+            "e110000014": "アクセシビリティのスナップショット",
+            "e110000015": "ウィンドウ「ターミナル」",
+            "e110000016": "グループ「セッションコントロール」",
+            "e110000017": "ボタン「再接続」",
+            "e110000018": "テキスト「エージェントが待機中」",
+            "e110000019": "選択したアプリが対応操作として公開している場合に、検査、クリック、入力、スクロール、ドラッグを実行します。",
+            "e110000020": "フルクライアント",
+            "e110000021": "ランタイム",
+            "e110000022": "任意のダウンストリーム",
+            "e110000023": "SSH プロジェクトホスト",
+            "e110000024": "Git 操作、ファイル、ターミナルを処理",
+            "e110000025": "アクセス",
+            "e110000026": "ネイティブヘルパー + 公開された操作",
+            "e110000027": "アプリが公開した操作のみ",
+            "e110000028": "コンパニオン",
+            "e110000029": "ベータ",
+            "e130000001": "オンデマンド",
+            "e130000002": "ワークスペース環境",
+            "e130000003": "orca.yaml からプロビジョニング",
+            "e130000004": "Quick Commands",
+            "e130000005": "通知",
+            "e130000006": "監視 + 返信",
+            "e130000007": "macOS のみ · アクセシビリティ + 画面収録",
+            "e150000001": "公開された操作を実行",
+            "e150000002": "表示結果",
+            "e150000003": "エージェント接続済み"
+          },
+          "FeatureWallTourSurface": {
+            "a110000001": "続ける",
+            "a110000002": "戻る",
+            "a120000003": "完了",
+            "a120000004": "ヘルプ > Orca を探索 からいつでも再度開けます。"
+          },
+          "ReviewShipWorkflowVisual": {
+            "c110000001": "src/terminal/session.ts",
+            "c110000002": "リビジョン · 3 件の変更",
+            "c110000003": "export async function restoreSession(id: string) {",
+            "c110000004": "return reconnect(id)",
+            "c110000005": "const session = await reconnect(id)",
+            "c110000006": "return verifyScrollback(session)",
+            "c110000007": "レビューコメント",
+            "c110000008": "ペインが表示される前に、復元したスクロールバックを保持する。",
+            "c110000009": "レビューから公開まで",
+            "c110000010": "注釈",
+            "c110000011": "修正",
+            "c110000012": "チェックを実行",
+            "c110000013": "公開",
+            "c110000014": "プル / マージリクエスト",
+            "c110000015": "チェック合格",
+            "header": {
+              "title": "レビューと公開",
+              "detail": "比較、復旧、確認を行い、ワークスペースの作業を完了"
+            },
+            "timeline": {
+              "title": "レビューの流れ"
+            },
+            "footer": {
+              "disclaimer": "ストーリーボードのみ: チェック、競合、プロバイダーの結果はリポジトリと Git ホストによって異なります。"
+            },
+            "candidate": {
+              "title": "候補を比較",
+              "a": "候補 A",
+              "aFiles": "3 ファイル",
+              "b": "候補 B",
+              "bFiles": "5 ファイル",
+              "focused": "選択中"
+            },
+            "panel": {
+              "progress": "{{value0}} / 10 · レビューの流れ"
+            },
+            "evidence": {
+              "archive": "例示の最終状態 · ワークスペースをアーカイブ済み。",
+              "blocker": "例示のブロッカー",
+              "blockerDetail": "対象を絞ったチェックが失敗したか、マージ競合のレビューが必要です。",
+              "commit": "コミット + プッシュを確認",
+              "compare": "両方の差分を開き、修正する候補を選択します。",
+              "decision": "チェックまたは Git 書き込み操作の前に人が判断します。",
+              "note": "レビューコメント: ペインを表示する前に、復元されたスクロールバックを保持してください。",
+              "passed": "例示の結果 · チェック合格",
+              "rereview": "人による承認 · 復旧後の差分と更新済みチェックをレビュー済み",
+              "resolve": "ワークスペースで解決",
+              "retry": "対象を絞ったチェックを再試行",
+              "review": "PR / MR を確認",
+              "send": "修正を送信",
+              "stage": "対象を絞ったハンクをステージ · src/terminal/session.ts"
+            },
+            "story": {
+              "annotate": {
+                "detail": "フィードバックを候補に関連付けたまま、もう一度修正を依頼します。",
+                "title": "注釈 + 修正を送信"
+              },
+              "archive": {
+                "detail": "完了した例をアクティブなワークスペース一覧から移動します。",
+                "title": "ワークスペースをアーカイブ済み"
+              },
+              "blocked": {
+                "detail": "失敗したチェックやマージ競合をスキップせず表示したままにします。",
+                "title": "チェック失敗 / 競合"
+              },
+              "compare": {
+                "detail": "方針を選ぶ前に、並行して得た差分を確認します。",
+                "title": "候補を比較"
+              },
+              "confirm": {
+                "detail": "Git への書き込みと、プルまたはマージリクエストを開く操作を分けます。",
+                "title": "コミット + プッシュを確認後、PR / MR"
+              },
+              "decision": {
+                "detail": "検証または Git 書き込み操作の前に、修正後の差分を再確認します。",
+                "title": "レビュー判断"
+              },
+              "passed": {
+                "detail": "更新後の結果を、最終的な人の判断に使用します。",
+                "title": "チェック合格"
+              },
+              "rereview": {
+                "detail": "ステージや書き込みの前に、復旧後の差分を人が承認します。",
+                "title": "解決後の差分を再レビュー"
+              },
+              "retry": {
+                "detail": "同じワークスペースのコンテキストに戻り、ブロッカーを解消して再試行します。",
+                "title": "戻って解決 + 再試行"
+              },
+              "stage": {
+                "detail": "Git に書き込む前に、レビュー済みのハンクだけをステージします。",
+                "title": "対象を絞ったハンクをステージ"
+              }
+            }
+          },
+          "ScaleWorkflowVisuals": {
+            "d110000001": "オートメーション",
+            "d110000002": "保存した作業をオンデマンドまたはスケジュールで実行",
+            "d110000003": "保存済みワークフロー 2 件",
+            "d110000004": "回帰のトリアージ",
+            "d110000005": "スケジュール済み · 平日午前 9:00（UTC）",
+            "d110000006": "依存関係のレビュー",
+            "d110000007": "手動 · 新しいワークスペース",
+            "d110000008": "最近の実行",
+            "d110000009": "完了",
+            "d110000010": "2 分前",
+            "d110000011": "スケジュール済み",
+            "d110000012": "明日午前 9:00（UTC）",
+            "d130000001": "プリチェックを実行中",
+            "d130000002": "割り当て前にターゲットを検証中",
+            "d130000003": "プリチェック失敗",
+            "d130000004": "実行を保持 · 修正して再実行",
+            "d130000005": "再実行中",
+            "d130000006": "同じ保存済みワークフロー · 新しいワークスペース",
+            "d130000007": "スケジュール済み · 平日 · プリチェック有効",
+            "d130000008": "履歴と出力を保持",
+            "d140000001": "前回の試行 · プリチェック失敗",
+            "d140000002": "ターゲットを利用不可 · 実行を保持",
+            "d140000003": "再実行で復旧",
+            "d140000004": "新しいワークスペース · 履歴と出力を保持"
+          },
+          "WorkspacesAnimatedVisual": {
+            "f110000001": "ベースブランチ",
+            "f110000002": "分離された worktree + ブランチ",
+            "f110000003": "分離ワークスペースでのエージェントのアクティビティ",
+            "f110000004": "orca.yaml を設定",
+            "f110000005": "ログインの競合状態を修正",
+            "f110000006": "CI パイプラインを高速化",
+            "f110000007": "Codex",
+            "f110000008": "Claude Code",
+            "f110000009": "OpenCode",
+            "f110000010": "同じタスクに 3 つの候補",
+            "f110000011": "候補",
+            "f110000012": "チェック",
+            "f110000013": "差分",
+            "f110000014": "1 タスク → 採用 1 件",
+            "f110000016": "準備完了",
+            "f110000017": "作業中",
+            "f110000018": "完了",
+            "f110000019": "採用",
+            "f110000020": "アーカイブ済み",
+            "f110000021": "main 上の 1 タスクから開始",
+            "f110000022": "3 つの分離 worktree に展開",
+            "f110000023": "Codex、Claude、OpenCode が並行して作業",
+            "f110000025": "候補が完了 · チェックと差分の結果を比較",
+            "f110000026": "Codex を採用",
+            "f110000027": "採用候補を保持 · 代替候補 2 件をアーカイブ",
+            "f140000001": "Git プロジェクト · ベースブランチ"
+          },
+          "TerminalProjectWorkflowVisuals": {
+            "b110000001": "シェル",
+            "b110000002": "Codex",
+            "b110000003": "最終ログイン: 本日 console から",
+            "b110000004": "codex",
+            "b110000005": "エージェントセッションが接続されました",
+            "b110000006": "アクティブなワークスペースのターミナルで準備完了。",
+            "b110000008": "セッション",
+            "b110000009": "永続性",
+            "b110000010": "再接続後もセッションを維持",
+            "b110000011": "レイアウト",
+            "b110000012": "タブとネストした分割",
+            "b110000013": "エンジン",
+            "b110000014": "aterm · Rust",
+            "b110000015": "このコンピューター",
+            "b110000016": "このデバイスで Orca を使用",
+            "b110000017": "SSH ホスト",
+            "b110000018": "SSH 経由で既存のマシンに接続",
+            "b110000019": "ペアリング済み Orca ランタイム",
+            "b110000020": "別のコンピューターで実行中の Orca とペアリング",
+            "b110000021": "プロジェクトを追加",
+            "b110000022": "作業の実行場所を選び、次にコードベースを配置する方法を選びます。",
+            "b110000023": "1 · 場所",
+            "b110000024": "プロジェクト操作の実行場所",
+            "b110000025": "2 · コードベース",
+            "b110000026": "コードを配置する方法",
+            "b110000027": "既存のフォルダーを開く",
+            "b110000028": "現在のチェックアウトとブランチを維持",
+            "b110000029": "リポジトリをクローン",
+            "b110000030": "選択した場所にクローン",
+            "b110000031": "プロジェクトを作成",
+            "b110000032": "空のフォルダーから開始",
+            "b130000001": "ホスト再起動",
+            "b130000002": "レイアウト + スクロールバックを復元",
+            "b130000003": "ウォーム再起動",
+            "b130000004": "実行中のプロセスに再接続",
+            "b140000001": "ネイティブホストまたは Windows 上の WSL"
+          },
+          "feature-wall-step-localization": {
+            "g120000001": "ターミナルから開始",
+            "g120000002": "ターミナルから開始—プロジェクトでもスクラッチでも",
+            "g120000003": "ワークスペースがアクティブな場合、Orca は既定でそのターミナルを開きます。任意の CLI エージェントを実行し、タブやペインを分割し、再接続後も永続セッションに戻れます。",
+            "g120000004": "プロジェクトを追加",
+            "g120000005": "コードベースを取り込む",
+            "g120000006": "プロジェクト操作の実行場所（このコンピューター、SSH ホスト、またはペアリング済み Orca ランタイム）を選び、既存のフォルダーを開くか、リポジトリをクローンするか、プロジェクトを作成します。既存のチェックアウトは現在のブランチを維持します。",
+            "g120000007": "タスク",
+            "g120000008": "タスクをすぐに実行できる作業に変換",
+            "g120000009": "使用中のプロバイダーを接続して GitHub、GitLab、Linear、Jira の作業を参照し、Issue やレビューを関連コンテキストとしてワークスペースに取り込みます。",
+            "g120000010": "ワークスペース",
+            "g120000011": "各タスクを分離",
+            "g120000012": "各 Git ワークスペースには専用の worktree、ブランチ、ターミナル、ファイル、ブラウザー状態、エージェントセッションが用意されるため、並行作業が衝突しません。",
+            "g120000013": "エージェント群",
+            "g120000014": "すべてのエージェントをひと目で把握",
+            "g120000015": "ターミナルベースのエージェントを自由に実行できます。対応エージェントでは、各ターミナルを開かなくても、セッションが作業中、待機中、ブロック中、完了のどの状態かを確認できます。",
+            "g120000016": "ワークベンチ",
+            "g120000017": "実装コンテキストを一か所に集約",
+            "g120000018": "ターミナル分割、エディター、ファイル、ポート、埋め込みブラウザーの間を移動し、Design Mode で選択した UI コンテキストをエージェントに送信します。",
+            "g120000019": "レビューと公開",
+            "g120000020": "レビュー、修正して公開",
+            "g120000021": "ローカルの差分に注釈を付け、焦点を絞った 1 つの修正バンドルをエージェントに送ります。Git プロバイダーを接続すると、ホスト側のチェックを確認し、コミットとプルリクエストまたはマージリクエストを準備できます。",
+            "g120000022": "オーケストレーション",
+            "g120000023": "チームが必要な作業を調整",
+            "g120000024": "コーディネーターに依存関係のあるタスクを渡し、ワーカーが進捗やブロッカーを報告できるようにして、その結果を一元管理された 1 つの実行にまとめます。",
+            "g120000025": "オートメーション",
+            "g120000026": "繰り返し作業を再現可能に",
+            "g120000027": "プロンプトとターゲットを保存し、手動またはスケジュールで実行します。リモートターゲットは到達可能である必要があります。各実行では新規または既存のワークスペースを使用でき、履歴で追跡できます。",
+            "g120000028": "リモートとモバイル",
+            "g120000029": "このマシンから離れても作業を継続",
+            "g120000030": "一度ペアリングすると、デスクトップ/ランタイムを正本として維持しながら、Orca Mobile を監視やフォローアップ用のコンパニオンとして利用できます。プロジェクトはそのランタイムまたは別の SSH ホストで実行できます。",
+            "g120000031": "コンピュータ操作",
+            "g120000032": "ガードレール付きでデスクトップアプリを操作",
+            "g120000033": "Computer Use には、各プラットフォーム用のネイティブヘルパーが付属します。macOS ではアクセシビリティと画面収録の権限を付与し、すべてのプラットフォームで、表示中のアプリを検査して公開されている操作を実行する前に機能を確認してください。Orca 内のページには Orca のブラウザーツールを使用してください。",
+            "g120000034": "ベータ",
+            "g120000035": "Mobile ベータ",
+            "g130000001": "ブラウザーと Design Mode",
+            "g130000002": "表示中の UI を正確なエージェントコンテキストに変換",
+            "g130000003": "ワークスペースで実際の Chromium ページを開き、Design Mode で要素を選択して、その DOM と計算済みスタイルに加え、利用可能な場合はソースヒントと切り抜きスクリーンショットをエージェントに送信します。認証済みセッションを再利用することを選んだ場合にのみ、選択したブラウザープロファイルへ Cookie をインポートします。コンテキストを確認し、結果をホットリロードして、変更後の状態を検証します。",
+            "g130000004": "CLI とスキル",
+            "g130000005": "エージェントが Orca 自体を操作",
+            "g130000006": "Orca CLI と、バージョンが一致する組み込み、個人、リポジトリ、プラグインの各スキルにより、エージェントはワークスペース、ターミナル、ファイル、ブラウザー、オートメーションを操作できます。スキルの検出先は、ローカル、SSH、ペアリング済みランタイムのうち作業を実行するホストに従います。",
+            "g130000007": "Orca はデフォルトでワークスペースのターミナルを開きます。プロジェクトがまだない場合は、ローカルのスクラッチターミナルを開きます。任意の CLI エージェントを実行し、タブやペインを分割し、Quick Commands を確認してから起動できます。orca.yaml のプロジェクトコマンドは、現在の共有内容を承認するまで実行されず、内容が変更されると再承認が必要です。GPU/CPU レンダリング、フォーカス対応 QoS、予測エコー、フルスクロールバック検索、インライン画像、ターミナルエフェクト、同梱ビルドツールが、負荷の高いエージェント作業を支えます。アプリの再起動後はウォームセッションに再接続します。ホスト再起動後は、終了したプロセスではなく、レイアウトとスクロールバックを復元します。",
+            "g130000008": "アプローチを競わせる",
+            "g130000009": "計画し、並列展開して、最良の結果を採用",
+            "g130000010": "同じベースから複数の分離ワークスペースを作成し、各エージェントに同じタスクを渡します。差分とチェックを比較して最良の結果を採用し、代替候補をアーカイブします。",
+            "g130000011": "エージェントと要対応項目",
+            "g130000012": "必要なときに介入し、後からコンテキストを復元",
+            "g130000013": "対応エージェントまたはカスタムのターミナルエージェントを実行し、ステータス、任意の Agents フィード、通知から待機中やブロック中の作業へ移動します。エージェントセッション履歴を検索し、利用可能であればログを確認する、対象の worktree へ移動する、またはトランスクリプトに会話内容があり、対象のワークスペースとホストに互換性がある場合に再開することができます。手動ではエージェントの権限確認を有効なままにし、完全自律では対応エージェントにその確認を省略するよう指示します。どちらも worktree をマシンのセキュリティサンドボックスにはしません。",
+            "g130000014": "コードとコンテキスト間をスムーズに移動",
+            "g130000015": "Quick Open と Jump Palette でワークスペースのタブ、ファイル、設定、アクション、ポート、リッチプレビュー間を移動し、コンテキストをエージェントのプロンプトへドラッグします。デフォルトで有効な Floating Workspace では、リポジトリをまたぐ作業や一時作業用のターミナル、エージェント、Markdown、ブラウザーのタブを利用できます。SSH またはペアリング済みランタイムのワークスペースにフォーカスしている間も、そのディレクトリとタブはローカルに維持されます。任意の Voice Dictation は、モデルとマイクのセットアップ後、フォーカス中のペインに音声を書き起こします。",
+            "g130000016": "比較、復旧、公開を意図的に実行",
+            "g130000017": "候補の差分を比較し、行に注釈を付けて修正バンドルを送信し、対象を絞ったハンクをステージします。競合や失敗したチェックを解消し、必要に応じてチェックポイントから復旧します。公開を明示的に確認してから、完了したワークスペースをアーカイブします。",
+            "g130000018": "依存関係のある作業を調整",
+            "g130000019": "独立したアプローチにはシンプルなワークスペース競争を使用します。タスク間に依存関係がある場合はコーディネーターにワーカーグラフを渡し、ワーカーから質問が出たら人が判断できるよう実行を一時停止します。コーディネーターがその判断を中継し、ブロッカーから復旧して、結果を責任の所在が明確な 1 つの実行にまとめます。",
+            "g130000020": "プロンプトとターゲットを保存し、任意のプリチェックを追加して、新規または既存のワークスペースで手動またはスケジュール実行します。履歴を確認して失敗した実行を復旧し、選択したローカルまたはリモートターゲットに到達できるときに再実行します。",
+            "g130000021": "プロジェクトをローカル、SSH 経由、ペアリング済みランタイム、または orca.yaml で定義したオンデマンド環境で実行します。一度ペアリングすると、Orca Mobile は通知、監視、Quick Commands、フォローアップ用のコンパニオンとして機能します。デスクトップ/ランタイムがセッションを調整し、選択したローカルホストまたは SSH ホストが実行権限を保持します。",
+            "g140000006": "プロジェクト操作の実行場所（このコンピューターのネイティブ環境または WSL、SSH ホスト、ペアリング済み Orca ランタイム）を選び、既存のフォルダーを開くか、リポジトリをクローンするか、プロジェクトを作成します。既存のチェックアウトは現在のブランチを維持します。",
+            "g140000001": "Workspace Board で既存のワークスペースをステータスレーンに整理します。Git プロジェクトでは、同じベースから 1 つのタスクを分離 worktree に展開し、各差分とチェック結果を比較して最良の結果を採用し、代替候補をアーカイブします。フォルダーのみのプロジェクトは引き続き元のルートを共有します。ボード自体は並列作業を開始したりマージしたりしません。",
+            "g140000002": "候補の diff を比較し、行に注釈を付けて修正バンドルを送信し、対象を絞った変更を準備します。チェック失敗や競合が発生したら、同じワークスペースで解消して再試行し、チェックを再実行します。その後、人が解消済みの diff と更新されたチェック結果を再レビューしてから、レビュー済みの変更をステージします。Git への書き込みと PR/MR の公開を個別に確認し、最後に完了したワークスペースをアーカイブします。",
+            "g140000003": "アプリエミュレーター",
+            "g140000004": "iOS と Android のテストデバイスを操作",
+            "g140000005": "Xcode を備えた Mac では、Orca のワークスペース単位の iOS Simulator ペインを開きます。macOS、Linux、Windows では、同じ CLI 名前空間から起動済みの Android エミュレーターまたは物理 ADB デバイスを指定し、Orca のワークスペースのエミュレーターペインにストリーミングします。AVD は独自のウィンドウを開いたままにすることもできます。エージェントにバージョンが一致するスキルを読み込ませ、対象デバイスを正確に検出し、アクセシビリティやログを検査して操作、検証させます。iOS の操作は Mac のローカル環境で実行されます。",
+            "g150000001": "プロジェクト操作の実行場所（このコンピューターのネイティブ環境または WSL、SSH ホスト、ペアリング済み Orca ランタイム）を選び、既存のフォルダーを開くか、リポジトリをクローンするか、プロジェクトを作成します。既存のチェックアウトは現在のブランチを維持します。その後 Git ワークスペースを作成すると、共有の orca.yaml コマンド内容を承認した後に、設定済みのリポジトリのセットアップ/インストールコマンドを新しい worktree で自動実行できます。内容が変更された場合は再レビューが必要です。"
+          },
+          "feature-wall-workflow-localization": {
+            "f120000001": "開始",
+            "f120000002": "ターミナル · プロジェクト",
+            "f120000003": "ローカルのスクラッチターミナルから開始するか、アクティブなワークスペースのターミナルで再開します。必要になったら、別のコードベースとランタイムを追加します。",
+            "f120000004": "計画",
+            "f120000005": "タスク · ワークスペース",
+            "f120000006": "受け取った作業を、コンテキストが関連付けられた分離環境に変換します。",
+            "f120000007": "構築",
+            "f120000008": "エージェント · ワークベンチ",
+            "f120000009": "使い慣れたエージェントを実行し、実装コンテキストを一か所にまとめます。",
+            "f120000010": "公開",
+            "f120000011": "レビュー · チェック · 公開",
+            "f120000012": "エージェントの結果を、レビュー済みでプロバイダーに公開できる変更に仕上げます。",
+            "f120000013": "拡張",
+            "f120000014": "オーケストレーション · オートメーション",
+            "f120000015": "依存関係のある作業を調整し、繰り返し可能なジョブをオンデマンドまたはスケジュールで実行します。",
+            "f120000016": "どこからでも",
+            "f120000017": "SSH · モバイル · Computer Use",
+            "f120000018": "Orca ランタイムを介してデスクトップとモバイルコンパニオンを接続し、SSH 経由で別のプロジェクトホストにアクセスし、対応している環境では表示中のデスクトップアプリを操作します。",
+            "f130000001": "エージェント · ワークベンチ · ブラウザー",
+            "f130000002": "使い慣れたエージェントを指示し、実装コンテキストをまとめて、その場で UI の作業を検証します。",
+            "f130000003": "CLI とスキル · オーケストレーション · オートメーション",
+            "f130000004": "エージェントに Orca を操作させ、依存関係のある作業を調整し、繰り返し可能なジョブをオンデマンドまたはスケジュールで実行します。",
+            "f140000001": "SSH · Mobile · エミュレーター · コンピュータ操作",
+            "f140000002": "リモート作業にアクセスし、Mobile から状況を確認し、iOS または Android でアプリをテストします。対応環境では、表示中のデスクトップソフトウェアも操作できます。"
+          },
+          "feature-wall-terminal-shell": {
+            "h130000001": "永続シェルセッションの準備完了"
+          },
+          "CliSkillsWorkflowVisual": {
+            "j130000001": "エージェントの操作ループ",
+            "j130000009": "組み込み",
+            "j130000010": "リポジトリ",
+            "j130000011": "個人",
+            "j130000012": "プラグイン",
+            "j130000014": "検出",
+            "j130000015": "作成",
+            "j130000016": "操作",
+            "j130000017": "検証",
+            "j130000002": "エージェントターミナル · SSH ビルドホスト",
+            "j130000003": "Orca の例示状態",
+            "j130000004": "バージョン一致のスキルを読み込み済み",
+            "j130000005": "ワークスペースを作成",
+            "j130000006": "ブラウザー要素を指定",
+            "j130000007": "結果を検証済み",
+            "j130000008": "JSON 出力により、エージェントの操作を検査し、スクリプト化できます。",
+            "j130000018": "解決済み CLI · orca-dev（開発用の例）",
+            "j130000019": "クリック後のスナップショット · 状態を確認",
+            "j140000020": "ボタン"
+          },
+          "WorkbenchContextWorkflowVisual": {
+            "i130000008": "ターミナル",
+            "i130000009": "session.ts",
+            "i130000001": "プレビュー",
+            "i130000010": "1 · 検索",
+            "i130000011": "2 · 編集",
+            "i130000012": "3 · 添付",
+            "i130000013": "4 · プレビュー",
+            "i130000002": "ファイル",
+            "i130000003": "選択したコンテキスト",
+            "i130000004": "セッション復旧",
+            "i130000005": "ホスト再起動後もレイアウトとスクロールバックを利用できます。",
+            "i130000006": "エージェントコンテキスト",
+            "i130000007": "復旧動作を確認してテストを更新してください。"
+          },
+          "BrowserDesignPayloadSummary": {
+            "a140000001": "DOM",
+            "a150000001": "計算済みスタイル",
+            "a150000002": "ソースヒント · 利用可能な場合",
+            "a150000003": "切り抜き PNG · 利用可能な場合",
+            "a140000005": "添付済み",
+            "a140000006": "送信先 · このワークスペースの Claude",
+            "a140000007": "送信前に確認してください。取得したコンテキストには、表示中のサイト内容が含まれる場合があります。",
+            "a140000008": "機密コンテキストの境界 · 取得内容には、表示中のサイト内容が含まれる場合があります。",
+            "a150000005": "機密コンテキストの境界 · 取得内容には、表示中のサイト内容が含まれる場合があります。プロファイルや Cookie の再利用はオプトインです。",
+            "a150000004": "送信前に確認してください。取得したコンテキストには、表示中のサイト内容が含まれる場合があります。プロファイルや Cookie の再利用はオプトインです。",
+            "profile": {
+              "label": "ブラウザープロファイル",
+              "value": "ワークスペース QA"
+            },
+            "cookies": {
+              "label": "Cookie のインポート",
+              "value": "オフ · 選択して有効化"
+            }
+          },
+          "FeatureWallStepVisual": {
+            "k130000001": "説明用の例",
+            "k150000001": "説明用の例: Orca はアクティブなワークスペースのターミナルを開きます。プロジェクトがまだない場合は、ローカルのスクラッチターミナルを開きます。プロジェクトの Quick Command を確認して実行し、GPU/CPU レンダリング、フォーカス対応 QoS、予測エコー、フルスクロールバック検索、インライン画像、エフェクト、同梱ビルドツールを確認します。ウォーム再起動後はライブセッションに再接続し、ホスト再起動後はレイアウトとスクロールバックを復元します。",
+            "k150000002": "説明用の例: このコンピューターまたは WSL、SSH、ペアリング済みランタイムを選び、現在のチェックアウトを変更せずにコードベースを開く、クローンする、または作成します。",
+            "k150000003": "説明用の例: タスクプロバイダーを接続し、Issue をワークスペースのコンテキストとして開きます。読み込みを待ってから、準備済みのワークスペースを開きます。",
+            "k150000004": "説明用の例: 既存のワークスペースカードを移動してレーン件数の更新を確認し、1 つの Git タスクを複数の分離 worktree に展開します。チェックと差分を比較し、採用する結果を明示的に選択して、代替候補をアーカイブします。",
+            "k150000005": "説明用の例: エージェントの要対応項目を監視し、返信してセッションを復旧し、アカウントを切り替えてからエージェントセッション履歴を検索します。会話内容と互換性のあるターゲットがある場合のみ再開し、所有する worktree へ移動するか、利用可能なローカルログを確認します。",
+            "k150000006": "説明用の例: Quick Open と Jump Palette を使い、編集して自動保存し、コンテキストを添付してリッチファイルをプレビューします。モデルとマイクのセットアップ後は、フォーカス中のペインへ音声入力できます。デフォルトで有効なローカルの Floating Workspace には、リポジトリ横断エージェント、スクラッチターミナル、ノート、ブラウザータブを保持し、リモート作業はリモートのまま維持します。",
+            "k150000007": "説明用の例: 表示中の UI を選択し、DOM、計算済みスタイル、任意のソースヒントと切り抜きスクリーンショット、送信先、機密コンテキストを確認します。ワークスペースのエージェントに送信してから、更新後のページを検証します。",
+            "k150000008": "説明用の例: 候補を比較して修正に注釈を付け、人がレビュー判断を行います。チェック失敗や競合があれば同じワークスペースで解消して再試行し、チェックを再実行します。その後、人が解消済みの diff と更新されたチェック結果を再レビューしてから、レビュー済みの変更をステージします。Git への書き込みと PR/MR の公開を個別に確認し、最後にワークスペースをアーカイブします。",
+            "k150000009": "説明用の例: SSH ホスト上でバージョンが一致するスキルを検出し、orca リレー経由で worktree を作成します。スナップショットを検査し、要素参照を操作して、新しいスナップショットで検証します。",
+            "k150000010": "説明用の例: 依存関係のあるタスクを調整し、ワーカーが質問したら実行を一時停止します。人が判断ゲートを解決し、コーディネーターが承認済みの判断を中継します。その後、失敗した契約チェックから復旧し、責任の所在が明確な結果を受け入れます。",
+            "k150000011": "説明用の例: スケジュールまたは手動の作業をプリチェック付きで保存し、失敗履歴を保持します。再実行で復旧し、完了した結果を確認します。",
+            "k150000012": "説明用の例: SSH 実行の権限をリモートホストに維持し、再接続後に転送ポートを復元します。orca.yaml 環境をプロビジョニングし、Mobile から監視または返信します。",
+            "k150000013": "説明用の例: iOS または Android のデバイスを正確に選択し、アクセシビリティとログを検査します。見つからない、または古いターゲットは、emulator-5554 を明示して再試行し、復旧します。「Email」をタップして agent@example.com と入力し、更新後のプロフィール状態を検証します。",
+            "k150000014": "説明用の例: プラットフォームの機能と権限を確認し、作業対象を表示中のアプリに限定します。ターミナルのアクセシビリティを検査し、公開された「再接続」操作を実行して、表示結果「エージェント接続済み」を確認します。",
+            "k150000015": "説明用の例: このコンピューターまたは WSL、SSH、ペアリング済みランタイムを選択し、ブランチを変更せずに既存のフォルダーを開きます。プロジェクトを追加した後、Git ワークスペースを明示的に作成します。Orca は分離された worktree を作成し、そこで承認済みの共有 orca.yaml セットアップコマンドを実行して、ワークスペースのターミナルと完了済みセットアップの出力を表示したままにします。"
+          },
+          "MobileEmulatorsWorkflowVisual": {
+            "m140000001": "ワークスペースアプリのテストループ",
+            "m140000002": "正確なデバイスを選択",
+            "m140000003": "iOS Simulator",
+            "m140000004": "ローカル Mac · Xcode 必須",
+            "m140000005": "Orca のライブエミュレーターペイン",
+            "m140000006": "ワークスペースのデバイスに接続",
+            "m140000007": "アクセシビリティを検査",
+            "m140000008": "タップ、入力、ジェスチャー",
+            "m140000009": "Android エミュレーター / デバイス",
+            "m140000010": "macOS · Linux · Windows",
+            "m140000011": "表示中の Android エミュレーターウィンドウ",
+            "m140000012": "起動済み ADB デバイスを検出",
+            "m140000013": "インストール、起動、ログを検査",
+            "m140000014": "タップ、入力、検証",
+            "m140000015": "アクティブなターゲットなし、または古いターゲット",
+            "m140000016": "一覧表示、接続、または起動",
+            "m140000017": "明示的なデバイス ID で再試行",
+            "m140000018": "iOS の操作は Simulator を所有する Mac 上で実行されます。エミュレーター操作は実行中のアプリとそのテストデータを変更できるため、操作前にターゲットを確認してください。",
+            "m150000001": "Orca のライブエミュレーターペイン",
+            "m150000002": "ストリーミング、インストール、起動、ログを検査",
+            "m150000003": "デバイス接続済み",
+            "m150000004": "「Email」をタップ · agent@example.com と入力",
+            "m150000005": "検証済みのアプリ状態",
+            "m150000006": "プロフィールのメール · agent@example.com"
+          },
+          "RemoteMobileWorkflowVisual": {
+            "b140000001": "フルクライアント",
+            "b140000002": "Orca デスクトップ",
+            "b140000003": "作業を選択して指示",
+            "b140000004": "ランタイム",
+            "b140000005": "Orca ランタイム",
+            "b140000006": "デスクトップが正本",
+            "b140000007": "コンパニオン",
+            "b140000008": "Orca Mobile",
+            "b140000009": "監視して返信",
+            "b140000010": "ベータ",
+            "b140000011": "実運用の SSH パス",
+            "b140000012": "任意のダウンストリーム",
+            "b140000013": "SSH プロジェクトホスト",
+            "b140000026": "ターミナル",
+            "b140000027": "Git",
+            "b140000028": "ファイル",
+            "b140000014": "転送ポート :3000",
+            "b140000015": "Orca ブラウザーでプレビュー",
+            "b140000016": "SSH 切断",
+            "b140000017": "再接続 + 復旧",
+            "b140000018": "SSH ホストを実行元として維持",
+            "b140000019": "ワークスペースはリモートホストに割り当てられたままです。保存済みのポート転送は再接続後に復元され、ローカル実行に切り替わることはありません。",
+            "b140000020": "オンデマンド",
+            "b140000021": "ワークスペース環境",
+            "b140000022": "orca.yaml からプロビジョニング",
+            "b140000023": "モバイルコンパニオン",
+            "b140000024": "通知 + フォローアップ",
+            "b140000025": "監視 · 返信 · Quick Commands",
+            "b140000029": "実行 + セッションの管理主体"
           }
         },
         "tips": {
@@ -13826,6 +14383,213 @@
           "b3d7e0f1a8": "MR",
           "a2c6d9e0f7": "MR",
           "91b5c8d7e6": "GitLab"
+        }
+      }
+    },
+    "fw": {
+      "agentAttention": {
+        "f130000001": "エージェント群",
+        "f130000002": "対応済みおよびカスタムのターミナルエージェント",
+        "f130000003": "再接続済み · 3 セッションを復元",
+        "f130000004": "アクティブなセッション",
+        "f130000005": "3 エージェント",
+        "f130000006": "Claude",
+        "f130000007": "対応済み",
+        "f130000044": "作業中",
+        "f130000008": "再接続フローを改善中",
+        "f130000009": "Codex",
+        "f130000024": "要対応",
+        "f130000010": "対象を絞ったテストの実行に承認が必要",
+        "f130000011": "承認済みのテストスイートを実行中",
+        "f130000012": "セッション状態を追跡中",
+        "f130000013": "リリース QA",
+        "f130000014": "カスタム CLI",
+        "f130000045": "完了",
+        "f130000015": "Windows と SSH の動作を確認済み",
+        "f130000016": "セッションの応答",
+        "f130000017": "トランスクリプト + スクロールバックを復元",
+        "f130000018": "あなた",
+        "f130000019": "対象を絞ったテストスイートを実行してください。",
+        "f130000020": "エージェントからのリクエストを待機中…",
+        "f130000021": "同じターミナルセッションで続行します。",
+        "f130000022": "受信トレイ",
+        "f130000023": "要対応 · 解決済み",
+        "f130000025": "すべてのセッションを監視中",
+        "f130000026": "受信トレイから開き、Codex に返信済み",
+        "f130000027": "待機中またはブロック中の作業へ直接移動します。",
+        "f130000028": "受信トレイで開く",
+        "f130000029": "使用量とアカウント",
+        "f130000030": "例示状態",
+        "f130000031": "Codex アカウント",
+        "f130000032": "チーム",
+        "f130000033": "個人",
+        "f130000034": "{{value0}}% 使用 · 5 時間後にリセット",
+        "f130000035": "Claude の週間使用量",
+        "f130000036": "41% 使用",
+        "f130000037": "使用量 94% の個人アカウントから切り替え済み",
+        "f130000046": "チームに切り替え · 18% 使用",
+        "f130000038": "自律性の境界",
+        "f130000039": "worktree が分離するのはファイルであり、マシンではありません。完全自律ではホストのアクセス権を使用します。",
+        "f130000040": "手動",
+        "f130000041": "機密性の高い操作の前に確認",
+        "f130000042": "完全自律",
+        "f130000043": "承認プロンプトを削減",
+        "vault": {
+          "title": "エージェントセッション履歴",
+          "optional": "任意 · 試験的",
+          "search": "ワークスペース範囲 · 再接続",
+          "result": "Codex · 再接続フロー",
+          "jump": "所有する worktree へ移動",
+          "resume": "再開 · 内容 + 互換性のあるターゲット",
+          "log": "ログを表示 · ローカルパスを利用可能"
+        }
+      },
+      "automation": {
+        "phase": {
+          "precheck": "プリチェック",
+          "failed": "復旧",
+          "rerun": "再実行",
+          "completed": "確認"
+        }
+      },
+      "workbenchContext": {
+        "file": {
+          "src": "src",
+          "terminal": "terminal",
+          "session": "session.ts",
+          "readme": "README.md",
+          "image": "flow.png",
+          "csv": "results.csv"
+        },
+        "code": {
+          "function": "export async function restoreSession(id: string) {",
+          "reconnect": "  const session = await reconnect(id)",
+          "verify": "  return verifyScrollback(session)",
+          "verifyRestored": "  return verifyRestoredScrollback(session)"
+        },
+        "selection": "session.ts:20",
+        "preview": {
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "image": "画像",
+          "csv": "CSV"
+        },
+        "attachment": "session.ts:20",
+        "search": {
+          "query": "session",
+          "session": "session.ts",
+          "path": "src/terminal",
+          "test": "session.test.ts"
+        },
+        "floating": {
+          "agent": "リポジトリ横断エージェント",
+          "terminal": "作業用ターミナル",
+          "note": "Markdown ノート",
+          "browser": "ブラウザータブ",
+          "title": "フローティングワークスペース",
+          "default": "デフォルトで有効",
+          "boundary": "選択したローカルディレクトリ · SSH/ランタイムにフォーカスしてもローカルに維持"
+        },
+        "voice": {
+          "title": "任意の音声入力",
+          "model": "モデル + マイクの準備完了",
+          "target": "文字起こし → フォーカス中のペイン"
+        },
+        "edit": {
+          "saved": "保存済み"
+        },
+        "jump": {
+          "title": "ジャンプパレット",
+          "action": "ポート → :3000 を開く"
+        }
+      },
+      "terminalFirst": {
+        "quickCommands": {
+          "title": "Quick Commands · 信頼境界",
+          "project": "プロジェクトの orca.yaml · レビューまでは実行不可、変更後は再レビューが必要",
+          "user": "ユーザー所有のコマンド · 通常どおり実行",
+          "review": "プロジェクトコマンドを確認 · チェック",
+          "trusted": "この内容を信頼済み",
+          "run": "チェックを実行"
+        },
+        "capabilities": {
+          "output": {
+            "action": "エージェント出力の大量発生",
+            "result": "フォーカス時 GPU/WebGL · CPU フォールバック · バックグラウンド QoS"
+          },
+          "input": {
+            "action": "リモート入力",
+            "result": "予測エコー確認済み · エフェクト利用可能"
+          },
+          "search": {
+            "action": "“failed” を検索",
+            "result": "フルスクロールバックで 12 件一致"
+          },
+          "media": {
+            "action": "エージェントによるビルド + アーティファクト",
+            "result": "インライン画像 · 同梱コンパイラー + ソルバー"
+          }
+        }
+      },
+      "workspaces": {
+        "board": {
+          "todo": "未着手",
+          "progress": "進行中",
+          "review": "レビュー中",
+          "done": "完了",
+          "title": "ワークスペースボード",
+          "boundary": "既存のワークスペース · ユーザーが割り当てたステータス"
+        },
+        "winnerRationale": "人による選択 · すべてのチェックに合格、対象を絞った最小の差分",
+        "winnerEvidence": "Codex · 18/18 · +42 −8"
+      },
+      "addProject": {
+        "story": "説明用フロー · 操作 → 進行 → 結果",
+        "stage": {
+          "action": "操作",
+          "progress": "進行"
+        },
+        "hostStep": "1 · 実行ホスト",
+        "selected": "選択済み",
+        "codebaseStep": "2 · コードベースのパス",
+        "confirm": "ユーザーが確認 · このプロジェクトを追加",
+        "project": {
+          "branch": "既存のチェックアウト · ブランチは変更なし",
+          "added": "プロジェクトを追加済み"
+        },
+        "workspace": {
+          "detail": "session-recovery",
+          "action": "ユーザー操作 · ワークスペースを作成"
+        },
+        "worktree": {
+          "detail": "分離 worktree · ブランチ feature/session-recovery",
+          "title": "新しい Git worktree"
+        },
+        "setup": {
+          "command": "orca.yaml scripts.setup · pnpm install",
+          "title": "承認済みの共有セットアップを実行"
+        },
+        "result": {
+          "ready": "ワークスペースの準備完了",
+          "detail": "ターミナルを開きました · リポジトリのセットアップ完了"
+        },
+        "boundary": "説明用 · 共有の orca.yaml セットアップは、リポジトリのコマンド内容が承認された後に限り、新しい Git worktree で自動実行されます。内容が変更された場合は再レビューが必要です。コマンドと所要時間はリポジトリやホストによって異なります。"
+      },
+      "walkthrough": {
+        "moreBelow": "下に続きがあります",
+        "collapseDescription": "説明を折りたたむ",
+        "expandDescription": "説明をすべて表示"
+      },
+      "cliSkills": {
+        "commandName": "orca"
+      },
+      "mobileEmulators": {
+        "deviceId": "emulator-5554"
+      },
+      "tasks": {
+        "provider": {
+          "github": "GitHub",
+          "repository": "stablyai/orca"
         }
       }
     }

@@ -1,31 +1,32 @@
 /* oxlint-disable react-doctor/no-adjust-state-on-prop-change -- Why: this page is a timed storyboard; row state resets are part of replaying the animation when the active step changes. */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { ChevronDown, Workflow } from 'lucide-react'
-import { ClaudeIcon, OpenAIIcon } from '../../status-bar/icons'
 import {
   BUBBLE_FLIGHT_MS,
   BUBBLE_GAP_MS,
   BUBBLE_LAND_MS,
-  INITIAL_ROW_MESSAGES,
-  INITIAL_ROW_STATE,
+  COMPLETED_ROW_MESSAGES as DONE_COPY,
+  COMPLETED_ROW_STATE as DONE_ROWS,
+  INITIAL_ROW_MESSAGES as START_COPY,
+  INITIAL_ROW_STATE as START_ROWS,
   ORCHESTRATION_CLI_COMMAND_TIMINGS_MS,
-  PHASE1_BEATS,
+  ORCHESTRATION_BEATS,
+  RESPONSE_BEAT_GAP_MS,
   type AgentKey,
   type Beat,
+  type OrchestrationPhase,
   type RowFlash,
   type RowMessages,
   type RowPending,
   type RowState
 } from './orchestration-types'
 import { arrowPathFromCoordTo, bubblePathBetweenRows } from './orchestration-bubble-path'
-import { AgentRow, WorkspaceCard } from './orchestration-cards'
-import { translate } from '@/i18n/i18n'
+import { OrchestrationWorkspaceCards } from './OrchestrationWorkspaceCards'
 
 // Children start pending (no agent row visible) and reveal as the orchestrator
 // dispatches a message to them. This mirrors the "agents arrive when assigned"
 // reading the design wants.
-const INITIAL_CHILD_PENDING: RowPending = {
+const START_PENDING: RowPending = {
   'child-codex': true,
   'child-claude': true
 }
@@ -33,13 +34,23 @@ const INITIAL_CHILD_PENDING: RowPending = {
 const CHILD_ONE_CREATE_MS = ORCHESTRATION_CLI_COMMAND_TIMINGS_MS[0]
 const CHILD_TWO_CREATE_MS = ORCHESTRATION_CLI_COMMAND_TIMINGS_MS[1]
 const FIRST_DISPATCH_MS = ORCHESTRATION_CLI_COMMAND_TIMINGS_MS[2]
+const FINAL_RESULT_HOLD_MS = 300
+
+function storySettleMs(showResponseBeats: boolean): number {
+  const beatCount = showResponseBeats ? ORCHESTRATION_BEATS.length : 2
+  return (
+    FIRST_DISPATCH_MS +
+    (beatCount > 0 ? BUBBLE_GAP_MS : 0) +
+    Math.max(0, beatCount - 1) * RESPONSE_BEAT_GAP_MS +
+    FINAL_RESULT_HOLD_MS
+  )
+}
 
 export function OrchestrationPage(props: {
   active: boolean
   reducedMotion: boolean
   onCycleComplete?: () => void
   controlledCreatedChildCount?: number
-  loopMs?: number
   showResponseBeats?: boolean
 }): JSX.Element {
   const {
@@ -47,7 +58,6 @@ export function OrchestrationPage(props: {
     reducedMotion,
     onCycleComplete,
     controlledCreatedChildCount,
-    loopMs,
     showResponseBeats = true
   } = props
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -56,17 +66,21 @@ export function OrchestrationPage(props: {
   const rowRefs = useRef<Partial<Record<AgentKey, HTMLDivElement | null>>>({})
   const childCountControlledRef = useRef(controlledCreatedChildCount !== undefined)
 
-  const [rowState, setRowState] = useState<RowState>(INITIAL_ROW_STATE)
-  const [rowMessages, setRowMessages] = useState<RowMessages>(INITIAL_ROW_MESSAGES)
+  const [rowState, setRowState] = useState<RowState>(reducedMotion ? DONE_ROWS : START_ROWS)
+  const initialMessages = reducedMotion ? DONE_COPY : START_COPY
+  const [rowMessages, setRowMessages] = useState<RowMessages>(initialMessages)
   const [rowFlash, setRowFlash] = useState<RowFlash>({})
-  const [rowPending, setRowPending] = useState<RowPending>(INITIAL_CHILD_PENDING)
-  const [createdChildCount, setCreatedChildCount] = useState(0)
-  const displayedChildCount = controlledCreatedChildCount ?? createdChildCount
+  const [rowPending, setRowPending] = useState<RowPending>(reducedMotion ? {} : START_PENDING)
+  const [createdChildCount, setCreatedChildCount] = useState(reducedMotion ? 2 : 0)
+  const [phase, setPhase] = useState<OrchestrationPhase>(reducedMotion ? 'complete' : 'plan')
+  const showSettledReducedState = active && reducedMotion
+  const displayedChildCount =
+    controlledCreatedChildCount ?? (showSettledReducedState ? 2 : createdChildCount)
 
   // Why: bubbles measure the recipient row at fire-time, so the pending flag
   // has to flip *before* the path is computed. React state updates are async,
   // so keep a synchronous mirror to flip styles immediately.
-  const pendingMirror = useRef<RowPending>({ ...INITIAL_CHILD_PENDING })
+  const pendingMirror = useRef<RowPending>(reducedMotion ? {} : { ...START_PENDING })
 
   childCountControlledRef.current = controlledCreatedChildCount !== undefined
 
@@ -110,12 +124,13 @@ export function OrchestrationPage(props: {
     if (!active) {
       // Reset everything to the initial state when the user pages away so
       // re-entering the step plays from the top.
-      setRowState(INITIAL_ROW_STATE)
-      setRowMessages(INITIAL_ROW_MESSAGES)
+      setRowState(START_ROWS)
+      setRowMessages(START_COPY)
       setRowFlash({})
-      setRowPending(INITIAL_CHILD_PENDING)
+      setRowPending(START_PENDING)
       setCreatedChildCount(0)
-      pendingMirror.current = { ...INITIAL_CHILD_PENDING }
+      setPhase('plan')
+      pendingMirror.current = { ...START_PENDING }
       const arrows = arrowsRef.current
       if (arrows) {
         arrows.innerHTML = ''
@@ -128,12 +143,13 @@ export function OrchestrationPage(props: {
     }
 
     if (reducedMotion) {
-      // Static state: parent + both children visible, mid-task. No bubbles —
-      // the lineage chip and nesting convey parentage.
-      setRowState(INITIAL_ROW_STATE)
-      setRowMessages(INITIAL_ROW_MESSAGES)
+      // Why: the static state preserves the outcome of the dependency graph,
+      // rather than stranding motion-sensitive users in its opening beat.
+      setRowState(DONE_ROWS)
+      setRowMessages(DONE_COPY)
       setRowPending({})
       setCreatedChildCount(2)
+      setPhase('complete')
       pendingMirror.current = {}
       const frameId = requestAnimationFrame(() => drawArrow())
       return () => cancelAnimationFrame(frameId)
@@ -171,8 +187,21 @@ export function OrchestrationPage(props: {
         return
       }
 
-      if (beat.senderFinishes) {
-        setRowState((s) => ({ ...s, [beat.from]: 'done' }))
+      const senderMessage = beat.senderMessage
+      if (senderMessage !== undefined) {
+        setRowMessages((messages) => ({ ...messages, [beat.from]: senderMessage }))
+        setRowFlash((flash) => ({ ...flash, [beat.from]: (flash[beat.from] ?? 0) + 1 }))
+      }
+      const senderState = beat.senderState
+      if (senderState !== undefined) {
+        setRowState((state) => ({ ...state, [beat.from]: senderState }))
+      }
+
+      if (beat.delivery === 'local') {
+        // Why: a decision gate is resolved by the human in Orca before the
+        // coordinator is allowed to relay that decision to a worker.
+        setPhase(beat.phase)
+        return
       }
 
       // The bubble needs a real geometry target. If the recipient row is
@@ -203,12 +232,16 @@ export function OrchestrationPage(props: {
           pendingMirror.current = { ...pendingMirror.current, [beat.to]: false }
           setRowPending((p) => ({ ...p, [beat.to]: false }))
         }
-        const replacement =
-          beat.to === 'coord-claude' && beat.coordMsg ? beat.coordMsg : (beat.recipientMsg ?? '')
-        if (replacement) {
-          setRowMessages((m) => ({ ...m, [beat.to]: replacement }))
+        const recipientMessage = beat.recipientMessage
+        if (recipientMessage !== undefined) {
+          setRowMessages((m) => ({ ...m, [beat.to]: recipientMessage }))
           setRowFlash((f) => ({ ...f, [beat.to]: (f[beat.to] ?? 0) + 1 }))
         }
+        const recipientState = beat.recipientState
+        if (recipientState !== undefined) {
+          setRowState((state) => ({ ...state, [beat.to]: recipientState }))
+        }
+        setPhase(beat.phase)
         bubble.classList.remove('in-flight')
         bubble.classList.add('landed')
       }, BUBBLE_FLIGHT_MS)
@@ -218,11 +251,12 @@ export function OrchestrationPage(props: {
 
     const runOnce = (done: () => void): void => {
       clearArrows()
-      setRowState(INITIAL_ROW_STATE)
-      setRowMessages(INITIAL_ROW_MESSAGES)
-      setRowPending(INITIAL_CHILD_PENDING)
+      setRowState(START_ROWS)
+      setRowMessages(START_COPY)
+      setRowPending(START_PENDING)
       setCreatedChildCount(0)
-      pendingMirror.current = { ...INITIAL_CHILD_PENDING }
+      setPhase('plan')
+      pendingMirror.current = { ...START_PENDING }
       if (!childCountControlledRef.current) {
         // Reveal each child workspace when the matching shell command appears,
         // so the CLI tip reads as Claude driving the exact Orca workflow shown.
@@ -234,30 +268,21 @@ export function OrchestrationPage(props: {
           later(() => drawArrow(), 360)
         }, CHILD_TWO_CREATE_MS)
       }
-      const beats = showResponseBeats ? PHASE1_BEATS : PHASE1_BEATS.slice(0, 2)
+      const beats = showResponseBeats ? ORCHESTRATION_BEATS : ORCHESTRATION_BEATS.slice(0, 2)
       let beatIdx = 0
       const next = (): void => {
         if (beatIdx >= beats.length) {
-          later(done, 800)
+          later(done, FINAL_RESULT_HOLD_MS)
           return
         }
         fireBubble(beats[beatIdx])
         beatIdx += 1
-        later(next, BUBBLE_GAP_MS)
+        later(next, beatIdx < 2 ? BUBBLE_GAP_MS : RESPONSE_BEAT_GAP_MS)
       }
       later(next, FIRST_DISPATCH_MS)
     }
 
-    const loop = (): void => {
-      runOnce(() => {
-        onCycleComplete?.()
-        const beatCount = showResponseBeats ? PHASE1_BEATS.length : 2
-        const elapsedMs = FIRST_DISPATCH_MS + beatCount * BUBBLE_GAP_MS + 800
-        later(loop, loopMs ? Math.max(0, loopMs - elapsedMs) : 1400)
-      })
-    }
-
-    loop()
+    runOnce(() => onCycleComplete?.())
 
     const onResize = (): void => drawArrow()
     window.addEventListener('resize', onResize)
@@ -273,12 +298,15 @@ export function OrchestrationPage(props: {
         cleanupLayer.innerHTML = ''
       }
     }
-  }, [active, onCycleComplete, reducedMotion, drawArrow, loopMs, showResponseBeats])
+  }, [active, onCycleComplete, reducedMotion, drawArrow, showResponseBeats])
 
   return (
     <div
       ref={stageRef}
       className="feature-wall-orch-stage relative grid"
+      data-feature-wall-orchestration-story="true"
+      data-feature-wall-story-loop="once"
+      data-feature-wall-story-settle-ms={storySettleMs(showResponseBeats)}
       style={{
         gridTemplateColumns: 'minmax(0, 1fr)',
         gridAutoRows: 'min-content',
@@ -289,116 +317,19 @@ export function OrchestrationPage(props: {
         height: '100%'
       }}
     >
-      <div className="relative flex min-w-0 flex-col gap-1.5">
-        <WorkspaceCard
-          variant="coordinator"
-          name="redesign auth flow"
-          dataCard="coord"
-          rows={[
-            <AgentRow
-              key="coord-claude"
-              agentKey="coord-claude"
-              icon={<ClaudeIcon size={13} />}
-              state={rowState['coord-claude']}
-              message={rowMessages['coord-claude']}
-              flashKey={rowFlash['coord-claude'] ?? 0}
-              registerRef={(node) => {
-                rowRefs.current['coord-claude'] = node
-              }}
-            />
-          ]}
-        />
-
-        <div
-          className="flex justify-start"
-          style={{
-            marginLeft: 'var(--feature-wall-child-indent, 28px)',
-            marginTop: 0,
-            marginBottom: 0
-          }}
-        >
-          <span
-            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-1.5 text-muted-foreground"
-            style={{ height: 18, fontSize: 10, fontWeight: 500 }}
-            aria-label={translate(
-              'auto.components.feature.wall.agents.orchestration.OrchestrationPage.862605d066',
-              '2 child workspaces'
-            )}
-          >
-            <Workflow className="size-2.5" aria-hidden />
-            <span className="truncate">
-              {translate(
-                'auto.components.feature.wall.agents.orchestration.OrchestrationPage.30b509a467',
-                '2 children'
-              )}
-            </span>
-            <ChevronDown className="size-2.5" aria-hidden />
-          </span>
-        </div>
-
-        <div
-          className="feature-wall-children-wrapper"
-          data-visible={displayedChildCount > 0 ? 'true' : undefined}
-          style={{
-            width: 'calc(100% - var(--feature-wall-child-indent, 28px))',
-            marginLeft: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8
-          }}
-        >
-          {displayedChildCount >= 1 ? (
-            <div className="feature-wall-child-card-shell">
-              <WorkspaceCard
-                variant="default"
-                name="PR 1/2: migrate users.sql"
-                dataCard="child"
-                childPadding
-                rows={[
-                  <AgentRow
-                    key="child-codex"
-                    agentKey="child-codex"
-                    icon={<OpenAIIcon size={13} />}
-                    state={rowState['child-codex']}
-                    message={rowMessages['child-codex']}
-                    flashKey={rowFlash['child-codex'] ?? 0}
-                    pending={rowPending['child-codex']}
-                    spawnRow
-                    registerRef={(node) => {
-                      rowRefs.current['child-codex'] = node
-                    }}
-                  />
-                ]}
-              />
-            </div>
-          ) : null}
-          {displayedChildCount >= 2 ? (
-            <div className="feature-wall-child-card-shell">
-              <WorkspaceCard
-                variant="default"
-                name="PR 2/2: withSession middleware"
-                dataCard="child-claude"
-                childPadding
-                rows={[
-                  <AgentRow
-                    key="child-claude"
-                    agentKey="child-claude"
-                    icon={<ClaudeIcon size={13} />}
-                    state={rowState['child-claude']}
-                    message={rowMessages['child-claude']}
-                    flashKey={rowFlash['child-claude'] ?? 0}
-                    pending={rowPending['child-claude']}
-                    spawnRow
-                    registerRef={(node) => {
-                      rowRefs.current['child-claude'] = node
-                    }}
-                  />
-                ]}
-              />
-            </div>
-          ) : null}
-        </div>
-      </div>
+      <OrchestrationWorkspaceCards
+        displayedChildCount={displayedChildCount}
+        phase={phase}
+        registerRow={(agent, node) => {
+          rowRefs.current[agent] = node
+        }}
+        rowFlash={rowFlash}
+        rowMessages={rowMessages}
+        rowPending={rowPending}
+        rowState={rowState}
+        showRunStatus={showResponseBeats}
+        showSettledReducedState={showSettledReducedState}
+      />
 
       <svg
         ref={arrowsRef}

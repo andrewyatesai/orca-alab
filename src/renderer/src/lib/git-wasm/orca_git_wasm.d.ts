@@ -405,7 +405,7 @@ export interface InitOutput {
     f: number,
     g: number
   ) => void
-  readonly __wasm_bindgen_func_elem_1641: (a: number, b: number) => void
+  readonly __wasm_bindgen_func_elem_1628: (a: number, b: number) => void
   readonly __wasm_bindgen_func_elem_1707: (a: number, b: number, c: number, d: number) => void
   readonly __wasm_bindgen_func_elem_1643: (a: number, b: number, c: number) => void
   readonly __wbindgen_export: (a: number, b: number) => number

@@ -9,12 +9,12 @@ import {
 } from './onboarding-tour-outcome-tracker'
 
 const depthSummary = {
-  furthest_step: 'review_ship',
-  last_group_id: 'review',
-  visited_workflow_count: 5,
-  visited_substep_count: 9,
-  completed_workflow_count: 4,
-  completed_substep_count: 7
+  furthest_step: 'computer-use',
+  last_group_id: 'anywhere',
+  visited_workflow_count: 6,
+  visited_substep_count: 14,
+  completed_workflow_count: 6,
+  completed_substep_count: 14
 } as const
 
 describe('onboarding tour outcome tracker', () => {
@@ -40,11 +40,11 @@ describe('onboarding tour outcome tracker', () => {
       outcome: 'completed_inline',
       intro_duration_ms: 75,
       tour_dwell_ms: 400,
-      furthest_step: 'review_ship',
-      visited_workflow_count: 5,
-      visited_substep_count: 9,
-      completed_workflow_count: 4,
-      completed_substep_count: 7,
+      furthest_step: 'computer-use',
+      visited_workflow_count: 6,
+      visited_substep_count: 14,
+      completed_workflow_count: 6,
+      completed_substep_count: 14,
       advanced_via: 'button'
     })
     expect(resolvePendingOnboardingTourOutcome(tracker, 600)).toBeNull()
@@ -74,7 +74,7 @@ describe('onboarding tour outcome tracker', () => {
     markOnboardingTourStarted(tracker, 150)
     recordOnboardingTourDepthSummary(tracker, {
       furthest_step: 'tasks',
-      last_group_id: 'tasks',
+      last_group_id: 'plan',
       visited_workflow_count: 2,
       visited_substep_count: 0,
       completed_workflow_count: 1,
@@ -99,8 +99,8 @@ describe('onboarding tour outcome tracker', () => {
     markOnboardingTourIntroReached(tracker, 100)
     markOnboardingTourStarted(tracker, 150)
     recordOnboardingTourDepthSummary(tracker, {
-      furthest_step: 'workbench_editor',
-      last_group_id: 'workbench',
+      furthest_step: 'workbench',
+      last_group_id: 'build',
       visited_workflow_count: 1,
       visited_substep_count: 2,
       completed_workflow_count: 0,
@@ -111,7 +111,7 @@ describe('onboarding tour outcome tracker', () => {
       outcome: 'started_partial',
       intro_duration_ms: 50,
       tour_dwell_ms: 300,
-      furthest_step: 'workbench_editor',
+      furthest_step: 'workbench',
       visited_workflow_count: 1,
       visited_substep_count: 2,
       completed_workflow_count: 0,

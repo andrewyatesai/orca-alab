@@ -2325,7 +2325,7 @@ export default function TerminalPane({
       container.removeEventListener('paste', onPaste, { capture: true })
       window.removeEventListener(APP_MENU_PASTE_EVENT, onAppMenuPaste)
     }
-  }, [isActive, worktreeId, keybindings, forceBracketedMultilineTextPaste, tabId])
+  }, [isActive, worktreeId, cwd, keybindings, forceBracketedMultilineTextPaste, tabId])
 
   // Dismiss the pane's attention indicator on click (ghostty "show until interact"); pointerdown covers the mouse path onData doesn't.
   // NOT gated on isActive: clicking a visible-but-inactive split pane must clear the worktree dot before focusGroup re-renders it active.

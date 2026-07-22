@@ -15,6 +15,10 @@ const {
 const { assertBundledBinaryArchitectures } = require('./scripts/assert-bundled-binary-arch.cjs')
 
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
+// Why: forks without Apple credentials publish explicitly-unsigned release
+// artifacts (verify-macos-release-env.mjs honors the same opt-out); hardened
+// runtime, notarization, and timestamped signing all require a real identity.
+const isSignedMacRelease = isMacRelease && process.env.ORCA_ALLOW_UNSIGNED !== '1'
 const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
 // Why: fork builds must not wear public Orca's identity — the same
 // appId/productName would share userData, the single-instance lock, and the
@@ -339,8 +343,8 @@ module.exports = {
     // credentials. Hardened runtime + notarization stay enabled only on the
     // explicit release path so production artifacts remain strict while dev
     // artifacts do not fail with broken ad-hoc launch behavior.
-    hardenedRuntime: isMacRelease,
-    notarize: isMacRelease,
+    hardenedRuntime: isSignedMacRelease,
+    notarize: isSignedMacRelease,
     extraResources: [
       ...commonExtraResources,
       ...createPackagedRuntimeNodeModuleResources('darwin'),
@@ -388,7 +392,7 @@ module.exports = {
   },
   // Why: release builds should fail if signing is unavailable instead of
   // silently downgrading to ad-hoc artifacts that look shippable in CI logs.
-  forceCodeSigning: isMacRelease,
+  forceCodeSigning: isSignedMacRelease,
   dmg: {
     artifactName: 'orca-macos-${arch}.${ext}'
   },
@@ -538,7 +542,7 @@ async function signMacComputerUseHelper(helperAppPath, packager) {
     process.env.ORCA_COMPUTER_MACOS_SIGN_IDENTITY ??
     process.env.CSC_NAME ??
     findInstalledMacSigningIdentity(codeSigningInfo?.keychainFile) ??
-    (isMacRelease ? null : '-')
+    (isSignedMacRelease ? null : '-')
   if (!identity) {
     throw new Error('Missing signing identity for Orca Computer Use helper app')
   }
@@ -564,7 +568,7 @@ async function signMacNotificationStatusHelper(helperPath, packager) {
   const identity =
     process.env.CSC_NAME ??
     findInstalledMacSigningIdentity(codeSigningInfo?.keychainFile) ??
-    (isMacRelease ? null : '-')
+    (isSignedMacRelease ? null : '-')
   if (!identity) {
     throw new Error('Missing signing identity for orca-notification-status helper')
   }
@@ -573,7 +577,7 @@ async function signMacNotificationStatusHelper(helperPath, packager) {
   // (and any later) `codesign --force` derives the correct identifier. Sign
   // before the outer Orca.app is sealed, like the computer-use helper.
   const args = ['--force', '--sign', identity]
-  if (isMacRelease) {
+  if (isMacRelease && identity !== '-') {
     args.push('--options', 'runtime', '--timestamp')
   }
   args.push(helperPath)
@@ -583,7 +587,7 @@ async function signMacNotificationStatusHelper(helperPath, packager) {
 
 function codesignArgs(identity, targetPath) {
   const args = ['--force', '--deep', '--sign', identity]
-  if (isMacRelease) {
+  if (isMacRelease && identity !== '-') {
     args.push(
       '--options',
       'runtime',

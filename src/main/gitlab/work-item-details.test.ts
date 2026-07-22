@@ -96,6 +96,7 @@ describe('getWorkItemDetails', () => {
               name: 'verify',
               stage: 'test',
               status: 'success',
+              allow_failure: true,
               web_url: 'https://gitlab.com/g/p/-/jobs/10',
               duration: 12
             }
@@ -129,6 +130,9 @@ describe('getWorkItemDetails', () => {
 
     expect(details?.comments).toHaveLength(1)
     expect(details?.pipelineJobs).toHaveLength(1)
+    // allow_failure must survive the mapping — the checks classifier splits
+    // manual jobs on it (blocking → action_required, optional → neutral).
+    expect(details?.pipelineJobs?.[0]).toMatchObject({ allowFailure: true })
     expect(details?.files).toHaveLength(1)
     expect(details?.files?.[0]).toMatchObject({
       path: 'src/app.ts',
@@ -271,6 +275,8 @@ describe('getMRChecks', () => {
 
     expect(checks?.comments).toHaveLength(1)
     expect(checks?.pipelineJobs).toHaveLength(1)
+    // Raw payload omits allow_failure → fail closed to blocking (false).
+    expect(checks?.pipelineJobs?.[0]).toMatchObject({ allowFailure: false })
     expect(checks?.headSha).toBe('head-sha')
 
     const endpoints = glabExecFileAsyncMock.mock.calls.map(([args]) => args.at(-1))

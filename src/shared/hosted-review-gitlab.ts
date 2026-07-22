@@ -67,7 +67,10 @@ function deriveChecksStatus(
       check.conclusion === 'timed_out' ||
       // Why: GitLab maps canceled/canceling jobs to 'cancelled'; without this a
       // [success, cancelled] pipeline reads as green (parity with GitHub twin).
-      check.conclusion === 'cancelled'
+      check.conclusion === 'cancelled' ||
+      // Why: a blocking manual job maps to 'action_required' and gates the
+      // pipeline; it must not read as green (parity with GitHub twin).
+      check.conclusion === 'action_required'
   )
   if (hasFailure) {
     return 'failure'

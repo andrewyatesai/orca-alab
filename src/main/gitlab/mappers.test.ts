@@ -31,25 +31,30 @@ describe('mapPipelineJobStatusToCheckStatus', () => {
 
 describe('mapPipelineJobStatusToConclusion', () => {
   it('maps terminal outcomes', () => {
-    expect(mapPipelineJobStatusToConclusion('success')).toBe('success')
-    expect(mapPipelineJobStatusToConclusion('failed')).toBe('failure')
-    expect(mapPipelineJobStatusToConclusion('canceled')).toBe('cancelled')
-    expect(mapPipelineJobStatusToConclusion('canceling')).toBe('cancelled')
-    expect(mapPipelineJobStatusToConclusion('skipped')).toBe('skipped')
+    expect(mapPipelineJobStatusToConclusion('success', false)).toBe('success')
+    expect(mapPipelineJobStatusToConclusion('failed', false)).toBe('failure')
+    expect(mapPipelineJobStatusToConclusion('canceled', false)).toBe('cancelled')
+    expect(mapPipelineJobStatusToConclusion('canceling', false)).toBe('cancelled')
+    expect(mapPipelineJobStatusToConclusion('skipped', false)).toBe('skipped')
   })
 
-  it("maps 'manual' to neutral so it doesn't stall pending forever", () => {
-    expect(mapPipelineJobStatusToConclusion('manual')).toBe('neutral')
+  it("maps a blocking 'manual' gate to action_required — parity with the pipeline-level manual→failure mapping", () => {
+    expect(mapPipelineJobStatusToConclusion('manual', false)).toBe('action_required')
+    expect(mapPipelineJobStatusToConclusion('blocked', false)).toBe('action_required')
+  })
+
+  it("maps an optional (allow_failure) 'manual' job to neutral so it doesn't stall pending forever", () => {
+    expect(mapPipelineJobStatusToConclusion('manual', true)).toBe('neutral')
   })
 
   it('maps active lifecycle states to pending', () => {
-    expect(mapPipelineJobStatusToConclusion('running')).toBe('pending')
-    expect(mapPipelineJobStatusToConclusion('pending')).toBe('pending')
-    expect(mapPipelineJobStatusToConclusion('scheduled')).toBe('pending')
+    expect(mapPipelineJobStatusToConclusion('running', false)).toBe('pending')
+    expect(mapPipelineJobStatusToConclusion('pending', false)).toBe('pending')
+    expect(mapPipelineJobStatusToConclusion('scheduled', false)).toBe('pending')
   })
 
   it('returns null for unknown', () => {
-    expect(mapPipelineJobStatusToConclusion('weird-status')).toBeNull()
+    expect(mapPipelineJobStatusToConclusion('weird-status', false)).toBeNull()
   })
 })
 

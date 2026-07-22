@@ -21,6 +21,10 @@ pub enum PrCheckConclusion {
     Neutral,
     Skipped,
     Pending,
+    /// A blocking manual gate — terminal-not-green must not read as a pass
+    /// (parity with GitHub's ACTION_REQUIRED and the pipeline-level
+    /// manual→failure mapping in `src/main/gitlab/mappers.ts`).
+    ActionRequired,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +47,8 @@ pub struct GitLabPipelineJob {
     pub stage: String,
     pub status: String,
     pub web_url: String,
+    /// GitLab's `allow_failure`: true = optional job, false = a blocking gate.
+    pub allow_failure: bool,
 }
 
 pub fn map_gitlab_pipeline_job_status_to_check_status(status: &str) -> PrCheckStatus {
@@ -54,15 +60,26 @@ pub fn map_gitlab_pipeline_job_status_to_check_status(status: &str) -> PrCheckSt
     }
 }
 
-pub fn map_gitlab_pipeline_job_status_to_conclusion(status: &str) -> Option<PrCheckConclusion> {
+pub fn map_gitlab_pipeline_job_status_to_conclusion(
+    status: &str,
+    allow_failure: bool,
+) -> Option<PrCheckConclusion> {
     match status.to_lowercase().as_str() {
         "success" => Some(PrCheckConclusion::Success),
         "failed" => Some(PrCheckConclusion::Failure),
         "canceled" | "canceling" => Some(PrCheckConclusion::Cancelled),
         "skipped" => Some(PrCheckConclusion::Skipped),
-        // Manual jobs intentionally wait for a human trigger; treating them as
-        // pending would make the Checks tab look stuck forever.
-        "manual" => Some(PrCheckConclusion::Neutral),
+        // Manual jobs wait for a human trigger (never Pending: the Checks tab
+        // would look stuck forever). Optional ones (allow_failure) stay Neutral;
+        // a blocking one gates the whole pipeline, so it must read as
+        // ActionRequired — the MR badge already shows that state red via the
+        // pipeline-level manual/blocked→failure mapping. "blocked" is the
+        // pipeline-level spelling, matched in case it ever surfaces job-level.
+        "manual" | "blocked" => Some(if allow_failure {
+            PrCheckConclusion::Neutral
+        } else {
+            PrCheckConclusion::ActionRequired
+        }),
         "created" | "pending" | "running" | "waiting_for_callback" | "waiting_for_resource"
         | "preparing" | "scheduled" => Some(PrCheckConclusion::Pending),
         _ => None,
@@ -78,7 +95,7 @@ pub fn gitlab_pipeline_jobs_to_pr_checks(jobs: &[GitLabPipelineJob]) -> Vec<PrCh
                 format!("{}: {}", job.stage, job.name)
             },
             status: map_gitlab_pipeline_job_status_to_check_status(&job.status),
-            conclusion: map_gitlab_pipeline_job_status_to_conclusion(&job.status),
+            conclusion: map_gitlab_pipeline_job_status_to_conclusion(&job.status, job.allow_failure),
             url: if job.web_url.is_empty() { None } else { Some(job.web_url.clone()) },
             check_run_id: job.id,
         })
@@ -88,7 +105,7 @@ pub fn gitlab_pipeline_jobs_to_pr_checks(jobs: &[GitLabPipelineJob]) -> Vec<PrCh
 #[cfg(test)]
 mod tests {
     use super::*;
-    use PrCheckConclusion::{Cancelled, Failure, Neutral, Pending, Success};
+    use PrCheckConclusion::{ActionRequired, Cancelled, Failure, Neutral, Pending, Success};
     use PrCheckStatus::{Completed, InProgress, Queued};
 
     fn job(id: i64, name: &str, stage: &str, status: &str, web_url: &str) -> GitLabPipelineJob {
@@ -98,7 +115,12 @@ mod tests {
             stage: stage.to_string(),
             status: status.to_string(),
             web_url: web_url.to_string(),
+            allow_failure: false,
         }
+    }
+
+    fn optional_job(id: i64, name: &str, stage: &str, status: &str) -> GitLabPipelineJob {
+        GitLabPipelineJob { allow_failure: true, ..job(id, name, stage, status, "") }
     }
 
     #[test]
@@ -123,7 +145,7 @@ mod tests {
                 PrCheckDetail {
                     name: "deploy: deploy".to_string(),
                     status: Completed,
-                    conclusion: Some(Neutral),
+                    conclusion: Some(ActionRequired),
                     url: None,
                     check_run_id: Some(2),
                 },
@@ -150,11 +172,39 @@ mod tests {
         assert_eq!(map_gitlab_pipeline_job_status_to_check_status("RUNNING"), InProgress);
         assert_eq!(map_gitlab_pipeline_job_status_to_check_status("preparing"), Queued);
         assert_eq!(map_gitlab_pipeline_job_status_to_check_status("success"), Completed);
-        assert_eq!(map_gitlab_pipeline_job_status_to_conclusion("Success"), Some(Success));
-        assert_eq!(map_gitlab_pipeline_job_status_to_conclusion("canceling"), Some(Cancelled));
+        assert_eq!(map_gitlab_pipeline_job_status_to_conclusion("Success", false), Some(Success));
+        assert_eq!(
+            map_gitlab_pipeline_job_status_to_conclusion("canceling", false),
+            Some(Cancelled)
+        );
         // Unknown status: completed run with no conclusion.
         assert_eq!(map_gitlab_pipeline_job_status_to_check_status("bogus"), Completed);
-        assert_eq!(map_gitlab_pipeline_job_status_to_conclusion("bogus"), None);
+        assert_eq!(map_gitlab_pipeline_job_status_to_conclusion("bogus", false), None);
+    }
+
+    #[test]
+    fn blocking_manual_gate_reads_action_required_but_optional_manual_stays_neutral() {
+        // A pipeline gated on a required manual job shows a red MR badge
+        // (pipeline manual/blocked → failure); the job row must agree.
+        assert_eq!(
+            map_gitlab_pipeline_job_status_to_conclusion("manual", false),
+            Some(ActionRequired)
+        );
+        assert_eq!(
+            map_gitlab_pipeline_job_status_to_conclusion("blocked", false),
+            Some(ActionRequired)
+        );
+        // Optional manual jobs (allow_failure) never block the pipeline and
+        // must not read as failing checks.
+        assert_eq!(map_gitlab_pipeline_job_status_to_conclusion("manual", true), Some(Neutral));
+        assert_eq!(map_gitlab_pipeline_job_status_to_conclusion("blocked", true), Some(Neutral));
+
+        let checks = gitlab_pipeline_jobs_to_pr_checks(&[
+            job(7, "release gate", "deploy", "manual", ""),
+            optional_job(8, "optional deploy", "deploy", "manual"),
+        ]);
+        assert_eq!(checks[0].conclusion, Some(ActionRequired));
+        assert_eq!(checks[1].conclusion, Some(Neutral));
     }
 
     #[test]
@@ -173,6 +223,7 @@ mod tests {
             stage: "test".to_string(),
             status: "failed".to_string(),
             web_url: String::new(),
+            allow_failure: false,
         }]);
         assert_eq!(without_id[0].check_run_id, None);
     }

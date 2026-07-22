@@ -16,10 +16,15 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             ),
             None => json!({ "__parity_error__": "expected string status" }),
         },
-        "mapGitLabPipelineJobStatusToConclusion" => match input.as_str() {
-            Some(status) => conclusion_to_value(map_gitlab_pipeline_job_status_to_conclusion(status)),
-            None => json!({ "__parity_error__": "expected string status" }),
-        },
+        "mapGitLabPipelineJobStatusToConclusion" => {
+            match input.get("status").and_then(Value::as_str) {
+                Some(status) => conclusion_to_value(map_gitlab_pipeline_job_status_to_conclusion(
+                    status,
+                    allow_failure_field(input),
+                )),
+                None => json!({ "__parity_error__": "expected { status, allowFailure }" }),
+            }
+        }
         "gitLabPipelineJobsToPRChecks" => match input.as_array() {
             Some(jobs) => {
                 let parsed: Vec<GitLabPipelineJob> = jobs.iter().map(job_from_json).collect();
@@ -45,7 +50,14 @@ fn job_from_json(value: &Value) -> GitLabPipelineJob {
         stage: str_field(value, "stage"),
         status: str_field(value, "status"),
         web_url: str_field(value, "webUrl"),
+        allow_failure: allow_failure_field(value),
     }
+}
+
+/// Why: absent allowFailure fails closed (blocking) so a manual gate can't
+/// silently read as an ignorable optional job.
+fn allow_failure_field(value: &Value) -> bool {
+    value.get("allowFailure").and_then(Value::as_bool).unwrap_or(false)
 }
 
 fn str_field(value: &Value, key: &str) -> String {
@@ -71,6 +83,7 @@ fn conclusion_id(conclusion: PrCheckConclusion) -> &'static str {
         PrCheckConclusion::Neutral => "neutral",
         PrCheckConclusion::Skipped => "skipped",
         PrCheckConclusion::Pending => "pending",
+        PrCheckConclusion::ActionRequired => "action_required",
     }
 }
 

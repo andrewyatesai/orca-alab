@@ -112,6 +112,7 @@ type GitLabRawJob = {
   name?: string
   stage?: string
   status?: string
+  allow_failure?: boolean
   web_url?: string
   duration?: number | null
 }
@@ -144,6 +145,9 @@ function mapPipelineJob(raw: GitLabRawJob, pipelineId: number): GitLabPipelineJo
     name: raw.name ?? '',
     stage: raw.stage ?? '',
     status: raw.status ?? '',
+    // Why: absent allow_failure fails closed (blocking) so a required manual
+    // gate maps to action_required, never a silently-ignorable neutral.
+    allowFailure: raw.allow_failure === true,
     webUrl: raw.web_url ?? '',
     duration: typeof raw.duration === 'number' ? raw.duration : null
   }

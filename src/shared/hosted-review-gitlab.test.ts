@@ -81,4 +81,16 @@ describe('hostedReviewSummaryFromGitLabInfo', () => {
 
     expect(summary.checksStatus).toBe('failure')
   })
+
+  it('treats an action_required check (blocking manual job) as failure, not success', () => {
+    const summary = hostedReviewSummaryFromGitLabInfo({
+      review: { ...review, status: 'success' },
+      checks: [
+        { name: 'build', status: 'completed', conclusion: 'success', url: null },
+        { name: 'release gate', status: 'completed', conclusion: 'action_required', url: null }
+      ]
+    })
+
+    expect(summary.checksStatus).toBe('failure')
+  })
 })

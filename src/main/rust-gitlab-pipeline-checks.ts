@@ -6,20 +6,27 @@
 import { requireRustGitBinding } from './daemon/rust-git-addon'
 import type { PRCheckDetail } from '../shared/types'
 
-// The Rust dispatch reads the status as a bare string (input.as_str()), so the
-// input JSON is the status literal, not a keyed object.
-function mapStatus(fn: string, status: string): unknown {
+function dispatch(fn: string, input: unknown): unknown {
   return JSON.parse(
-    requireRustGitBinding().orcaDispatch('gitlab-pipeline-checks', fn, JSON.stringify(status))
+    requireRustGitBinding().orcaDispatch('gitlab-pipeline-checks', fn, JSON.stringify(input))
   )
 }
 
+// The Rust dispatch reads the status as a bare string (input.as_str()), so the
+// input JSON is the status literal, not a keyed object.
 export function mapGitLabPipelineJobStatusToCheckStatus(status: string): PRCheckDetail['status'] {
-  return mapStatus('mapGitLabPipelineJobStatusToCheckStatus', status) as PRCheckDetail['status']
+  return dispatch('mapGitLabPipelineJobStatusToCheckStatus', status) as PRCheckDetail['status']
 }
 
+// Why: 'manual' splits on allowFailure — a blocking gate is action_required
+// (parity with the pipeline-level manual→failure mapping), an optional job is
+// neutral — so the conclusion mapper needs both fields.
 export function mapGitLabPipelineJobStatusToConclusion(
-  status: string
+  status: string,
+  allowFailure: boolean
 ): PRCheckDetail['conclusion'] {
-  return mapStatus('mapGitLabPipelineJobStatusToConclusion', status) as PRCheckDetail['conclusion']
+  return dispatch('mapGitLabPipelineJobStatusToConclusion', {
+    status,
+    allowFailure
+  }) as PRCheckDetail['conclusion']
 }

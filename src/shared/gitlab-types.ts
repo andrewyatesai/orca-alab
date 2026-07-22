@@ -233,6 +233,9 @@ export type GitLabPipelineJob = {
   stage: string
   /** Raw GitLab job status — 'success' / 'failed' / 'running' / 'pending' / 'canceled' / 'skipped' / 'manual' / 'created' / 'preparing'. */
   status: string
+  /** GitLab's allow_failure flag. Absent is treated as false (a blocking gate)
+   *  so a required manual job fails closed to action_required. */
+  allowFailure?: boolean
   webUrl: string
   /** Duration in seconds. null when the job hasn't finished. */
   duration: number | null

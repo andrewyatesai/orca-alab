@@ -44,7 +44,8 @@ import {
   INITIAL_RETRY_ATTEMPTS,
   INITIAL_RETRY_DELAY_MS,
   RECONNECT_BACKOFF_MS,
-  spawnProxyCommand
+  spawnProxyCommand,
+  wrapRemoteCommandForPosixShell
 } from './ssh-connection-utils'
 import type { SshTarget } from '../../shared/ssh-types'
 import type { SshResolvedConfig } from './ssh-config-parser'
@@ -722,5 +723,50 @@ describe('spawnProxyCommand', () => {
     expect(proc.stdout.listenerCount('end')).toBe(0)
     expect(proc.stdin.listenerCount('error')).toBe(0)
     expect(proc.listenerCount('error')).toBe(0)
+  })
+})
+
+// ── wrapRemoteCommandForPosixShell ──────────────────────────────────
+
+describe('wrapRemoteCommandForPosixShell', () => {
+  it('has no exec prefix so a nu login shell parses it as an external call (#7715)', () => {
+    const wrapped = wrapRemoteCommandForPosixShell('echo hello')
+    // Why: `exec` is a nu builtin whose flag parsing intercepts -c; a bare /bin/sh path is an external in nu.
+    expect(wrapped.startsWith('/bin/sh -c ')).toBe(true)
+    expect(wrapped.startsWith('exec ')).toBe(false)
+    expect(wrapped).toContain(' orca-command ')
+  })
+
+  it('keeps the inner sh exec so the decoded command still replaces the decoder', () => {
+    const wrapped = wrapRemoteCommandForPosixShell('echo hello')
+    expect(wrapped).toContain('exec /bin/sh -c "$decoded"')
+  })
+
+  it('chunk args never contain raw quote, backslash, or bang bytes', () => {
+    const hostile = 'echo "it\'s a \\"test\\" !" && printf \'%s\\n\' history!bang'
+    const wrapped = wrapRemoteCommandForPosixShell(hostile)
+    const chunksPart = wrapped.slice(wrapped.indexOf(' orca-command ') + ' orca-command '.length)
+    // Every chunk is '…'-quoted; the content between quotes must be free of bytes nu/csh cannot carry.
+    const chunkContents = chunksPart
+      .split(' ')
+      .map((chunk) => chunk.replace(/^'/, '').replace(/'$/, ''))
+    expect(chunkContents.length).toBeGreaterThan(0)
+    for (const content of chunkContents) {
+      expect(content).not.toContain("'")
+      expect(content).not.toContain('!')
+      // Any backslash must open a printf octal escape (\0NNN) — never a raw byte.
+      for (let i = content.indexOf('\\'); i !== -1; i = content.indexOf('\\', i + 5)) {
+        expect(content.slice(i, i + 5)).toMatch(/^\\0[0-7]{3}$/)
+      }
+    }
+    // Why: POSIX '…'\''…' adjacency is unparseable in nu — the wrapped line must never need it.
+    expect(wrapped).not.toContain("'\\''")
+  })
+
+  it('splits commands larger than 1 KiB into multiple printf chunks', () => {
+    const big = `echo ${'x'.repeat(3000)}`
+    const wrapped = wrapRemoteCommandForPosixShell(big)
+    const chunksPart = wrapped.slice(wrapped.indexOf(' orca-command ') + ' orca-command '.length)
+    expect(chunksPart.split(' ').length).toBeGreaterThan(1)
   })
 })

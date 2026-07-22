@@ -109,7 +109,7 @@ Prerequisites:
 Clone with the aterm submodule and install dependencies:
 
 ```bash
-git clone --depth 1 --recurse-submodules https://github.com/andrewyatesai/orc.git
+git clone --depth 1 --recurse-submodules https://github.com/andrewyatesai/orca-alab.git
 cd orc
 pnpm install --frozen-lockfile
 pnpm dev
@@ -187,7 +187,7 @@ capture their windows.
 ALab Edition periodically incorporates work from
 [upstream Orca](https://github.com/stablyai/orca), but it is an independent fork
 and may not match the latest upstream commit at every point in time. Please report
-edition-specific issues in [this repository](https://github.com/andrewyatesai/orc/issues)
+edition-specific issues in [this repository](https://github.com/andrewyatesai/orca-alab/issues)
 and upstream issues in the [Orca issue tracker](https://github.com/stablyai/orca/issues).
 
 Orca and this edition are distributed under the [MIT License](LICENSE).

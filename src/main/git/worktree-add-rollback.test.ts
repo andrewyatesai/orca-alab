@@ -184,7 +184,22 @@ describe('addWorktree rollback when the primary `git worktree add` fails', () =>
     expect(addError.message).not.toContain('cleanup also failed')
     const calls = gitExecFileAsyncMock.mock.calls.map((call) => call[0])
     expect(calls).toContainEqual(['worktree', 'remove', '--force', WORKTREE])
-    // Why: with the listing unavailable no branch is known-registered, so nothing (pre-existing or fresh) may be branch-deleted.
+    // Why: a successful remove proves the add registered the worktree (hence created the fresh branch) even though the listing was unavailable — leaking it would fail later re-creates with "branch already exists" (matches the relay twin's removed||known gate).
+    expect(calls).toContainEqual(['branch', '-D', '--', BRANCH])
+  })
+
+  it('never deletes a pre-existing branch when the probe fails on a checkout-existing-branch add', async () => {
+    const addError = new Error('failed to run git: timed out after 180000ms')
+    mockGitWithFailingAddAndList(addError, new Error('fatal: unable to access repository'))
+
+    await expect(
+      addWorktree(REPO, WORKTREE, BRANCH, undefined, false, false, {
+        checkoutExistingBranch: true
+      })
+    ).rejects.toBe(addError)
+
+    const calls = gitExecFileAsyncMock.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'remove', '--force', WORKTREE])
     expect(calls.some((args) => args[0] === 'branch')).toBe(false)
   })
 

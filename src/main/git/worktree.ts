@@ -966,8 +966,11 @@ async function performAddWorktree(
         areWorktreePathsEqual(worktree.path, worktreePath)
       )
     } catch {
-      // Why: probe failed — state unknown, so err toward rollback like the relay twin; branch delete only follows a successful worktree remove, so pre-existing branches are safe.
-      return rollbackDeferredWorktreeCreate(repoPath, worktreePath, branch, false, options, error)
+      // Why: probe failed — state unknown, so err toward rollback like the relay twin. Pass the add's own branch: the degraded listing inside removeWorktree resolves nothing, and a successful remove proves the add registered the worktree (hence created the fresh branch), so it must be deleted; on remove failure the catch path still refuses deletion (pre-existing branches stay safe).
+      return rollbackDeferredWorktreeCreate(repoPath, worktreePath, branch, false, options, error, {
+        branch: `refs/heads/${branch}`,
+        head: ''
+      })
     }
     if (!registeredWorktree) {
       // Why: add failed before registering anything (e.g. branch/path already exists) — nothing to roll back.

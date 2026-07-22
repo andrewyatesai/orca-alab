@@ -6,10 +6,7 @@
 // Promise.all at quit (save/hydrate/fork).
 
 import type { AtermWorkerPaneCommand, AtermWorkerQuery } from './aterm-render-worker-protocol'
-import {
-  SEARCH_FIND_FLAG_CASE_SENSITIVE,
-  SEARCH_FIND_FLAG_REGEX
-} from './aterm-worker-search'
+import { SEARCH_FIND_FLAG_CASE_SENSITIVE, SEARCH_FIND_FLAG_REGEX } from './aterm-worker-search'
 import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
 
 /** A detected link span returned by the async linkAt query. */

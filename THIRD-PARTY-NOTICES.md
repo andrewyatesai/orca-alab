@@ -1,12 +1,15 @@
 # Third-Party Notices — Rust Binary Artifacts
 
-Orca ships three binaries compiled from Rust sources in this repository:
+Orca ships six binary artifacts compiled from Rust sources in this repository:
 
 | Artifact | Built from | Location in the packaged app |
 | --- | --- | --- |
 | `aterm_wasm_bg.wasm` | `rust/aterm/crates/aterm-wasm` (wasm32-unknown-unknown) | bundled by Vite into the renderer assets inside `app.asar` |
 | `aterm_gpu_web_bg.wasm` | `rust/aterm/crates/aterm-gpu-web` (wasm32-unknown-unknown) | bundled by Vite into the renderer assets inside `app.asar` |
 | `orca_node.node` | `native/orca-node` (Node-API addon) | `Resources/orca_node.node` (macOS) / `resources/orca_node.node` (Windows, Linux) |
+| `orca-daemon` | `rust/crates/orca-daemon` (workspace `rust/Cargo.toml`, native per platform) | `Resources/orca-daemon` (macOS) / `resources/orca-daemon` (Linux) / `resources/orca-daemon.exe` (Windows) |
+| `orca_crypto_wasm_bg.wasm` | `rust/orca-crypto-wasm` (wasm32-unknown-unknown), vendored at `src/renderer/src/lib/crypto-wasm/` and base64-embedded via `src/shared/crypto-wasm/` | bundled by Vite into the renderer assets inside `app.asar`; the base64 copy ships in the Node bundles (main process, relay, CLI) |
+| `orca_git_wasm_bg.wasm` | `rust/orca-git-wasm` (wasm32-unknown-unknown), vendored at `src/renderer/src/lib/git-wasm/` | bundled by Vite into the renderer assets inside `app.asar` |
 
 This file enumerates every crate compiled into those artifacts and reproduces
 the license notices their terms require. A copy ships with the packaged app at
@@ -36,6 +39,22 @@ for t in aarch64-apple-darwin x86_64-apple-darwin \
   cargo tree --manifest-path native/orca-node/Cargo.toml --locked \
     --target $t -e normal --prefix none -f '{p}|{l}'
 done
+
+# orca-daemon: union over the same five triples. RUSTFLAGS= neutralizes the
+# Trust-toolchain rustflags in rust/.cargo/config.toml on stock rustc.
+for t in aarch64-apple-darwin x86_64-apple-darwin \
+         x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+         x86_64-pc-windows-msvc; do
+  RUSTFLAGS= cargo tree --manifest-path rust/Cargo.toml --locked \
+    -p orca-daemon --target $t -e normal --prefix none -f '{p}|{l}'
+done
+
+# run from the repo root so rust/.cargo/config.toml (offline vendoring) does
+# not apply — the wasm workspaces resolve their web deps from crates.io
+cargo tree --manifest-path rust/orca-crypto-wasm/Cargo.toml --locked \
+  --target wasm32-unknown-unknown -e normal --prefix none -f '{p}|{l}'
+cargo tree --manifest-path rust/orca-git-wasm/Cargo.toml --locked \
+  --target wasm32-unknown-unknown -e normal --prefix none -f '{p}|{l}'
 ```
 
 `-e normal` excludes dev- and build-dependencies, which do not ship.
@@ -44,7 +63,8 @@ shipped binaries; they are listed for completeness and marked as such.
 
 ## 1. The aterm terminal engine (Apache-2.0) — NOTICE propagation
 
-All three artifacts compile in crates of the aterm terminal engine, vendored
+Four of the artifacts — the two aterm wasm modules, `orca_node.node`, and
+`orca-daemon` — compile in crates of the aterm terminal engine, vendored
 at `rust/aterm/` and licensed under the Apache License, Version 2.0 (full text
 in the appendix). Apache-2.0 §4(d) requires carrying the following NOTICE,
 reproduced verbatim from `rust/aterm/NOTICE`:
@@ -147,39 +167,44 @@ web crate.
 
 | Crate | Version | License | Source |
 | --- | --- | --- | --- |
+| ab_glyph_rasterizer | 0.1.10 | Apache-2.0 | crates.io |
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | crates.io |
 | aho-corasick | 1.1.4 | Unlicense OR MIT | crates.io |
 | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 | crates.io |
 | arrayvec | 0.7.6 | MIT OR Apache-2.0 | crates.io |
-| aterm-alloc | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-bits | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-codec | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-containment | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-core | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-error | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-error-derive | 0.5.8 | Apache-2.0 | in-tree (build-time proc-macro) |
-| aterm-ffi-types | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-gpu | 0.5.8 | Apache-2.0 | in-tree |
+| aterm-alloc | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-bits | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-codec | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-containment | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-core | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-effects | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-error | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-error-derive | 0.56.0 | Apache-2.0 | in-tree (build-time proc-macro) |
+| aterm-ffi-types | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-gpu | 0.56.0 | Apache-2.0 | in-tree |
 | aterm-gpu-web | 0.0.1 | MIT | in-tree |
-| aterm-grapheme | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-grid | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-hash | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-log | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-lz4 | 0.5.8 | MIT AND Apache-2.0 | in-tree |
-| aterm-parser | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-policy | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-provenance | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-render | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-render-api | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-rle | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-scrollback | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-search | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-selection | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-shell-integration | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-sixel | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-tempfile | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-types | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-vi | 0.5.8 | Apache-2.0 | in-tree |
+| aterm-grapheme | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-grid | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-hash | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-lexicon | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-log | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-lz4 | 0.56.0 | MIT AND Apache-2.0 | in-tree |
+| aterm-parser | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-policy | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-predict | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-provenance | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-render | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-render-api | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-rle | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-scene | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-scrollback | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-search | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-selection | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-shell-integration | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-sixel | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-tempfile | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-types | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-vi | 0.56.0 | Apache-2.0 | in-tree |
 | aterm-wasm | 0.0.1 | MIT | in-tree |
 | bit-set | 0.9.1 | Apache-2.0 OR MIT | crates.io |
 | bit-vec | 0.9.1 | Apache-2.0 OR MIT | crates.io |
@@ -199,6 +224,7 @@ web crate.
 | flate2 | 1.1.9 | MIT OR Apache-2.0 | crates.io |
 | foldhash | 0.1.5 | Zlib | crates.io |
 | foldhash | 0.2.0 | Zlib | crates.io |
+| font8x8 | 0.3.1 | MIT | crates.io |
 | fontdue | 0.9.3 | MIT OR Apache-2.0 OR Zlib | crates.io |
 | futures-core | 0.3.32 | MIT OR Apache-2.0 | crates.io |
 | futures-task | 0.3.32 | MIT OR Apache-2.0 | crates.io |
@@ -283,41 +309,46 @@ Resolved dependency closure of `orca-node` (normal dependencies only), union
 over the five shipped target triples (macOS x64/arm64, Linux x64/arm64,
 Windows x64), from `native/orca-node/Cargo.lock`. `zstd-sys` statically links
 the zstd C library (BSD-3-Clause OR GPL-2.0; Orca receives it under
-BSD-3-Clause — text in the appendix).
+BSD-3-Clause — text in the appendix). `libsqlite3-sys` statically links the
+bundled SQLite C library, which is in the public domain
+(https://www.sqlite.org/copyright.html) and carries no notice requirement.
 
 | Crate | Version | License | Source |
 | --- | --- | --- | --- |
+| ahash | 0.8.12 | MIT OR Apache-2.0 | crates.io |
 | aho-corasick | 1.1.4 | Unlicense OR MIT | crates.io |
-| aterm-alloc | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-bits | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-codec | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-containment | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-core | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-error | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-error-derive | 0.5.8 | Apache-2.0 | in-tree (build-time proc-macro) |
-| aterm-ffi-types | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-grapheme | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-grid | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-hash | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-log | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-lz4 | 0.5.8 | MIT AND Apache-2.0 | in-tree |
-| aterm-parser | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-policy | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-provenance | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-rle | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-scrollback | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-search | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-selection | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-shell-integration | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-sixel | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-tempfile | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-types | 0.5.8 | Apache-2.0 | in-tree |
-| aterm-vi | 0.5.8 | Apache-2.0 | in-tree |
+| aterm-alloc | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-bits | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-codec | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-containment | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-core | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-error | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-error-derive | 0.56.0 | Apache-2.0 | in-tree (build-time proc-macro) |
+| aterm-ffi-types | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-grapheme | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-grid | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-hash | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-log | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-lz4 | 0.56.0 | MIT AND Apache-2.0 | in-tree |
+| aterm-parser | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-policy | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-provenance | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-rle | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-scrollback | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-search | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-selection | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-shell-integration | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-sixel | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-tempfile | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-types | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-vi | 0.56.0 | Apache-2.0 | in-tree |
 | bitflags | 2.13.0 | MIT OR Apache-2.0 | crates.io |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 | crates.io |
 | convert_case | 0.11.0 | MIT | crates.io |
 | ctor | 1.0.7 | Apache-2.0 OR MIT | crates.io |
 | equivalent | 1.0.2 | Apache-2.0 OR MIT | crates.io |
+| fallible-iterator | 0.3.0 | MIT/Apache-2.0 | crates.io |
+| fallible-streaming-iterator | 0.1.9 | MIT/Apache-2.0 | crates.io |
 | futures | 0.3.32 | MIT OR Apache-2.0 | crates.io |
 | futures-channel | 0.3.32 | MIT OR Apache-2.0 | crates.io |
 | futures-core | 0.3.32 | MIT OR Apache-2.0 | crates.io |
@@ -328,22 +359,34 @@ BSD-3-Clause — text in the appendix).
 | futures-task | 0.3.32 | MIT OR Apache-2.0 | crates.io |
 | futures-util | 0.3.32 | MIT OR Apache-2.0 | crates.io |
 | getrandom | 0.2.17 | MIT OR Apache-2.0 | crates.io |
+| hashbrown | 0.14.5 | MIT OR Apache-2.0 | crates.io |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 | crates.io |
+| hashlink | 0.9.1 | MIT OR Apache-2.0 | crates.io |
 | indexmap | 2.14.0 | Apache-2.0 OR MIT | crates.io |
 | itoa | 1.0.18 | MIT OR Apache-2.0 | crates.io |
 | libc | 0.2.186 | MIT OR Apache-2.0 | crates.io |
 | libloading | 0.9.0 | ISC | crates.io |
+| libsqlite3-sys | 0.28.0 | MIT | crates.io |
 | memchr | 2.8.2 | Unlicense OR MIT | crates.io |
 | napi | 3.9.3 | MIT | crates.io |
 | napi-derive | 3.5.6 | MIT | crates.io (build-time proc-macro) |
 | napi-derive-backend | 5.0.4 | MIT | crates.io |
 | napi-sys | 3.2.2 | MIT | crates.io |
 | nohash-hasher | 0.2.0 | Apache-2.0 OR MIT | crates.io |
+| once_cell | 1.21.4 | MIT OR Apache-2.0 | crates.io |
 | orca-agents | 0.0.1 | MIT | in-tree |
+| orca-config | 0.0.1 | MIT | in-tree |
 | orca-core | 0.0.1 | MIT | in-tree |
+| orca-dispatch | 0.0.1 | MIT | in-tree |
+| orca-flow-control | 0.0.1 | MIT | in-tree |
 | orca-git | 0.0.1 | MIT | in-tree |
 | orca-net | 0.0.1 | MIT | in-tree |
 | orca-node | 0.0.1 | MIT | in-tree |
+| orca-provider-backoff | 0.0.1 | MIT | in-tree |
+| orca-relay | 0.0.1 | MIT | in-tree |
+| orca-runtime | 0.0.1 | MIT | in-tree |
+| orca-ssh | 0.0.1 | MIT | in-tree |
+| orca-store | 0.0.1 | MIT | in-tree |
 | orca-terminal | 0.0.1 | MIT | in-tree |
 | orca-text | 0.0.1 | MIT | in-tree |
 | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT | crates.io |
@@ -353,6 +396,7 @@ BSD-3-Clause — text in the appendix).
 | regex | 1.12.4 | MIT OR Apache-2.0 | crates.io |
 | regex-automata | 0.4.14 | MIT OR Apache-2.0 | crates.io |
 | regex-syntax | 0.8.11 | MIT OR Apache-2.0 | crates.io |
+| rusqlite | 0.31.0 | MIT | crates.io |
 | rustc-hash | 2.1.2 | Apache-2.0 OR MIT | crates.io |
 | semver | 1.0.28 | MIT OR Apache-2.0 | crates.io |
 | serde | 1.0.228 | MIT OR Apache-2.0 | crates.io |
@@ -361,6 +405,7 @@ BSD-3-Clause — text in the appendix).
 | serde_json | 1.0.150 | MIT OR Apache-2.0 | crates.io |
 | serde_spanned | 0.6.9 | MIT OR Apache-2.0 | crates.io |
 | slab | 0.4.12 | MIT | crates.io |
+| smallvec | 1.15.2 | MIT OR Apache-2.0 | crates.io |
 | syn | 2.0.118 | MIT OR Apache-2.0 | crates.io |
 | toml | 0.8.23 | MIT OR Apache-2.0 | crates.io |
 | toml_datetime | 0.6.11 | MIT OR Apache-2.0 | crates.io |
@@ -371,10 +416,214 @@ BSD-3-Clause — text in the appendix).
 | web-time | 1.1.0 | MIT OR Apache-2.0 | crates.io |
 | windows-link | 0.2.1 | MIT OR Apache-2.0 | crates.io |
 | winnow | 0.7.15 | MIT | crates.io |
+| zerocopy | 0.8.53 | BSD-2-Clause OR Apache-2.0 OR MIT | crates.io |
 | zmij | 1.0.21 | MIT | crates.io |
 | zstd | 0.13.3 | MIT | crates.io |
 | zstd-safe | 7.2.4 | MIT OR Apache-2.0 | crates.io |
 | zstd-sys | 2.0.16+zstd.1.5.7 | MIT/Apache-2.0 | crates.io |
+
+## 4. `orca-daemon` — crate closure
+
+Resolved dependency closure of `orca-daemon` (normal dependencies only), union
+over the five shipped target triples (macOS x64/arm64, Linux x64/arm64,
+Windows x64), from `rust/Cargo.lock`. Platform-conditional dependencies are
+unioned: e.g. `nix`, `serial-unix`, and `termios` ship in the Unix builds
+only; `orca-winpipe`, `serial-windows`, `winapi`, and `winreg` in the Windows
+build only. The `rust/` workspace builds offline by construction: every
+third-party crate resolves from its vendored, stripped copy checked in under
+`rust/vendor` (`rust/.cargo/config.toml` replaces crates.io with the vendor
+directory) — such crates are marked "in-tree (vendored)" below, with the
+crates.io release they were vendored from identified by name and version.
+`zstd-sys` statically links the zstd C library (BSD-3-Clause OR GPL-2.0;
+Orca receives it under BSD-3-Clause — text in the appendix).
+
+| Crate | Version | License | Source |
+| --- | --- | --- | --- |
+| aho-corasick | 1.1.4 | Unlicense OR MIT | in-tree (vendored) |
+| anyhow | 1.0.102 | MIT OR Apache-2.0 | in-tree (vendored) |
+| aterm-alloc | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-bits | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-codec | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-containment | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-core | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-error | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-error-derive | 0.56.0 | Apache-2.0 | in-tree (build-time proc-macro) |
+| aterm-ffi-types | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-grapheme | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-grid | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-hash | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-log | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-lz4 | 0.56.0 | MIT AND Apache-2.0 | in-tree |
+| aterm-parser | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-policy | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-provenance | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-rle | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-scrollback | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-search | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-selection | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-shell-integration | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-sixel | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-tempfile | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-types | 0.56.0 | Apache-2.0 | in-tree |
+| aterm-vi | 0.56.0 | Apache-2.0 | in-tree |
+| bitflags | 1.3.2 | MIT/Apache-2.0 | in-tree (vendored) |
+| cfg-if | 1.0.4 | MIT OR Apache-2.0 | in-tree (vendored) |
+| downcast-rs | 1.2.1 | MIT/Apache-2.0 | in-tree (vendored) |
+| equivalent | 1.0.2 | Apache-2.0 OR MIT | in-tree (vendored) |
+| filedescriptor | 0.8.3 | MIT | in-tree (vendored) |
+| getrandom | 0.2.17 | MIT OR Apache-2.0 | in-tree (vendored) |
+| hashbrown | 0.17.1 | MIT OR Apache-2.0 | in-tree (vendored) |
+| indexmap | 2.14.0 | Apache-2.0 OR MIT | in-tree (vendored) |
+| ioctl-rs | 0.1.6 | MIT | in-tree (vendored) |
+| itoa | 1.0.18 | MIT OR Apache-2.0 | in-tree (vendored) |
+| lazy_static | 1.5.0 | MIT OR Apache-2.0 | in-tree (vendored) |
+| libc | 0.2.186 | MIT OR Apache-2.0 | in-tree (vendored) |
+| log | 0.4.32 | MIT OR Apache-2.0 | in-tree (vendored) |
+| memchr | 2.8.1 | Unlicense OR MIT | in-tree (vendored) |
+| memoffset | 0.6.5 | MIT | in-tree (vendored) |
+| nix | 0.25.1 | MIT | in-tree (vendored) |
+| orca-daemon | 0.0.1 | MIT | in-tree |
+| orca-net | 0.0.1 | MIT | in-tree |
+| orca-pty | 0.0.1 | MIT | in-tree |
+| orca-terminal | 0.0.1 | MIT | in-tree |
+| orca-winpipe | 0.0.1 | MIT | in-tree |
+| pin-utils | 0.1.0 | MIT OR Apache-2.0 | in-tree (vendored) |
+| portable-pty | 0.8.1 | MIT | in-tree (vendored) |
+| proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | in-tree (vendored) |
+| quote | 1.0.45 | MIT OR Apache-2.0 | in-tree (vendored) |
+| rand_core | 0.6.4 | MIT OR Apache-2.0 | in-tree (vendored) |
+| regex | 1.12.3 | MIT OR Apache-2.0 | in-tree (vendored) |
+| regex-automata | 0.4.14 | MIT OR Apache-2.0 | in-tree (vendored) |
+| regex-syntax | 0.8.10 | MIT OR Apache-2.0 | in-tree (vendored) |
+| serde | 1.0.228 | MIT OR Apache-2.0 | in-tree (vendored) |
+| serde_core | 1.0.228 | MIT OR Apache-2.0 | in-tree (vendored) |
+| serde_derive | 1.0.228 | MIT OR Apache-2.0 | in-tree (vendored, build-time proc-macro) |
+| serde_json | 1.0.150 | MIT OR Apache-2.0 | in-tree (vendored) |
+| serde_spanned | 0.6.9 | MIT OR Apache-2.0 | in-tree (vendored) |
+| serial | 0.4.0 | MIT | in-tree (vendored) |
+| serial-core | 0.4.0 | MIT | in-tree (vendored) |
+| serial-unix | 0.4.0 | MIT | in-tree (vendored) |
+| serial-windows | 0.4.0 | MIT | in-tree (vendored) |
+| shared_library | 0.1.9 | Apache-2.0/MIT | in-tree (vendored) |
+| shell-words | 1.1.1 | MIT/Apache-2.0 | in-tree (vendored) |
+| syn | 2.0.117 | MIT OR Apache-2.0 | in-tree (vendored) |
+| termios | 0.2.2 | MIT | in-tree (vendored) |
+| thiserror | 1.0.69 | MIT OR Apache-2.0 | in-tree (vendored) |
+| thiserror-impl | 1.0.69 | MIT OR Apache-2.0 | in-tree (vendored, build-time proc-macro) |
+| toml | 0.8.23 | MIT OR Apache-2.0 | in-tree (vendored) |
+| toml_datetime | 0.6.11 | MIT OR Apache-2.0 | in-tree (vendored) |
+| toml_edit | 0.22.27 | MIT OR Apache-2.0 | in-tree (vendored) |
+| toml_write | 0.1.2 | MIT OR Apache-2.0 | in-tree (vendored) |
+| unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | in-tree (vendored) |
+| web-time | 1.1.0 | MIT OR Apache-2.0 | in-tree (vendored) |
+| winapi | 0.3.9 | MIT/Apache-2.0 | in-tree (vendored) |
+| winnow | 0.7.15 | MIT | in-tree (vendored) |
+| winreg | 0.10.1 | MIT | in-tree (vendored) |
+| zmij | 1.0.21 | MIT | in-tree (vendored) |
+| zstd | 0.13.3 | MIT | in-tree (vendored) |
+| zstd-safe | 7.2.4 | MIT OR Apache-2.0 | in-tree (vendored) |
+| zstd-sys | 2.0.16+zstd.1.5.7 | MIT/Apache-2.0 | in-tree (vendored) |
+
+## 5. `orca_crypto_wasm_bg.wasm` — crate closure
+
+Resolved dependency closure of `orca-crypto-wasm` for `wasm32-unknown-unknown`
+(normal dependencies only), from `rust/orca-crypto-wasm/Cargo.lock`. This is
+the sealed-payload cryptography module (`crypto_box`/`crypto_secretbox` over
+`curve25519-dalek`); the generated `orca_crypto_wasm_bg.wasm` is vendored at
+`src/renderer/src/lib/crypto-wasm/` and base64-embedded via
+`src/shared/crypto-wasm/`. `curve25519-dalek` and `subtle` are offered under
+BSD-3-Clause as their sole option — copyright lines and conditions are
+reproduced in the appendix.
+
+| Crate | Version | License | Source |
+| --- | --- | --- | --- |
+| aead | 0.5.2 | MIT OR Apache-2.0 | crates.io |
+| bumpalo | 3.20.3 | MIT OR Apache-2.0 | crates.io |
+| cfg-if | 1.0.4 | MIT OR Apache-2.0 | crates.io |
+| cipher | 0.4.4 | MIT OR Apache-2.0 | crates.io |
+| console_error_panic_hook | 0.1.7 | Apache-2.0/MIT | crates.io |
+| crypto-common | 0.1.7 | MIT OR Apache-2.0 | crates.io |
+| crypto_box | 0.9.1 | Apache-2.0 OR MIT | crates.io |
+| crypto_secretbox | 0.1.1 | Apache-2.0 OR MIT | crates.io |
+| curve25519-dalek | 4.1.3 | BSD-3-Clause | crates.io |
+| generic-array | 0.14.7 | MIT | crates.io |
+| getrandom | 0.2.17 | MIT OR Apache-2.0 | crates.io |
+| inout | 0.1.4 | MIT OR Apache-2.0 | crates.io |
+| js-sys | 0.3.85 | MIT OR Apache-2.0 | crates.io |
+| once_cell | 1.21.4 | MIT OR Apache-2.0 | crates.io |
+| opaque-debug | 0.3.1 | MIT OR Apache-2.0 | crates.io |
+| orca-crypto | 0.0.1 | MIT | in-tree |
+| orca-crypto-wasm | 0.0.1 | MIT | in-tree |
+| poly1305 | 0.8.0 | Apache-2.0 OR MIT | crates.io |
+| proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | crates.io |
+| quote | 1.0.46 | MIT OR Apache-2.0 | crates.io |
+| salsa20 | 0.10.2 | MIT OR Apache-2.0 | crates.io |
+| subtle | 2.6.1 | BSD-3-Clause | crates.io |
+| syn | 2.0.118 | MIT OR Apache-2.0 | crates.io |
+| typenum | 1.20.1 | MIT OR Apache-2.0 | crates.io |
+| unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | crates.io |
+| universal-hash | 0.5.1 | MIT OR Apache-2.0 | crates.io |
+| wasm-bindgen | 0.2.108 | MIT OR Apache-2.0 | crates.io |
+| wasm-bindgen-macro | 0.2.108 | MIT OR Apache-2.0 | crates.io (build-time proc-macro) |
+| wasm-bindgen-macro-support | 0.2.108 | MIT OR Apache-2.0 | crates.io |
+| wasm-bindgen-shared | 0.2.108 | MIT OR Apache-2.0 | crates.io |
+| zeroize | 1.9.0 | Apache-2.0 OR MIT | crates.io |
+
+## 6. `orca_git_wasm_bg.wasm` — crate closure
+
+Resolved dependency closure of `orca-git-wasm` for `wasm32-unknown-unknown`
+(normal dependencies only), from `rust/orca-git-wasm/Cargo.lock`; the
+generated `orca_git_wasm_bg.wasm` is vendored at
+`src/renderer/src/lib/git-wasm/`. The closure is the wasm build of in-tree
+`orca-*` crates plus the wasm-bindgen web glue.
+
+| Crate | Version | License | Source |
+| --- | --- | --- | --- |
+| aho-corasick | 1.1.4 | Unlicense OR MIT | crates.io |
+| bumpalo | 3.20.3 | MIT OR Apache-2.0 | crates.io |
+| cfg-if | 1.0.4 | MIT OR Apache-2.0 | crates.io |
+| console_error_panic_hook | 0.1.7 | Apache-2.0/MIT | crates.io |
+| equivalent | 1.0.2 | Apache-2.0 OR MIT | crates.io |
+| futures-core | 0.3.32 | MIT OR Apache-2.0 | crates.io |
+| futures-task | 0.3.32 | MIT OR Apache-2.0 | crates.io |
+| futures-util | 0.3.32 | MIT OR Apache-2.0 | crates.io |
+| getrandom | 0.2.17 | MIT OR Apache-2.0 | crates.io |
+| hashbrown | 0.17.1 | MIT OR Apache-2.0 | crates.io |
+| indexmap | 2.14.0 | Apache-2.0 OR MIT | crates.io |
+| itoa | 1.0.18 | MIT OR Apache-2.0 | crates.io |
+| js-sys | 0.3.85 | MIT OR Apache-2.0 | crates.io |
+| memchr | 2.8.2 | Unlicense OR MIT | crates.io |
+| once_cell | 1.21.4 | MIT OR Apache-2.0 | crates.io |
+| orca-agents | 0.0.1 | MIT | in-tree |
+| orca-config | 0.0.1 | MIT | in-tree |
+| orca-core | 0.0.1 | MIT | in-tree |
+| orca-dispatch | 0.0.1 | MIT | in-tree |
+| orca-flow-control | 0.0.1 | MIT | in-tree |
+| orca-git | 0.0.1 | MIT | in-tree |
+| orca-git-wasm | 0.0.1 | MIT | in-tree |
+| orca-net | 0.0.1 | MIT | in-tree |
+| orca-provider-backoff | 0.0.1 | MIT | in-tree |
+| orca-relay | 0.0.1 | MIT | in-tree |
+| orca-ssh | 0.0.1 | MIT | in-tree |
+| orca-text | 0.0.1 | MIT | in-tree |
+| pin-project-lite | 0.2.17 | Apache-2.0 OR MIT | crates.io |
+| proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | crates.io |
+| quote | 1.0.46 | MIT OR Apache-2.0 | crates.io |
+| regex | 1.12.4 | MIT OR Apache-2.0 | crates.io |
+| regex-automata | 0.4.14 | MIT OR Apache-2.0 | crates.io |
+| regex-syntax | 0.8.11 | MIT OR Apache-2.0 | crates.io |
+| serde | 1.0.228 | MIT OR Apache-2.0 | crates.io |
+| serde_core | 1.0.228 | MIT OR Apache-2.0 | crates.io |
+| serde_json | 1.0.150 | MIT OR Apache-2.0 | crates.io |
+| slab | 0.4.12 | MIT | crates.io |
+| syn | 2.0.118 | MIT OR Apache-2.0 | crates.io |
+| unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | crates.io |
+| wasm-bindgen | 0.2.108 | MIT OR Apache-2.0 | crates.io |
+| wasm-bindgen-futures | 0.4.58 | MIT OR Apache-2.0 | crates.io |
+| wasm-bindgen-macro | 0.2.108 | MIT OR Apache-2.0 | crates.io (build-time proc-macro) |
+| wasm-bindgen-macro-support | 0.2.108 | MIT OR Apache-2.0 | crates.io |
+| wasm-bindgen-shared | 0.2.108 | MIT OR Apache-2.0 | crates.io |
+| zmij | 1.0.21 | MIT | crates.io |
 
 ## Appendix — license texts
 
@@ -453,7 +702,12 @@ PERFORMANCE OF THIS SOFTWARE.
 ### BSD 3-Clause License
 
 Applies to the zstd C library statically linked by `zstd-sys`
-(Copyright (c) Meta Platforms, Inc. and affiliates).
+(Copyright (c) Meta Platforms, Inc. and affiliates), and to the
+`curve25519-dalek` and `subtle` crates compiled into
+`orca_crypto_wasm_bg.wasm` (BSD-3-Clause is their sole license option;
+their copyright lines and conditions follow the zstd text below).
+
+The zstd text:
 
 ```
 Redistribution and use in source and binary forms, with or without
@@ -480,6 +734,77 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+The `curve25519-dalek` (Copyright (c) 2016-2021 isis agora lovecruft,
+Copyright (c) 2016-2021 Henry de Valence) and `subtle` (Copyright (c)
+2016-2017 Isis Agora Lovecruft, Henry de Valence, Copyright (c) 2016-2024
+Isis Agora Lovecruft) text, reproduced from the crates' LICENSE files:
+
+```
+Copyright (c) 2016-2021 isis agora lovecruft. All rights reserved.
+Copyright (c) 2016-2021 Henry de Valence. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+curve25519-dalek's LICENSE additionally carries the following notice for
+portions originally derived from Adam Langley's Go ed25519 implementation
+(https://github.com/agl/ed25519/), reproduced verbatim:
+
+```
+Copyright (c) 2012 The Go Authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 ### Unicode License v3
@@ -540,7 +865,8 @@ requirement; the crate ships no license file of its own.
 ### Apache License, Version 2.0
 
 Applies to the aterm engine crates (Copyright 2026 Andrew Yates) and to the
-Apache-2.0-only crates listed above (`codespan-reporting`).
+Apache-2.0-only crates listed above (`ab_glyph_rasterizer`,
+`codespan-reporting`; neither ships a NOTICE file).
 
 ```
                                  Apache License

@@ -61,7 +61,9 @@ vi.mock('@/lib/telemetry', () => ({
 }))
 
 vi.mock('../../../../shared/tui-agent-selection', () => ({
-  isTuiAgentEnabled: () => true
+  isTuiAgentEnabled: () => true,
+  // Passthrough: these tests use builtin-shaped defaults, never custom profiles.
+  collapseDefaultTuiAgentToBuiltin: (pref: unknown) => pref
 }))
 
 vi.mock('../../../../shared/tui-agent-launch-defaults', () => ({

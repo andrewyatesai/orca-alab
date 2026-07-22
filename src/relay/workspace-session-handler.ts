@@ -127,6 +127,15 @@ export class WorkspaceSessionHandler {
   private async patch(params: Record<string, unknown>): Promise<PatchResult> {
     const namespace = sanitizeNamespace(params.namespace)
     const current = this.read(namespace)
+    if (current.schemaVersion > SNAPSHOT_SCHEMA_VERSION) {
+      // Why: a newer client owns this snapshot; rewriting it would strip its fields and restamp it with our older schemaVersion.
+      return {
+        ok: false,
+        reason: 'unavailable',
+        snapshot: current,
+        message: 'Workspace session was saved by a newer version of Orca'
+      }
+    }
     const baseRevision = Number(params.baseRevision)
     if (Number.isFinite(baseRevision) && baseRevision !== current.revision) {
       return { ok: false, reason: 'stale-revision', snapshot: current }

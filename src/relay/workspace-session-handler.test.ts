@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -102,6 +102,41 @@ describe('WorkspaceSessionHandler', () => {
     expect(staleResponse.result.ok).toBe(false)
     expect(staleResponse.result.reason).toBe('stale-revision')
     expect(staleResponse.result.snapshot.revision).toBe(1)
+  })
+
+  it('refuses to overwrite a snapshot stored with a newer schema version', async () => {
+    const path = join(baseDir, 'team.json')
+    const newerSnapshot = {
+      namespace: 'team',
+      revision: 4,
+      updatedAt: 111,
+      schemaVersion: 2,
+      session: { activeWorktreePath: '/v2', futureOnlyField: { nested: true } }
+    }
+    writeFileSync(path, JSON.stringify(newerSnapshot))
+
+    await sendRequest(
+      dispatcher,
+      'workspace.patch',
+      {
+        namespace: 'team',
+        baseRevision: 4,
+        clientId: 'client-a',
+        patch: { kind: 'replace-session', session: { activeWorktreePath: '/v1' } }
+      },
+      1
+    )
+
+    const response = decodeJsonFrames(written).find(
+      (frame) => (frame as { id?: number }).id === 1
+    ) as {
+      result: { ok: boolean; reason: string; snapshot: { schemaVersion: number } }
+    }
+    expect(response.result.ok).toBe(false)
+    expect(response.result.reason).toBe('unavailable')
+    expect(response.result.snapshot.schemaVersion).toBe(2)
+    // Why: the stored snapshot must survive byte-for-byte — no v1 restamp, no field stripping.
+    expect(JSON.parse(readFileSync(path, 'utf-8'))).toEqual(newerSnapshot)
   })
 
   it('tracks presence per namespace', async () => {

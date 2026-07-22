@@ -264,6 +264,39 @@ describe('remoteWorkspace:setForConnectedTargets', () => {
     expect(requestByTargetId.get('target-2')).toBeUndefined()
   })
 
+  it('refuses to patch over a snapshot written by a newer schema version', async () => {
+    // Why: creates the target-1 mux up front so its request mock can be replaced.
+    getActiveMultiplexerMock('target-1')
+    const request = requestByTargetId.get('target-1')
+    if (!request) {
+      throw new Error('target-1 multiplexer request mock was never created')
+    }
+    request.mockImplementation((method: string) => {
+      if (method === 'workspace.get') {
+        return Promise.resolve({
+          ...snapshot({
+            activeWorktreePath: '/previous',
+            activeTabId: null,
+            tabsByWorktreePath: {},
+            terminalLayoutsByTabId: {}
+          }),
+          schemaVersion: 2
+        })
+      }
+      throw new Error(`unexpected relay request against a newer-schema snapshot: ${method}`)
+    })
+
+    const result = await callSetForConnectedTargets({
+      session: baseSession,
+      hydratedTargetIds: ['target-1']
+    })
+
+    expect(result).toMatchObject([
+      { targetId: 'target-1', result: { ok: false, reason: 'unavailable' } }
+    ])
+    expect(request).not.toHaveBeenCalledWith('workspace.patch', expect.anything())
+  })
+
   it('can export from the persisted store session when no session argument is provided', async () => {
     getWorkspaceSessionMock.mockReturnValue({
       activeRepoId: 'repo-target-1',

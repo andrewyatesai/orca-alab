@@ -277,6 +277,15 @@ async function queueRemoteWorkspacePatch<T>(
   }
 }
 
+function newerSchemaPatchRefusal(snapshot: RemoteWorkspaceSnapshot): RemoteWorkspacePatchResult {
+  return {
+    ok: false,
+    reason: 'unavailable',
+    snapshot,
+    message: 'Remote workspace session was saved by a newer version of Orca'
+  }
+}
+
 async function patchRemoteWorkspaceSession(
   target: SshTarget,
   session: RemoteWorkspaceSession
@@ -288,6 +297,10 @@ async function patchRemoteWorkspaceSession(
   const namespace = getRemoteWorkspaceNamespace(target)
   const current =
     getCachedRemoteWorkspaceSnapshot(target.id) ?? (await getRemoteSnapshot(target)) ?? undefined
+  if (current && current.schemaVersion > SNAPSHOT_SCHEMA_VERSION) {
+    // Why: a newer client owns this snapshot; replacing it with our schema would strip fields this version cannot represent.
+    return newerSchemaPatchRefusal(current)
+  }
   if (current && remoteWorkspaceSessionMatchesSnapshot(current, session)) {
     // Why: a pulled workspace snapshot rehydrates local state and can trigger
     // session persistence. Identical target sessions must stay a local no-op or
@@ -335,6 +348,10 @@ async function patchRemoteWorkspaceSession(
     result.snapshot &&
     result.snapshot.revision < current.revision
   ) {
+    if (result.snapshot.schemaVersion > SNAPSHOT_SCHEMA_VERSION) {
+      // Why: the reset namespace was re-seeded by a newer client; retrying would overwrite its snapshot.
+      return newerSchemaPatchRefusal(result.snapshot)
+    }
     if (remoteWorkspaceSessionMatchesSnapshot(result.snapshot, session)) {
       return { ok: true, snapshot: result.snapshot }
     }

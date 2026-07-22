@@ -15,6 +15,7 @@ import {
   groupDefinitions
 } from './shortcut-groups'
 import { useAppStore } from '../../store'
+import { CustomShortcutsSection } from './CustomShortcutsSection'
 import { KeybindingsFileActions } from './KeybindingsFileActions'
 import { SettingsSubsectionHeader } from './SettingsFormControls'
 import { getShortcutTerminalStatus } from './shortcut-terminal-status'
@@ -423,6 +424,12 @@ export function ShortcutsPane(): React.JSX.Element {
             }}
           />
         </div>
+
+        <CustomShortcutsSection
+          platform={platform}
+          conflictByAction={conflictByAction}
+          query={shortcutQuery}
+        />
       </section>
     </div>
   )

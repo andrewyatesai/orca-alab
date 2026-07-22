@@ -13,8 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { githubAvatarUrl } from './github-issue-mutations'
-import { resolveGitHubUserAvatarSrc } from './github-user-avatar'
+import { githubAvatarUrl, resolveGitHubUserAvatarSrc } from './github-user-avatar'
 
 describe('issue #8784 GHE avatar fallback (regression)', () => {
   it('prefers API avatar_url over login.png (GHE healthy path)', () => {
@@ -38,6 +37,13 @@ describe('issue #8784 GHE avatar fallback (regression)', () => {
     // Why: github.com users without avatar_url still use this; GHE relies on
     // enrichment + image onError → initials when this 404s.
     expect(githubAvatarUrl('corp-user')).toBe('https://github.com/corp-user.png?size=64')
+  })
+
+  it('keeps the display-only URL builder out of the issue-mutations module', () => {
+    // Why: githubAvatarUrl is a pure display helper; leaving it in
+    // github-issue-mutations.ts misdescribes the module (AGENTS.md naming rule).
+    const mutations = readFileSync(join(__dirname, 'github-issue-mutations.ts'), 'utf8')
+    expect(mutations).not.toMatch(/githubAvatarUrl/)
   })
 
   it('source routes PR author/reviewer avatars through GitHubUserAvatar + authorAvatarUrl', () => {

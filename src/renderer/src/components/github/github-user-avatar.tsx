@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { githubAvatarUrl } from '@/components/github/github-issue-mutations'
+
+/** Public github.com avatar URL for a login. GHE logins 404 here; see #8784. */
+export function githubAvatarUrl(login: string): string {
+  return `https://github.com/${encodeURIComponent(login)}.png?size=64`
+}
 
 /**
  * Build a 1-2 character initials placeholder from a display name or login,

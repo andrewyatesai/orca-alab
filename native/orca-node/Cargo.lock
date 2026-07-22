@@ -183,7 +183,9 @@ dependencies = [
  "aterm-grapheme",
  "aterm-hash",
  "aterm-log",
+ "aterm-spec",
  "aterm-types",
+ "memchr",
  "regex",
 ]
 

@@ -302,7 +302,7 @@ describe('keybindings', () => {
     const overrides = {
       'view.tasks': ['Mod+P'],
       'terminal.splitDown': ['Mod+D']
-    } as const
+    }
     for (const platform of ['darwin', 'linux', 'win32'] as const) {
       const withoutParam = findKeybindingConflicts(platform, overrides)
       expect(findKeybindingConflicts(platform, overrides, {}, [])).toEqual(withoutParam)

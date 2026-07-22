@@ -5,11 +5,14 @@ import type {
   KeybindingFileSnapshot,
   KeybindingOverrides
 } from '../../../../shared/keybindings'
+import type { CustomKeybinding, ResolvedCustomKeybinding } from '../../../../shared/custom-keybindings'
 
 const EMPTY_KEYBINDINGS: KeybindingOverrides = {}
+const EMPTY_CUSTOM_KEYBINDINGS: ResolvedCustomKeybinding[] = []
 
 export type KeybindingsSlice = {
   keybindings: KeybindingOverrides
+  customKeybindings: ResolvedCustomKeybinding[]
   keybindingSnapshot: KeybindingFileSnapshot | null
   fetchKeybindings: () => Promise<void>
   setKeybindingSnapshot: (snapshot: KeybindingFileSnapshot) => void
@@ -17,6 +20,8 @@ export type KeybindingsSlice = {
   setKeybindingOverride: (actionId: KeybindingActionId, bindings: string[]) => Promise<void>
   resetKeybindingOverride: (actionId: KeybindingActionId) => Promise<void>
   disableKeybindingAction: (actionId: KeybindingActionId) => Promise<void>
+  upsertCustomKeybinding: (entry: CustomKeybinding) => Promise<void>
+  removeCustomKeybinding: (id: string) => Promise<void>
   reloadKeybindings: () => Promise<void>
   openKeybindingsFile: () => Promise<void>
   revealKeybindingsFile: () => Promise<void>
@@ -24,15 +29,18 @@ export type KeybindingsSlice = {
 
 function applySnapshot(
   snapshot: KeybindingFileSnapshot
-): Pick<KeybindingsSlice, 'keybindings' | 'keybindingSnapshot'> {
+): Pick<KeybindingsSlice, 'keybindings' | 'customKeybindings' | 'keybindingSnapshot'> {
   return {
     keybindings: snapshot.overrides,
+    // Why: older main processes can emit snapshots without `custom`; coalesce so consumers never see undefined.
+    customKeybindings: snapshot.custom ?? EMPTY_CUSTOM_KEYBINDINGS,
     keybindingSnapshot: snapshot
   }
 }
 
 export const createKeybindingsSlice: StateCreator<AppState, [], [], KeybindingsSlice> = (set) => ({
   keybindings: EMPTY_KEYBINDINGS,
+  customKeybindings: EMPTY_CUSTOM_KEYBINDINGS,
   keybindingSnapshot: null,
 
   setKeybindingSnapshot: (snapshot) => set(applySnapshot(snapshot)),
@@ -89,6 +97,26 @@ export const createKeybindingsSlice: StateCreator<AppState, [], [], KeybindingsS
       set(applySnapshot(snapshot))
     } catch (error) {
       console.error('Failed to disable keybinding:', error)
+      throw error
+    }
+  },
+
+  upsertCustomKeybinding: async (entry) => {
+    try {
+      const snapshot = await window.api.keybindings.customUpsert({ entry })
+      set(applySnapshot(snapshot))
+    } catch (error) {
+      console.error('Failed to save custom shortcut:', error)
+      throw error
+    }
+  },
+
+  removeCustomKeybinding: async (id) => {
+    try {
+      const snapshot = await window.api.keybindings.customRemove({ id })
+      set(applySnapshot(snapshot))
+    } catch (error) {
+      console.error('Failed to remove custom shortcut:', error)
       throw error
     }
   },

@@ -1,5 +1,7 @@
 /* eslint-disable max-lines -- Why: keep the shortcut registry, parser, formatter, and conflict detector in one shared module so main/renderer/browser/Settings can't drift. */
 import type { TuiAgent } from './types'
+// Why: type-only import — custom-keybindings.ts imports this module at runtime, so a value import would be circular.
+import type { ResolvedCustomKeybinding } from './custom-keybindings'
 import { ALL_TUI_AGENTS, TUI_AGENT_DISPLAY_NAMES } from './tui-agent-display-names'
 
 export type KeybindingScope =
@@ -135,6 +137,8 @@ export type KeybindingFileSnapshot = {
   overrides: KeybindingOverrides
   commonOverrides: KeybindingOverrides
   platformOverrides: Partial<Record<KeybindingPlatform, KeybindingOverrides>>
+  /** User-defined custom shortcuts (file section "custom"); empty when absent. */
+  custom: ResolvedCustomKeybinding[]
   diagnostics: KeybindingFileDiagnostic[]
 }
 
@@ -2135,6 +2139,15 @@ function keybindingConflictIdentity(binding: string, platform: NodeJS.Platform):
   return parsed ? keybindingConflictIdentityForParsed(parsed, platform) : binding
 }
 
+/** True when two chords resolve to the same conflict identity on the platform (e.g. Mod+C vs Cmd+C on macOS). */
+export function keybindingsShareConflictIdentity(
+  first: string,
+  second: string,
+  platform: NodeJS.Platform
+): boolean {
+  return keybindingConflictIdentity(first, platform) === keybindingConflictIdentity(second, platform)
+}
+
 function keybindingConflictIdentities(
   actionId: KeybindingActionId,
   binding: string,
@@ -2338,7 +2351,9 @@ export function findKeybindingConflicts(
           const current = owners.get(conflictKey) ?? { binding, actionIds: new Set() }
           if (
             !isDigitIndexActionId(definition.id) &&
-            Array.from(current.actionIds).some((actionId) => isDigitIndexActionId(actionId))
+            Array.from(current.actionIds).some(
+              (actionId) => isKeybindingActionId(actionId) && isDigitIndexActionId(actionId)
+            )
           ) {
             current.binding = binding
           }

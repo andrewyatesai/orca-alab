@@ -100,7 +100,7 @@ export function decodeCustomSendText(raw: string): CustomSendTextDecodeResult {
         if (hex.length !== 2 || !HEX_PATTERN.test(hex)) {
           return { ok: false, error: 'Use two hex digits after \\x, like \\x1b.' }
         }
-        text += String.fromCharCode(parseInt(hex, 16))
+        text += String.fromCharCode(Number.parseInt(hex, 16))
         index += 3
         break
       }
@@ -111,7 +111,7 @@ export function decodeCustomSendText(raw: string): CustomSendTextDecodeResult {
           if (closeIndex === -1 || hex.length === 0 || hex.length > 6 || !HEX_PATTERN.test(hex)) {
             return { ok: false, error: 'Use \\u{...} with 1–6 hex digits, like \\u{1F600}.' }
           }
-          const codePoint = parseInt(hex, 16)
+          const codePoint = Number.parseInt(hex, 16)
           if (codePoint > 0x10ffff) {
             return { ok: false, error: '\\u{...} code point must be at most 0x10FFFF.' }
           }
@@ -123,7 +123,7 @@ export function decodeCustomSendText(raw: string): CustomSendTextDecodeResult {
         if (hex.length !== 4 || !HEX_PATTERN.test(hex)) {
           return { ok: false, error: 'Use four hex digits after \\u, like \\u001b.' }
         }
-        text += String.fromCharCode(parseInt(hex, 16))
+        text += String.fromCharCode(Number.parseInt(hex, 16))
         index += 5
         break
       }

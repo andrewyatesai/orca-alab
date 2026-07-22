@@ -47,6 +47,7 @@ const snapshot: KeybindingFileSnapshot = {
   overrides: {},
   commonOverrides: {},
   platformOverrides: {},
+  custom: [],
   diagnostics: []
 }
 
@@ -82,5 +83,32 @@ describe('registerKeybindingHandlers', () => {
     await expect(getHandler('keybindings:openFile')()).resolves.toBe(snapshot)
     expect(authorizeExternalPathMock).toHaveBeenCalledWith(snapshot.path)
     expect(openPathMock).toHaveBeenCalledWith(snapshot.path)
+  })
+
+  it('customUpsert and customRemove broadcast keybindings:changed with the updated snapshot.custom', () => {
+    const entry = {
+      id: 'custom.k3v9x2m1q8za',
+      title: 'Macro',
+      action: { type: 'sendText', text: '.' },
+      bindings: ['Period']
+    }
+    const updatedSnapshot = { ...snapshot, custom: [{ ...entry, decodedText: '.' }] }
+    const send = vi.fn()
+    getAllWindowsMock.mockReturnValue([
+      { isDestroyed: () => false, webContents: { send } }
+    ] as never)
+    const upsertCustom = vi.fn(() => updatedSnapshot)
+    const removeCustom = vi.fn(() => snapshot)
+    registerKeybindingHandlers({ upsertCustom, removeCustom } as never)
+
+    expect(getHandler('keybindings:customUpsert')(undefined, { entry })).toBe(updatedSnapshot)
+    expect(upsertCustom).toHaveBeenCalledWith(entry)
+    expect(send).toHaveBeenCalledWith('keybindings:changed', updatedSnapshot)
+    expect(rebuildAppMenuMock).toHaveBeenCalled()
+
+    send.mockClear()
+    expect(getHandler('keybindings:customRemove')(undefined, { id: entry.id })).toBe(snapshot)
+    expect(removeCustom).toHaveBeenCalledWith(entry.id)
+    expect(send).toHaveBeenCalledWith('keybindings:changed', snapshot)
   })
 })

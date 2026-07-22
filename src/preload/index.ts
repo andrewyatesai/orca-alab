@@ -176,6 +176,7 @@ import type {
   AutomationUpdateInput
 } from '../shared/automations-types'
 import type { KeybindingActionId, KeybindingFileSnapshot } from '../shared/keybindings'
+import type { CustomKeybinding } from '../shared/custom-keybindings'
 import type { AiVaultListArgs, AiVaultSubagentListArgs } from '../shared/ai-vault-types'
 import type { AgentType } from '../shared/native-chat-types'
 import type {
@@ -1885,6 +1886,10 @@ const api = {
       actionId: KeybindingActionId
       bindings: string[] | null
     }): Promise<KeybindingFileSnapshot> => ipcRenderer.invoke('keybindings:setAction', args),
+    customUpsert: (args: { entry: CustomKeybinding }): Promise<KeybindingFileSnapshot> =>
+      ipcRenderer.invoke('keybindings:customUpsert', args),
+    customRemove: (args: { id: string }): Promise<KeybindingFileSnapshot> =>
+      ipcRenderer.invoke('keybindings:customRemove', args),
     reload: (): Promise<KeybindingFileSnapshot> => ipcRenderer.invoke('keybindings:reload'),
     openFile: (): Promise<KeybindingFileSnapshot> => ipcRenderer.invoke('keybindings:openFile'),
     revealFile: (): Promise<KeybindingFileSnapshot> => ipcRenderer.invoke('keybindings:revealFile'),

@@ -7,7 +7,9 @@ import {
   getUserKeybindingsPath,
   migrateLegacyKeybindings,
   readKeybindingFile,
+  removeCustomKeybinding,
   seedLegacyTabSwitchBindings,
+  upsertCustomKeybinding,
   writeKeybindingOverride
 } from './keybinding-file'
 
@@ -391,5 +393,307 @@ describe('keybinding-file', () => {
       seedLegacyTabSwitchBindings(filePath, 'darwin', LEGACY_TAB_SWITCH_BINDINGS)
     ).toThrow()
     expect(readFileSync(filePath, 'utf8')).toBe(unreadableContents)
+  })
+
+  describe('custom section', () => {
+    const validEntry = {
+      id: 'custom.k3v9x2m1q8za',
+      title: 'ASCII period (CJK remap)',
+      action: { type: 'sendText', text: '.' },
+      bindings: ['Period'],
+      matchPhysicalKey: true
+    }
+
+    it('parses the custom section; a missing section yields []', () => {
+      expect(readKeybindingFile(filePath, 'darwin').custom).toEqual([])
+
+      writeFileSync(
+        filePath,
+        JSON.stringify({
+          version: 1,
+          keybindings: {},
+          custom: [
+            validEntry,
+            {
+              id: 'custom.p0f4h7n2w6yb',
+              title: 'Kitty Shift+Enter',
+              action: { type: 'sendText', text: '\\x1b[13;2u' },
+              bindings: ['Shift+Enter']
+            },
+            {
+              id: 'custom.d8s1r5c3j9te',
+              title: 'Run: rebuild',
+              action: { type: 'runQuickCommand', quickCommandId: 'qc-rebuild' },
+              bindings: ['Mod+Alt+B']
+            }
+          ]
+        }),
+        'utf8'
+      )
+
+      const snapshot = readKeybindingFile(filePath, 'darwin')
+      expect(snapshot.custom).toHaveLength(3)
+      expect(snapshot.custom[0]).toMatchObject({
+        id: 'custom.k3v9x2m1q8za',
+        matchPhysicalKey: true,
+        decodedText: '.'
+      })
+      expect(snapshot.custom[1].decodedText).toBe('\x1b[13;2u')
+      expect(snapshot.custom[2].decodedText).toBeUndefined()
+      expect(snapshot.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    })
+
+    it('drops entries with bad id, duplicate id, bad action, or oversized payload with custom diagnostics', () => {
+      writeFileSync(
+        filePath,
+        JSON.stringify({
+          version: 1,
+          keybindings: {},
+          custom: [
+            { ...validEntry, id: 'notcustom.zzzz' },
+            validEntry,
+            { ...validEntry, id: 'custom.k3v9x2m1q8za' },
+            { ...validEntry, id: 'custom.badaction001', action: { type: 'sendText' } },
+            { ...validEntry, id: 'custom.badescape001', action: { type: 'sendText', text: '\\q' } },
+            {
+              ...validEntry,
+              id: 'custom.oversized001',
+              action: { type: 'sendText', text: 'x'.repeat(5000) }
+            },
+            'not-an-object'
+          ]
+        }),
+        'utf8'
+      )
+
+      const snapshot = readKeybindingFile(filePath, 'darwin')
+      expect(snapshot.custom.map((entry) => entry.id)).toEqual(['custom.k3v9x2m1q8za'])
+      const errors = snapshot.diagnostics.filter(
+        (d) => d.severity === 'error' && d.section === 'custom'
+      )
+      expect(errors).toHaveLength(6)
+      expect(errors.map((d) => d.message).join('\n')).toMatch(/duplicate id/)
+      expect(errors.map((d) => d.message).join('\n')).toMatch(/bytes/)
+    })
+
+    it('keeps an entry with a bare-printable chord and emits a warning diagnostic', () => {
+      writeFileSync(
+        filePath,
+        JSON.stringify({ version: 1, keybindings: {}, custom: [validEntry] }),
+        'utf8'
+      )
+      const snapshot = readKeybindingFile(filePath, 'darwin')
+      expect(snapshot.custom).toHaveLength(1)
+      expect(
+        snapshot.diagnostics.some(
+          (d) =>
+            d.severity === 'warning' &&
+            d.section === 'custom' &&
+            /no longer type its character/.test(d.message)
+        )
+      ).toBe(true)
+    })
+
+    it('load-time conflict removes only the custom entry offending binding, override untouched', () => {
+      writeFileSync(
+        filePath,
+        JSON.stringify({
+          version: 1,
+          keybindings: { 'terminal.clear': ['Mod+Shift+X'] },
+          custom: [
+            {
+              id: 'custom.conflicted01',
+              title: 'Clashes with clear',
+              action: { type: 'sendText', text: 'ls\\n' },
+              bindings: ['Mod+Shift+X', 'Mod+Alt+Y']
+            }
+          ]
+        }),
+        'utf8'
+      )
+
+      const snapshot = readKeybindingFile(filePath, 'darwin')
+      expect(snapshot.overrides['terminal.clear']).toEqual(['Mod+Shift+X'])
+      expect(snapshot.custom).toHaveLength(1)
+      expect(snapshot.custom[0].bindings).toEqual(['Mod+Alt+Y'])
+      expect(
+        snapshot.diagnostics.some(
+          (d) =>
+            d.severity === 'error' &&
+            d.section === 'custom' &&
+            d.message.includes('Clashes with clear') &&
+            d.message.includes('Clear active pane')
+        )
+      ).toBe(true)
+    })
+
+    it('load-time custom↔custom conflict keeps the first entry chord', () => {
+      const clashing = (id: string, title: string) => ({
+        id,
+        title,
+        action: { type: 'sendText', text: 'x' },
+        bindings: ['Mod+Alt+Z']
+      })
+      writeFileSync(
+        filePath,
+        JSON.stringify({
+          version: 1,
+          keybindings: {},
+          custom: [clashing('custom.first0000001', 'First'), clashing('custom.second000001', 'Second')]
+        }),
+        'utf8'
+      )
+      const snapshot = readKeybindingFile(filePath, 'darwin')
+      expect(snapshot.custom[0].bindings).toEqual(['Mod+Alt+Z'])
+      expect(snapshot.custom[1].bindings).toEqual([])
+    })
+
+    it('upsertCustomKeybinding round-trips, preserving platforms, unknown root keys, and when clause', () => {
+      writeFileSync(
+        filePath,
+        JSON.stringify({
+          version: 1,
+          keybindings: {},
+          platforms: { darwin: { 'terminal.search': ['Mod+F'] }, linux: {}, win32: {} },
+          futureRootKey: { keep: true },
+          custom: [
+            {
+              ...validEntry,
+              when: { connection: 'ssh' },
+              futureEntryKey: 'keep-me'
+            }
+          ]
+        }),
+        'utf8'
+      )
+
+      const snapshot = upsertCustomKeybinding(filePath, 'darwin', {
+        id: 'custom.k3v9x2m1q8za',
+        title: 'Renamed remap',
+        action: { type: 'sendText', text: ',' },
+        bindings: ['comma'],
+        matchPhysicalKey: true
+      })
+      expect(snapshot.custom).toHaveLength(1)
+      expect(snapshot.custom[0]).toMatchObject({
+        title: 'Renamed remap',
+        bindings: ['Comma'],
+        decodedText: ',',
+        when: { connection: 'ssh' }
+      })
+
+      const written = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>
+      expect(written.futureRootKey).toEqual({ keep: true })
+      expect(written.platforms).toMatchObject({ darwin: { 'terminal.search': ['Mod+F'] } })
+      const writtenCustom = written.custom as Record<string, unknown>[]
+      expect(writtenCustom[0].futureEntryKey).toBe('keep-me')
+      expect(writtenCustom[0].when).toEqual({ connection: 'ssh' })
+      // Stored bindings are canonical; stored text is the raw escaped form, never decoded bytes.
+      expect(writtenCustom[0].bindings).toEqual(['Comma'])
+      expect(writtenCustom[0].action).toEqual({ type: 'sendText', text: ',' })
+      expect(writtenCustom[0].decodedText).toBeUndefined()
+
+      const appended = upsertCustomKeybinding(filePath, 'darwin', {
+        id: 'custom.appended0001',
+        title: 'Second entry',
+        action: { type: 'runQuickCommand', quickCommandId: 'qc-1' },
+        bindings: ['Mod+Alt+9']
+      })
+      expect(appended.custom.map((entry) => entry.id)).toEqual([
+        'custom.k3v9x2m1q8za',
+        'custom.appended0001'
+      ])
+    })
+
+    it('upsertCustomKeybinding throws on a blocking conflict with a built-in override', () => {
+      writeFileSync(
+        filePath,
+        JSON.stringify({ version: 1, keybindings: { 'terminal.clear': ['Mod+Shift+X'] } }),
+        'utf8'
+      )
+      expect(() =>
+        upsertCustomKeybinding(filePath, 'darwin', {
+          id: 'custom.conflicted01',
+          title: 'Clash',
+          action: { type: 'sendText', text: 'x' },
+          bindings: ['Mod+Shift+X']
+        })
+      ).toThrow(/conflicts with/)
+      expect(readKeybindingFile(filePath, 'darwin').custom).toEqual([])
+    })
+
+    it('upsertCustomKeybinding throws on invalid entries', () => {
+      expect(() =>
+        upsertCustomKeybinding(filePath, 'darwin', {
+          id: 'custom.badentry0001',
+          title: 'Bad',
+          action: { type: 'sendText', text: '\\q' },
+          bindings: ['Mod+Alt+Q']
+        })
+      ).toThrow(/Unknown escape/)
+      expect(() =>
+        upsertCustomKeybinding(filePath, 'darwin', {
+          id: 'custom.badentry0002',
+          title: 'Bad chord',
+          action: { type: 'sendText', text: 'x' },
+          bindings: ['DoubleTap+Cmd']
+        })
+      ).toThrow(/Double-tap/)
+    })
+
+    it('removeCustomKeybinding removes only the target id', () => {
+      writeFileSync(
+        filePath,
+        JSON.stringify({
+          version: 1,
+          keybindings: {},
+          custom: [
+            validEntry,
+            {
+              id: 'custom.keepme000001',
+              title: 'Keep me',
+              action: { type: 'sendText', text: 'x' },
+              bindings: ['Mod+Alt+K']
+            }
+          ]
+        }),
+        'utf8'
+      )
+      const snapshot = removeCustomKeybinding(filePath, 'darwin', 'custom.k3v9x2m1q8za')
+      expect(snapshot.custom.map((entry) => entry.id)).toEqual(['custom.keepme000001'])
+    })
+
+    it('writeKeybindingOverride preserves an existing custom section (downgrade symmetry)', () => {
+      writeFileSync(
+        filePath,
+        JSON.stringify({ version: 1, keybindings: {}, custom: [validEntry] }),
+        'utf8'
+      )
+      writeKeybindingOverride(filePath, 'darwin', 'terminal.search', ['Mod+Shift+F'])
+      const written = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>
+      expect(written.custom).toEqual([validEntry])
+    })
+
+    it('writeKeybindingOverride blocks a chord already taken by a custom entry', () => {
+      writeFileSync(
+        filePath,
+        JSON.stringify({
+          version: 1,
+          keybindings: {},
+          custom: [
+            {
+              id: 'custom.holder000001',
+              title: 'Holder',
+              action: { type: 'sendText', text: 'x' },
+              bindings: ['Mod+Alt+H']
+            }
+          ]
+        }),
+        'utf8'
+      )
+      expect(() =>
+        writeKeybindingOverride(filePath, 'darwin', 'terminal.clear', ['Mod+Alt+H'])
+      ).toThrow(/conflicts with/)
+    })
   })
 })

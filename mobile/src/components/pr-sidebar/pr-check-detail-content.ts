@@ -14,8 +14,44 @@ import type {
 const MAX_ANNOTATIONS = 20
 const MAX_JOBS = 100
 
+// Why: job/step conclusions arrive as raw strings; mirror the desktop classifier
+// (src/renderer/src/lib/check-run-failure-conclusions.ts — mobile cannot import
+// from src/renderer) so a stale copy never again misses action_required/stale/
+// startup_failure and disagrees with the editor panel.
+const warnedUnknownStates = new Set<string>()
+
 function isFailureState(state: string | null | undefined): boolean {
-  return state === 'failure' || state === 'failed' || state === 'cancelled' || state === 'timed_out'
+  switch (state) {
+    case 'failure':
+    case 'failed':
+    case 'action_required':
+    case 'cancelled':
+    case 'stale':
+    case 'startup_failure':
+    case 'timed_out':
+      return true
+    case 'success':
+    case 'neutral':
+    case 'skipped':
+    case 'pending':
+    // Raw status values seen when conclusion is null:
+    case 'queued':
+    case 'in_progress':
+    case 'waiting':
+    case 'requested':
+    case 'completed':
+    case null:
+    case undefined:
+      return false
+    default:
+      // Why: display-focus logic — unknown values safely degrade to "show all jobs",
+      // but log once so new GitHub states surface instead of silently misclassifying.
+      if (!warnedUnknownStates.has(state)) {
+        warnedUnknownStates.add(state)
+        console.warn(`[pr-check-detail] Unknown check job conclusion/status: ${state}`)
+      }
+      return false
+  }
 }
 
 export type CheckDetailAnnotation = {

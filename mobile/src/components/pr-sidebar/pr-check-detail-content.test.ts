@@ -120,6 +120,74 @@ describe('presentCheckDetail', () => {
     expect(content.jobs[0].failedSteps).toEqual([{ name: 'bad-step', state: 'failure' }])
   })
 
+  it('classifies action_required/stale/startup_failure jobs and steps as failing', () => {
+    const content = presentCheckDetail(
+      details({
+        jobs: [
+          {
+            id: 1,
+            name: 'passing-job',
+            status: 'completed',
+            conclusion: 'success',
+            startedAt: null,
+            completedAt: null,
+            url: null,
+            logTail: null,
+            steps: []
+          },
+          {
+            id: 2,
+            name: 'needs-approval',
+            status: 'completed',
+            conclusion: 'action_required',
+            startedAt: null,
+            completedAt: null,
+            url: null,
+            logTail: 'waiting for approval',
+            steps: [
+              {
+                name: 'gate-step',
+                status: 'completed',
+                conclusion: 'action_required',
+                startedAt: null,
+                completedAt: null
+              }
+            ]
+          },
+          {
+            id: 3,
+            name: 'stale-job',
+            status: 'completed',
+            conclusion: 'stale',
+            startedAt: null,
+            completedAt: null,
+            url: null,
+            logTail: null,
+            steps: []
+          },
+          {
+            id: 4,
+            name: 'startup-failed-job',
+            status: 'completed',
+            conclusion: 'startup_failure',
+            startedAt: null,
+            completedAt: null,
+            url: null,
+            logTail: null,
+            steps: []
+          }
+        ]
+      })
+    )
+    expect(content.jobsLabel).toBe('Failed jobs')
+    expect(content.jobs.map((job) => job.name)).toEqual([
+      'needs-approval',
+      'stale-job',
+      'startup-failed-job'
+    ])
+    expect(content.jobs[0].failedSteps).toEqual([{ name: 'gate-step', state: 'action_required' }])
+  })
+
   it('shows all jobs labeled "Jobs" when none are failing', () => {
     const content = presentCheckDetail(
       details({

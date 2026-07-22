@@ -81,6 +81,7 @@ import { applyTerminalAppearance, installMode2031Handlers } from './terminal-app
 import { pushMode2031SeedReply } from './terminal-mode-2031-replies'
 import { handleOsc52ClipboardRequest } from './osc52-clipboard'
 import { showOsc52ClipboardBlockedToast } from './osc52-clipboard-blocked-toast'
+import { copyTerminalTextVerified, reportTerminalCopyOutcome } from './terminal-copy-outcome'
 import { parseOsc7 } from './parse-osc7'
 import { guardParserHandler } from './terminal-parser-handler-guard'
 import { resolveTerminalJisYenInput } from './terminal-jis-yen-input'
@@ -989,7 +990,10 @@ export function useTerminalPaneLifecycle({
             handleOsc52ClipboardRequest(data, {
               allowClipboardWrite: settingsRef.current?.terminalAllowOsc52Clipboard === true,
               writeClipboardText: window.api.ui.writeClipboardText,
-              onBlockedWrite: showOsc52ClipboardBlockedToast
+              onBlockedWrite: showOsc52ClipboardBlockedToast,
+              // Why: an allowed TUI copy is invisible; surface its verified outcome
+              // (one-time success toast + failure toast live in the seam).
+              onWriteResult: (ok) => reportTerminalCopyOutcome(ok, 'osc52')
             })
           )
         )
@@ -1256,9 +1260,7 @@ export function useTerminalPaneLifecycle({
               setPrimarySelectionText(selection)
             }
             if (shouldWriteClipboard) {
-              void window.api.ui.writeClipboardText(selection).catch(() => {
-                /* ignore clipboard write failures */
-              })
+              void copyTerminalTextVerified(selection, 'copy-on-select')
             }
             return
           }
@@ -1302,9 +1304,7 @@ export function useTerminalPaneLifecycle({
           if (!selection) {
             return
           }
-          void window.api.ui.writeClipboardText(selection).catch(() => {
-            /* ignore clipboard write failures */
-          })
+          void copyTerminalTextVerified(selection, 'copy-on-select')
         })
         selectionDisposablesRef.current.set(pane.id, selectionDisposable)
         // Hide mouse cursor while typing (scoped to the pane container so other UI keeps its cursor).

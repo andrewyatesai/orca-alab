@@ -3017,8 +3017,10 @@ export type PreloadApi = {
       connectionId?: string | null
       runtimeEnvironmentId?: string | null
     }) => Promise<string | null>
-    writeClipboardText: (text: string) => Promise<void>
-    writeSelectionClipboardText: (text: string) => Promise<void>
+    /** Resolves to whether the write verified by read-back (false = the
+     *  clipboard could not be confirmed changed — surface it, don't ignore). */
+    writeClipboardText: (text: string) => Promise<boolean>
+    writeSelectionClipboardText: (text: string) => Promise<boolean>
     writeClipboardImage: (dataUrl: string) => Promise<void>
     performNativePaste: (options?: { mode?: 'paste' | 'paste-and-match-style' }) => void
     writeClipboardFile: (

@@ -38,6 +38,7 @@ import { isLocalWindowsConptyPaneForCtrlArrow } from './terminal-ctrl-arrow-conp
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { resolveWindowsShiftEnterEncodingForPane } from './terminal-windows-shift-enter'
 import { resolveTerminalInputHostPlatform } from './terminal-input-host-platform'
+import { copyTerminalTextVerified } from './terminal-copy-outcome'
 import {
   markTerminalFollowOutput,
   markTerminalPinnedViewportFromUserInteraction
@@ -82,6 +83,18 @@ export function recordKeyboardCreatedTerminalPaneSplit(
   }
 ): boolean {
   return recordCreatedTerminalPaneSplit(createdPane, args)
+}
+
+/** Cmd/Ctrl+Shift+C: verified copy of the pane's selection; a failed clipboard
+ *  write surfaces through the copy-outcome seam instead of vanishing. Returns
+ *  whether a selection existed (the caller consumes the key only then). */
+export function copyPaneSelectionViaShortcut(pane: Pick<ManagedPane, 'terminal'>): boolean {
+  const selection = pane.terminal.getSelection()
+  if (!selection) {
+    return false
+  }
+  void copyTerminalTextVerified(selection, 'shortcut')
+  return true
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -515,15 +528,11 @@ export function useTerminalKeyboardShortcuts({
         if (!pane) {
           return
         }
-        const selection = pane.terminal.getSelection()
-        if (!selection) {
+        if (!copyPaneSelectionViaShortcut(pane)) {
           return
         }
         e.preventDefault()
         e.stopImmediatePropagation()
-        void window.api.ui.writeClipboardText(selection).catch(() => {
-          /* ignore clipboard write failures */
-        })
         return
       }
 

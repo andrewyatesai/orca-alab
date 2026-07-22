@@ -226,9 +226,15 @@ describe('registerClipboardHandlers', () => {
   })
 
   it('registers normal and selection text clipboard IPC handlers', async () => {
-    clipboardReadTextMock.mockImplementation((clipboardType?: string) =>
-      clipboardType === 'selection' ? 'selection text' : 'standard text'
-    )
+    // A per-buffer fake clipboard so the verified writes read back what landed
+    // in the SAME buffer they targeted.
+    const buffers = { standard: 'standard text', selection: 'selection text' }
+    const bufferFor = (type?: string): 'standard' | 'selection' =>
+      type === 'selection' ? 'selection' : 'standard'
+    clipboardReadTextMock.mockImplementation((type?: string) => buffers[bufferFor(type)])
+    clipboardWriteTextMock.mockImplementation((text: string, type?: string) => {
+      buffers[bufferFor(type)] = text
+    })
 
     registerClipboardHandlers({} as never)
 
@@ -239,8 +245,12 @@ describe('registerClipboardHandlers', () => {
     await expect(handlers.get('clipboard:readSelectionText')?.(makeClipboardEvent())).resolves.toBe(
       'selection text'
     )
-    await handlers.get('clipboard:writeText')?.(makeClipboardEvent(), 'normal text')
-    await handlers.get('clipboard:writeSelectionText')?.(makeClipboardEvent(), 'primary text')
+    await expect(
+      handlers.get('clipboard:writeText')?.(makeClipboardEvent(), 'normal text')
+    ).resolves.toBe(true)
+    await expect(
+      handlers.get('clipboard:writeSelectionText')?.(makeClipboardEvent(), 'primary text')
+    ).resolves.toBe(true)
 
     expect(clipboardReadTextMock).toHaveBeenCalledWith()
     expect(clipboardReadTextMock).toHaveBeenCalledWith('selection')
@@ -531,6 +541,11 @@ describe('registerClipboardHandlers', () => {
   it('yields before writing large text clipboard IPC payloads', async () => {
     vi.useFakeTimers()
     const text = 'é'.repeat(300_000)
+    // The verified write reads back what landed; echo it so the (bounded, for
+    // this >256KiB payload) compare passes without a retry timer.
+    clipboardWriteTextMock.mockImplementation((value: string) =>
+      clipboardReadTextMock.mockReturnValue(value)
+    )
 
     registerClipboardHandlers({} as never)
 
@@ -546,7 +561,7 @@ describe('registerClipboardHandlers', () => {
     expect(isSettled()).toBe(false)
     expect(clipboardWriteTextMock).not.toHaveBeenCalled()
     await vi.runOnlyPendingTimersAsync()
-    await result
+    await expect(result).resolves.toBe(true)
     expect(clipboardWriteTextMock).toHaveBeenCalledWith(text)
   })
 

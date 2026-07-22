@@ -24,8 +24,13 @@ export type Osc52ParseResult =
 
 export type Osc52ClipboardRequestOptions = {
   allowClipboardWrite: boolean
-  writeClipboardText: (text: string) => Promise<void>
+  /** A boolean resolution reports whether the write VERIFIED (read-back matched);
+   *  void resolutions are treated as success for legacy callers. */
+  writeClipboardText: (text: string) => Promise<boolean | void>
   onBlockedWrite?: () => void
+  /** Fires with the verified outcome of an ALLOWED write (never for blocked
+   *  writes or queries) so silent OSC 52 failures become visible. */
+  onWriteResult?: (ok: boolean) => void
 }
 
 const MAX_OSC52_BYTES = 128 * 1024
@@ -44,9 +49,11 @@ export function handleOsc52ClipboardRequest(
     return true
   }
 
-  void options.writeClipboardText(parsed.text).catch(() => {
-    /* ignore clipboard write failures */
-  })
+  // The parser handler stays synchronous; the verified result flows out of band.
+  void options.writeClipboardText(parsed.text).then(
+    (ok) => options.onWriteResult?.(ok !== false),
+    () => options.onWriteResult?.(false)
+  )
   return true
 }
 

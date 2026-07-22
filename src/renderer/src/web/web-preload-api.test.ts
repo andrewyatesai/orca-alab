@@ -958,7 +958,8 @@ describe('web UI preload API', () => {
     const { installWebPreloadApi } = await import('./web-preload-api')
     installWebPreloadApi()
 
-    await expect(globals.window.api.ui.writeClipboardText('copy me')).resolves.toBeUndefined()
+    // The verified-write contract resolves true when the browser API accepted it.
+    await expect(globals.window.api.ui.writeClipboardText('copy me')).resolves.toBe(true)
     expect(writeText).toHaveBeenCalledWith('copy me')
   })
 
@@ -1005,7 +1006,7 @@ describe('web UI preload API', () => {
     expect(isSettled()).toBe(false)
     expect(writeText).not.toHaveBeenCalled()
     await vi.runOnlyPendingTimersAsync()
-    await expect(result).resolves.toBeUndefined()
+    await expect(result).resolves.toBe(true)
     expect(writeText).toHaveBeenCalledWith(text)
   })
 

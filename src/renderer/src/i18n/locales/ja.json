@@ -2700,6 +2700,15 @@
                 "writeTimeout": "ファイルドロップをキャンセルしました: 安全タイムアウト前にターミナルがパスを受け付けませんでした。",
                 "writeRejected": "ファイルドロップをキャンセルしました: ターミナルがパスを受け付けられませんでした。"
               }
+            },
+            "copy": {
+              "outcome": {
+                "osc52Success": "Terminal copied to clipboard",
+                "osc52SuccessDescription": "A terminal program wrote your clipboard via OSC 52. Later copies stay silent.",
+                "failureTitle": "Copy failed — clipboard unchanged",
+                "failureDescription": "The clipboard write could not be verified. Try copying again.",
+                "openSetting": "Open Setting"
+              }
             }
           },
           "use": {
@@ -6961,7 +6970,8 @@
             "fastDescription": "修飾キーを押しながらスクロールするときの追加倍率。",
             "tui": "TUI",
             "tuiDescription": "全画面ターミナルアプリ向けの離散的なホイール通知。"
-          }
+          },
+          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here."
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "{{value0}} テーマのプレビュー",
@@ -8695,7 +8705,9 @@
               "title": "テーマモード",
               "keyword_target": "対象",
               "keyword_editing": "編集"
-            }
+            },
+            "fallbackFontsTitle": "Fallback Fonts",
+            "fallbackFontsDescription": "Ordered fonts consulted after the primary terminal font and before Orca’s automatic OS fallbacks. Applies to new terminal panes."
           },
           "windows": {
             "search": {
@@ -9550,6 +9562,16 @@
           "cefb760cfa": "Use the same prompt for every agent",
           "b42ab80fa9": "Prepended to agent task prompts and Orca orchestration dispatches. Stored locally and may appear in terminal launch surfaces; do not include secrets.",
           "a74419da1e": "Custom Instructions"
+        },
+        "TerminalFallbackFontsRow": {
+          "rowLabel": "Fallback Fonts",
+          "rowDescription": "Consulted in order after the primary font, before Orca’s automatic OS fallbacks. Applies to new terminal panes.",
+          "moveUp": "Move {{value0}} earlier",
+          "moveDown": "Move {{value0}} later",
+          "remove": "Remove {{value0}}",
+          "addPlaceholder": "Add fallback font",
+          "add": "Add fallback font",
+          "addButton": "Add"
         }
       },
       "right": {

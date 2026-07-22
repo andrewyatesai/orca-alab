@@ -3716,9 +3716,11 @@ const api = {
       connectionId?: string | null
       runtimeEnvironmentId?: string | null
     }): Promise<string | null> => ipcRenderer.invoke('clipboard:saveImageAsTempFile', args),
-    writeClipboardText: (text: string): Promise<void> =>
+    // Resolve to whether the write VERIFIED by read-back (false = the clipboard
+    // could not be confirmed changed); void-callers keep compiling unchanged.
+    writeClipboardText: (text: string): Promise<boolean> =>
       ipcRenderer.invoke('clipboard:writeText', text),
-    writeSelectionClipboardText: (text: string): Promise<void> =>
+    writeSelectionClipboardText: (text: string): Promise<boolean> =>
       ipcRenderer.invoke('clipboard:writeSelectionText', text),
     writeClipboardImage: (dataUrl: string): Promise<void> =>
       ipcRenderer.invoke('clipboard:writeImage', dataUrl),

@@ -2700,6 +2700,15 @@
                 "writeTimeout": "Se canceló el drop de archivos: el terminal no aceptó la ruta antes del tiempo límite de seguridad.",
                 "writeRejected": "Se canceló el drop de archivos: el terminal no pudo aceptar la ruta."
               }
+            },
+            "copy": {
+              "outcome": {
+                "osc52Success": "Terminal copied to clipboard",
+                "osc52SuccessDescription": "A terminal program wrote your clipboard via OSC 52. Later copies stay silent.",
+                "failureTitle": "Copy failed — clipboard unchanged",
+                "failureDescription": "The clipboard write could not be verified. Try copying again.",
+                "openSetting": "Open Setting"
+              }
             }
           },
           "use": {
@@ -6939,7 +6948,8 @@
             "fastDescription": "Multiplicador adicional al desplazarse con una tecla modificadora.",
             "tui": "TUI",
             "tuiDescription": "Eventos discretos de rueda para apps de terminal de pantalla completa."
-          }
+          },
+          "osc52DescriptionWithToastNote": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here."
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "Vista previa del tema {{value0}}",
@@ -8673,7 +8683,9 @@
               "title": "Modo del tema",
               "keyword_target": "destino",
               "keyword_editing": "edición"
-            }
+            },
+            "fallbackFontsTitle": "Fallback Fonts",
+            "fallbackFontsDescription": "Ordered fonts consulted after the primary terminal font and before Orca’s automatic OS fallbacks. Applies to new terminal panes."
           },
           "windows": {
             "search": {
@@ -9550,6 +9562,16 @@
           "cefb760cfa": "Use the same prompt for every agent",
           "b42ab80fa9": "Prepended to agent task prompts and Orca orchestration dispatches. Stored locally and may appear in terminal launch surfaces; do not include secrets.",
           "a74419da1e": "Custom Instructions"
+        },
+        "TerminalFallbackFontsRow": {
+          "rowLabel": "Fallback Fonts",
+          "rowDescription": "Consulted in order after the primary font, before Orca’s automatic OS fallbacks. Applies to new terminal panes.",
+          "moveUp": "Move {{value0}} earlier",
+          "moveDown": "Move {{value0}} later",
+          "remove": "Remove {{value0}}",
+          "addPlaceholder": "Add fallback font",
+          "add": "Add fallback font",
+          "addButton": "Add"
         }
       },
       "right": {

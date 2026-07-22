@@ -1399,6 +1399,7 @@ function Settings(): React.JSX.Element {
                       wslCapabilitiesLoading={windowsTerminalCapabilities.isLoading}
                       pwshAvailable={windowsTerminalCapabilities.pwshAvailable}
                       gitBashAvailable={windowsTerminalCapabilities.gitBashAvailable}
+                      nushellAvailable={windowsTerminalCapabilities.nushellAvailable}
                       isWindowsTerminalHost={isWindowsTerminalHost}
                     />
                   ) : null}

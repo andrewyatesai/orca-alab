@@ -19,18 +19,21 @@ function stubTerminalCapabilityApi(args: {
   pwshAvailable: boolean
   wslDistros?: string[]
   gitBashAvailable?: boolean
+  nushellAvailable?: boolean
   hostPlatform?: NodeJS.Platform | null
 }): {
   wslIsAvailable: ReturnType<typeof vi.fn>
   wslListDistros: ReturnType<typeof vi.fn>
   pwshIsAvailable: ReturnType<typeof vi.fn>
   isGitBashAvailable: ReturnType<typeof vi.fn>
+  isNushellAvailable: ReturnType<typeof vi.fn>
   runtimeGetStatus: ReturnType<typeof vi.fn>
 } {
   const wslIsAvailable = vi.fn().mockResolvedValue(args.wslAvailable)
   const wslListDistros = vi.fn().mockResolvedValue(args.wslDistros ?? [])
   const pwshIsAvailable = vi.fn().mockResolvedValue(args.pwshAvailable)
   const isGitBashAvailable = vi.fn().mockResolvedValue(args.gitBashAvailable ?? false)
+  const isNushellAvailable = vi.fn().mockResolvedValue(args.nushellAvailable ?? false)
   const runtimeGetStatus = vi
     .fn()
     .mockResolvedValue({ hostPlatform: 'hostPlatform' in args ? args.hostPlatform : 'win32' })
@@ -40,11 +43,19 @@ function stubTerminalCapabilityApi(args: {
       wsl: { isAvailable: wslIsAvailable, listDistros: wslListDistros },
       pwsh: { isAvailable: pwshIsAvailable },
       gitBash: { isAvailable: isGitBashAvailable },
+      nushell: { isAvailable: isNushellAvailable },
       runtime: { getStatus: runtimeGetStatus }
     }
   })
 
-  return { wslIsAvailable, wslListDistros, pwshIsAvailable, isGitBashAvailable, runtimeGetStatus }
+  return {
+    wslIsAvailable,
+    wslListDistros,
+    pwshIsAvailable,
+    isGitBashAvailable,
+    isNushellAvailable,
+    runtimeGetStatus
+  }
 }
 
 describe('windows terminal capabilities', () => {
@@ -78,6 +89,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: [],
       pwshAvailable: false,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: null,
       isLoading: false
     })
@@ -87,6 +99,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu'],
       pwshAvailable: true,
       gitBashAvailable: true,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     }
@@ -110,6 +123,7 @@ describe('windows terminal capabilities', () => {
         wsl: { isAvailable: wslIsAvailable, listDistros: vi.fn().mockResolvedValue([]) },
         pwsh: { isAvailable: pwshIsAvailable },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -119,6 +133,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: [],
       pwshAvailable: false,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -132,6 +147,7 @@ describe('windows terminal capabilities', () => {
         wsl: { isAvailable: wslIsAvailable, listDistros: vi.fn().mockResolvedValue([]) },
         pwsh: { isAvailable: pwshIsAvailable },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -157,6 +173,7 @@ describe('windows terminal capabilities', () => {
         wsl: { isAvailable: wslIsAvailable, listDistros: vi.fn().mockResolvedValue([]) },
         pwsh: { isAvailable: pwshIsAvailable },
         gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -188,6 +205,7 @@ describe('windows terminal capabilities', () => {
         },
         pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
         gitBash: { isAvailable: isGitBashAvailable },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: runtimeGetStatus }
       }
     })
@@ -222,7 +240,8 @@ describe('windows terminal capabilities', () => {
         'host.wsl.isAvailable': true,
         'host.wsl.listDistros': ['Ubuntu'],
         'host.pwsh.isAvailable': true,
-        'host.gitBash.isAvailable': false
+        'host.gitBash.isAvailable': false,
+        'host.nushell.isAvailable': false
       }
       return {
         id: args.method,
@@ -248,6 +267,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu'],
       pwshAvailable: true,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -263,6 +283,9 @@ describe('windows terminal capabilities', () => {
     )
     expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
       expect.objectContaining({ selector: 'env-win', method: 'host.gitBash.isAvailable' })
+    )
+    expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
+      expect.objectContaining({ selector: 'env-win', method: 'host.nushell.isAvailable' })
     )
     expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
       expect.objectContaining({ selector: 'env-win', method: 'status.get' })
@@ -295,6 +318,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu'],
       pwshAvailable: true,
       gitBashAvailable: true,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -307,6 +331,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu'],
       pwshAvailable: true,
       gitBashAvailable: true,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -343,6 +368,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu'],
       pwshAvailable: true,
       gitBashAvailable: true,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -352,6 +378,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu'],
       pwshAvailable: true,
       gitBashAvailable: true,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -360,6 +387,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: [],
       pwshAvailable: false,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: null,
       isLoading: false
     })
@@ -371,6 +399,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu', 'Debian'],
       pwshAvailable: true,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -380,6 +409,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu', 'Debian'],
       pwshAvailable: true,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -432,6 +462,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu'],
       pwshAvailable: true,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -449,6 +480,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: ['Ubuntu'],
       pwshAvailable: true,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
@@ -457,6 +489,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: [],
       pwshAvailable: false,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: null,
       isLoading: false
     })
@@ -528,6 +561,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: [],
       pwshAvailable: false,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: null,
       isLoading: false
     })
@@ -549,6 +583,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: [],
       pwshAvailable: false,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: null,
       isLoading: false
     })
@@ -567,6 +602,7 @@ describe('windows terminal capabilities', () => {
         },
         pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
         gitBash: { isAvailable: isGitBashAvailable },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -584,6 +620,7 @@ describe('windows terminal capabilities', () => {
       wslDistros: [],
       pwshAvailable: false,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: null,
       isLoading: false
     })
@@ -598,6 +635,7 @@ describe('windows terminal capabilities', () => {
         wsl: { isAvailable: wslIsAvailable, listDistros: vi.fn().mockResolvedValue([]) },
         pwsh: { isAvailable: pwshIsAvailable },
         gitBash: { isAvailable: isGitBashAvailable },
+        nushell: { isAvailable: vi.fn().mockResolvedValue(false) },
         runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
       }
     })
@@ -607,8 +645,44 @@ describe('windows terminal capabilities', () => {
       wslDistros: [],
       pwshAvailable: false,
       gitBashAvailable: false,
+      nushellAvailable: false,
       hostPlatform: 'win32',
       isLoading: false
     })
+  })
+
+  it('reports Nushell availability from the local nu.exe probe', async () => {
+    const { isNushellAvailable } = stubTerminalCapabilityApi({
+      wslAvailable: false,
+      pwshAvailable: false,
+      nushellAvailable: true
+    })
+
+    await expect(loadWindowsTerminalCapabilities()).resolves.toMatchObject({
+      nushellAvailable: true
+    })
+    expect(isNushellAvailable).toHaveBeenCalledTimes(1)
+  })
+
+  it('coerces missing nushellAvailable from older SSH hosts to false', async () => {
+    // Why: an older deployed relay omits the field; gating must stay a real boolean.
+    const detectRemoteWindowsTerminalCapabilities = vi.fn().mockResolvedValue({
+      wslAvailable: false,
+      wslDistros: [],
+      pwshAvailable: true,
+      gitBashAvailable: true,
+      hostPlatform: 'win32'
+    })
+    vi.stubGlobal('window', {
+      api: {
+        preflight: {
+          detectRemoteWindowsTerminalCapabilities
+        }
+      }
+    })
+
+    await expect(
+      loadWindowsTerminalCapabilities({ ownerKey: 'ssh:old-relay', sshConnectionId: 'old-relay' })
+    ).resolves.toMatchObject({ nushellAvailable: false, gitBashAvailable: true })
   })
 })

@@ -7,6 +7,7 @@ import { buildRelayCommandEnv } from './relay-command-env'
 import { isPwshAvailable } from '../main/pwsh'
 import { isWslAvailable, listWslDistros } from '../main/wsl'
 import { isGitBashAvailable } from '../main/git-bash'
+import { isNushellAvailable } from '../main/windows-nushell'
 import { buildPosixCommandPathLookupScript } from '../shared/posix-command-path-lookup'
 
 const execFileAsync = promisify(execFile)
@@ -98,12 +99,14 @@ export class PreflightHandler {
     wslDistros: string[]
     pwshAvailable: boolean
     gitBashAvailable: boolean
+    nushellAvailable: boolean
     hostPlatform: NodeJS.Platform | null
   }> {
-    const [wslAvailable, pwshAvailable, gitBashAvailable] = await Promise.all([
+    const [wslAvailable, pwshAvailable, gitBashAvailable, nushellAvailable] = await Promise.all([
       Promise.resolve(isWslAvailable()).catch(() => false),
       Promise.resolve(isPwshAvailable()).catch(() => false),
-      Promise.resolve(isGitBashAvailable()).catch(() => false)
+      Promise.resolve(isGitBashAvailable()).catch(() => false),
+      Promise.resolve(isNushellAvailable()).catch(() => false)
     ])
     const wslDistros = wslAvailable ? await Promise.resolve(listWslDistros()).catch(() => []) : []
     return {
@@ -111,6 +114,7 @@ export class PreflightHandler {
       wslDistros,
       pwshAvailable,
       gitBashAvailable,
+      nushellAvailable,
       hostPlatform: process.platform
     }
   }

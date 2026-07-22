@@ -1,12 +1,17 @@
 import type { AgentStartupShell } from './tui-agent-startup-shell'
+import type { WINDOWS_NUSHELL_SHELL } from './nushell-shell'
 
 export const WINDOWS_GIT_BASH_SHELL = 'git-bash'
+
+// Why: the nushell sentinel lives beside the classification vocabulary in nushell-shell.ts; re-export so Windows shell consumers keep one import site.
+export { WINDOWS_NUSHELL_SHELL } from './nushell-shell'
 
 export type BuiltInWindowsTerminalShell =
   | 'powershell.exe'
   | 'cmd.exe'
   | 'wsl.exe'
   | typeof WINDOWS_GIT_BASH_SHELL
+  | typeof WINDOWS_NUSHELL_SHELL
 
 /**
  * Classifies a configured `terminalWindowsShell` value into the startup-shell

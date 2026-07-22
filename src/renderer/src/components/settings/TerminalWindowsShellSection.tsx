@@ -1,5 +1,8 @@
 import type { GlobalSettings } from '../../../../shared/types'
-import { WINDOWS_GIT_BASH_SHELL } from '../../../../shared/windows-terminal-shell'
+import {
+  WINDOWS_GIT_BASH_SHELL,
+  WINDOWS_NUSHELL_SHELL
+} from '../../../../shared/windows-terminal-shell'
 import {
   SettingsRow,
   SettingsSegmentedControl,
@@ -13,6 +16,7 @@ type TerminalWindowsShellSectionProps = {
   updateSettings: (updates: Partial<GlobalSettings>) => void
   windowsShell: string
   gitBashAvailable: boolean
+  nushellAvailable: boolean
 }
 
 function windowsShellLabel(shell: string, label: string): React.JSX.Element {
@@ -27,9 +31,12 @@ function windowsShellLabel(shell: string, label: string): React.JSX.Element {
 export function TerminalWindowsShellSection({
   updateSettings,
   windowsShell,
-  gitBashAvailable
+  gitBashAvailable,
+  nushellAvailable
 }: TerminalWindowsShellSectionProps): React.JSX.Element {
   const showGitBashOption = gitBashAvailable || windowsShell === WINDOWS_GIT_BASH_SHELL
+  // Why: keep a selected-but-missing shell visible (disabled) so the setting is never silently hidden — same rule as Git Bash.
+  const showNushellOption = nushellAvailable || windowsShell === WINDOWS_NUSHELL_SHELL
 
   return (
     <section key="windows-shell" className="space-y-3">
@@ -57,6 +64,8 @@ export function TerminalWindowsShellSection({
             'command prompt',
             'git bash',
             'bash.exe',
+            'nushell',
+            'nu.exe',
             'default'
           ]}
         >
@@ -116,6 +125,22 @@ export function TerminalWindowsShellSection({
                             'Git Bash'
                           ),
                           disabled: !gitBashAvailable
+                        }
+                      ]
+                    : []),
+                  ...(showNushellOption
+                    ? [
+                        {
+                          value: WINDOWS_NUSHELL_SHELL,
+                          label: windowsShellLabel(
+                            WINDOWS_NUSHELL_SHELL,
+                            translate('auto.components.settings.TerminalPane.nushell', 'Nushell')
+                          ),
+                          ariaLabel: translate(
+                            'auto.components.settings.TerminalPane.nushell',
+                            'Nushell'
+                          ),
+                          disabled: !nushellAvailable
                         }
                       ]
                     : [])

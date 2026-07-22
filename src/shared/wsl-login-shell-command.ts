@@ -61,6 +61,22 @@ export function buildWslInteractiveLoginShellCommand(): string {
     '      export ZDOTDIR="${_orca_shell_ready_root}/zsh"',
     '    fi',
     '    ;;',
+    '  nu)',
+    '    if [ -n "${_orca_shell_ready_root:-}" ] && [ -f "${_orca_shell_ready_root}/nu/integration.nu" ]; then',
+    // Why: the version gate runs in-distro — the host's nu capability cache must never answer for a WSL nu (host isolation).
+    '      _orca_nu_ver=$("$_orca_wsl_shell" --version 2>/dev/null | head -n 1)',
+    // Why: keep only the leading numeric token so a future "0.104.0 (abc)" line cannot silently fail the compare.
+    '      _orca_nu_ver="${_orca_nu_ver%% *}"',
+    '      case "$_orca_nu_ver" in',
+    '        [0-9]*)',
+    '          if [ "$(printf \'%s\\n0.96.0\\n\' "$_orca_nu_ver" | sort -V 2>/dev/null | head -n 1)" = "0.96.0" ]; then',
+    // Why: nu rejects combined short flags; split -l -e sources the integration after env.nu/config.nu/login.nu.
+    '            exec "$_orca_wsl_shell" -l -e "source \\"${_orca_shell_ready_root}/nu/integration.nu\\""',
+    '          fi',
+    '          ;;',
+    '      esac',
+    '    fi',
+    '    ;;',
     'esac',
     'exec "$_orca_wsl_shell" -l'
   ].join('\n')

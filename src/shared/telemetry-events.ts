@@ -699,6 +699,7 @@ const onboardingWindowsTerminalShellSchema = z.enum([
   'powershell',
   'command_prompt',
   'git_bash',
+  'nushell',
   'wsl',
   'other'
 ])

@@ -5,13 +5,19 @@ const { execFileAsyncMock } = vi.hoisted(() => ({
   execFileAsyncMock: vi.fn()
 }))
 
-const { isPwshAvailableMock, isWslAvailableMock, listWslDistrosMock, isGitBashAvailableMock } =
-  vi.hoisted(() => ({
-    isPwshAvailableMock: vi.fn(),
-    isWslAvailableMock: vi.fn(),
-    listWslDistrosMock: vi.fn(),
-    isGitBashAvailableMock: vi.fn()
-  }))
+const {
+  isPwshAvailableMock,
+  isWslAvailableMock,
+  listWslDistrosMock,
+  isGitBashAvailableMock,
+  isNushellAvailableMock
+} = vi.hoisted(() => ({
+  isPwshAvailableMock: vi.fn(),
+  isWslAvailableMock: vi.fn(),
+  listWslDistrosMock: vi.fn(),
+  isGitBashAvailableMock: vi.fn(),
+  isNushellAvailableMock: vi.fn()
+}))
 
 vi.mock('child_process', () => {
   const execFileWithPromisify = Object.assign(vi.fn(), {
@@ -26,6 +32,7 @@ vi.mock('../main/wsl', () => ({
   listWslDistros: listWslDistrosMock
 }))
 vi.mock('../main/git-bash', () => ({ isGitBashAvailable: isGitBashAvailableMock }))
+vi.mock('../main/windows-nushell', () => ({ isNushellAvailable: isNushellAvailableMock }))
 
 import {
   buildCommandLookupSpec,
@@ -65,6 +72,7 @@ beforeEach(() => {
   isWslAvailableMock.mockReset()
   listWslDistrosMock.mockReset()
   isGitBashAvailableMock.mockReset()
+  isNushellAvailableMock.mockReset()
 })
 
 describe('buildCommandLookupSpec', () => {
@@ -323,6 +331,7 @@ describe('PreflightHandler', () => {
     listWslDistrosMock.mockReturnValue(['Ubuntu'])
     isPwshAvailableMock.mockReturnValue(true)
     isGitBashAvailableMock.mockReturnValue(true)
+    isNushellAvailableMock.mockReturnValue(true)
 
     const requestHandlers = new Map<string, (params: Record<string, unknown>) => Promise<unknown>>()
     const dispatcher = {
@@ -343,6 +352,7 @@ describe('PreflightHandler', () => {
         wslDistros: ['Ubuntu'],
         pwshAvailable: true,
         gitBashAvailable: true,
+        nushellAvailable: true,
         hostPlatform: 'win32'
       })
     } finally {

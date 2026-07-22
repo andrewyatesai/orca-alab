@@ -1053,6 +1053,8 @@ describe('preflight', () => {
       wslDistros: ['Ubuntu'],
       pwshAvailable: true,
       gitBashAvailable: true,
+      // Why: the mocked relay reply omits the field like an older deployed relay; the bridge coerces it.
+      nushellAvailable: false,
       hostPlatform: 'win32'
     })
     expect(request).toHaveBeenCalledWith('preflight.detectWindowsTerminalCapabilities', {})

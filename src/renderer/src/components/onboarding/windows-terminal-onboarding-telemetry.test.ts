@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { WINDOWS_GIT_BASH_SHELL } from '../../../../shared/windows-terminal-shell'
+import {
+  WINDOWS_GIT_BASH_SHELL,
+  WINDOWS_NUSHELL_SHELL
+} from '../../../../shared/windows-terminal-shell'
 import {
   bucketWindowsTerminalShell,
   buildWindowsTerminalSnapshotPayload
@@ -11,6 +14,8 @@ describe('windows terminal onboarding telemetry', () => {
     expect(bucketWindowsTerminalShell('cmd.exe')).toBe('command_prompt')
     expect(bucketWindowsTerminalShell(WINDOWS_GIT_BASH_SHELL)).toBe('git_bash')
     expect(bucketWindowsTerminalShell('C:\\Program Files\\Git\\bin\\bash.exe')).toBe('git_bash')
+    expect(bucketWindowsTerminalShell(WINDOWS_NUSHELL_SHELL)).toBe('nushell')
+    expect(bucketWindowsTerminalShell('C:\\Users\\alice\\.cargo\\bin\\nu.exe')).toBe('nushell')
     expect(bucketWindowsTerminalShell('wsl.exe')).toBe('wsl')
     expect(bucketWindowsTerminalShell('C:\\custom\\shell.exe')).toBe('other')
   })

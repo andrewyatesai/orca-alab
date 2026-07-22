@@ -664,6 +664,7 @@ export type PreflightApi = {
     wslDistros: string[]
     pwshAvailable: boolean
     gitBashAvailable: boolean
+    nushellAvailable: boolean
     hostPlatform: NodeJS.Platform | null
   }>
 }
@@ -3240,6 +3241,10 @@ export type PreloadApi = {
     isAvailable: () => Promise<boolean>
   }
   gitBash: {
+    isAvailable: () => Promise<boolean>
+  }
+  nushell: {
+    /** Whether a Windows nu.exe install (winget/scoop/choco/cargo/Store) was detected. */
     isAvailable: () => Promise<boolean>
   }
   posixShells: {

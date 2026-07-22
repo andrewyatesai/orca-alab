@@ -6,7 +6,10 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { resolveWindowsGitBashShellPath } from '../main/git-bash'
 import { cloneInheritedSpawnEnv } from '../main/pty/inherited-spawn-env'
-import { WINDOWS_GIT_BASH_SHELL } from '../shared/windows-terminal-shell'
+import {
+  WINDOWS_GIT_BASH_SHELL,
+  WINDOWS_NUSHELL_SHELL
+} from '../shared/windows-terminal-shell'
 import type { RelayDispatcher, RequestContext } from './dispatcher'
 import {
   resolveDefaultShell,
@@ -180,7 +183,8 @@ const ALLOWED_WINDOWS_SHELL_OVERRIDES = new Set([
   'cmd',
   'wsl.exe',
   'wsl',
-  WINDOWS_GIT_BASH_SHELL
+  WINDOWS_GIT_BASH_SHELL,
+  WINDOWS_NUSHELL_SHELL
 ])
 
 function resolvePtyShellOverride(shellOverride: string): string {

@@ -504,6 +504,10 @@ const api = {
     isAvailable: (): Promise<boolean> => ipcRenderer.invoke('gitBash:isAvailable')
   },
 
+  nushell: {
+    isAvailable: (): Promise<boolean> => ipcRenderer.invoke('nushell:isAvailable')
+  },
+
   posixShells: {
     detect: (): Promise<PosixTerminalShellDetection> => ipcRenderer.invoke('posixShells:detect')
   },
@@ -2022,6 +2026,7 @@ const api = {
       wslDistros: string[]
       pwshAvailable: boolean
       gitBashAvailable: boolean
+      nushellAvailable: boolean
       hostPlatform: NodeJS.Platform | null
     }> => ipcRenderer.invoke('preflight:detectRemoteWindowsTerminalCapabilities', args)
   },

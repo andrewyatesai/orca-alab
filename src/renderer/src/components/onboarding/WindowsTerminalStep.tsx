@@ -1,7 +1,10 @@
 import { Check } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import type { BuiltInWindowsTerminalShell } from '../../../../shared/windows-terminal-shell'
-import { WINDOWS_GIT_BASH_SHELL } from '../../../../shared/windows-terminal-shell'
+import {
+  WINDOWS_GIT_BASH_SHELL,
+  WINDOWS_NUSHELL_SHELL
+} from '../../../../shared/windows-terminal-shell'
 import type { GlobalSettings } from '../../../../shared/types'
 import { cn } from '@/lib/utils'
 import { useWindowsTerminalCapabilities } from '@/lib/windows-terminal-capabilities'
@@ -41,7 +44,8 @@ function normalizeWindowsShell(value: string | null | undefined): BuiltInWindows
     value === 'powershell.exe' ||
     value === 'cmd.exe' ||
     value === 'wsl.exe' ||
-    value === WINDOWS_GIT_BASH_SHELL
+    value === WINDOWS_GIT_BASH_SHELL ||
+    value === WINDOWS_NUSHELL_SHELL
   ) {
     return value
   }
@@ -62,6 +66,7 @@ export function WindowsTerminalStep({
       ? [selectedWslDistroName, ...capabilities.wslDistros]
       : capabilities.wslDistros
   const showGitBashOption = capabilities.gitBashAvailable || windowsShell === WINDOWS_GIT_BASH_SHELL
+  const showNushellOption = capabilities.nushellAvailable || windowsShell === WINDOWS_NUSHELL_SHELL
   const showWslOption = capabilities.wslAvailable || windowsShell === 'wsl.exe'
 
   const setSelectPortalHost = useCallback((node: HTMLDivElement | null) => {
@@ -110,6 +115,24 @@ export function WindowsTerminalStep({
                   'Selected, but Git Bash was not detected on this machine.'
                 ),
             disabled: !capabilities.gitBashAvailable
+          } satisfies ShellOption
+        ]
+      : []),
+    ...(showNushellOption
+      ? [
+          {
+            value: WINDOWS_NUSHELL_SHELL,
+            label: translate('auto.components.onboarding.WindowsTerminalStep.nushell', 'Nushell'),
+            description: capabilities.nushellAvailable
+              ? translate(
+                  'auto.components.onboarding.WindowsTerminalStep.nushellDescription',
+                  'Uses nu.exe for structured-data pipelines with Nushell syntax.'
+                )
+              : translate(
+                  'auto.components.onboarding.WindowsTerminalStep.nushellUnavailable',
+                  'Selected, but Nushell was not detected on this machine.'
+                ),
+            disabled: !capabilities.nushellAvailable
           } satisfies ShellOption
         ]
       : []),

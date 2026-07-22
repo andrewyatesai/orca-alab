@@ -42,7 +42,10 @@ import { isWslUncPath } from '../../../../shared/wsl-paths'
 import type { ProjectExecutionRuntimeResolution } from '../../../../shared/project-execution-runtime'
 import type { StartupCommandDelivery } from '../../../../shared/codex-startup-delivery'
 import { resolveLocalWindowsTerminalShellOverrideForTab } from '../../../../shared/local-windows-terminal-runtime'
-import { WINDOWS_GIT_BASH_SHELL } from '../../../../shared/windows-terminal-shell'
+import {
+  WINDOWS_GIT_BASH_SHELL,
+  WINDOWS_NUSHELL_SHELL
+} from '../../../../shared/windows-terminal-shell'
 import type { AgentStartedTelemetry } from '../../lib/worktree-activation'
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { forgetAgentHibernationTabOutput } from '@/lib/agent-hibernation-output-activity'
@@ -299,7 +302,8 @@ function isAllowedRemoteWindowsTerminalShell(shell: string | undefined): boolean
     shell === 'pwsh.exe' ||
     shell === 'cmd.exe' ||
     shell === 'wsl.exe' ||
-    shell === WINDOWS_GIT_BASH_SHELL
+    shell === WINDOWS_GIT_BASH_SHELL ||
+    shell === WINDOWS_NUSHELL_SHELL
   )
 }
 

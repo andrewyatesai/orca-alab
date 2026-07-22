@@ -133,6 +133,10 @@ export type AtermWorkerSetEffectsFocused = { type: 'setEffectsFocused'; focused:
  *  superseded by the rain tri-state on the worker path); this is pure QoS priority. */
 export type AtermWorkerSetFocused = { type: 'setFocused'; focused: boolean }
 export type AtermWorkerScrollLines = { type: 'scrollLines'; delta: number }
+/** Sub-row scrollback input in device PIXELS (DOM_DELTA_PIXEL wheel; positive reveals
+ *  older lines, the scrollLines sign convention). Crosses the seam UNROUNDED: the
+ *  engine banks the fractional residual and presents it as a pixel band shift. */
+export type AtermWorkerScrollPx = { type: 'scrollPx'; deltaPx: number }
 export type AtermWorkerScrollToBottom = { type: 'scrollToBottom' }
 export type AtermWorkerScrollToTop = { type: 'scrollToTop' }
 export type AtermWorkerScrollToLine = { type: 'scrollToLine'; line: number }
@@ -275,6 +279,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetEffectsFocused
   | AtermWorkerSetFocused
   | AtermWorkerScrollLines
+  | AtermWorkerScrollPx
   | AtermWorkerScrollToBottom
   | AtermWorkerScrollToTop
   | AtermWorkerScrollToLine
@@ -475,11 +480,7 @@ export type AtermWorkerQueryResult = {
 /** A PANE-scoped failure: its engine build (GPU acquire / CPU init) failed. The
  *  loader answers with a 'fallback' so the pane rebuilds as CPU on the same canvas.
  *  Worker-fatal failures are NOT here — they post the worker-scoped 'crash'. */
-export type AtermWorkerError = {
-  type: 'error'
-  phase: 'init'
-  message: string
-}
+export type AtermWorkerError = { type: 'error'; phase: 'init'; message: string }
 
 /** Every pane-scoped event, paneId-free — what the worker's per-pane post builds;
  *  the entry stamps the paneId and the manager routes on it. */

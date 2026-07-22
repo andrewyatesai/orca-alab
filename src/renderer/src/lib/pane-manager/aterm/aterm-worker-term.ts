@@ -311,6 +311,9 @@ export function createWorkerBackedTerm(deps: {
     // the sync facade method returns void (the worker drains take_response itself).
     set_color_scheme: (dark: boolean) => post({ type: 'setColorScheme', dark }),
     scroll_lines: (delta: number) => post({ type: 'scrollLines', delta }),
+    // Pixel-mode wheel deltas cross the seam UNROUNDED — the worker engine banks the
+    // sub-row residual (scroll_px), so no JS remainder accumulator on this path.
+    scroll_px: (deltaPx: number) => post({ type: 'scrollPx', deltaPx }),
     scroll_to_bottom: () => post({ type: 'scrollToBottom' }),
     scroll_to_top: () => post({ type: 'scrollToTop' }),
     scroll_search_line_into_view: (line: number) => post({ type: 'scrollToLine', line }),

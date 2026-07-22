@@ -6,7 +6,8 @@ import { shouldNoteAtermMatrixRainActivity } from './aterm-effects-activity-gate
 import {
   accumulateWheelLines,
   resolveScrollbackWheelSensitivity,
-  resolveTuiWheelMultiplier
+  resolveTuiWheelMultiplier,
+  WHEEL_DELTA_PIXEL
 } from './aterm-wheel-lines'
 
 /** Sends synthesized arrow-key bytes to the PTY — the same seam keystrokes use. */
@@ -39,8 +40,10 @@ export type AtermScrollInput = {
  *  synthesized ArrowUp/ArrowDown presses through the ENGINE key encoder, so
  *  DECCKM/kitty forms stay exact (xterm's alternate-scroll behavior, applied
  *  unconditionally like xterm; DEC 1007 additionally requests it). Wheel-up
- *  reveals older lines (positive aterm delta); a fractional remainder is
- *  carried so trackpad sub-line deltas accumulate instead of being dropped. */
+ *  reveals older lines (positive aterm delta). Pixel-mode scrollback deltas go
+ *  to the engine's scroll_px (it banks the sub-row residual and presents it as
+ *  a pixel band shift); line/page modes and the alt-screen arrow synthesis keep
+ *  the JS fractional remainder so sub-line deltas accumulate, never drop. */
 export function attachAtermScrollInput(deps: AtermScrollDeps): AtermScrollInput {
   const { canvas, term, metrics, getRows, redraw, isDisposed, inputSink } = deps
   let remainder = 0
@@ -90,6 +93,24 @@ export function attachAtermScrollInput(deps: AtermScrollDeps): AtermScrollInput 
           fastScrollSensitivity: deps.getFastScrollSensitivity?.() ?? 1
         })
     event.preventDefault()
+
+    // Pixel-mode scrollback: hand the raw device-px delta to the engine's scroll_px —
+    // it banks the sub-row residual (P3), so the JS line-rounding remainder is gone on
+    // this path. Wheel down (positive deltaY) → newer output → negative engine delta,
+    // the scroll_lines sign convention. The typeof probe fails closed to line-rounding
+    // below on an engine artifact without the export.
+    if (
+      !altScreen &&
+      event.deltaMode === WHEEL_DELTA_PIXEL &&
+      typeof term.scroll_px === 'function'
+    ) {
+      const deltaPx = event.deltaY * metrics.dpr * sensitivity
+      if (deltaPx !== 0) {
+        term.scroll_px(-deltaPx)
+        redraw()
+      }
+      return
+    }
 
     const result = accumulateWheelLines({
       deltaY: event.deltaY,

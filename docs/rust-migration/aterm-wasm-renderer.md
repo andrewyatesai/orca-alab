@@ -4,7 +4,7 @@
 and its addons are removed (Phase 3 complete).** aterm draws every on-screen pixel
 via a GPU path (WebGL2) with an automatic CPU fallback, and it also owns the buffer,
 serialize/restore, query replies, and OSC handling. The remaining `Terminal` facade
-(`aterm-terminal-facade.ts` + `aterm-facade-*.ts`) adapts xterm's API *shape* for
+(`aterm-terminal-facade.ts` + `aterm-facade-*.ts`) adapts xterm's API _shape_ for
 the surrounding pane code; every method is backed by the real aterm engine.
 
 > Honesty note: earlier drafts of this doc called aterm a "formally verified
@@ -84,7 +84,7 @@ xterm half of the spec was deleted with the engine, so this is **no longer
 reproducible in-repo**): xterm + WebGL addon, write→painted **including its rAF
 debounce**, measured ~8.5 ms.
 
-Read honestly: the aterm numbers are raw render *work*; the historical xterm
+Read honestly: the aterm numbers are raw render _work_; the historical xterm
 number included its one-frame rAF wait, so they measured different things. The
 takeaway the data supports: **GPU dominates everywhere and is the default**; the
 CPU fallback was competitive with xterm at typical sizes but its rasterization
@@ -97,7 +97,7 @@ GPU is default and CPU is only the software-GL fallback.
   shipped functions (e.g. `Parser::advance` over symbolic input — `parser_never_panics`,
   `params_bounded`), so panic-freedom / bounds on the actual parser are model-checked,
   not just on a paper model.
-- **Is (abstract layer)**: hand-written abstract *models* of the VT/grid/mode
+- **Is (abstract layer)**: hand-written abstract _models_ of the VT/grid/mode
   disciplines are model-checked (TLA+ via the `ty` checker), bound to the Rust by
   named proof-anchors and a refinement-coverage ledger.
 - **Is**: behaviour is checked against a differential conformance corpus + a fuzzer
@@ -124,6 +124,6 @@ aterm is a git submodule at `rust/aterm` and is built to wasm by the orc scripts
 
 ```
 pnpm bump:aterm              # bump the aterm submodule to latest + rebuild
-pnpm run build:aterm-wasm    # build aterm-wasm (CPU) + aterm-gpu-web (GPU), wasm-opt -Oz
+pnpm run build:aterm-wasm    # build aterm-wasm (CPU) + aterm-gpu-web (GPU), wasm-opt -O3
 pnpm run build:terminal-addon --force
 ```

@@ -77,6 +77,7 @@ describe('SidebarToolbar moved workspace board hint', () => {
     window.localStorage.clear()
     mocks.activeTooltipOpen = false
     mocks.state = {
+      activeModal: 'none',
       persistedUIReady: true,
       featureInteractions: {}
     }
@@ -119,6 +120,7 @@ describe('SidebarToolbar moved workspace board hint', () => {
 
   it('shows the moved hint once to users who had already used the workspace board', async () => {
     mocks.state = {
+      activeModal: 'none',
       persistedUIReady: true,
       featureInteractions: {
         'workspace-board': { firstInteractedAt: 100, interactionCount: 2 }
@@ -128,6 +130,21 @@ describe('SidebarToolbar moved workspace board hint', () => {
     const { container } = await renderToolbar()
 
     expect(container.textContent).toContain('Workspace board moved to the bottom bar')
+    expect(window.localStorage.getItem('orca.workspaceBoardMovedHintSeen.v1')).toBe('true')
+  })
+
+  it('keeps the moved hint behind an active modal', async () => {
+    mocks.state = {
+      activeModal: 'feature-wall',
+      persistedUIReady: true,
+      featureInteractions: {
+        'workspace-board': { firstInteractedAt: 100, interactionCount: 2 }
+      }
+    }
+
+    const { container } = await renderToolbar()
+
+    expect(container.textContent).not.toContain('Workspace board moved to the bottom bar')
     expect(window.localStorage.getItem('orca.workspaceBoardMovedHintSeen.v1')).toBe('true')
   })
 

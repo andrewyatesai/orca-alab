@@ -40,11 +40,11 @@ describe('onboarding tour telemetry schemas', () => {
         outcome: 'completed_inline',
         intro_duration_ms: 500,
         tour_dwell_ms: 2500,
-        furthest_step: 'review_ship',
-        visited_workflow_count: 5,
-        visited_substep_count: 9,
-        completed_workflow_count: 4,
-        completed_substep_count: 7,
+        furthest_step: 'computer-use',
+        visited_workflow_count: 6,
+        visited_substep_count: 14,
+        completed_workflow_count: 6,
+        completed_substep_count: 14,
         advanced_via: 'button'
       }).success
     ).toBe(true)
@@ -60,7 +60,7 @@ describe('onboarding tour telemetry schemas', () => {
     expect(
       eventSchemas.onboarding_tour_outcome.safeParse({
         outcome: 'started_partial',
-        visited_workflow_count: 6
+        visited_workflow_count: 7
       }).success
     ).toBe(false)
     expect(

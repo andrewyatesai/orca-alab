@@ -401,14 +401,25 @@ export class AtermGpuTerminal {
      * at most `row_budget` rows per call; the returned cursor resumes; a
      * stale/foreign cursor, a new pattern, or changed content restarts from
      * scratch. Empty query or invalid regex: an immediate empty `complete`
-     * result (and an empty query drops any in-flight state).
+     * result (and an empty query drops any in-flight state). A zero row budget
+     * is clamped to one; backlog-drain turns may deliver deltas without
+     * advancing `rows_fed`.
      */
-    search_budgeted(query: string, case_sensitive: boolean, is_regex: boolean, resume_cursor: number | null | undefined, row_budget: number): BudgetedSearchResult;
+    search_budgeted(query: string, case_sensitive: boolean, is_regex: boolean, resume_cursor: bigint | null | undefined, row_budget: number): BudgetedSearchResult;
     /**
      * Drop any in-flight [`AtermGpuTerminal::search_budgeted`] state (frees
      * the partial index; outstanding cursors go stale and restart if resumed).
      */
     search_budgeted_cancel(): void;
+    /**
+     * Metadata for a [`AtermGpuTerminal::search`]-contract query (E9a):
+     * GPU-module parity with aterm-wasm's `search_meta` — carries the
+     * engine's `incomplete` signal the legacy `search` export drops. Same
+     * stateless contract: re-runs `query` on the cached index (one query,
+     * never a rebuild, on unchanged content); empty query or invalid regex
+     * reports `incomplete == false`, `match_count == 0`.
+     */
+    search_meta(query: string, case_sensitive: boolean, is_regex: boolean): SearchMeta;
     /**
      * Drop the current selection so the highlight clears on the next render.
      */
@@ -1091,26 +1102,43 @@ export class BudgetedSearchResult {
     free(): void;
     [Symbol.dispose](): void;
     /**
-     * Whether the search has covered every retained row.
+     * Whether every retained row has been scanned and every match delta has
+     * been delivered. Dense searches may finish scanning before this flips.
      */
     readonly complete: boolean;
     /**
      * Token to resume with; `undefined` once complete.
      */
-    readonly cursor: number | undefined;
+    readonly cursor: bigint | undefined;
     /**
      * True when the results may be truncated (eviction or the match cap).
      */
     readonly incomplete_index: boolean;
     /**
-     * Matches accumulated so far as flat `[abs_line, start_col, len]` triplets
-     * (same coordinate contract as [`AtermGpuTerminal::search`]).
+     * Final oldest absolute line retained by the completed search index,
+     * stable from the first turn. A nonzero watermark distinguishes history
+     * eviction from match-cap-only truncation.
+     */
+    readonly lowest_retained_line: number;
+    /**
+     * Stable match DELTA as flat `[abs_line, start_col, len]` triplets (same
+     * coordinate contract as [`AtermGpuTerminal::search`]); append across calls.
      */
     readonly matches: Uint32Array;
+    /**
+     * Whether this step starts a new logical result stream. Clear previously
+     * accumulated match deltas before appending this step when true.
+     */
+    readonly reset: boolean;
     /**
      * Rows scanned so far (progress numerator; restarts reset it).
      */
     readonly rows_fed: number;
+    /**
+     * Stable identity for the logical search, including its completing step;
+     * `undefined` only for an empty/invalid query result.
+     */
+    readonly search_id: bigint | undefined;
     /**
      * Total rows this search will scan (progress denominator).
      */
@@ -1142,6 +1170,27 @@ export class LinkHit {
      * The link's URL/target text.
      */
     readonly url: string;
+}
+
+/**
+ * Metadata for a legacy-contract search ([`AtermGpuTerminal::search_meta`]).
+ * Same shape as the aterm-wasm module's `SearchMeta` (each wasm module
+ * exports its own copy of the boundary type).
+ */
+export class SearchMeta {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * True when the results may be truncated: index eviction dropped old rows
+     * before they could be searched, or the engine's match cap was reached.
+     */
+    readonly incomplete: boolean;
+    /**
+     * Number of matches the paired [`AtermGpuTerminal::search`] call returns
+     * (its flat triplet array length / 3), after any cap.
+     */
+    readonly match_count: number;
 }
 
 /**
@@ -1206,6 +1255,7 @@ export interface InitOutput {
     readonly __wbg_atermgputerminal_free: (a: number, b: number) => void;
     readonly __wbg_budgetedsearchresult_free: (a: number, b: number) => void;
     readonly __wbg_linkhit_free: (a: number, b: number) => void;
+    readonly __wbg_searchmeta_free: (a: number, b: number) => void;
     readonly __wbg_selectionrange_free: (a: number, b: number) => void;
     readonly atermgputerminal_adapter_info: (a: number) => [number, number];
     readonly atermgputerminal_add_fallback_font: (a: number, b: number, c: number) => [number, number];
@@ -1285,9 +1335,10 @@ export interface InitOutput {
     readonly atermgputerminal_scroll_to_bottom: (a: number) => void;
     readonly atermgputerminal_scroll_to_top: (a: number) => void;
     readonly atermgputerminal_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly atermgputerminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly atermgputerminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => number;
     readonly atermgputerminal_search_budgeted_cancel: (a: number) => void;
     readonly atermgputerminal_search_display_origin: (a: number) => number;
+    readonly atermgputerminal_search_meta: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly atermgputerminal_selection_clear: (a: number) => void;
     readonly atermgputerminal_selection_extend: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_selection_finish: (a: number) => void;
@@ -1365,10 +1416,13 @@ export interface InitOutput {
     readonly atermgputerminal_title: (a: number) => [number, number];
     readonly atermgputerminal_width: (a: number) => number;
     readonly budgetedsearchresult_complete: (a: number) => number;
-    readonly budgetedsearchresult_cursor: (a: number) => number;
+    readonly budgetedsearchresult_cursor: (a: number) => [number, bigint];
     readonly budgetedsearchresult_incomplete_index: (a: number) => number;
+    readonly budgetedsearchresult_lowest_retained_line: (a: number) => number;
     readonly budgetedsearchresult_matches: (a: number) => [number, number];
+    readonly budgetedsearchresult_reset: (a: number) => number;
     readonly budgetedsearchresult_rows_fed: (a: number) => number;
+    readonly budgetedsearchresult_search_id: (a: number) => [number, bigint];
     readonly budgetedsearchresult_total_rows: (a: number) => number;
     readonly encode_key_with_mode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly linkhit_end_col: (a: number) => number;
@@ -1376,13 +1430,15 @@ export interface InitOutput {
     readonly linkhit_start_col: (a: number) => number;
     readonly linkhit_url: (a: number) => [number, number];
     readonly register_font: (a: number, b: number) => number;
+    readonly searchmeta_incomplete: (a: number) => number;
+    readonly searchmeta_match_count: (a: number) => number;
     readonly selectionrange_end_x: (a: number) => number;
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_2766a53e392c0a38___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__wasm_bindgen_2766a53e392c0a38___JsValue____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue__wasm_bindgen_2766a53e392c0a38___JsValue_____: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue_____: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

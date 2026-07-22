@@ -127,14 +127,21 @@ describe('aterm worker command scheduler (QoS)', () => {
   })
 
   it('splitProcessData never severs a surrogate pair', () => {
-    // A 4-code-unit string of two astral glyphs (each a surrogate pair) split at 3.
-    const emoji = '\u{1F600}\u{1F601}' // 4 UTF-16 code units
+    // Three astral glyphs (6 UTF-16 code units) split at 3: a naive slice would cut the
+    // second glyph in half. The splitter glues the trailing high surrogate to its low
+    // half, so the first chunk stretches to 4 units.
+    const emoji = '\u{1F600}\u{1F601}\u{1F602}'
     const parts = splitProcessData(emoji, 3)
-    // No part may start or end on a lone surrogate half.
-    for (const part of parts) {
-      expect(part).toBe(part) // decodes cleanly
-      expect([...part].every((ch) => ch.codePointAt(0)! <= 0x10ffff)).toBe(true)
+    expect(parts).toEqual(['\u{1F600}\u{1F601}', '\u{1F602}'])
+    // Mixed BMP/astral: every naive 2-unit boundary lands mid-pair; glue shifts each.
+    const mixed = 'a\u{1F600}b\u{1F601}'
+    const mixedParts = splitProcessData(mixed, 2)
+    expect(mixedParts).toEqual(['a\u{1F600}', 'b\u{1F601}'])
+    for (const part of [...parts, ...mixedParts]) {
+      expect(part).not.toMatch(/[\uD800-\uDBFF]$/) // never ends on a lone high half
+      expect(part).not.toMatch(/^[\uDC00-\uDFFF]/) // never starts on a lone low half
     }
     expect(parts.join('')).toBe(emoji)
+    expect(mixedParts.join('')).toBe(mixed)
   })
 })

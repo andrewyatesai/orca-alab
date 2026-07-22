@@ -21,6 +21,7 @@ import type {
   PaneManager
 } from '@/lib/pane-manager/pane-manager'
 import TerminalSearch from '@/components/TerminalSearch'
+import { TerminalComposeBox } from './TerminalComposeBox'
 import type { PtyTransport } from './pty-transport'
 import { fitPanes, isWindowsUserAgent } from './pane-helpers'
 import { getConnectionId, getConnectionIdFromState } from '@/lib/connection-context'
@@ -377,6 +378,9 @@ export default function TerminalPane({
   // Why: pane reorders can move panes without changing count or size, so overlay rects need an explicit layout-change render trigger.
   const [paneLayoutRevision, setPaneLayoutRevision] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [composeOpen, setComposeOpen] = useState(false)
+  // Why: a stable identity — an inline closure would re-run the window-listener effect every render.
+  const handleToggleComposeBox = useCallback(() => setComposeOpen((prev) => !prev), [])
   const searchOpenRef = useRef(false)
   searchOpenRef.current = searchOpen
   const searchStateRef = useRef<SearchState>({ query: '', caseSensitive: false, regex: false })
@@ -1864,6 +1868,7 @@ export default function TerminalPane({
     persistLayoutSnapshot,
     toggleExpandPane,
     setSearchOpen,
+    onToggleComposeBox: handleToggleComposeBox,
     onSearchSelectedText: handleSearchSelectedText,
     onRequestClosePane: handleRequestClosePane,
     onClearPaneScrollback: clearPaneScrollback,
@@ -2660,6 +2665,7 @@ export default function TerminalPane({
     onClearPaneTitle: handleClearPaneTitleShortcut,
     onPasteError: setTerminalError,
     onAgentSessionForkReady: setAgentSessionFork,
+    onOpenComposeBox: () => setComposeOpen(true),
     forceBracketedMultilineTextPaste,
     rightClickToPaste
   })
@@ -3071,6 +3077,30 @@ export default function TerminalPane({
           />,
           activePane.container
         )}
+      {composeOpen &&
+        activePane?.container &&
+        settings?.terminalComposeBox !== false &&
+        createPortal(
+          <TerminalComposeBox
+            // Why: keying by paneKey remounts the box on pane switches so it re-reads that pane's cached draft.
+            key={makePaneKey(tabId, activePane.leafId)}
+            paneKey={makePaneKey(tabId, activePane.leafId)}
+            pane={activePane}
+            transport={paneTransportsRef.current.get(activePane.id) ?? null}
+            tabId={tabId}
+            worktreeId={worktreeId}
+            forceBracketedMultilineTextPaste={forceBracketedMultilineTextPaste}
+            keybindings={keybindings}
+            terminalShortcutPolicy={settings?.terminalShortcutPolicy ?? 'orca-first'}
+            getManager={() => managerRef.current}
+            getPaneTransports={() => paneTransportsRef.current}
+            onClose={() => {
+              setComposeOpen(false)
+              activePane.terminal.focus()
+            }}
+          />,
+          activePane.container
+        )}
       <SessionRestoredBannerPortals
         panes={managerRef.current?.getPanes() ?? []}
         paneIds={sessionRestoredBannerPaneIds}
@@ -3125,6 +3155,8 @@ export default function TerminalPane({
         }
         onCopy={() => void contextMenu.onCopy()}
         onPaste={() => void contextMenu.onPaste()}
+        canComposeBox={settings?.terminalComposeBox !== false}
+        onComposeBox={contextMenu.onComposeBox}
         onSplitRight={contextMenu.onSplitRight}
         onSplitDown={contextMenu.onSplitDown}
         keybindings={keybindings}

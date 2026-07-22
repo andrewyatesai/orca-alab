@@ -2736,6 +2736,8 @@ export type GlobalSettings = {
   minimizeToTrayOnClose?: boolean
   /** macOS: toggles the additive menu-bar entry (Orca survives last-window close); doesn't change Dock behavior. */
   showMenuBarIcon?: boolean
+  /** Terminal compose box (multi-line draft-then-send). Default on; off hides the chord + context-menu entry. */
+  terminalComposeBox?: boolean
   /** Windows convention: right-click pastes; macOS/Linux keep the context menu. */
   terminalRightClickToPaste: boolean
   /** One-shot guard distinguishing the old global true default from a per-platform choice. */

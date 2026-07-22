@@ -55,6 +55,7 @@ function mountShortcuts(pane: unknown, sendInput: ReturnType<typeof vi.fn>) {
       persistLayoutSnapshot: noop,
       toggleExpandPane: noop,
       setSearchOpen: noop as never,
+      onToggleComposeBox: noop,
       onSearchSelectedText: noop,
       onRequestClosePane: noop,
       onClearPaneScrollback: noop,

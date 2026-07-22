@@ -74,6 +74,8 @@ function renderMenu(overrides: Record<string, unknown> = {}): string {
     menuPaneIsExpanded: false,
     onCopy: vi.fn(),
     onPaste: vi.fn(),
+    canComposeBox: true,
+    onComposeBox: vi.fn(),
     onSplitRight: vi.fn(),
     onSplitDown: vi.fn(),
     keybindings: {},

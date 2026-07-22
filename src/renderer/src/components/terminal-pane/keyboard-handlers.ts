@@ -9,7 +9,10 @@ import { resolveTerminalShortcutAction } from './terminal-shortcut-policy'
 import type { MacOptionAsAlt } from './terminal-shortcut-policy'
 import { createTerminalNativeOnlyShortcutTracker } from './terminal-native-only-shortcut'
 import { createTerminalCustomSendTextSuppression } from './terminal-custom-sendtext-suppression'
-import { createTerminalImeDeferredNewlineSender } from './terminal-ime-deferred-newline'
+import {
+  createTerminalImeDeferredNewlineSender,
+  sendTerminalInputAfterComposition
+} from './terminal-ime-deferred-newline'
 import { sendTerminalQuickCommandToPane } from './terminal-quick-command-dispatch'
 import type { ResolvedCustomKeybinding } from '../../../../shared/custom-keybindings'
 import {
@@ -230,6 +233,7 @@ type KeyboardHandlersDeps = {
   persistLayoutSnapshot: () => void
   toggleExpandPane: (paneId: number) => void
   setSearchOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onToggleComposeBox: () => void
   onSearchSelectedText: (text: string) => void
   onRequestClosePane: (paneId: number) => void
   onClearPaneScrollback: (pane: ManagedPane) => void
@@ -266,6 +270,7 @@ export function useTerminalKeyboardShortcuts({
   persistLayoutSnapshot,
   toggleExpandPane,
   setSearchOpen,
+  onToggleComposeBox,
   onSearchSelectedText,
   onRequestClosePane,
   onClearPaneScrollback,
@@ -667,6 +672,27 @@ export function useTerminalKeyboardShortcuts({
         return
       }
 
+      if (action.type === 'toggleComposeBox') {
+        // Why: setting-off means fully inert — the chord falls through unconsumed (classic input mode by default).
+        if (useAppStore.getState().settings?.terminalComposeBox === false) {
+          return
+        }
+        // Why: the box anchors to the active pane's container; with no pane there is nothing to open into.
+        if (!activePane) {
+          return
+        }
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        if (e.isComposing) {
+          // Why: opening synchronously mid-preedit steals focus from the IME helper textarea and
+          // races the commit (same class as deferred newline); open after the glyph commits.
+          sendTerminalInputAfterComposition(activePane.terminal.element, onToggleComposeBox)
+          return
+        }
+        onToggleComposeBox()
+        return
+      }
+
       // Cmd+Shift+Enter expands/collapses the active pane to full terminal area.
       if (action.type === 'toggleExpandActivePane') {
         const panes = manager.getPanes()
@@ -813,6 +839,7 @@ export function useTerminalKeyboardShortcuts({
     persistLayoutSnapshot,
     toggleExpandPane,
     setSearchOpen,
+    onToggleComposeBox,
     onSearchSelectedText,
     onRequestClosePane,
     onClearPaneScrollback,

@@ -113,6 +113,7 @@ export type KeybindingActionId =
   | 'terminal.splitRight'
   | 'terminal.splitDown'
   | 'terminal.switchInputSource'
+  | 'terminal.composeBox'
 
 /** Ids for user-defined custom shortcuts live in a reserved namespace so they can never collide with the fixed union. */
 export type CustomKeybindingActionId = `custom.${string}`
@@ -1060,6 +1061,15 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     },
     // Why: macOS uses Shift+Space as an input-source shortcut; Orca otherwise rejects Shift-only bindings to avoid stealing typed text.
     allowShiftOnlyKeybindings: true
+  },
+  {
+    id: 'terminal.composeBox',
+    title: 'Toggle compose box',
+    group: 'Terminal Panes',
+    scope: 'terminal',
+    // Why: iTerm2 "Open Composer" parity (⇧⌘.); Warp's Ctrl+G is a live shell byte where Mod=Ctrl.
+    searchKeywords: ['shortcut', 'terminal', 'compose', 'multiline', 'draft', 'editor', 'rich input'],
+    defaultBindings: platformBindings(['Mod+Shift+Period'])
   },
   ...buildAgentTabKeybindingDefinitions()
 ]

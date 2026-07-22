@@ -286,6 +286,36 @@ describe('keybindings', () => {
     ).toBe(false)
   })
 
+  it('registers terminal.composeBox under the terminal scope with a conflict-free default on every platform', () => {
+    const definition = getKeybindingDefinition('terminal.composeBox')
+    expect(definition).toMatchObject({ scope: 'terminal', group: 'Terminal Panes' })
+    for (const platform of ['darwin', 'linux', 'win32'] as const) {
+      expect(getEffectiveKeybindingsForAction('terminal.composeBox', platform)).toEqual([
+        'Mod+Shift+Period'
+      ])
+      // Why: an empty default conflict set proves Mod+Shift+Period collides with no other default.
+      expect(findKeybindingConflicts(platform)).toEqual([])
+    }
+  })
+
+  it("matches the compose-box chord for the shifted key:'>' event shape", () => {
+    // Why: on most layouts Shift+Period reports key '>'; the shared normalizer must map it back to Period.
+    expect(
+      keybindingMatchesAction(
+        'terminal.composeBox',
+        { key: '>', code: 'Period', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true },
+        'darwin'
+      )
+    ).toBe(true)
+    expect(
+      keybindingMatchesAction(
+        'terminal.composeBox',
+        { key: '>', code: 'Period', metaKey: false, ctrlKey: true, altKey: false, shiftKey: true },
+        'linux'
+      )
+    ).toBe(true)
+  })
+
   it('reports conflicts across default and customized actions', () => {
     expect(findKeybindingConflicts('linux')).toEqual([])
 

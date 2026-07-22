@@ -109,6 +109,10 @@ export type CreateOrAttachRequest = {
     terminalWindowsPowerShellImplementation?: 'auto' | 'powershell.exe' | 'pwsh.exe'
     shellReadySupported?: boolean
     shellReadyTimeoutMs?: number
+    /** Scrollback rows the daemon session emulator should retain (the user's
+     *  terminalScrollbackRows setting). Optional and skew-tolerated: absent
+     *  keeps the historical 5k default, and pre-field daemons ignore it. */
+    scrollbackRows?: number
     /** Recovered ANSI applied before the new subprocess can emit startup output. */
     historySeed?: string
     startupIngress?: PtyStartupIngressIntent

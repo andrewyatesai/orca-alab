@@ -94,6 +94,10 @@ export type PtySpawnOptions = {
   terminalWindowsPowerShellImplementation?: 'auto' | 'powershell.exe' | 'pwsh.exe'
   /** Fresh-spawn-only source authority installed before any PTY output is released. */
   startupIngress?: PtyStartupIngressIntent
+  /** Scrollback rows the provider-side emulator should retain (the user's
+   *  terminalScrollbackRows setting). Absent keeps each provider's historical
+   *  default, so restores from older daemons behave exactly as before. */
+  scrollbackRows?: number
 }
 
 export type { PtySpawnResult }

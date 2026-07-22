@@ -112,6 +112,8 @@ export class TerminalHost {
       launchAgent: opts.launchAgent,
       subprocess,
       shellReadySupported,
+      // Why: without this the Session emulator falls back to 5000 rows, silently capping every restore below the user's setting.
+      ...(opts.scrollbackRows !== undefined ? { scrollback: opts.scrollbackRows } : {}),
       historySeed: opts.historySeed,
       ...(opts.startupIngress ? { startupIngress: opts.startupIngress } : {}),
       wslDistro,

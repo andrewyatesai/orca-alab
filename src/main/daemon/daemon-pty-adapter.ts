@@ -354,6 +354,8 @@ export class DaemonPtyAdapter implements IPtyProvider {
         terminalWindowsWslDistro: opts.terminalWindowsWslDistro,
         terminalWindowsPowerShellImplementation: opts.terminalWindowsPowerShellImplementation,
         shellReadySupported,
+        // Why: omit when unset so older daemons see a byte-identical payload; present, they ignore the unknown key and keep their 5k default.
+        ...(opts.scrollbackRows !== undefined ? { scrollbackRows: opts.scrollbackRows } : {}),
         ...(shellReadyTimeoutMs !== undefined ? { shellReadyTimeoutMs } : {}),
         ...(historySeed ? { historySeed } : {}),
         ...(this.supportsStartupIngress && opts.startupIngress

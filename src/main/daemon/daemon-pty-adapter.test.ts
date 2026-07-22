@@ -218,6 +218,28 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       }
     })
 
+    it('forwards scrollbackRows into the createOrAttach payload (P4)', async () => {
+      const requestSpy = vi.spyOn(DaemonClient.prototype, 'request')
+      try {
+        await adapter.spawn({ cols: 80, rows: 24, scrollbackRows: 50_000 })
+        const createPayload = requestSpy.mock.calls.find(([type]) => type === 'createOrAttach')?.[1]
+        expect(createPayload).toMatchObject({ scrollbackRows: 50_000 })
+      } finally {
+        requestSpy.mockRestore()
+      }
+    })
+
+    it('omits scrollbackRows from the payload when unset (pre-field daemon byte parity)', async () => {
+      const requestSpy = vi.spyOn(DaemonClient.prototype, 'request')
+      try {
+        await adapter.spawn({ cols: 80, rows: 24 })
+        const createPayload = requestSpy.mock.calls.find(([type]) => type === 'createOrAttach')?.[1]
+        expect(createPayload).not.toHaveProperty('scrollbackRows')
+      } finally {
+        requestSpy.mockRestore()
+      }
+    })
+
     it('carries classified startup spans from the daemon source to the adapter', async () => {
       const onData = vi.fn()
       adapter.onData(onData)

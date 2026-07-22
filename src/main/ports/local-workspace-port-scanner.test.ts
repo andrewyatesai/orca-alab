@@ -6,6 +6,7 @@ import {
   parseLsofListeningOutput,
   parseNetstatListeningOutput,
   parseProcNetTcp,
+  parseSsListeningOutput,
   resetWorkspacePortScanTimeoutBackoffForTests,
   scanWorkspacePorts
 } from './local-workspace-port-scanner'
@@ -15,6 +16,14 @@ const execFileMock = vi.hoisted(() => vi.fn())
 vi.mock('child_process', () => ({
   execFile: execFileMock
 }))
+
+const fsPromisesMock = vi.hoisted(() => ({
+  readFile: vi.fn(),
+  readdir: vi.fn(),
+  readlink: vi.fn()
+}))
+
+vi.mock('node:fs/promises', () => fsPromisesMock)
 
 const worktrees = [
   {
@@ -109,6 +118,44 @@ describe('local workspace port scanner parsing', () => {
 
     expect(ports).toEqual([{ host: '127.0.0.1', port: 3000, inode: 12345 }])
     expect(usedWhitespaceFieldSplit).toBe(false)
+  })
+
+  it('parses ss -lntH listening rows across address formats', () => {
+    const ports = parseSsListeningOutput(
+      [
+        'LISTEN 0      511          127.0.0.1:5173       0.0.0.0:*',
+        'LISTEN 0      4096            [::]:8080             [::]:*',
+        'LISTEN 0      128                  *:3000               *:*',
+        'LISTEN 0      128                :::22                 :::*',
+        'ESTAB  0      0            127.0.0.1:44444     127.0.0.1:5173'
+      ].join('\n')
+    )
+
+    expect(ports).toEqual([
+      { host: '127.0.0.1', port: 5173 },
+      { host: '::', port: 8080 },
+      { host: '*', port: 3000 },
+      { host: '::', port: 22 }
+    ])
+  })
+
+  it('skips the header row when ss ignores -H', () => {
+    const ports = parseSsListeningOutput(
+      [
+        'State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process',
+        'LISTEN 0      511          0.0.0.0:3000        0.0.0.0:*'
+      ].join('\n')
+    )
+
+    expect(ports).toEqual([{ host: '0.0.0.0', port: 3000 }])
+  })
+
+  it('captures pid and process name when ss includes a process column', () => {
+    const ports = parseSsListeningOutput(
+      'LISTEN 0 511 127.0.0.1:3000 0.0.0.0:* users:(("node",pid=4242,fd=23))'
+    )
+
+    expect(ports).toEqual([{ host: '127.0.0.1', port: 3000, pid: 4242, processName: 'node' }])
   })
 })
 
@@ -326,5 +373,114 @@ describe('scanWorkspacePorts command timeout', () => {
 
     expect(recoveredScan.unavailableReason).toBeUndefined()
     expect(execFileMock).toHaveBeenCalledTimes(4)
+  })
+})
+
+describe('scanWorkspacePorts Linux /proc fallback chain', () => {
+  const invokeCallback = (callback: unknown, error: Error | null, stdout: string): void => {
+    if (typeof callback !== 'function') {
+      throw new Error('missing execFile callback')
+    }
+    ;(callback as (error: Error | null, stdout: string) => void)(error, stdout)
+  }
+  const rejectAllProcReads = (): void => {
+    fsPromisesMock.readFile.mockRejectedValue(new Error('EACCES'))
+    fsPromisesMock.readdir.mockRejectedValue(new Error('EACCES'))
+    fsPromisesMock.readlink.mockRejectedValue(new Error('EACCES'))
+  }
+  const procNetTcpFixture = [
+    '  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode',
+    '   0: 0100007F:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 12345 1 0000000000000000 100 0 0 10 0'
+  ].join('\n')
+
+  afterEach(() => {
+    resetWorkspacePortScanTimeoutBackoffForTests()
+    vi.restoreAllMocks()
+    execFileMock.mockReset()
+    fsPromisesMock.readFile.mockReset()
+    fsPromisesMock.readdir.mockReset()
+    fsPromisesMock.readlink.mockReset()
+  })
+
+  it('falls back to ss when /proc/net/tcp is unavailable', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+    rejectAllProcReads()
+    execFileMock.mockImplementation(
+      (command: string, _args: string[], _options: unknown, callback: unknown) => {
+        invokeCallback(
+          callback,
+          null,
+          command === 'ss'
+            ? [
+                'LISTEN 0      511          127.0.0.1:5173       0.0.0.0:*',
+                'LISTEN 0      4096            [::]:8080             [::]:*'
+              ].join('\n')
+            : ''
+        )
+        return { kill: vi.fn() }
+      }
+    )
+
+    const scan = await scanWorkspacePorts([], { lookup: () => undefined, reconcileScan: vi.fn() })
+
+    expect(scan.unavailableReason).toBeUndefined()
+    expect(scan.ports.map((port) => port.port)).toEqual([5173, 8080])
+    expect(execFileMock.mock.calls.map(([command]) => command)).toEqual(['ss'])
+  })
+
+  it('falls back to lsof when /proc and ss are both unavailable', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+    rejectAllProcReads()
+    execFileMock.mockImplementation(
+      (command: string, _args: string[], _options: unknown, callback: unknown) => {
+        if (command === 'ss') {
+          invokeCallback(callback, new Error('ss: invalid option -- "H"'), '')
+        } else {
+          invokeCallback(callback, null, ['p123', 'cnode', 'n127.0.0.1:3000'].join('\n'))
+        }
+        return { kill: vi.fn() }
+      }
+    )
+
+    const scan = await scanWorkspacePorts([], { lookup: () => undefined, reconcileScan: vi.fn() })
+
+    expect(scan.unavailableReason).toBeUndefined()
+    expect(scan.ports).toHaveLength(1)
+    expect(scan.ports[0]).toMatchObject({ port: 3000, pid: 123, processName: 'node' })
+    expect(execFileMock.mock.calls.map(([command]) => command)).toEqual(['ss', 'lsof'])
+  })
+
+  it('does not launch fallback commands when /proc yields listeners', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+    rejectAllProcReads()
+    fsPromisesMock.readFile.mockImplementation((file: unknown) =>
+      file === '/proc/net/tcp'
+        ? Promise.resolve(procNetTcpFixture)
+        : Promise.reject(new Error('ENOENT'))
+    )
+
+    const scan = await scanWorkspacePorts([], { lookup: () => undefined, reconcileScan: vi.fn() })
+
+    expect(scan.unavailableReason).toBeUndefined()
+    expect(scan.ports.map((port) => port.port)).toEqual([3000])
+    expect(execFileMock).not.toHaveBeenCalled()
+  })
+
+  it('reports an empty scan instead of unavailable when /proc is readable and tools are missing', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+    rejectAllProcReads()
+    fsPromisesMock.readFile.mockResolvedValue(procNetTcpFixture.split('\n')[0])
+    execFileMock.mockImplementation(
+      (_command: string, _args: string[], _options: unknown, callback: unknown) => {
+        invokeCallback(callback, new Error('spawn ENOENT'), '')
+        return { kill: vi.fn() }
+      }
+    )
+
+    const scan = await scanWorkspacePorts([], { lookup: () => undefined, reconcileScan: vi.fn() })
+
+    expect(scan.unavailableReason).toBeUndefined()
+    expect(scan.ports).toEqual([])
+    expect(execFileMock.mock.calls.map(([command]) => command)).toEqual(['ss', 'lsof'])
   })
 })

@@ -271,6 +271,9 @@ function Terminal(): React.JSX.Element | null {
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
   const pendingStartupByTabId = useAppStore((s) => s.pendingStartupByTabId)
   const terminalParkingEnabled = useAppStore((s) => s.settings?.terminalHiddenViewParking !== false)
+  const terminalRemoteParkingEnabled = useAppStore(
+    (s) => s.settings?.terminalRemotePaneParking !== false
+  )
   const terminalTitleSnapshotAuthorityEnabled = useAppStore((s) =>
     isMainTerminalSideEffectAuthorityForPty({
       settings: s.settings,
@@ -872,13 +875,20 @@ function Terminal(): React.JSX.Element | null {
       worktrees: retentionCandidates,
       pendingStartupByTabId,
       parkingEnabled: terminalParkingEnabled,
+      remoteParkingEnabled: terminalRemoteParkingEnabled,
       nowMs,
       ...overrides
     })
     // Why: a worktree with any watcher-uncoverable tab must never park, or it goes silent for bells/titles/completions (sank the first parking attempt).
     for (const worktreeId of Array.from(nextParkedTerminalWorktreeIds)) {
       const tabs = tabsByWorktree[worktreeId] ?? []
-      if (!tabs.every((tab) => canWatcherCoverParkedTerminalTab(worktreeId, tab))) {
+      if (
+        !tabs.every((tab) =>
+          canWatcherCoverParkedTerminalTab(worktreeId, tab, {
+            remoteParkingEnabled: terminalRemoteParkingEnabled
+          })
+        )
+      ) {
         nextParkedTerminalWorktreeIds.delete(worktreeId)
       }
     }
@@ -921,6 +931,7 @@ function Terminal(): React.JSX.Element | null {
     tabsByWorktree,
     terminalParkingEnabled,
     terminalParkingRevision,
+    terminalRemoteParkingEnabled,
     workspaceSurfaces
   ])
   // Why: gate on workspaceSessionReady so TerminalPane doesn't mount and spawn a duplicate PTY before reconnectPersistedTerminals() finishes.
@@ -982,14 +993,13 @@ function Terminal(): React.JSX.Element | null {
           const tab = tabById.get(tabId)
           return (
             // Why: byte-mode watchers can't reconstruct pre-registration output; remote/unresolved ownership mounts eagerly since only a local daemon has snapshots.
+            // Cold activation stays daemon-only in v1, so no remoteParkingEnabled here.
             coldActivationDeferralEnabled &&
             activationHostSupportsDeferral &&
             tab !== undefined &&
-            canWatcherCoverParkedTerminalTab(
-              renderedActiveWorktreeId,
-              tab,
-              terminalProviderHasAuthoritativeSnapshot
-            )
+            canWatcherCoverParkedTerminalTab(renderedActiveWorktreeId, tab, {
+              isPtyEligible: terminalProviderHasAuthoritativeSnapshot
+            })
           )
         },
         immediateTabIds
@@ -1002,11 +1012,9 @@ function Terminal(): React.JSX.Element | null {
       // Why: tabs added after activation never passed the coverage gate — uncoverable/no-PTY ones must mount now to spawn or keep their live transport.
       for (const tab of worktreeTabs) {
         if (
-          !canWatcherCoverParkedTerminalTab(
-            renderedActiveWorktreeId,
-            tab,
-            terminalProviderHasAuthoritativeSnapshot
-          )
+          !canWatcherCoverParkedTerminalTab(renderedActiveWorktreeId, tab, {
+            isPtyEligible: terminalProviderHasAuthoritativeSnapshot
+          })
         ) {
           immediateTabIds.add(tab.id)
         }
@@ -1099,7 +1107,8 @@ function Terminal(): React.JSX.Element | null {
         tabs,
         parkedTabIds,
         // Why: activation-deferred tabs never mounted a pane to restore their title, unlike ordinary parked tabs.
-        ...(deferredTabIds ? { restoreTitleOnStartTabIds: deferredTabIds } : {})
+        ...(deferredTabIds ? { restoreTitleOnStartTabIds: deferredTabIds } : {}),
+        remoteParkingEnabled: terminalRemoteParkingEnabled
       })
     }
   }, [
@@ -1117,6 +1126,7 @@ function Terminal(): React.JSX.Element | null {
     renderedActiveWorktreeId,
     tabsByWorktree,
     terminalParkingEnabled,
+    terminalRemoteParkingEnabled,
     terminalTitleSnapshotAuthorityEnabled,
     workspaceSessionReady,
     workspaceSurfaces

@@ -100,6 +100,10 @@ import {
   shouldDeferParkedPtyExitTabClose,
   syncParkedTerminalTabWatchers
 } from './terminal-parked-tab-watchers'
+import {
+  _resetSshParkedPaneRevealRestoreForTest,
+  consumeSshParkedPaneRevealRestore
+} from './ssh-parked-reveal-restore'
 
 const ptyWrite = vi.fn()
 const originalWindow = (globalThis as { window?: unknown }).window
@@ -116,6 +120,7 @@ function syncParked(args?: {
   tabs?: { id: string; ptyId: string | null }[]
   parkedTabIds?: Iterable<string>
   restoreTitleOnStartTabIds?: Iterable<string>
+  remoteParkingEnabled?: boolean
 }): void {
   syncParkedTerminalTabWatchers({
     worktreeId: args?.worktreeId ?? WORKTREE_ID,
@@ -123,6 +128,9 @@ function syncParked(args?: {
     parkedTabIds: new Set(args?.parkedTabIds ?? [TAB_ID]),
     ...(args?.restoreTitleOnStartTabIds
       ? { restoreTitleOnStartTabIds: new Set(args.restoreTitleOnStartTabIds) }
+      : {}),
+    ...(args?.remoteParkingEnabled !== undefined
+      ? { remoteParkingEnabled: args.remoteParkingEnabled }
       : {})
   })
 }
@@ -145,6 +153,7 @@ describe('terminal-parked-tab-watchers', () => {
     // Module-level registries persist across tests; clear them through the
     // public prune path so each test starts from an empty parked state.
     pruneParkedTerminalWatchers(new Set())
+    _resetSshParkedPaneRevealRestoreForTest()
     startedWatchers.length = 0
     exitSubscriptions.length = 0
     vi.clearAllMocks()
@@ -202,7 +211,7 @@ describe('terminal-parked-tab-watchers', () => {
     expect(startedWatchers[0].options).toMatchObject({ ptyId: SECOND_PTY_ID })
   })
 
-  it('never starts watchers for remote-runtime or SSH PTYs', () => {
+  it('never starts watchers for remote-runtime or SSH PTYs without remote parking', () => {
     capturePanes([
       { ptyId: 'remote:env-1@@terminal-1', paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
       { ptyId: 'ssh:conn-1@@pty-1', paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
@@ -213,6 +222,64 @@ describe('terminal-parked-tab-watchers', () => {
     // Why: the tab is still tracked as parked so debug introspection
     // (window.__terminalParkingDebug) reflects every parked tab.
     expect(getParkedTerminalWatcherTabIds()).toEqual([TAB_ID])
+  })
+
+  it('starts an ssh watcher (fact-consumer args, pty.write input) when remote parking is enabled', () => {
+    const sshPtyId = 'ssh:conn-1@@pty-1'
+    capturePanes([{ ptyId: sshPtyId, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
+    syncParked({
+      tabs: [{ id: TAB_ID, ptyId: sshPtyId }],
+      remoteParkingEnabled: true
+    })
+
+    expect(startParkedTerminalByteWatcher).toHaveBeenCalledTimes(1)
+    expect(startedWatchers[0].options).toMatchObject({
+      ptyId: sshPtyId,
+      tabId: TAB_ID,
+      worktreeId: WORKTREE_ID,
+      leafId: LEAF_ID,
+      paneId: 1
+    })
+    // sendInput reaches the relay through the same channel as local PTYs.
+    startedWatchers[0].options.sendInput('\x1b[?2031;1$y')
+    expect(ptyWrite).toHaveBeenCalledWith(sshPtyId, '\x1b[?2031;1$y')
+  })
+
+  it('still refuses remote-wire PTYs when remote parking is enabled (phase 2)', () => {
+    capturePanes([
+      { ptyId: 'remote:env-1@@terminal-1', paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }
+    ])
+    syncParked({ tabs: [{ id: TAB_ID, ptyId: null }], remoteParkingEnabled: true })
+
+    expect(startParkedTerminalByteWatcher).not.toHaveBeenCalled()
+  })
+
+  it('records a reveal-restore note for ssh panes when a parked tab unparks', () => {
+    const sshPtyId = 'ssh:conn-1@@pty-1'
+    capturePanes([{ ptyId: sshPtyId, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
+    syncParked({ tabs: [{ id: TAB_ID, ptyId: sshPtyId }], remoteParkingEnabled: true })
+    expect(consumeSshParkedPaneRevealRestore(sshPtyId)).toBe(false)
+
+    syncParked({
+      tabs: [{ id: TAB_ID, ptyId: sshPtyId }],
+      parkedTabIds: [],
+      remoteParkingEnabled: true
+    })
+
+    expect(startedWatchers[0].dispose).toHaveBeenCalledTimes(1)
+    // One-shot: the mounting pane consumes it exactly once.
+    expect(consumeSshParkedPaneRevealRestore(sshPtyId)).toBe(true)
+    expect(consumeSshParkedPaneRevealRestore(sshPtyId)).toBe(false)
+  })
+
+  it('records no reveal-restore note when a parked ssh tab closes', () => {
+    const sshPtyId = 'ssh:conn-1@@pty-1'
+    capturePanes([{ ptyId: sshPtyId, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
+    syncParked({ tabs: [{ id: TAB_ID, ptyId: sshPtyId }], remoteParkingEnabled: true })
+
+    syncParked({ tabs: [], parkedTabIds: [TAB_ID], remoteParkingEnabled: true })
+
+    expect(consumeSshParkedPaneRevealRestore(sshPtyId)).toBe(false)
   })
 
   it('keeps existing watchers across repeated syncs of the same parked state', () => {
@@ -643,7 +710,7 @@ describe('terminal-parked-tab-watchers', () => {
         canWatcherCoverParkedTerminalTab(
           WORKTREE_ID,
           { id: TAB_ID, ptyId: PTY_ID },
-          providerCanSnapshotWithoutRenderer
+          { isPtyEligible: providerCanSnapshotWithoutRenderer }
         )
       ).toBe(false)
       expect(providerCanSnapshotWithoutRenderer).toHaveBeenCalledWith(PTY_ID)
@@ -657,6 +724,31 @@ describe('terminal-parked-tab-watchers', () => {
       expect(canWatcherCoverParkedTerminalTab(WORKTREE_ID, { id: TAB_ID, ptyId: PTY_ID })).toBe(
         false
       )
+    })
+
+    it('accepts an ssh capture when remote parking is enabled, never remote-wire', () => {
+      capturePanes([
+        { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
+        { ptyId: 'ssh:conn-1@@pty-1', paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
+      ])
+      expect(
+        canWatcherCoverParkedTerminalTab(
+          WORKTREE_ID,
+          { id: TAB_ID, ptyId: PTY_ID },
+          { remoteParkingEnabled: true }
+        )
+      ).toBe(true)
+
+      capturePanes([
+        { ptyId: 'remote:env-1@@terminal-1', paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }
+      ])
+      expect(
+        canWatcherCoverParkedTerminalTab(
+          WORKTREE_ID,
+          { id: TAB_ID, ptyId: null },
+          { remoteParkingEnabled: true }
+        )
+      ).toBe(false)
     })
 
     it('rejects a capture containing a PTY without snapshot backing', () => {

@@ -234,6 +234,8 @@ import {
   scheduleHiddenOutputRestore
 } from './hidden-output-restore-scheduler'
 import { resolveHiddenRestoreScrollbackRows } from './terminal-hidden-restore-scrollback'
+import { terminalPtyParkSnapshotClass } from './terminal-park-snapshot-class'
+import { consumeSshParkedPaneRevealRestore } from './ssh-parked-reveal-restore'
 import {
   getExecutionHostIdForWorktree,
   getSettingsForWorktreeRuntimeOwner,
@@ -7858,6 +7860,17 @@ export function connectPanePty(
       }
       if (!isCurrentReattachPayload() || !reattachPayloadApplied) {
         return false
+      }
+      // Why: a parked ssh reveal painted only the relay attach tail; main's model
+      // holds the full history, and the gate's unhide marker can race handler
+      // registration (Critic note 2) — arm the snapshot replace-restore here so
+      // reveal depth never depends on marker timing. Runs AFTER the reattach
+      // payload so the restore supersedes the tail, never the reverse.
+      if (
+        terminalPtyParkSnapshotClass(ptyId, deps.worktreeId) === 'ssh-main-model' &&
+        consumeSshParkedPaneRevealRestore(ptyId)
+      ) {
+        markHiddenOutputRestoreNeeded()
       }
       scheduleReattachIdleAgentCursorReset()
 

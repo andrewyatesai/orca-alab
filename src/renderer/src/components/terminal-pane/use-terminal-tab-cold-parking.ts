@@ -71,6 +71,9 @@ export function useTerminalTabColdParking(args: {
   const terminalParkingEnabled = useAppStore(
     (state) => state.settings?.terminalHiddenViewParking !== false
   )
+  const terminalRemoteParkingEnabled = useAppStore(
+    (state) => state.settings?.terminalRemotePaneParking !== false
+  )
   const terminalTabHiddenSinceRef = useRef(new Map<string, number>())
   const terminalTabParkingTimersRef = useRef(new Map<string, number>())
   const [terminalTabParkingRevision, setTerminalTabParkingRevision] = useState(0)
@@ -138,6 +141,7 @@ export function useTerminalTabColdParking(args: {
       terminalTabs: candidates,
       pendingStartupByTabId,
       parkingEnabled: terminalParkingEnabled,
+      remoteParkingEnabled: terminalRemoteParkingEnabled,
       nowMs,
       ...overrides
     })
@@ -147,7 +151,9 @@ export function useTerminalTabColdParking(args: {
     for (const terminalTab of terminalTabs) {
       if (
         nextColdParkedTerminalTabIds.has(terminalTab.id) &&
-        !canWatcherCoverParkedTerminalTab(worktreeId, terminalTab)
+        !canWatcherCoverParkedTerminalTab(worktreeId, terminalTab, {
+          remoteParkingEnabled: terminalRemoteParkingEnabled
+        })
       ) {
         nextColdParkedTerminalTabIds.delete(terminalTab.id)
       }
@@ -188,6 +194,7 @@ export function useTerminalTabColdParking(args: {
     pendingStartupByTabId,
     shouldMeasureHiddenWorktree,
     terminalParkingEnabled,
+    terminalRemoteParkingEnabled,
     terminalTabParkingRevision,
     terminalTabs,
     worktreeId
@@ -219,6 +226,7 @@ export function useTerminalTabColdParking(args: {
       // Why: activation-deferred tabs render no pane regardless of the park
       // policy, so watchers must own their side effects immediately. Targeted
       // restrictions do not enter this set or add a new eager watcher burst.
+      // No remoteParkingEnabled here: cold activation stays daemon-only in v1.
       if (
         activationDeferredMountTabIds?.has(terminalTab.id) &&
         !hasActivityTerminalPortal &&
@@ -251,9 +259,16 @@ export function useTerminalTabColdParking(args: {
       parkedTabIds: parkedTerminalTabIds,
       // Why: activation-deferred tabs have no prior pane-owned title slot;
       // pull main's title-only snapshot when their watcher starts.
-      restoreTitleOnStartTabIds: activationDeferredMountTabIds ?? undefined
+      restoreTitleOnStartTabIds: activationDeferredMountTabIds ?? undefined,
+      remoteParkingEnabled: terminalRemoteParkingEnabled
     })
-  }, [activationDeferredMountTabIds, parkedTerminalTabIds, terminalTabs, worktreeId])
+  }, [
+    activationDeferredMountTabIds,
+    parkedTerminalTabIds,
+    terminalRemoteParkingEnabled,
+    terminalTabs,
+    worktreeId
+  ])
 
   useEffect(() => () => disposeParkedTerminalWatchersForWorktree(worktreeId), [worktreeId])
 

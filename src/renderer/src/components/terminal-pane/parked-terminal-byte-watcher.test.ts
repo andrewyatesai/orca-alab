@@ -756,6 +756,38 @@ describe('startParkedTerminalByteWatcher', () => {
       expect(setHiddenRendererPty).toHaveBeenLastCalledWith(PTY_ID, false)
     })
 
+    it('ssh watcher starts in fact-consumer mode and takes the hidden-delivery gate claim', async () => {
+      // Why: ssh bytes transit local main, so main authority + gate apply to the
+      // ssh: class exactly like local PTYs (ssh-pane-parking.md phase 1).
+      enableMainAuthority()
+      const sshPtyId = 'ssh:conn-1@@pty-1'
+      const setHiddenRendererPty = vi.fn()
+      ;(
+        window as unknown as { api: { pty: Record<string, unknown> } }
+      ).api.pty.setHiddenRendererPty = setHiddenRendererPty
+      const { dispose } = await startWatcher({ ptyId: sshPtyId })
+
+      expect(setHiddenRendererPty).toHaveBeenCalledWith(sshPtyId, true)
+
+      // Fact-consumer mode: a byte BEL must not fire policy (facts own it).
+      onData?.({ id: sshPtyId, data: 'ding\x07' })
+      flushSideEffects()
+      vi.advanceTimersByTime(NOTIFICATION_GRACE_MS * 4)
+      expect(mockStoreState.markWorktreeUnread).not.toHaveBeenCalled()
+
+      const handler = await import('./terminal-side-effect-facts-handler')
+      handler._dispatchTerminalSideEffectBatchForTest({
+        ptyId: sshPtyId,
+        seq: 1,
+        facts: [{ kind: 'bell' }]
+      })
+      expect(mockStoreState.markWorktreeUnread).toHaveBeenCalledWith(WORKTREE_ID)
+
+      dispose()
+      // The unhide lands on dispose, before the reveal remount registers pane handlers.
+      expect(setHiddenRendererPty).toHaveBeenLastCalledWith(sshPtyId, false)
+    })
+
     it('keeps the byte 2031 responder and no hidden bit when the gate kill switch is off', async () => {
       enableMainAuthority()
       mockStoreState.settings = {

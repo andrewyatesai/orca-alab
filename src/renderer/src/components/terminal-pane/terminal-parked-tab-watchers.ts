@@ -14,7 +14,11 @@ import { detachTerminalLayoutLeaf } from './terminal-layout-leaf-detach'
 import { subscribeToPtyExit } from './pty-dispatcher'
 import { discardPreHandlerPtyState } from './pty-pre-handler-buffer'
 import { startParkedTerminalByteWatcher } from './parked-terminal-byte-watcher'
-import { isSnapshotBackedTerminalPty } from './terminal-hidden-view-parking'
+import {
+  isSnapshotBackedTerminalPty,
+  terminalPtyParkSnapshotClass
+} from './terminal-park-snapshot-class'
+import { noteSshParkedPaneRevealRestore } from './ssh-parked-reveal-restore'
 import {
   resolveTabTitleAfterPaneClose,
   shouldClearLaunchAgentForClosedPane
@@ -40,6 +44,13 @@ export type { ParkedTerminalPaneCapture } from './terminal-parked-watcher-regist
 
 export type ParkableTerminalTabModel = Pick<TerminalTab, 'id' | 'ptyId'>
 export type ParkedTerminalPtyEligibility = (ptyId: string) => boolean
+
+export type ParkedTerminalWatcherCoverageOptions = {
+  /** Cold activation needs stronger snapshot support (view never mounted); ordinary parking can reattach a mounted view. */
+  isPtyEligible?: ParkedTerminalPtyEligibility
+  /** settings.terminalRemotePaneParking !== false — admits the ssh: class (remote: is phase 2). */
+  remoteParkingEnabled?: boolean
+}
 
 const allowSnapshotBackedPty = (): boolean => true
 
@@ -92,9 +103,9 @@ function resolveParkedTerminalPaneCandidates(
 export function canWatcherCoverParkedTerminalTab(
   worktreeId: string,
   tab: ParkableTerminalTabModel,
-  // Why: cold activation needs stronger snapshot support (view never mounted); ordinary parking can reattach a mounted view.
-  isPtyEligible: ParkedTerminalPtyEligibility = allowSnapshotBackedPty
+  opts?: ParkedTerminalWatcherCoverageOptions
 ): boolean {
+  const isPtyEligible = opts?.isPtyEligible ?? allowSnapshotBackedPty
   const panes = resolveParkedTerminalPaneCandidates(tab, useAppStore.getState())
   return (
     panes.length > 0 &&
@@ -102,7 +113,9 @@ export function canWatcherCoverParkedTerminalTab(
       (pane) =>
         pane.ptyId !== null &&
         isTerminalLeafId(pane.leafId) &&
-        isSnapshotBackedTerminalPty(pane.ptyId, worktreeId) &&
+        isSnapshotBackedTerminalPty(pane.ptyId, worktreeId, {
+          remoteParkingEnabled: opts?.remoteParkingEnabled === true
+        }) &&
         isPtyEligible(pane.ptyId)
     )
   )
@@ -111,7 +124,8 @@ export function canWatcherCoverParkedTerminalTab(
 function startParkedTabWatchers(
   worktreeId: string,
   tab: ParkableTerminalTabModel,
-  restoreTitleOnRegister: boolean
+  restoreTitleOnRegister: boolean,
+  remoteParkingEnabled: boolean
 ): void {
   const state = useAppStore.getState()
   const panes = resolveParkedTerminalPaneCandidates(tab, state)
@@ -124,7 +138,7 @@ function startParkedTabWatchers(
       !ptyId ||
       disposersByPtyId.has(ptyId) ||
       !isTerminalLeafId(pane.leafId) ||
-      !isSnapshotBackedTerminalPty(ptyId, worktreeId)
+      !isSnapshotBackedTerminalPty(ptyId, worktreeId, { remoteParkingEnabled })
     ) {
       continue
     }
@@ -281,6 +295,8 @@ export function syncParkedTerminalTabWatchers(args: {
   parkedTabIds: ReadonlySet<string>
   /** Parked-equivalent tabs whose pane has not restored the current title. */
   restoreTitleOnStartTabIds?: ReadonlySet<string>
+  /** settings.terminalRemotePaneParking !== false — admits the ssh: class (remote: is phase 2). */
+  remoteParkingEnabled?: boolean
 }): void {
   const liveTabIds = new Set(args.tabs.map((tab) => tab.id))
   for (const [tabId, entry] of parkedWatchersByTabId) {
@@ -292,6 +308,13 @@ export function syncParkedTerminalTabWatchers(args: {
       continue
     }
     if (!args.parkedTabIds.has(tabId) && entry.disposersByPtyId.size > 0) {
+      // Why: a revealed ssh pane must restore main's model snapshot, not the
+      // relay attach tail; record the reveal before the remounting pane connects.
+      for (const ptyId of entry.disposersByPtyId.keys()) {
+        if (terminalPtyParkSnapshotClass(ptyId, entry.worktreeId) === 'ssh-main-model') {
+          noteSshParkedPaneRevealRestore(ptyId)
+        }
+      }
       disposeParkedTabWatchers(tabId)
     }
   }
@@ -313,7 +336,8 @@ export function syncParkedTerminalTabWatchers(args: {
       startParkedTabWatchers(
         args.worktreeId,
         tab,
-        args.restoreTitleOnStartTabIds?.has(tab.id) === true
+        args.restoreTitleOnStartTabIds?.has(tab.id) === true,
+        args.remoteParkingEnabled === true
       )
     }
   }

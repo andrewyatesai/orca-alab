@@ -1,6 +1,8 @@
 /**
  * @vitest-environment happy-dom
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createWorkerBackedTerm } from './aterm-worker-term'
 import { createAtermPredictionEcho } from './aterm-prediction-echo'
@@ -56,6 +58,20 @@ describe('predictive echo is wired on the default worker render path (silent-dea
     expect(shouldUseWorkerRender(undefined)).toBe(true)
     expect(shouldUseWorkerRender(false)).toBe(false)
     expect(shouldUseWorkerRender(true)).toBe(true)
+  })
+
+  it('loadAtermStrategy consults shouldUseWorkerRender at its branch point (source contract)', () => {
+    // Why: the truth-table pins above go vacuous if the selection path drifts to an inline
+    // condition (e.g. `=== true` flips the shipped default to in-process while every test
+    // and e2e gate stays green); loadAtermStrategy can't execute to the branch in happy-dom,
+    // so pin the call site in source, matching the repo's source-boundary test idiom.
+    const source = readFileSync(join(__dirname, 'aterm-strategy-select.ts'), 'utf8')
+    const fnStart = source.indexOf('export async function loadAtermStrategy')
+    expect(fnStart).toBeGreaterThanOrEqual(0)
+    const body = source.slice(fnStart)
+    expect(body).toMatch(/shouldUseWorkerRender\(window\.__atermWorkerRender\)/)
+    // No raw comparison against the flag anywhere in code — the predicate is the only gate.
+    expect(source).not.toMatch(/window\.__atermWorkerRender\s*[!=]==/)
   })
 
   it('the worker term facade implements the full predict_* shape', () => {

@@ -158,7 +158,10 @@ function installLinkedPRClearStub(
           )
         }
         const nextPRCache = { ...state.prCache }
-        delete nextPRCache[cacheKey]
+        // Why: the real slice evicts the branch's PR cache only on unlink, not on positive link writes.
+        if (updates.linkedPR === null) {
+          delete nextPRCache[cacheKey]
+        }
         return { worktreesByRepo: nextWorktrees, prCache: nextPRCache } as Partial<AppState>
       })
     }
@@ -2225,6 +2228,117 @@ describe('createGitHubSlice.fetchPRForBranch', () => {
     expect(store.getState().prCache[`${repoId}::${branch}`]).toBeUndefined()
   })
 
+  it('persists a branch-discovered open PR to worktree meta when no link exists', async () => {
+    const store = createTestStore()
+    const repoPath = '/repo'
+    const repoId = 'repo-1'
+    const branch = 'feature/discovered'
+    const worktreeId = 'wt-discovered-pr'
+    const updateWorktreeMeta = installLinkedPRClearStub(store, {
+      repoId,
+      repoPath,
+      branch,
+      worktree: makePRRefreshWorktree({
+        id: worktreeId,
+        repoId,
+        branch,
+        head: 'current-head'
+      })
+    })
+    mockApi.gh.refreshPRNow.mockResolvedValueOnce({
+      kind: 'found',
+      pr: makePR({ number: 41, headSha: 'current-head', headRefName: branch }),
+      fetchedAt: 2
+    })
+
+    await expect(
+      store.getState().fetchPRForBranch(repoPath, branch, {
+        force: true,
+        repoId,
+        worktreeId
+      })
+    ).resolves.toMatchObject({ number: 41 })
+
+    expect(updateWorktreeMeta).toHaveBeenCalledWith(
+      worktreeId,
+      { linkedPR: 41 },
+      { shouldApply: expect.any(Function) }
+    )
+    expect(store.getState().worktreesByRepo[repoId]?.[0]?.linkedPR).toBe(41)
+  })
+
+  it('does not overwrite a different existing linked PR with a branch-discovered one', async () => {
+    const store = createTestStore()
+    const repoPath = '/repo'
+    const repoId = 'repo-1'
+    const branch = 'feature/already-linked'
+    const worktreeId = 'wt-already-linked'
+    const updateWorktreeMeta = installLinkedPRClearStub(store, {
+      repoId,
+      repoPath,
+      branch,
+      worktree: makePRRefreshWorktree({
+        id: worktreeId,
+        repoId,
+        branch,
+        head: 'current-head',
+        linkedPR: 99
+      })
+    })
+    mockApi.gh.refreshPRNow.mockResolvedValueOnce({
+      kind: 'found',
+      pr: makePR({ number: 41, headSha: 'current-head', headRefName: branch }),
+      fetchedAt: 2
+    })
+
+    await expect(
+      store.getState().fetchPRForBranch(repoPath, branch, {
+        force: true,
+        repoId,
+        worktreeId
+      })
+    ).resolves.toMatchObject({ number: 41 })
+
+    expect(updateWorktreeMeta).not.toHaveBeenCalled()
+    expect(store.getState().worktreesByRepo[repoId]?.[0]?.linkedPR).toBe(99)
+  })
+
+  it('does not persist a branch-discovered PR that is merged or targets another head branch', async () => {
+    const store = createTestStore()
+    const repoPath = '/repo'
+    const repoId = 'repo-1'
+    const branch = 'feature/no-persist'
+    const worktreeId = 'wt-no-persist'
+    const updateWorktreeMeta = installLinkedPRClearStub(store, {
+      repoId,
+      repoPath,
+      branch,
+      worktree: makePRRefreshWorktree({
+        id: worktreeId,
+        repoId,
+        branch,
+        head: 'current-head'
+      })
+    })
+    mockApi.gh.refreshPRNow
+      .mockResolvedValueOnce({
+        kind: 'found',
+        pr: makePR({ number: 41, state: 'merged', headRefName: branch }),
+        fetchedAt: 2
+      })
+      .mockResolvedValueOnce({
+        kind: 'found',
+        pr: makePR({ number: 42, headSha: 'other-head', headRefName: 'feature/other' }),
+        fetchedAt: 3
+      })
+
+    await store.getState().fetchPRForBranch(repoPath, branch, { force: true, repoId, worktreeId })
+    await store.getState().fetchPRForBranch(repoPath, branch, { force: true, repoId, worktreeId })
+
+    expect(updateWorktreeMeta).not.toHaveBeenCalled()
+    expect(store.getState().worktreesByRepo[repoId]?.[0]?.linkedPR).toBeNull()
+  })
+
   it('unlinks a stale open PR and re-resolves the current branch with one follow-up lookup', async () => {
     const store = createTestStore()
     const repoPath = '/repo'
@@ -2287,7 +2401,8 @@ describe('createGitHubSlice.fetchPRForBranch', () => {
         worktreeId
       })
     })
-    expect(store.getState().worktreesByRepo[repoId]?.[0]?.linkedPR).toBeNull()
+    // Why: the follow-up branch discovery now persists the current branch's PR as the durable link.
+    expect(store.getState().worktreesByRepo[repoId]?.[0]?.linkedPR).toBe(13)
   })
 
   it('clears a linked merged PR on a fresh cache hit that already carries a head-scoped divergence signal', async () => {

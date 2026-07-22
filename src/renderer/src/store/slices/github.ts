@@ -1086,6 +1086,45 @@ export function shouldClearBranchMismatchedLinkedOpenPR(args: {
   )
 }
 
+// Why: branch discovery used to fill only the PR caches (#6650 residue), so the durable link
+// depended entirely on the PR-create/work-item/terminal writers and was lost across restarts.
+function shouldPersistDiscoveredBranchPR(args: {
+  pr: PRInfo | null
+  linkedPRNumber: number | null
+  branch: string
+}): boolean {
+  const { pr, linkedPRNumber, branch } = args
+  const headRefName = pr?.headRefName?.trim() ?? ''
+  const currentBranch = branch.replace(/^refs\/heads\//, '').trim()
+  return (
+    linkedPRNumber == null &&
+    pr != null &&
+    // Draft reviews are open PRs too (see shouldClearBranchMismatchedLinkedOpenPR).
+    (pr.state === 'open' || pr.state === 'draft') &&
+    // Current-branch results only: an open fallback PR for another head branch must not become the durable link.
+    headRefName !== '' &&
+    currentBranch !== '' &&
+    headRefName === currentBranch
+  )
+}
+
+function shouldApplyDiscoveredBranchPRLink(args: {
+  worktree: Pick<Worktree, 'linkedPR' | 'branch' | 'isBare' | 'isArchived'> | undefined
+  prNumber: number
+  branch: string
+}): boolean {
+  const { worktree, prNumber, branch } = args
+  return (
+    Boolean(worktree) &&
+    worktree?.isBare !== true &&
+    worktree?.isArchived !== true &&
+    // Never clobber a different existing link (mirrors observeTerminalGitHubPullRequestLink).
+    (worktree?.linkedPR == null || worktree.linkedPR === prNumber) &&
+    // Branch-scoped: a mid-request branch switch re-validates instead of inheriting this link.
+    worktree?.branch.replace(/^refs\/heads\//, '') === branch.replace(/^refs\/heads\//, '')
+  )
+}
+
 function shouldApplyBranchMismatchedLinkedPRClear(args: {
   worktree: Pick<Worktree, 'linkedPR' | 'branch' | 'head' | 'isBare' | 'isArchived'> | undefined
   linkedPRNumber: number
@@ -3111,6 +3150,37 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
           }
           if (didUpdatePRCache) {
             debouncedSaveCache(get())
+          }
+          if (
+            options?.worktreeId &&
+            didUpdatePRCache &&
+            pr != null &&
+            shouldPersistDiscoveredBranchPR({ pr, linkedPRNumber, branch })
+          ) {
+            const discoveredWorktree = findUniqueWorktreeById(
+              get(),
+              options.worktreeId,
+              repo ? getRepoExecutionHostId(repo) : LOCAL_EXECUTION_HOST_ID
+            )
+            if (
+              discoveredWorktree &&
+              // Already linked to this PR: skip the redundant meta write.
+              discoveredWorktree.linkedPR !== pr.number &&
+              shouldApplyDiscoveredBranchPRLink({
+                worktree: discoveredWorktree,
+                prNumber: pr.number,
+                branch
+              })
+            ) {
+              void get().updateWorktreeMeta(
+                options.worktreeId,
+                { linkedPR: pr.number },
+                {
+                  shouldApply: (worktree) =>
+                    shouldApplyDiscoveredBranchPRLink({ worktree, prNumber: pr.number, branch })
+                }
+              )
+            }
           }
           const linkedPRWorktree =
             options?.worktreeId && linkedPRNumber != null

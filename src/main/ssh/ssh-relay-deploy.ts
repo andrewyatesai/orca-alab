@@ -517,11 +517,6 @@ type RelayNativeDepName = keyof typeof RELAY_NATIVE_DEPS
 const RELAY_NATIVE_DEP_NAMES = Object.keys(RELAY_NATIVE_DEPS) as RelayNativeDepName[]
 const NATIVE_DEPS_MISSING_PREFIX = 'ORCA-NATIVE-DEPS-MISSING:'
 
-// Why: npm 12 blocks dependency lifecycle scripts unless each exact package version is approved, even with ignore-scripts disabled.
-const RELAY_NATIVE_DEP_SCRIPT_ALLOWLIST = Object.fromEntries(
-  Object.entries(RELAY_NATIVE_DEPS).map(([name, version]) => [`${name}@${version}`, true])
-)
-
 function nativeDepsProbeJs(successToken: string): string {
   // Why: node-pty's Windows wrapper defers conpty.node until first spawn, so require("node-pty") alone can't prove the binding is healthy.
   const loadNodePty =
@@ -701,8 +696,7 @@ async function installNativeDeps(
     version: '1.0.0',
     private: true,
     type: 'commonjs',
-    dependencies: RELAY_NATIVE_DEPS,
-    allowScripts: RELAY_NATIVE_DEP_SCRIPT_ALLOWLIST
+    dependencies: RELAY_NATIVE_DEPS
   })}\n`
   await writeRemoteFile(
     conn,
@@ -716,6 +710,13 @@ async function installNativeDeps(
     const installArgs = Object.entries(RELAY_NATIVE_DEPS)
       .map(([dep, version]) => shellEscape(`${dep}@${version}`))
       .join(' ')
+    // Why: --ignore-scripts blocks lifecycle scripts across the whole transitive tree (no lockfile pins it), then
+    // `npm rebuild <names>` runs gyp for ONLY the two trusted native addons — a compromised transitive dep can't run a postinstall.
+    const rebuildArgs = RELAY_NATIVE_DEP_NAMES.map((dep) => shellEscape(dep)).join(' ')
+    const windowsInstallArgs = Object.entries(RELAY_NATIVE_DEPS)
+      .map(([dep, version]) => powerShellLiteral(`${dep}@${version}`))
+      .join(' ')
+    const windowsRebuildArgs = RELAY_NATIVE_DEP_NAMES.map((dep) => powerShellLiteral(dep)).join(' ')
     // Why: npm reports a present package as up to date even if a native file was deleted; reset only deps the probe found broken.
     const resetCommand = resetNativeDepsCommand(hostPlatform, resetDeps)
     const resetPrefix = resetCommand ? `${resetCommand}; ` : ''
@@ -724,17 +725,13 @@ async function installNativeDeps(
           hostPlatform,
           nodePath,
           remoteDir,
-          `${resetPrefix}npm install --ignore-scripts=false --omit=dev --no-audit --no-fund ${Object.entries(
-            RELAY_NATIVE_DEPS
-          )
-            .map(([dep, version]) => powerShellLiteral(`${dep}@${version}`))
-            .join(' ')}; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`
+          `${resetPrefix}npm install --ignore-scripts --omit=dev --no-audit --no-fund ${windowsInstallArgs}; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm rebuild --ignore-scripts=false ${windowsRebuildArgs}; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`
         )
       : commandWithNodePath(
           hostPlatform,
           nodePath,
           remoteDir,
-          `${resetPrefix}npm install --ignore-scripts=false --omit=dev --no-audit --no-fund ${installArgs} 2>&1`
+          `${resetPrefix}npm install --ignore-scripts --omit=dev --no-audit --no-fund ${installArgs} 2>&1 && npm rebuild --ignore-scripts=false ${rebuildArgs} 2>&1`
         )
     await execHostCommand(conn, hostPlatform, command, {
       timeoutMs: NATIVE_DEPS_COMMAND_TIMEOUT_MS,
@@ -765,7 +762,7 @@ async function installNativeDeps(
 
   let probe = await probeInstalledNativeDeps(conn, remoteDir, hostPlatform, nodePath, signal)
   if (!probe.available) {
-    // Why: npm treats an already-present package as up to date, so re-enabling lifecycle scripts on install can't repair a skipped binding.
+    // Why: the scoped rebuild folded into install can leave a stale binary against a partially-present tree; retry rebuilding just the named addons before giving up.
     console.warn(`[ssh-relay] Rebuilding unloadable native deps at ${remoteDir}`)
     let rebuilt = false
     try {

@@ -263,17 +263,19 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     // Why: pin commonjs so a future Node default flip can't break require('node-pty').
     expect(parsed.type).toBe('commonjs')
     expect(parsed.dependencies).toEqual({ '@parcel/watcher': '2.5.6', 'node-pty': '1.1.0' })
-    expect(parsed.allowScripts).toEqual({
-      '@parcel/watcher@2.5.6': true,
-      'node-pty@1.1.0': true
-    })
+    // Why: `allowScripts` is a @lavamoat/allow-scripts key that plain npm never reads — shipping it implied a protection that did not exist.
+    expect(parsed.allowScripts).toBeUndefined()
 
     const execCalls = vi.mocked(execCommand).mock.calls.map(([, c]) => c)
     const npmInstallIdx = execCalls.findIndex(
       (c) => c.includes('npm install') && c.includes('node-pty') && c.includes('@parcel/watcher')
     )
     expect(npmInstallIdx).toBeGreaterThanOrEqual(0)
-    expect(execCalls[npmInstallIdx]).toContain('--ignore-scripts=false')
+    // Security: install blocks lifecycle scripts across the whole transitive tree; gyp is scoped to ONLY the two trusted addons via `npm rebuild <names>`.
+    expect(execCalls[npmInstallIdx]).toMatch(/npm install --ignore-scripts(?!=false)/)
+    expect(execCalls[npmInstallIdx]).toMatch(
+      /npm rebuild --ignore-scripts=false[^&]*node-pty[^&]*@parcel\/watcher/
+    )
     // Pin write-before-install ordering to catch a Promise.all refactor where the final-state assertions above still pass.
     const writeObservedAt = sftpCapture.execCallCountAtWrite[pkgPath as string]
     expect(writeObservedAt).toBeLessThanOrEqual(npmInstallIdx)
@@ -388,7 +390,10 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
 
     const execCalls = vi.mocked(execCommand).mock.calls.map(([, c]) => c)
     const failedProbeIdx = execCalls.findIndex((c) => c.includes('require("node-pty")'))
-    const rebuildIdx = execCalls.findIndex((c) => c.includes('npm rebuild'))
+    // Why: the install command now also carries a scoped `npm rebuild`; the standalone fallback rebuild has no `npm install`.
+    const rebuildIdx = execCalls.findIndex(
+      (c) => c.includes('npm rebuild') && !c.includes('npm install')
+    )
     const repairedProbeIdx = execCalls.findIndex(
       (c, index) => index > rebuildIdx && c.includes('require("node-pty")')
     )
@@ -630,6 +635,8 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
       .filter((script) => script.includes('npm install') || script.includes('npm rebuild'))
     expect(npmScripts).toHaveLength(2)
     expect(npmScripts.every((script) => script.includes('--ignore-scripts=false'))).toBe(true)
+    // Security: the Windows install path must also block whole-tree lifecycle scripts (not `--ignore-scripts=false`).
+    expect(npmScripts.some((s) => /npm install --ignore-scripts(?!=false)/.test(s))).toBe(true)
     expect(
       npmScripts.every((script) =>
         script.includes('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }')

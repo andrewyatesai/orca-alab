@@ -59,6 +59,7 @@ import {
   OrcaRuntimeService,
   recentTerminalPathCandidatesIncludePath,
   recentTerminalOutputIncludesPath,
+  resolveWorktreeScanCacheTtlMs,
   type RuntimeTerminalAgentStatusEvent
 } from './orca-runtime'
 import { RecentPtyOutputBuffer } from './recent-pty-output-buffer'
@@ -8702,6 +8703,91 @@ describe('OrcaRuntimeService', () => {
     })
     expect(runtime.hasRecentTerminalOutputPath(terminal.handle, artifactPath, artifactPath)).toBe(
       true
+    )
+  })
+
+  it('resolves paths without candidate activation via the lazy safety net (#9422)', async () => {
+    const runtime = createRuntime()
+    syncSinglePty(runtime, 'pty-1')
+    const [terminal] = (await runtime.listTerminals()).terminals
+    const artifactPath = '/tmp/lazy-activation-artifact.json'
+
+    runtime.onPtyData('pty-1', `wrote ${artifactPath}\n`, 100)
+
+    // No mobile connect ever happened; the query itself must activate+backfill.
+    expect(runtime.hasRecentTerminalOutputPath(terminal.handle, artifactPath, artifactPath)).toBe(
+      true
+    )
+  })
+
+  it('backfills candidates on activation so scrolled-off paths still resolve (#9422)', async () => {
+    const runtime = createRuntime()
+    syncSinglePty(runtime, 'pty-1')
+    const [terminal] = (await runtime.listTerminals()).terminals
+    const artifactPath = '/tmp/backfilled-artifact.json'
+
+    // Path arrives while tracking is inactive (desktop-only phase).
+    runtime.onPtyData('pty-1', `wrote ${artifactPath}\n`, 100)
+    // First mobile connect: backfill from the retained raw window.
+    runtime.activateRecentPtyPathCandidateTracking()
+    // Scroll the raw 64KB window past the path with pathless output.
+    runtime.onPtyData('pty-1', 'x'.repeat(70 * 1024), 200)
+
+    // Only the backfilled candidate tier can answer now.
+    expect(runtime.hasRecentTerminalOutputPath(terminal.handle, artifactPath, artifactPath)).toBe(
+      true
+    )
+  })
+
+  it('backfills per retained chunk so chunk boundaries match the eager extractor (#9422)', async () => {
+    const runtime = createRuntime()
+    syncSinglePty(runtime, 'pty-1')
+    const [terminal] = (await runtime.listTerminals()).terminals
+    const artifactPath = '/tmp/a.json'
+
+    // Two chunks whose join would parse as one different candidate
+    // (/tmp/a.jsonsuffix.txt). The eager per-chunk extractor kept /tmp/a.json.
+    runtime.onPtyData('pty-1', `wrote ${artifactPath}`, 100)
+    runtime.onPtyData('pty-1', 'suffix.txt', 150)
+    runtime.activateRecentPtyPathCandidateTracking()
+    // Scroll the raw 64KB window so only the backfilled candidates can answer.
+    runtime.onPtyData('pty-1', 'x'.repeat(70 * 1024), 200)
+
+    expect(runtime.hasRecentTerminalOutputPath(terminal.handle, artifactPath, artifactPath)).toBe(
+      true
+    )
+  })
+
+  it('extracts candidates per chunk after activation for scrolled-off paths (#9422)', async () => {
+    const runtime = createRuntime()
+    syncSinglePty(runtime, 'pty-1')
+    const [terminal] = (await runtime.listTerminals()).terminals
+    const artifactPath = '/tmp/post-activation-artifact.json'
+
+    runtime.activateRecentPtyPathCandidateTracking()
+    // Idempotent: a second activation must not disturb live tracking.
+    runtime.activateRecentPtyPathCandidateTracking()
+    runtime.onPtyData('pty-1', `wrote ${artifactPath}\n`, 100)
+    runtime.onPtyData('pty-1', 'x'.repeat(70 * 1024), 200)
+
+    expect(runtime.hasRecentTerminalOutputPath(terminal.handle, artifactPath, artifactPath)).toBe(
+      true
+    )
+  })
+
+  it('does not retain pre-activation paths that scrolled past the raw window (#9422)', async () => {
+    const runtime = createRuntime()
+    syncSinglePty(runtime, 'pty-1')
+    const [terminal] = (await runtime.listTerminals()).terminals
+    const artifactPath = '/tmp/pre-activation-scrolled-artifact.json'
+
+    runtime.onPtyData('pty-1', `wrote ${artifactPath}\n`, 100)
+    runtime.onPtyData('pty-1', 'x'.repeat(70 * 1024), 200)
+
+    // Documented accepted loss: output that scrolled past the raw window
+    // before the first-ever mobile connect yields no candidates.
+    expect(runtime.hasRecentTerminalOutputPath(terminal.handle, artifactPath, artifactPath)).toBe(
+      false
     )
   })
 
@@ -28494,6 +28580,49 @@ describe('OrcaRuntimeService', () => {
     expect(result.agentOrchestrationByPaneKey).toBeUndefined()
   })
 
+  // #9694: when the DB reports zero dispatch rows, the graph publish must skip
+  // the per-terminal dispatch fan-out entirely rather than query every leaf.
+  it('short-circuits the per-terminal dispatch fan-out when no dispatch rows exist', () => {
+    const runtime = new OrcaRuntimeService(store)
+    const workerLeafId = '88888888-8888-4888-8888-888888888888'
+    runtime.preAllocateHandleForPty('pty-worker')
+    const getActiveDispatchForTerminal = vi.fn(() => undefined)
+    const getLatestDispatchForTerminal = vi.fn(() => undefined)
+    runtime.setOrchestrationDb({
+      hasAnyDispatchContexts: vi.fn(() => false),
+      getActiveDispatchForTerminal,
+      getLatestDispatchForTerminal
+    } as never)
+    runtime.attachWindow(1)
+
+    const result = runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab-worker',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'Claude Code',
+          activeLeafId: workerLeafId,
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'tab-worker',
+          worktreeId: TEST_WORKTREE_ID,
+          leafId: workerLeafId,
+          paneRuntimeId: 1,
+          ptyId: 'pty-worker',
+          paneTitle: null
+        }
+      ]
+    })
+
+    expect(result.agentOrchestrationByPaneKey).toBeUndefined()
+    // The whole point of the probe: no per-terminal dispatch queries execute.
+    expect(getActiveDispatchForTerminal).not.toHaveBeenCalled()
+    expect(getLatestDispatchForTerminal).not.toHaveBeenCalled()
+  })
+
   it('falls back to cwd lineage when the caller terminal handle is stale', async () => {
     const parentPath = '/tmp/worktree-parent'
     const childPath = '/tmp/workspaces/cwd-child'
@@ -33901,7 +34030,12 @@ describe('OrcaRuntimeService', () => {
     })
 
     it('does not start Git removal when physical PTY stop cannot be proven', async () => {
-      const localProvider = createProviderStub(async () => [])
+      // Why (#10106): an unproven stop now triggers a fresh-inventory recheck;
+      // this pty is still LIVE in the inventory, so the recheck confirms the
+      // stop genuinely failed and deletion must stay blocked.
+      const localProvider = createProviderStub(async () => [
+        { id: 'pty-1', cwd: '/tmp', title: 'shell' }
+      ])
       const runtime = new OrcaRuntimeService(store, undefined, {
         getLocalProvider: () => localProvider as never
       })
@@ -34164,5 +34298,85 @@ describe('OrcaRuntimeService', () => {
         vi.useRealTimers()
       }
     })
+  })
+})
+
+describe('resolveWorktreeScanCacheTtlMs', () => {
+  const BASE_TTL_MS = 30_000
+  const SCRATCH_TTL_MS = 5 * 60_000
+
+  it('keeps the base TTL for ordinary local repos', () => {
+    expect(
+      resolveWorktreeScanCacheTtlMs({ path: '/Users/dev/projects/app', connectionId: '' })
+    ).toBe(BASE_TTL_MS)
+  })
+
+  it('extends the TTL for agent-scratch repo roots', () => {
+    expect(
+      resolveWorktreeScanCacheTtlMs({
+        path: '/Users/dev/.codex-tmp/foragent-capsule-b1-repo-zP9Az6',
+        connectionId: ''
+      })
+    ).toBe(SCRATCH_TTL_MS)
+    expect(
+      resolveWorktreeScanCacheTtlMs({
+        path: '/Users/dev/.claude/skills/obsidian-second-brain',
+        connectionId: ''
+      })
+    ).toBe(SCRATCH_TTL_MS)
+  })
+
+  it('never extends the TTL for SSH repos', () => {
+    // Why: scratch classification reads local path conventions; a remote path
+    // that merely looks similar must keep normal freshness.
+    expect(
+      resolveWorktreeScanCacheTtlMs({
+        path: '/home/dev/.codex-tmp/capsule',
+        connectionId: 'ssh-1'
+      })
+    ).toBe(BASE_TTL_MS)
+  })
+
+  it('keeps a scratch repo scan cached past the base TTL while normal repos rescan', async () => {
+    // Why: the whole fix lives in the cache-stamp call site; pin the wiring so
+    // a revert to the flat TTL fails CI, not just the pure-function tests.
+    vi.useFakeTimers()
+    // Why: the shared listWorktrees stub keeps call history across this file's
+    // tests; absolute counts need a clean baseline.
+    vi.mocked(listWorktrees).mockClear()
+    try {
+      const scratchPath = '/tmp/.codex-tmp/capsule-a'
+      const runtime = new OrcaRuntimeService({
+        ...store,
+        getRepos: () => [
+          { id: 'repo-1', path: '/tmp/repo', displayName: 'repo', badgeColor: 'blue', addedAt: 1 },
+          {
+            id: 'repo-scratch',
+            path: scratchPath,
+            displayName: 'capsule',
+            badgeColor: 'blue',
+            addedAt: 1
+          }
+        ]
+      } as never)
+      const internals = runtime as unknown as { listResolvedWorktrees: () => Promise<unknown> }
+      const scanCallsFor = (path: string): number =>
+        vi.mocked(listWorktrees).mock.calls.filter((call) => call[0] === path).length
+
+      await internals.listResolvedWorktrees()
+      expect(scanCallsFor('/tmp/repo')).toBe(1)
+      expect(scanCallsFor(scratchPath)).toBe(1)
+
+      vi.advanceTimersByTime(BASE_TTL_MS + 1_000)
+      await internals.listResolvedWorktrees()
+      expect(scanCallsFor('/tmp/repo')).toBe(2)
+      expect(scanCallsFor(scratchPath)).toBe(1)
+
+      vi.advanceTimersByTime(SCRATCH_TTL_MS)
+      await internals.listResolvedWorktrees()
+      expect(scanCallsFor(scratchPath)).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

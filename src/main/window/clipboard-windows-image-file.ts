@@ -20,6 +20,15 @@ type ReadWindowsClipboardImageFileDeps = {
 
 const IMAGE_FILE_EXTENSION_SET = new Set(IMAGE_FILE_EXTENSIONS)
 
+// Why: Explorer's FileNameW exposes only the first path of a multi-file
+// selection, so a bare read would silently paste one of several copied files.
+// The 'Shell IDList Array' (CIDA) count field is the only clipboard signal that
+// reveals the real selection size (#9640). Empty buffer = legacy single-file
+// copy that predates CIDA; treat as OK.
+function hasAtMostOneShellItem(value: Buffer): boolean {
+  return value.byteLength === 0 || (value.byteLength >= 12 && value.readUInt32LE(0) === 1)
+}
+
 function decodeWindowsClipboardFileName(value: Buffer): string | null {
   if (value.byteLength % 2 !== 0) {
     return null
@@ -43,6 +52,12 @@ export async function readWindowsClipboardImageFileAsPng({
   createImageFromPath
 }: ReadWindowsClipboardImageFileDeps): Promise<Buffer | null> {
   if (platform !== 'win32') {
+    return null
+  }
+
+  // Why: reject multi-file selections up front — FileNameW would otherwise
+  // leak only the first copied path (#9640).
+  if (!hasAtMostOneShellItem(readClipboardFormatBuffer('Shell IDList Array'))) {
     return null
   }
 

@@ -598,11 +598,8 @@ describe('registerClipboardHandlers', () => {
 
   it('saves clipboard images to a private mkdtemp dir when no connection is provided', async () => {
     const png = Buffer.from([0, 1, 2, 3])
-    const expectedPath = join(
-      '/tmp',
-      'orca-paste-a1b2c3',
-      'orca-paste-00000000-0000-4000-8000-000000000000.png'
-    )
+    const pngName = 'orca-paste-00000000-0000-4000-8000-000000000000.png'
+    const expectedPath = join('/tmp', 'orca-paste-a1b2c3', pngName)
     clipboardReadImageMock.mockReturnValue({
       getSize: () => ({ height: 1, width: 1 }),
       isEmpty: () => false,
@@ -624,13 +621,13 @@ describe('registerClipboardHandlers', () => {
     const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     const png = Buffer.from([4, 3, 2, 1])
     const sourcePath = 'C:\\Users\\alice\\图片\\copied-image.png'
-    const expectedPath = join(
-      '/tmp',
-      'orca-paste-a1b2c3',
-      'orca-paste-00000000-0000-4000-8000-000000000000.png'
-    )
+    const pngName = 'orca-paste-00000000-0000-4000-8000-000000000000.png'
+    const expectedPath = join('/tmp', 'orca-paste-a1b2c3', pngName)
     clipboardReadImageMock.mockReturnValue({ isEmpty: () => true })
-    clipboardReadBufferMock.mockReturnValue(Buffer.from(`${sourcePath}\0`, 'utf16le'))
+    // Empty 'Shell IDList Array' = legacy single-file copy; FileNameW carries the path.
+    clipboardReadBufferMock.mockImplementation((f: string) =>
+      f === 'FileNameW' ? Buffer.from(`${sourcePath}\0`, 'utf16le') : Buffer.alloc(0)
+    )
     fsStatMock.mockResolvedValue({ isFile: () => true, size: png.byteLength })
     nativeImageCreateFromPathMock.mockReturnValue({
       getSize: () => ({ height: 1, width: 1 }),

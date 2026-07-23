@@ -205,6 +205,9 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  by default: until authorized the engine drops them before queueing, so
    *  takeNotifications stays empty. Synced from the user's notification settings. */
   setNotificationsAuthorized: (allowed: boolean) => void
+  /** Host-mint an extra OSC-8 hyperlink scheme (deep-links #4384: `orca`). The
+   *  engine validates and can refuse; pre-capability builds ignore the mint. */
+  setHyperlinkSchemeAuthorized: (scheme: string) => void
   /** True when the app has enabled any mouse tracking mode (DECSET 1000/1002/1003
    *  etc.) — the facade maps this to xterm's mouseTrackingMode ('vt200' vs 'none'). */
   isMouseTracking: () => boolean

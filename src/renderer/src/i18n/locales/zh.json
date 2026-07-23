@@ -633,6 +633,17 @@
             }
           }
         }
+      },
+      "deep": {
+        "link": {
+          "ui": {
+            "notices": {
+              "unrecognized": "Unrecognized Orca link",
+              "unsupported": "This Orca link type is not supported yet",
+              "terminalGone": "Terminal is no longer running"
+            }
+          }
+        }
       }
     },
     "hooks": {

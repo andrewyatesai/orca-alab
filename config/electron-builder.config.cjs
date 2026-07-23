@@ -140,6 +140,11 @@ module.exports = {
   // skip the injection so their packaged metadata stays byte-compatible with
   // upstream (whose runtime app.name starts as the raw 'orca').
   ...(isPublicIdentity ? {} : { extraMetadata: { productName } }),
+  // Why: OS-level orca:// registration (#4384) — builder propagates per-platform
+  // (mac CFBundleURLTypes, NSIS HKCU class key, Linux x-scheme-handler MimeType).
+  // Fork + public builds both claim the SAME scheme by design: the grammar is the
+  // contract and link minters can't know which build is installed (design §3.2).
+  protocols: [{ name: 'Orca deep link', schemes: ['orca'], role: 'Viewer' }],
   directories: {
     buildResources: 'resources/build'
   },

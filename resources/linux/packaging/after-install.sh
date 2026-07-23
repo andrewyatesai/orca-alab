@@ -29,4 +29,11 @@ for dir in /opt/Orca /opt/orca-ide /opt/orca; do
   fi
 done
 
+# Why: orca:// deep links (#4384) — dpkg triggers refresh the desktop database,
+# but KDE/older GNOME only resolve x-scheme-handler/orca after an explicit
+# default is set (else it waits for a re-login). Best-effort, never fatal.
+if command -v xdg-mime >/dev/null 2>&1; then
+  xdg-mime default orca-ide.desktop x-scheme-handler/orca || true
+fi
+
 exit 0

@@ -407,6 +407,13 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // Engine-side fail-closed OSC 9/99/777 gate, synced from the user's notification
     // settings by the lifecycle layer (mirrors the OSC 52 clipboard gate above).
     setNotificationsAuthorized: (allowed: boolean) => term.authorize_notifications(allowed),
+    // Host-minted extra OSC-8 scheme (deep-links #4384). Feature-detected so a
+    // pre-capability wasm blob degrades to unlinkified orca:// text, not a crash.
+    setHyperlinkSchemeAuthorized: (scheme: string) => {
+      const authorize = (term as { authorize_hyperlink_scheme?: (scheme: string) => boolean })
+        .authorize_hyperlink_scheme
+      authorize?.call(term, scheme)
+    },
     element,
     textarea,
     // Live re-theme + selection-focus mutators (re-style the engine in place, no

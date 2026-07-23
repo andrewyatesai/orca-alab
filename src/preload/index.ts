@@ -4,6 +4,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import { preloadE2EConfig } from './e2e-config'
 import { glApi } from './gitlab'
 import type { AppIdentity } from '../shared/app-identity'
+import type { OrcaDeepLinkUiEvent } from '../shared/orca-deep-link'
 import type { CliInstallStatus } from '../shared/cli-install-types'
 import type { AgentHookInstallStatus } from '../shared/agent-hook-types'
 import type { TerminalPaneSplitSource } from '../shared/feature-education-telemetry'
@@ -3595,6 +3596,14 @@ const api = {
       ) => callback(data)
       ipcRenderer.on('ui:focusTerminal', listener)
       return () => ipcRenderer.removeListener('ui:focusTerminal', listener)
+    },
+    // Why: main→renderer only — no renderer→main deep-link channel exists, so a
+    // compromised renderer can't forge an origin claim (design #4384 §6.2).
+    onDeepLink: (callback: (data: OrcaDeepLinkUiEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: OrcaDeepLinkUiEvent): void =>
+        callback(data)
+      ipcRenderer.on('ui:deepLink', listener)
+      return () => ipcRenderer.removeListener('ui:deepLink', listener)
     },
     onFocusEditorTab: (
       callback: (data: { tabId: string; worktreeId: string }) => void

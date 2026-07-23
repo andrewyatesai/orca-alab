@@ -147,6 +147,9 @@ export type WorkerEngine = Pick<
 > & {
   /** Optional while Orca and aterm generated artifacts roll independently. */
   note_matrix_rain_signal?: (code: number, weight: number) => void
+  /** Host-minted extra OSC-8 scheme (deep-links #4384); optional so glue keeps
+   *  working against a pre-capability wasm blob (links just stay unlinkified). */
+  authorize_hyperlink_scheme?: (scheme: string) => boolean
 }
 
 /** The per-pane engine + the normalized hot-path ops the worker terminal drives. */

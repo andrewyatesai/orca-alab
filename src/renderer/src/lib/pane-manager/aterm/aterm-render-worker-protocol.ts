@@ -171,6 +171,13 @@ export type AtermWorkerSetNotificationsAuthorized = {
   type: 'setNotificationsAuthorized'
   allowed: boolean
 }
+/** Host-mint an extra OSC-8 hyperlink scheme (deep-links #4384: `orca`). The
+ *  engine validates and can refuse (never-allow set); a pre-capability engine
+ *  build ignores the command — links of that scheme simply stay unlinkified. */
+export type AtermWorkerSetHyperlinkSchemeAuthorized = {
+  type: 'setHyperlinkSchemeAuthorized'
+  scheme: string
+}
 /** Pause/resume frame painting (hidden-pane gating); the engine still ingests bytes. */
 export type AtermWorkerSetDrawSuspended = { type: 'setDrawSuspended'; suspended: boolean }
 /** The main-thread cursor-blink timer drives these: toggle the blink phase and the
@@ -293,6 +300,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetSelectionInactiveBg
   | AtermWorkerSetClipboardWriteAuthorized
   | AtermWorkerSetNotificationsAuthorized
+  | AtermWorkerSetHyperlinkSchemeAuthorized
   | AtermWorkerSetDrawSuspended
   | AtermWorkerSetCursorBlinkPhase
   | AtermWorkerSetCursorHollow

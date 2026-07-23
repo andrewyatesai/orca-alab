@@ -7,7 +7,12 @@ export function acquireInstallLockParentCommand(
   remoteRelayDir: string
 ): string {
   if (!isWindowsRemoteHost(host)) {
-    return `mkdir -p ${shellEscape(remoteRelayDir)}`
+    // Why: this is the .orca-remote base holding the executed relay tree at a
+    // predictable path; a bare `mkdir -p` inherits the login umask. Lock it to
+    // 0700 so a co-user on a shared host can't read or plant executed code
+    // (mirrors makeRemoteDirectoryCommand / ssh-control-socket's 0700 dir).
+    const escaped = shellEscape(remoteRelayDir)
+    return `mkdir -p ${escaped} && chmod 700 ${escaped}`
   }
   return powerShellCommand(
     `$null = New-Item -ItemType Directory -Force -Path ${powerShellLiteral(remoteRelayDir)}`

@@ -12,7 +12,14 @@ export function readRemoteHomeCommand(host: RemoteHostPlatform): string {
 
 export function makeRemoteDirectoryCommand(host: RemoteHostPlatform, remotePath: string): string {
   if (!isWindowsRemoteHost(host)) {
-    return `mkdir -p ${shellEscape(remotePath)}`
+    // Why: the relay tree is executed as the victim's user and sits at a
+    // predictable path; a bare `mkdir -p` inherits the login umask, leaving it
+    // group/other-accessible so a co-user on a shared host can read (or, on a
+    // permissive-umask home, plant) executed code. Lock it to 0700, matching
+    // ssh-control-socket's local dir. chmod by a non-owner fails the &&-chain,
+    // surfacing a pre-planted foreign dir instead of silently adopting it.
+    const escaped = shellEscape(remotePath)
+    return `mkdir -p ${escaped} && chmod 700 ${escaped}`
   }
   // New-Item has no -LiteralPath parameter; using it breaks stock Windows PowerShell.
   return powerShellCommand(

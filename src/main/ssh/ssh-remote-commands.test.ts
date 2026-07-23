@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  acquireInstallLockParentCommand,
   lockAgeSecondsCommand,
   tryCreateInstallLockCommand,
   tryStealInstallLockCommand
@@ -111,6 +112,24 @@ describe('ssh remote command builders', () => {
     const probe = probeRelayInstalledCommand(posix, '/home/me/relay')
     expect(probe).toContain('test -d')
     expect(probe).toContain('managed-hook-runtime.js')
+  })
+
+  it('locks the POSIX relay dir to 0700 so a co-user cannot read or plant executed code', () => {
+    // The relay tree is executed as the victim at a predictable path; a bare
+    // umask-inherited dir is group/other-accessible on a shared host.
+    expect(makeRemoteDirectoryCommand(posix, '/home/me/.orca-remote/relay-0.1.0')).toBe(
+      "mkdir -p '/home/me/.orca-remote/relay-0.1.0' && chmod 700 '/home/me/.orca-remote/relay-0.1.0'"
+    )
+  })
+
+  it('locks the POSIX install-lock parent (.orca-remote base) to 0700', () => {
+    expect(acquireInstallLockParentCommand(posix, '/home/me/.orca-remote')).toBe(
+      "mkdir -p '/home/me/.orca-remote' && chmod 700 '/home/me/.orca-remote'"
+    )
+    // Windows path stays New-Item -Force (perms inherit from parent there).
+    expect(acquireInstallLockParentCommand(windows, 'C:/Users/me/.orca-remote')).toContain(
+      '-EncodedCommand'
+    )
   })
 
   it('uses encoded PowerShell for Windows deploy commands', () => {

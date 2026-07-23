@@ -9,7 +9,7 @@ import { SearchableSetting } from './SearchableSetting'
 import { SettingsSubsectionHeader } from './SettingsFormControls'
 import { translate } from '@/i18n/i18n'
 
-const ORCA_STARGAZERS_URL = 'https://github.com/stablyai/orca/stargazers'
+const ORCA_STARGAZERS_URL = 'https://github.com/alabsystems/orca-alab/stargazers'
 
 type SupportState =
   | 'loading'

@@ -92,16 +92,16 @@ describe('electron-builder config', () => {
     })
   })
 
-  // Why: audit F1 — publishing to (or polling) the public repo would hand
-  // staging installs to the public build on the next accepted update.
-  it('publishes to the fork release repo, never the public one', () => {
+  // Why: releases and the update feed both live on the public repo; the publish
+  // target must match UPDATE_FEED_REPO_SLUG.
+  it('publishes to the public release repo', () => {
     expect(electronBuilderConfig.publish).toMatchObject({
       provider: 'github',
-      owner: 'andrewyatesai',
+      owner: 'alabsystems',
       repo: 'orca-alab'
     })
     reloadConfigWithEnv({ ORCA_PUBLIC_IDENTITY: '1' }, (config) => {
-      expect(config.publish).toMatchObject({ owner: 'andrewyatesai', repo: 'orca-alab' })
+      expect(config.publish).toMatchObject({ owner: 'alabsystems', repo: 'orca-alab' })
     })
   })
 

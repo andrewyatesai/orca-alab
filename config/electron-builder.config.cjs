@@ -15,10 +15,9 @@ const {
 const { assertBundledBinaryArchitectures } = require('./scripts/assert-bundled-binary-arch.cjs')
 
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
-// Why: forks without Apple credentials publish explicitly-unsigned release
-// artifacts (verify-macos-release-env.mjs honors the same opt-out); hardened
-// runtime, notarization, and timestamped signing all require a real identity.
-const isSignedMacRelease = isMacRelease && process.env.ORCA_ALLOW_UNSIGNED !== '1'
+// Why: releases ship unsigned by design — no Apple Developer ID or notarization.
+// Signing requires a real identity; we never have one, so this stays false.
+const isSignedMacRelease = false
 const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
 // Why: fork builds must not wear public Orca's identity — the same
 // appId/productName would share userData, the single-instance lock, and the
@@ -493,11 +492,9 @@ module.exports = {
   npmRebuild: true,
   publish: {
     provider: 'github',
-    // Why: fork releases live on the fork's own repo. Publishing to (or
-    // polling) stablyai/orca would hand staging installs to the public build
-    // on the next accepted update (staging-launch audit F1). Must match
-    // UPDATE_FEED_REPO_SLUG in src/main/updater-feed-endpoints.ts.
-    owner: 'andrewyatesai',
+    // Why: releases live on the public repo. Must match UPDATE_FEED_REPO_SLUG
+    // in src/main/updater-feed-endpoints.ts.
+    owner: 'alabsystems',
     repo: 'orca-alab',
     releaseType: 'release'
   }

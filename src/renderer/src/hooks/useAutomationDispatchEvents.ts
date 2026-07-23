@@ -66,17 +66,19 @@ export function useAutomationDispatchEvents(): void {
         // the reap, every recurring run leaks one hidden tab + live PTY (#9479).
         // Declared at handler scope so the dispatch-failure catch can reap it too.
         let launchedBackgroundSession: { tabId: string; ptyId: string } | null = null
-        const closeBackgroundAutomationTab = (): void => {
+        // Why: returns whether the owned tab was actually retired, so the caller
+        // only clears the run's terminal identity when it truly dead-ends (#9493).
+        const closeBackgroundAutomationTab = (): boolean => {
           const session = launchedBackgroundSession
           if (!session) {
-            return
+            return false
           }
           launchedBackgroundSession = null
           const store = useAppStore.getState()
           // Why: don't yank an automation tab the user opened and is watching;
           // they can close it themselves.
           if (store.activeTabId === session.tabId) {
-            return
+            return false
           }
           // Why: a hidden background tab never mounts a TerminalPane, so closeTab
           // alone won't reap its PTY. Kill the live session first (runtime-aware:
@@ -84,7 +86,15 @@ export function useAutomationDispatchEvents(): void {
           if (!closeWebRuntimeTerminal(session.ptyId)) {
             void window.api.pty.kill(session.ptyId)
           }
-          store.closeTab(session.tabId, { recordInteraction: false, reason: 'cleanup' })
+          try {
+            store.closeTab(session.tabId, { recordInteraction: false, reason: 'cleanup' })
+          } catch (error) {
+            // Why: a throwing close may leave the tab live; report not-closed so
+            // the run keeps its still-valid terminal identity (no stale clear) (#9493).
+            console.error('[automations] Failed to retire background automation tab:', error)
+            return false
+          }
+          return true
         }
         const runRepoId = getAutomationRunRepoId(automation)
         const repo = state.repos.find((entry) => entry.id === runRepoId)
@@ -295,12 +305,30 @@ export function useAutomationDispatchEvents(): void {
             unsubscribeSessionObserver = (): void => {}
             releaseReuseDispatchTab = (): void => {}
           }
+          const clearRetiredRunTerminalIdentity = async (): Promise<void> => {
+            // Why: the owned terminal was just retired, so the run's pane/pty
+            // pointers reference a closed tab. Drop them (best-effort) so 'View
+            // run' resolves to the workspace/snapshot instead of dead-ending on an
+            // unavailable terminal (#9493).
+            try {
+              await markDispatchResult({
+                runId: run.id,
+                status: 'completed',
+                terminalSessionId: null,
+                terminalPaneKey: null,
+                terminalPtyId: null
+              })
+            } catch (error) {
+              console.error('[automations] Failed to clear retired terminal identity:', error)
+            }
+          }
           const markCompletionResult = async (): Promise<void> => {
             if (completionMarked) {
               return
             }
             completionMarked = true
             cleanupRunObservers()
+            let retired = false
             try {
               await markDispatchResult({
                 runId: run.id,
@@ -312,23 +340,33 @@ export function useAutomationDispatchEvents(): void {
                 error: null
               })
             } finally {
-              closeBackgroundAutomationTab()
+              retired = closeBackgroundAutomationTab()
+            }
+            if (retired) {
+              await clearRetiredRunTerminalIdentity()
             }
           }
           const markExitResult = async (code: number): Promise<void> => {
             cleanupRunObservers()
+            const succeeded = code === 0
+            let retired = false
             try {
               await markDispatchResult({
                 runId: run.id,
-                status: code === 0 ? 'completed' : 'dispatch_failed',
+                status: succeeded ? 'completed' : 'dispatch_failed',
                 workspaceId: worktree.id,
                 workspaceDisplayName: worktree.displayName,
                 outputSnapshot: getOutputSnapshot(),
                 precheckResult,
-                error: code === 0 ? null : `Automation process exited with code ${code}.`
+                error: succeeded ? null : `Automation process exited with code ${code}.`
               })
             } finally {
-              closeBackgroundAutomationTab()
+              retired = closeBackgroundAutomationTab()
+            }
+            // Why: only a clean completion clears identity; a failed run keeps its
+            // persisted error, and the null-identity re-mark would null that error (#9493).
+            if (succeeded && retired) {
+              await clearRetiredRunTerminalIdentity()
             }
           }
           const handleAgentDone = (): void => {

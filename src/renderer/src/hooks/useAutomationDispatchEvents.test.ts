@@ -425,3 +425,69 @@ describe('useAutomationDispatchEvents background session cleanup', () => {
     )
   })
 })
+
+describe('useAutomationDispatchEvents retired terminal identity (#9493)', () => {
+  beforeEach(() => {
+    resetDispatchTestEnvironment()
+    mockLaunchAgentBackgroundSession.mockResolvedValue({
+      tabId: 'agent-tab',
+      ptyId: 'agent-pty',
+      paneKey: 'agent-tab:leaf',
+      startupPlan: {}
+    })
+    // Why: the 'done' status observed at dispatch time drives markCompletionResult.
+    state.agentStatusByPaneKey = {
+      'agent-tab:leaf': { state: 'done', updatedAt: Date.now() + 60_000 }
+    }
+    mockCloseWebRuntimeTerminal.mockReturnValue(false)
+  })
+
+  it('clears the run terminal identity after the owned tab is actually retired', async () => {
+    await registerAndDispatch()
+
+    expect(mockCloseTab).toHaveBeenCalledWith('agent-tab', {
+      recordInteraction: false,
+      reason: 'cleanup'
+    })
+    // Why: the retired tab is closed, so the persisted pane/pty pointers must be
+    // nulled last so 'View run' resolves to the workspace/snapshot, not a dead tab.
+    expect(mockMarkDispatchResult).toHaveBeenLastCalledWith({
+      runId: 'run-1',
+      status: 'completed',
+      terminalSessionId: null,
+      terminalPaneKey: null,
+      terminalPtyId: null
+    })
+  })
+
+  it('preserves the terminal identity when the tab stays open (user watching)', async () => {
+    state.activeTabId = 'agent-tab'
+
+    await registerAndDispatch()
+
+    expect(mockCloseTab).not.toHaveBeenCalled()
+    // Why: nothing was retired, so the still-valid identity must not be cleared.
+    expect(mockMarkDispatchResult).not.toHaveBeenCalledWith(
+      expect.objectContaining({ terminalSessionId: null })
+    )
+  })
+
+  it('preserves the terminal identity when the tab close throws', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockCloseTab.mockImplementation(() => {
+      throw new Error('closeTab exploded')
+    })
+
+    try {
+      await registerAndDispatch()
+    } finally {
+      errorSpy.mockRestore()
+    }
+
+    // Why: a throwing close reports not-closed, so the run keeps its still-valid
+    // identity and no stale null-identity clear runs.
+    expect(mockMarkDispatchResult).not.toHaveBeenCalledWith(
+      expect.objectContaining({ terminalSessionId: null })
+    )
+  })
+})

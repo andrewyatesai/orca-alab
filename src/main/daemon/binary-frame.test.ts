@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { encodeFrame, createFrameParser, FrameType, FRAME_HEADER_SIZE } from './binary-frame'
+import { FRAME_MAX_PAYLOAD } from './types'
+
+/** Build a raw frame header with an arbitrary (possibly oversized) declared
+ *  payload length, bypassing encodeFrame's encode-side bound. */
+function rawHeader(type: FrameType, declaredLength: number): Buffer {
+  const header = Buffer.alloc(FRAME_HEADER_SIZE)
+  header[0] = type
+  header.writeUInt32BE(declaredLength, 1)
+  return header
+}
 
 describe('encodeFrame', () => {
   it('encodes a data frame with correct header', () => {
@@ -146,6 +156,54 @@ describe('createFrameParser', () => {
     expect(onFrame.mock.calls[0][0]).toBe(FrameType.Data)
     expect(onFrame.mock.calls[1][0]).toBe(FrameType.Resize)
     expect(onFrame.mock.calls[2][0]).toBe(FrameType.Signal)
+  })
+
+  it('does not buffer toward an oversized declared payload length', () => {
+    const onFrame = vi.fn()
+    const onError = vi.fn()
+    const parser = createFrameParser(onFrame, onError)
+
+    // Header declares the max u32 (~4GiB) but only a trickle of bytes follows.
+    parser.feed(rawHeader(FrameType.Data, 0xffffffff))
+    for (let i = 0; i < 1000; i++) {
+      parser.feed(Buffer.alloc(64))
+    }
+
+    // The oversized frame is discarded, not buffered toward 4GiB.
+    expect(onError).toHaveBeenCalled()
+    expect(onError.mock.calls[0][0].message).toMatch(/too large/i)
+    expect(onFrame).not.toHaveBeenCalled()
+  })
+
+  it('stays synchronized after discarding an oversized frame', () => {
+    const onFrame = vi.fn()
+    const onError = vi.fn()
+    const parser = createFrameParser(onFrame, onError)
+
+    const oversizeLength = FRAME_MAX_PAYLOAD + 1
+    // Oversized frame delivered across chunks, followed by a valid frame.
+    parser.feed(rawHeader(FrameType.Data, oversizeLength))
+    parser.feed(Buffer.alloc(oversizeLength - 100))
+    const good = encodeFrame(FrameType.Exit, Buffer.from('{"code":0}'))
+    parser.feed(Buffer.concat([Buffer.alloc(100), good]))
+
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onFrame).toHaveBeenCalledOnce()
+    expect(onFrame.mock.calls[0][0]).toBe(FrameType.Exit)
+    expect(JSON.parse(onFrame.mock.calls[0][1].toString())).toEqual({ code: 0 })
+  })
+
+  it('accepts a frame at exactly FRAME_MAX_PAYLOAD', () => {
+    const onFrame = vi.fn()
+    const onError = vi.fn()
+    const parser = createFrameParser(onFrame, onError)
+
+    const payload = Buffer.alloc(FRAME_MAX_PAYLOAD, 0x61)
+    parser.feed(Buffer.concat([rawHeader(FrameType.Data, FRAME_MAX_PAYLOAD), payload]))
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(onFrame).toHaveBeenCalledOnce()
+    expect(onFrame.mock.calls[0][1].length).toBe(FRAME_MAX_PAYLOAD)
   })
 
   it('resets buffer state', () => {

@@ -85,23 +85,28 @@ export function createBinaryStreamParser(
   onEvent: (event: DaemonEvent) => void,
   onError?: (err: Error) => void
 ): BinaryStreamParser {
-  const parser = createFrameParser((type, payload) => {
-    try {
-      if (type === FrameType.Data) {
-        const { sessionId, data } = decodeDataFramePayload(payload)
-        onEvent({ type: 'event', event: 'data', sessionId, payload: { data } })
-        return
-      }
-      if (type === FrameType.Event) {
-        const msg = JSON.parse(payload.toString('utf8')) as DaemonEvent
-        if (msg.type === 'event') {
-          onEvent(msg)
+  const parser = createFrameParser(
+    (type, payload) => {
+      try {
+        if (type === FrameType.Data) {
+          const { sessionId, data } = decodeDataFramePayload(payload)
+          onEvent({ type: 'event', event: 'data', sessionId, payload: { data } })
+          return
         }
+        if (type === FrameType.Event) {
+          const msg = JSON.parse(payload.toString('utf8')) as DaemonEvent
+          if (msg.type === 'event') {
+            onEvent(msg)
+          }
+        }
+      } catch (err) {
+        onError?.(err instanceof Error ? err : new Error(String(err)))
       }
-    } catch (err) {
-      onError?.(err instanceof Error ? err : new Error(String(err)))
-    }
-  })
+    },
+    // Surface oversized-frame rejections so a corrupted/hostile length prefix
+    // can't silently wedge the stream parser.
+    (err) => onError?.(err)
+  )
   return {
     feed: (chunk: Buffer) => parser.feed(chunk),
     reset: () => parser.reset()

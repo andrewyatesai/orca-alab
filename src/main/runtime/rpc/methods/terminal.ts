@@ -1186,8 +1186,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
     name: 'terminal.search',
     params: TerminalSearch,
     handler: async (params, { runtime, signal }): Promise<RemoteTerminalSearchResult> => {
-      // Why: a relay/mux abort (client keystroke bumped the generation and
-      // cancelled) must not still run the scan it no longer wants.
+      // Why: a relay/mux/socket abort (client keystroke bumped the generation
+      // and cancelled) must not still run the scan it no longer wants.
       if (signal?.aborted) {
         throw new Error('terminal_search_aborted')
       }
@@ -1195,7 +1195,9 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         query: params.query,
         caseSensitive: params.caseSensitive,
         regex: params.regex,
-        maxMatches: params.maxMatches
+        maxMatches: params.maxMatches,
+        // Propagated INTO the scan: observed again after the writeChain wait.
+        signal
       })
       const response: RemoteTerminalSearchResult = {
         searchSchema: TERMINAL_REMOTE_SEARCH_SCHEMA_VERSION,
@@ -1223,11 +1225,15 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'terminal.searchContext',
     params: TerminalSearchContext,
-    handler: async (params, { runtime }): Promise<RemoteTerminalSearchContextResult> => {
+    handler: async (params, { runtime, signal }): Promise<RemoteTerminalSearchContextResult> => {
+      if (signal?.aborted) {
+        throw new Error('terminal_search_aborted')
+      }
       const window = await runtime.terminalSearchContext(params.terminal, {
         hostRow: params.hostRow,
         before: params.before ?? 20,
-        after: params.after ?? 20
+        after: params.after ?? 20,
+        signal
       })
       return {
         searchSchema: TERMINAL_REMOTE_SEARCH_SCHEMA_VERSION,

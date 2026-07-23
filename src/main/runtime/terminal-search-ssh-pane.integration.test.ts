@@ -79,6 +79,26 @@ describe('terminal search over an SSH-provider pane', () => {
     expect(context.lines).toContain('remote build starting')
   })
 
+  it('an abort landing during the writeChain wait stops BEFORE the native scan', async () => {
+    const { runtime, ptyId } = makeRuntimeWithSshPane()
+    runtime.onPtyData(ptyId, 'some scrollback with a needle in it\r\n', 1)
+    const handle = (await runtime.listTerminals()).terminals[0]?.handle
+    expect(handle).toBeTruthy()
+    // Abort the signal while search awaits the (already-pending) write chain:
+    // the scan must throw terminal_search_aborted, not return results.
+    const controller = new AbortController()
+    const pending = runtime.searchTerminalScrollback(handle!, {
+      query: 'needle',
+      signal: controller.signal
+    })
+    controller.abort()
+    await expect(pending).rejects.toThrow('terminal_search_aborted')
+    // The emulator itself is untouched: a fresh un-aborted query still works.
+    const outcome = await runtime.searchTerminalScrollback(handle!, { query: 'needle' })
+    expect(outcome.available).toBe(true)
+    expect(outcome.total).toBe(1)
+  })
+
   it('reports unavailable (never throws) for a pane without headless state', async () => {
     const { runtime } = makeRuntimeWithSshPane()
     // No bytes ingested → no emulator exists yet for this pty.

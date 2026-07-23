@@ -55,6 +55,42 @@ export type RemoteTerminalSearchContextResult = {
   firstHostRow: number | null
 }
 
+/** Wire-shape guard for a `terminal.search` result — shared by every client
+ *  transport (runtime environment, SSH relay mux) so schema acceptance cannot
+ *  drift between routes. */
+export function isRemoteTerminalSearchResultShape(
+  value: unknown
+): value is RemoteTerminalSearchResult {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const result = value as Partial<RemoteTerminalSearchResult>
+  return (
+    typeof result.searchSchema === 'number' &&
+    result.searchSchema >= 1 &&
+    typeof result.available === 'boolean' &&
+    Array.isArray(result.matches) &&
+    typeof result.total === 'number' &&
+    typeof result.incomplete === 'boolean'
+  )
+}
+
+/** Wire-shape guard for a `terminal.searchContext` result. */
+export function isRemoteTerminalSearchContextResultShape(
+  value: unknown
+): value is RemoteTerminalSearchContextResult {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const result = value as Partial<RemoteTerminalSearchContextResult>
+  return (
+    typeof result.searchSchema === 'number' &&
+    result.searchSchema >= 1 &&
+    typeof result.available === 'boolean' &&
+    Array.isArray(result.lines)
+  )
+}
+
 export type RemoteSearchRowRemapInput = {
   /** The match row from a `terminal.search` response. */
   matchHostRow: number

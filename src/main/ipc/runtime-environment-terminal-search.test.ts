@@ -177,6 +177,21 @@ describe('searchRuntimeEnvironmentTerminal', () => {
     expect(outcome).toEqual({ kind: 'unavailable', reason: 'unreachable' })
   })
 
+  it('an abort releases the caller IMMEDIATELY — it never waits out a hung transport', async () => {
+    const controller = new AbortController()
+    // Transport hangs forever (dead host): only the abort race can settle this.
+    transport.mockImplementation(() => new Promise(() => undefined))
+    const pending = searchRuntimeEnvironmentTerminal(
+      '/data',
+      'env-1',
+      { terminal: 't', query: 'q' },
+      { signal: controller.signal }
+    )
+    controller.abort()
+    // Resolves without any timeout elapsing — the palette slot is freed now.
+    await expect(pending).resolves.toEqual({ kind: 'unavailable', reason: 'unreachable' })
+  })
+
   it('short-circuits an already-aborted request without touching the transport', async () => {
     const controller = new AbortController()
     controller.abort()

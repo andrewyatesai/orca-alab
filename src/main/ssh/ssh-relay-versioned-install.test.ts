@@ -168,7 +168,7 @@ describe('acquireInstallLock', () => {
 
     const commands = mockExec.mock.calls.map(([, command]) => command)
     expect(commands[1]).toContain('lock_tombstone')
-    expect(commands[4]).toBe("mkdir -p '/r'")
+    expect(commands[4]).toBe("mkdir -p '/r' && chmod 700 '/r'")
   })
 
   it('returns immediately without deleting a live repair lock', async () => {

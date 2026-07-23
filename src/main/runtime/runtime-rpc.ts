@@ -418,6 +418,13 @@ function isLongPollRequest(request: RpcRequest): boolean {
   return false
 }
 
+// Why: short RPCs normally run without a signal, but a federated search must
+// observe the socket-close abort (fed §2.4 cancellation) — its writeChain wait
+// can straddle a disconnect and the scan it fronts is then unwanted work.
+function isAbortableScanRequest(request: RpcRequest): boolean {
+  return request.method === 'terminal.search' || request.method === 'terminal.searchContext'
+}
+
 // Why: status.get has no per-connection context in the dispatcher, so stamp the scope here at the transport boundary.
 function injectDeviceScope(response: string, scope: DeviceScope): string {
   try {
@@ -956,7 +963,7 @@ export class OrcaRuntimeRpcServer {
 
     try {
       return await this.dispatcher.dispatch(request, {
-        signal: longPoll ? context?.signal : undefined
+        signal: longPoll || isAbortableScanRequest(request) ? context?.signal : undefined
       })
     } finally {
       if (longPoll) {

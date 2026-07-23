@@ -7682,7 +7682,15 @@ export class OrcaRuntimeService {
    *  state or the engine/addon cannot search — never a thrown federated error. */
   async searchTerminalScrollback(
     handle: string,
-    opts: { query: string; caseSensitive?: boolean; regex?: boolean; maxMatches?: number }
+    opts: {
+      query: string
+      caseSensitive?: boolean
+      regex?: boolean
+      maxMatches?: number
+      /** Relay/socket abort: observed across the writeChain wait so a cancelled
+       *  query never runs the scan it no longer wants. */
+      signal?: AbortSignal
+    }
   ): Promise<{
     available: boolean
     matches: { hostRow: number; col: number; len: number; line: string }[]
@@ -7714,6 +7722,11 @@ export class OrcaRuntimeService {
     // Why: search must observe every byte already accepted for this PTY, or a
     // just-printed match is invisible to the palette that triggered on it.
     await state.writeChain
+    // Why re-check here: the writeChain wait is the long pole under flood; an
+    // abort that landed during it must stop BEFORE the native scan runs.
+    if (opts.signal?.aborted) {
+      throw new Error('terminal_search_aborted')
+    }
     const outcome = state.emulator.searchScrollback({
       query: opts.query,
       caseSensitive: opts.caseSensitive,
@@ -7742,7 +7755,7 @@ export class OrcaRuntimeService {
    *  row. Empty lines when the row is no longer retained. */
   async terminalSearchContext(
     handle: string,
-    opts: { hostRow: number; before: number; after: number }
+    opts: { hostRow: number; before: number; after: number; signal?: AbortSignal }
   ): Promise<{
     available: boolean
     lines: string[]
@@ -7758,6 +7771,9 @@ export class OrcaRuntimeService {
       return { available: false, lines: [], firstHostRow: null, incarnation: null }
     }
     await state.writeChain
+    if (opts.signal?.aborted) {
+      throw new Error('terminal_search_aborted')
+    }
     const window = state.emulator.searchContext(
       opts.hostRow,
       // Why the clamp: context is an inline peek (±20 in the design), not a

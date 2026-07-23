@@ -11,9 +11,11 @@
 // re-asking, while other hosts keep searching.
 
 import type { RuntimeRpcResponse } from '../../shared/runtime-rpc-envelope'
-import type {
-  RemoteTerminalSearchContextResult,
-  RemoteTerminalSearchResult
+import {
+  isRemoteTerminalSearchContextResultShape,
+  isRemoteTerminalSearchResultShape,
+  type RemoteTerminalSearchContextResult,
+  type RemoteTerminalSearchResult
 } from '../../shared/terminal-remote-search-protocol'
 import { callRuntimeEnvironment } from './runtime-environment-transport-routing'
 
@@ -56,34 +58,6 @@ function isMethodNotFound(response: RuntimeRpcResponse<unknown>): boolean {
   return response.ok === false && response.error.code === 'method_not_found'
 }
 
-function isSearchResultShape(value: unknown): value is RemoteTerminalSearchResult {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-  const result = value as Partial<RemoteTerminalSearchResult>
-  return (
-    typeof result.searchSchema === 'number' &&
-    result.searchSchema >= 1 &&
-    typeof result.available === 'boolean' &&
-    Array.isArray(result.matches) &&
-    typeof result.total === 'number' &&
-    typeof result.incomplete === 'boolean'
-  )
-}
-
-function isSearchContextShape(value: unknown): value is RemoteTerminalSearchContextResult {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-  const result = value as Partial<RemoteTerminalSearchContextResult>
-  return (
-    typeof result.searchSchema === 'number' &&
-    result.searchSchema >= 1 &&
-    typeof result.available === 'boolean' &&
-    Array.isArray(result.lines)
-  )
-}
-
 type RuntimeEnvironmentCall = (
   userDataPath: string,
   selector: string,
@@ -107,6 +81,25 @@ export function setRuntimeEnvironmentTerminalSearchTransportForTest(
 // runtime default 15s.
 const REMOTE_SEARCH_TIMEOUT_MS = 8_000
 
+/** Resolve with the transport response, or reject the moment `signal` aborts —
+ *  the pending transport promise is left to settle and be ignored. */
+function raceTransportAgainstAbort<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return pending
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(new Error('remote search aborted'))
+    signal.addEventListener('abort', onAbort, { once: true })
+    pending
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', onAbort))
+      // Why: when the abort already rejected this race, the transport's own
+      // later rejection has no listener — swallow it so it can't surface as
+      // an unhandled rejection.
+      .catch(() => undefined)
+  })
+}
+
 async function callWithDegradation<T>(
   userDataPath: string,
   environmentId: string,
@@ -126,18 +119,21 @@ async function callWithDegradation<T>(
   }
   let response: RuntimeRpcResponse<unknown>
   try {
-    response = await callEnvironment(
-      userDataPath,
-      environmentId,
-      method,
-      params,
-      REMOTE_SEARCH_TIMEOUT_MS
+    // The abort races the transport await so a cancel (Esc / generation bump)
+    // releases the palette's per-source slot IMMEDIATELY. The runtime-envelope
+    // protocol has no in-flight cancel message (unlike the SSH relay's
+    // rpc.cancel, which the mux route uses) — the host finishes its bounded
+    // scan and the late response is dropped; adding a protocol cancel is
+    // recorded follow-up, not silently claimed here.
+    response = await raceTransportAgainstAbort(
+      callEnvironment(userDataPath, environmentId, method, params, REMOTE_SEARCH_TIMEOUT_MS),
+      signal
     )
   } catch {
     return { kind: 'unavailable', reason: 'unreachable' }
   }
-  // Why after the await: an abort during flight (Esc / generation bump) must
-  // not surface stale results into the palette.
+  // Why after the await: an abort during flight must never surface stale
+  // results into the palette even when the response won the race.
   if (signal?.aborted) {
     return { kind: 'unavailable', reason: 'unreachable' }
   }
@@ -168,7 +164,7 @@ export async function searchRuntimeEnvironmentTerminal(
     environmentId,
     'terminal.search',
     request,
-    (value) => (isSearchResultShape(value) ? value : null),
+    (value) => (isRemoteTerminalSearchResultShape(value) ? value : null),
     opts.signal
   )
   if (outcome.kind !== 'ok') {
@@ -190,7 +186,7 @@ export async function runtimeEnvironmentTerminalSearchContext(
     environmentId,
     'terminal.searchContext',
     request,
-    (value) => (isSearchContextShape(value) ? value : null),
+    (value) => (isRemoteTerminalSearchContextResultShape(value) ? value : null),
     opts.signal
   )
   if (outcome.kind !== 'ok') {

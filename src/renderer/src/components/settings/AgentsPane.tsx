@@ -5,7 +5,7 @@ import { useEffect, useId, useMemo, useState } from 'react'
 import { Check, ChevronDown, ExternalLink, Info, RefreshCw, Terminal, Wrench } from 'lucide-react'
 import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
 import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
-import { useDetectedAgents } from '@/hooks/useDetectedAgents'
+import { useDetectedAgents, type AgentDetectionTarget } from '@/hooks/useDetectedAgents'
 import { useAppStore } from '@/store'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -695,7 +695,33 @@ export function AgentsPane({
   wslDistros,
   wslCapabilitiesLoading
 }: AgentsPaneProps): React.JSX.Element {
-  const { detectedIds: detectedList, isRefreshing, refresh } = useDetectedAgents()
+  // Why (#9790): the Active Server routes agent launches through that host, so
+  // this pane must list what THAT host can launch — detecting on the client
+  // showed a Windows machine's agents while paired to a Linux server. The
+  // enable/disable/default toggles below stay client-local settings.
+  const activeServerEnvironmentId = settings.activeRuntimeEnvironmentId?.trim() || null
+  const agentDetectionTarget = useMemo<AgentDetectionTarget>(
+    () =>
+      activeServerEnvironmentId
+        ? { kind: 'runtime', environmentId: activeServerEnvironmentId }
+        : { kind: 'local' },
+    [activeServerEnvironmentId]
+  )
+  const {
+    detectedIds: detectedList,
+    isRefreshing,
+    refresh
+  } = useDetectedAgents(agentDetectionTarget)
+  // Why (#9790): the WSL/runtime control below and the empty-list retry change
+  // the client-local runtime, so they refresh local detection even while the
+  // Installed list is scoped to an active remote server.
+  const refreshLocalAgents = useAppStore((s) => s.refreshDetectedAgents)
+  const activeServerName = useAppStore((s) =>
+    activeServerEnvironmentId
+      ? (s.runtimeEnvironments.find((environment) => environment.id === activeServerEnvironmentId)
+          ?.name ?? null)
+      : null
+  )
   useEffect(() => {
     if (
       !shouldResetUnavailableWslAgentRuntime({
@@ -713,19 +739,19 @@ export function AgentsPane({
     void Promise.resolve(
       updateSettings({ localAgentRuntime: 'host', localAgentWslDistro: null })
     ).then(() => {
-      void refresh()
+      void refreshLocalAgents()
     })
   }, [
-    refresh,
+    refreshLocalAgents,
     settings.localAgentRuntime,
     updateSettings,
     wslAvailable,
     wslCapabilitiesLoading,
     wslSupportedPlatform
   ])
-  // Why: refresh re-spawns the user's login shell to re-capture PATH
-  // (preflight:refreshAgents on the main side). This handles the
-  // "installed a new CLI, Orca doesn't see it yet" case without a restart.
+  // Why: refresh re-spawns the target host's login shell to re-capture PATH
+  // (preflight:refreshAgents). This handles the "installed a new CLI, Orca
+  // doesn't see it yet" case without a restart, on the host being shown.
   const handleRefresh = (): void => {
     void refresh()
   }
@@ -913,7 +939,9 @@ export function AgentsPane({
       <AgentRuntimeSetting
         settings={settings}
         updateSettings={updateSettings}
-        refresh={refresh}
+        // Why (#9790): this control changes the client-local Windows/WSL runtime
+        // even while the Installed list is scoped to an active remote server.
+        refresh={refreshLocalAgents}
         wslSupportedPlatform={wslSupportedPlatform}
         wslAvailable={wslAvailable}
         wslDistros={wslDistros}
@@ -947,6 +975,13 @@ export function AgentsPane({
                   {detectedAgents.length}{' '}
                   {translate('auto.components.settings.AgentsPane.ed3e110e61', 'detected')}
                 </SettingsBadge>
+                {activeServerName ? (
+                  <SettingsBadge tone="muted">
+                    {translate('auto.components.settings.AgentsPane.03e1a5081a', 'on {{value0}}', {
+                      value0: activeServerName
+                    })}
+                  </SettingsBadge>
+                ) : null}
               </span>
             }
             action={
@@ -956,10 +991,17 @@ export function AgentsPane({
                 size="xs"
                 onClick={handleRefresh}
                 disabled={isRefreshing}
-                title={translate(
-                  'auto.components.settings.AgentsPane.13647f9f80',
-                  'Re-read your shell PATH and re-detect installed agents'
-                )}
+                title={
+                  activeServerEnvironmentId
+                    ? translate(
+                        'auto.components.settings.AgentsPane.25a41a9aad',
+                        'Re-detect agents installed on the active server'
+                      )
+                    : translate(
+                        'auto.components.settings.AgentsPane.13647f9f80',
+                        'Re-read your shell PATH and re-detect installed agents'
+                      )
+                }
                 className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
               >
                 <RefreshCw className={cn('size-3', isRefreshing && 'animate-spin')} />

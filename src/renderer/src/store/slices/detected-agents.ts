@@ -6,6 +6,7 @@ import {
   localPreflightContextKey
 } from '@/lib/local-preflight-context'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { runRuntimeAgentRefresh } from './runtime-agent-refresh'
 
 export type DetectedAgentsSlice = {
   detectedAgentIds: TuiAgent[] | null
@@ -38,7 +39,12 @@ export type DetectedAgentsSlice = {
   // launch menu still has to probe the host where the workspace actually runs.
   runtimeDetectedAgentIds: Record<string, TuiAgent[] | null>
   isDetectingRuntimeAgents: Record<string, boolean>
+  isRefreshingRuntimeAgents: Record<string, boolean>
   ensureRuntimeDetectedAgents: (environmentId: string) => Promise<TuiAgent[]>
+  /** Forces a re-detect on the owning runtime host (`preflight.refreshAgents`,
+   *  falling back to `preflight.detectAgents` on older servers), so the Agents
+   *  pane Refresh hits the host whose list it is showing (#9790). */
+  refreshRuntimeDetectedAgents: (environmentId: string) => Promise<TuiAgent[]>
   clearRuntimeDetectedAgents: (environmentId: string) => void
   /** Drops runtime detected-agent caches for environments not in the kept set.
    *  Wired into setRuntimeEnvironments so removed environments don't leak their
@@ -195,6 +201,10 @@ export const createDetectedAgentsSlice: StateCreator<AppState, [], [], DetectedA
   isDetectingRemoteAgents: {},
   runtimeDetectedAgentIds: {},
   isDetectingRuntimeAgents: {},
+  isRefreshingRuntimeAgents: {},
+
+  refreshRuntimeDetectedAgents: (environmentId: string) =>
+    runRuntimeAgentRefresh({ get, set }, environmentId),
 
   ensureRemoteDetectedAgents: (connectionId: string) => {
     const existing = get().remoteDetectedAgentIds[connectionId]

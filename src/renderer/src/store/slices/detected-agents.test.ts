@@ -601,4 +601,116 @@ describe('createDetectedAgentsSlice remote detection', () => {
     expect(store.getState().runtimeDetectedAgentIds['env-1']).toEqual(['kilo'])
     expect(detectCalls).toBe(2)
   })
+
+  it('refreshes runtime agents through preflight.refreshAgents on the owning runtime (#9790)', async () => {
+    const store = createTestStore()
+    runtimeEnvironmentCall.mockImplementation(({ method }: { method: string }) => {
+      let result: unknown
+      if (method === 'status.get') {
+        result = {
+          runtimeId: 'remote-runtime',
+          rendererGraphEpoch: 1,
+          graphStatus: 'ready',
+          authoritativeWindowId: null,
+          liveTabCount: 0,
+          liveLeafCount: 0,
+          runtimeProtocolVersion: RUNTIME_PROTOCOL_VERSION,
+          minCompatibleRuntimeClientVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION
+        }
+      } else if (method === 'preflight.refreshAgents') {
+        result = {
+          agents: ['claude', 'gemini'],
+          addedPathSegments: [],
+          shellHydrationOk: true,
+          pathSource: 'shell_hydrate',
+          pathFailureReason: 'none'
+        }
+      } else {
+        result = ['codex']
+      }
+      return Promise.resolve({
+        id: method,
+        ok: true,
+        result,
+        _meta: { runtimeId: 'remote-runtime' }
+      })
+    })
+
+    const first = store.getState().refreshRuntimeDetectedAgents('env-1')
+    const second = store.getState().refreshRuntimeDetectedAgents('env-1')
+
+    expect(store.getState().isRefreshingRuntimeAgents['env-1']).toBe(true)
+    await expect(first).resolves.toEqual(['claude', 'gemini'])
+    await expect(second).resolves.toEqual(['claude', 'gemini'])
+    expect(store.getState().runtimeDetectedAgentIds['env-1']).toEqual(['claude', 'gemini'])
+    expect(store.getState().isRefreshingRuntimeAgents['env-1']).toBe(false)
+    expect(
+      runtimeEnvironmentCall.mock.calls.filter(
+        ([{ method }]) => method === 'preflight.refreshAgents'
+      )
+    ).toHaveLength(1)
+  })
+
+  it('falls back to preflight.detectAgents when the runtime rejects refreshAgents (#9790)', async () => {
+    const store = createTestStore()
+    runtimeEnvironmentCall.mockImplementation(({ method }: { method: string }) => {
+      if (method === 'status.get') {
+        return Promise.resolve({
+          id: method,
+          ok: true,
+          result: {
+            runtimeId: 'remote-runtime',
+            rendererGraphEpoch: 1,
+            graphStatus: 'ready',
+            authoritativeWindowId: null,
+            liveTabCount: 0,
+            liveLeafCount: 0,
+            runtimeProtocolVersion: RUNTIME_PROTOCOL_VERSION,
+            minCompatibleRuntimeClientVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION
+          },
+          _meta: { runtimeId: 'remote-runtime' }
+        })
+      }
+      if (method === 'preflight.refreshAgents') {
+        // Why: a server predating the refresh RPC rejects with an error envelope.
+        return Promise.resolve({
+          id: method,
+          ok: false,
+          error: { code: 'method-not-found', message: 'unknown method' }
+        })
+      }
+      return Promise.resolve({
+        id: method,
+        ok: true,
+        result: ['codex'],
+        _meta: { runtimeId: 'remote-runtime' }
+      })
+    })
+
+    await expect(store.getState().refreshRuntimeDetectedAgents('env-1')).resolves.toEqual(['codex'])
+    expect(store.getState().runtimeDetectedAgentIds['env-1']).toEqual(['codex'])
+    expect(
+      runtimeEnvironmentCall.mock.calls.filter(
+        ([{ method }]) => method === 'preflight.detectAgents'
+      )
+    ).toHaveLength(1)
+  })
+
+  it('keeps the last-known runtime list when a refresh cannot reach the host (#9790)', async () => {
+    const store = createTestStore({
+      runtimeDetectedAgentIds: { 'env-1': ['claude'] }
+    } as Partial<AppState>)
+    runtimeEnvironmentCall.mockImplementation(({ method }: { method: string }) => {
+      if (method === 'status.get') {
+        return Promise.reject(new Error('runtime disconnected'))
+      }
+      return Promise.resolve({ id: method, ok: true, result: [], _meta: { runtimeId: 'x' } })
+    })
+
+    await expect(store.getState().refreshRuntimeDetectedAgents('env-1')).resolves.toEqual([
+      'claude'
+    ])
+    expect(store.getState().runtimeDetectedAgentIds['env-1']).toEqual(['claude'])
+    expect(store.getState().isRefreshingRuntimeAgents['env-1']).toBe(false)
+  })
 })

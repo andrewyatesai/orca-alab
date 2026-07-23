@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useAppStore } from '@/store'
 import type { TuiAgent } from '../../../shared/types'
 
@@ -87,11 +87,27 @@ export function useDetectedAgents(
     }
     return s.isDetectingAgents
   })
-  const isRefreshing = useAppStore((s) => (targetKind === 'local' ? s.isRefreshingAgents : false))
+  const isRefreshing = useAppStore((s) => {
+    if (targetKind === 'runtime' && targetId) {
+      return s.isRefreshingRuntimeAgents[targetId] ?? false
+    }
+    return targetKind === 'local' ? s.isRefreshingAgents : false
+  })
   const ensureLocal = useAppStore((s) => s.ensureDetectedAgents)
   const ensureRemote = useAppStore((s) => s.ensureRemoteDetectedAgents)
   const ensureRuntime = useAppStore((s) => s.ensureRuntimeDetectedAgents)
-  const refresh = useAppStore((s) => s.refreshDetectedAgents)
+  // Why (#9790): refresh must hit the host the list came from — refreshing the
+  // local PATH while showing a remote runtime's agents is a silent no-op.
+  const refresh = useCallback((): Promise<TuiAgent[]> => {
+    if (isUnknown) {
+      return Promise.resolve([])
+    }
+    const state = useAppStore.getState()
+    if (targetKind === 'runtime' && targetId) {
+      return state.refreshRuntimeDetectedAgents(targetId)
+    }
+    return state.refreshDetectedAgents()
+  }, [isUnknown, targetKind, targetId])
 
   useEffect(() => {
     if (isUnknown) {

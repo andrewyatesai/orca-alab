@@ -181,6 +181,7 @@ export const createSparsePresetsSlice: StateCreator<AppState, [], [], SparsePres
 
   removeSparsePreset: async ({ repoId, presetId }) => {
     const previous = get().sparsePresetsByRepo[repoId] ?? []
+    const removedPreset = previous.find((preset) => preset.id === presetId)
     // Why: optimistic local update keeps the popover responsive — toast handles
     // the failure path by restoring state.
     set((s) => ({
@@ -193,9 +194,24 @@ export const createSparsePresetsSlice: StateCreator<AppState, [], [], SparsePres
       await window.api.sparsePresets.remove({ repoId, presetId })
       toast.success(translate('auto.store.slices.sparse.presets.ee434d7941', 'Preset removed'))
     } catch (err) {
-      set((s) => ({
-        sparsePresetsByRepo: { ...s.sparsePresetsByRepo, [repoId]: previous }
-      }))
+      // Why: re-insert only the removed preset into the CURRENT array — restoring the
+      // pre-await `previous` snapshot would drop a preset saved concurrently for the same repo.
+      if (removedPreset) {
+        set((s) => {
+          const current = s.sparsePresetsByRepo[repoId] ?? []
+          if (current.some((preset) => preset.id === presetId)) {
+            return {}
+          }
+          return {
+            sparsePresetsByRepo: {
+              ...s.sparsePresetsByRepo,
+              [repoId]: [...current, removedPreset].sort((left, right) =>
+                left.name.localeCompare(right.name)
+              )
+            }
+          }
+        })
+      }
       const message = err instanceof Error ? err.message : String(err)
       toast.error(
         translate('auto.store.slices.sparse.presets.6ed7d6010a', 'Failed to remove preset'),

@@ -232,4 +232,31 @@ describe('createSparsePresetsSlice', () => {
 
     expect(store.getState().sparsePresetsByRepo['repo-1']).toEqual([preset])
   })
+
+  it('preserves a concurrently added preset when a remove fails', async () => {
+    const store = createTestStore()
+    const toRemove = makePreset({ id: 'preset-1', repoId: 'repo-1', name: 'Web' })
+    const added = makePreset({ id: 'preset-2', repoId: 'repo-1', name: 'Api' })
+    store.setState({ sparsePresetsByRepo: { 'repo-1': [toRemove] } } as Partial<AppState>)
+
+    let rejectRemove: (err: Error) => void = () => {}
+    mockApi.sparsePresets.remove.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        rejectRemove = reject
+      })
+    )
+
+    const removePromise = store
+      .getState()
+      .removeSparsePreset({ repoId: 'repo-1', presetId: 'preset-1' })
+
+    // Concurrent add lands while the remove RPC is still in flight.
+    store.setState({ sparsePresetsByRepo: { 'repo-1': [added] } } as Partial<AppState>)
+
+    rejectRemove(new Error('disk failed'))
+    await expect(removePromise).rejects.toThrow('disk failed')
+
+    // Rollback re-inserts the removed preset without dropping the concurrently added one.
+    expect(store.getState().sparsePresetsByRepo['repo-1']).toEqual([added, toRemove])
+  })
 })

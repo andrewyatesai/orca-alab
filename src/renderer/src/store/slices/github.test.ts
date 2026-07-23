@@ -18,7 +18,7 @@ import {
 } from './github'
 import { createHostedReviewSlice } from './hosted-review'
 import type { AppState } from '../types'
-import type { GitHubWorkItem, PRInfo, Worktree } from '../../../../shared/types'
+import type { GitHubWorkItem, PRComment, PRInfo, Worktree } from '../../../../shared/types'
 import type { HostedReviewInfo } from '../../../../shared/hosted-review'
 import { GITHUB_WORK_ITEMS_SSH_REMOTE_REQUIRED_MESSAGE } from '../../../../shared/work-items'
 import {
@@ -7419,7 +7419,7 @@ describe('createGitHubSlice.resolveReviewThread optimistic revert', () => {
         ...s.commentsCache,
         [cacheKey]: {
           ...s.commentsCache[cacheKey],
-          data: s.commentsCache[cacheKey].data.map((c) =>
+          data: (s.commentsCache[cacheKey]?.data ?? []).map((c) =>
             c.threadId === 'thread-B' ? { ...c, isResolved: true } : c
           )
         }
@@ -7429,7 +7429,7 @@ describe('createGitHubSlice.resolveReviewThread optimistic revert', () => {
     failThreadA(false)
     await expect(resolveAPromise).resolves.toBe(false)
 
-    const data = store.getState().commentsCache[cacheKey].data
+    const data = store.getState().commentsCache[cacheKey]?.data ?? []
     const threadA = data.find((c) => c.threadId === 'thread-A')
     const threadB = data.find((c) => c.threadId === 'thread-B')
     // Thread A reverts to unresolved; thread B's concurrent toggle survives the rollback.

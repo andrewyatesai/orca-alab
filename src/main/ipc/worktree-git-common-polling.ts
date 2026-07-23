@@ -2,7 +2,8 @@ import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   WorktreeBasePollEvent,
-  WorktreeBaseSubscription
+  WorktreeBaseSubscription,
+  WorktreePollerWindowVisibility
 } from './worktree-base-directory-poller'
 
 // Shared with the darwin primary-metadata poll so the platforms cannot drift
@@ -228,6 +229,7 @@ export async function startGitCommonPolling(
   commonDirPath: string,
   onEvents: (events: WorktreeBasePollEvent[]) => void,
   pollIntervalMs: number,
+  visibility: WorktreePollerWindowVisibility,
   onFullScan?: () => void,
   includePrimary = true
 ): Promise<WorktreeBaseSubscription> {
@@ -235,39 +237,81 @@ export async function startGitCommonPolling(
   let ticking = false
   let tickCount = 0
   let snapshot = await snapshotGitCommon(commonDirPath, undefined, includePrimary)
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let parkedWhileHidden = false
 
-  const timer = setInterval(() => {
-    if (disposed || ticking) {
+  const tick = async (forceIndexRead = false): Promise<void> => {
+    timer = null
+    if (disposed) {
+      return
+    }
+    if (!visibility.isWindowVisible()) {
+      parkedWhileHidden = true
+      return
+    }
+    if (ticking) {
       return
     }
     ticking = true
+    // Why: measure from tick start so cadence is start-to-start, not gap-after-completion (which would
+    // land each visible refresh a full scan-duration late every tick).
+    const startedAt = Date.now()
     tickCount++
-    const forceIndexRead = tickCount % INDEX_BACKSTOP_TICKS === 0
+    const shouldForceIndexRead = forceIndexRead || tickCount % INDEX_BACKSTOP_TICKS === 0
     onFullScan?.()
-    void snapshotGitCommon(commonDirPath, snapshot, includePrimary, forceIndexRead)
-      .then((next) => {
-        if (disposed) {
-          return
-        }
-        const events = diffGitCommon(commonDirPath, snapshot, next)
-        snapshot = next
-        if (events.length > 0) {
-          onEvents(events)
-        }
-      })
-      .catch(() => {
-        // Transient fs error: keep the previous snapshot and retry next tick.
-      })
-      .finally(() => {
-        ticking = false
-      })
-  }, pollIntervalMs)
+    try {
+      const next = await snapshotGitCommon(
+        commonDirPath,
+        snapshot,
+        includePrimary,
+        shouldForceIndexRead
+      )
+      if (disposed) {
+        return
+      }
+      const events = diffGitCommon(commonDirPath, snapshot, next)
+      snapshot = next
+      if (events.length > 0) {
+        onEvents(events)
+      }
+    } catch {
+      // Transient fs error: keep the previous snapshot and retry next tick.
+    } finally {
+      ticking = false
+    }
+    if (!disposed) {
+      // Why: clamp to [0, pollIntervalMs]. Date.now() is not monotonic — a backward wall-clock jump (NTP) would
+      // otherwise make elapsed negative and push the next tick out by the adjustment (suppressing refreshes for
+      // minutes); the upper clamp caps the wait at one interval, the lower clamp keeps a long scan from going negative.
+      const nextDelay = Math.max(
+        0,
+        Math.min(pollIntervalMs, pollIntervalMs - (Date.now() - startedAt))
+      )
+      timer = setTimeout(() => void tick(), nextDelay)
+      timer.unref?.()
+    }
+  }
+
+  const unsubscribeVisibility = visibility.onWindowBecameVisible(() => {
+    if (disposed || !parkedWhileHidden) {
+      return
+    }
+    parkedWhileHidden = false
+    // Why: a linked index can change without its parent dir signature moving;
+    // force the leaf read when diffing the retained pre-hide snapshot.
+    void tick(true)
+  })
+
+  timer = setTimeout(() => void tick(), pollIntervalMs)
   timer.unref?.()
 
   return {
     unsubscribe: async () => {
       disposed = true
-      clearInterval(timer)
+      if (timer) {
+        clearTimeout(timer)
+      }
+      unsubscribeVisibility()
     }
   }
 }

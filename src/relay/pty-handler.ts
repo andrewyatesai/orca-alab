@@ -1004,6 +1004,17 @@ export class PtyHandler {
       throw new Error(`PTY "${id}" not found (identity mismatch)`)
     }
 
+    // Why: on SSH reattach the viewport may have changed while disconnected, but no fresh onResize fires
+    // (local xterm is already at the new size), so attach params carry the only reassertion — resize here
+    // or the remote PTY keeps stale dimensions and TUIs render garbled until a manual resize (#7209).
+    const attachCols = Number(params.cols)
+    const attachRows = Number(params.rows)
+    if (Number.isFinite(attachCols) && Number.isFinite(attachRows)) {
+      const cols = Math.max(1, Math.min(500, Math.floor(attachCols)))
+      const rows = Math.max(1, Math.min(500, Math.floor(attachRows)))
+      managed.pty.resize(cols, rows)
+    }
+
     managed.startupIngress?.snapshotBarrier()
 
     // Why: renderer hasn't registered replay handlers yet during spawn, so return to the caller instead of notifying too early.

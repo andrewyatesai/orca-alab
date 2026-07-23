@@ -895,6 +895,32 @@ describe('PtyHandler', () => {
     ).rejects.toThrow('PTY "pty-1" not found')
   })
 
+  it('resizes the backing PTY to attach cols/rows so an SSH reattach is not stuck at stale size (#7209)', async () => {
+    await dispatcher.callRequest('pty.spawn', { cols: 80, rows: 24 })
+    mockPtyInstance.resize.mockClear()
+
+    await dispatcher.callRequest('pty.attach', {
+      id: 'pty-1',
+      cols: 120,
+      rows: 40,
+      suppressReplayNotification: true
+    })
+
+    expect(mockPtyInstance.resize).toHaveBeenCalledWith(120, 40)
+  })
+
+  it('does not resize on attach when cols/rows are absent (#7209)', async () => {
+    await dispatcher.callRequest('pty.spawn', { cols: 80, rows: 24 })
+    mockPtyInstance.resize.mockClear()
+
+    await dispatcher.callRequest('pty.attach', {
+      id: 'pty-1',
+      suppressReplayNotification: true
+    })
+
+    expect(mockPtyInstance.resize).not.toHaveBeenCalled()
+  })
+
   it('settles concurrent immediate shutdown when attach proves the shell exited', async () => {
     const mockKill = vi.fn()
     mockPtySpawn.mockReturnValue({

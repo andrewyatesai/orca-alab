@@ -53,6 +53,44 @@ describe('AppImage CLI redirect', () => {
     ).toBeNull()
   })
 
+  it('redirects a CLI command that carries a desktop flag, stripping the flag', () => {
+    expect(
+      getAppImageCliArgs(
+        ['orca-linux.AppImage', 'serve', '--no-sandbox', '--json'],
+        { APPIMAGE: '/opt/orca' },
+        {
+          platform: 'linux',
+          isPackaged: true,
+          commandNames: ['serve', 'status', 'terminal']
+        }
+      )
+    ).toEqual(['serve', '--json'])
+  })
+
+  it('marks the child env when a redirected CLI launch disabled the sandbox', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-appimage-cli-redirect-'))
+    const cliEntryPath = join(root, 'app.asar.unpacked', 'out', 'cli', 'index.js')
+    await mkdir(join(root, 'app.asar.unpacked', 'out', 'cli'), { recursive: true })
+    await writeFile(cliEntryPath, '', 'utf8')
+    const spawn = vi.fn((..._args: unknown[]) => ({ status: 0 }))
+
+    maybeRedirectAppImageCliLaunch({
+      argv: ['orca-linux.AppImage', 'serve', '--no-sandbox'],
+      env: { APPIMAGE: '/opt/orca/orca-linux.AppImage' },
+      platform: 'linux',
+      isPackaged: true,
+      resourcesPath: root,
+      execPath: '/opt/orca/orca-ide',
+      commandNames: ['serve'],
+      spawn: spawn as never
+    })
+
+    expect(spawn).toHaveBeenCalledWith('/opt/orca/orca-ide', [cliEntryPath, 'serve'], {
+      env: expect.objectContaining({ ORCA_APPIMAGE_NO_SANDBOX: '1' }),
+      stdio: 'inherit'
+    })
+  })
+
   it('spawns the unpacked CLI entrypoint with Electron node mode', async () => {
     const root = await mkdtemp(join(tmpdir(), 'orca-appimage-cli-redirect-'))
     const cliEntryPath = join(root, 'app.asar.unpacked', 'out', 'cli', 'index.js')

@@ -20,6 +20,11 @@ function configureHeadlessServeChromiumFlags(): void {
   // exhausted shared-memory mount as ENOSPC and can fatal in utility services
   // such as font_data. Keep browser panes on disk-backed temp storage instead.
   app.commandLine.appendSwitch('disable-dev-shm-usage')
+  // Why: an externally provided DISPLAY is commonly Xvfb too (no GPU); a GPU-process
+  // fork can trap before serve readiness, so force software rendering for every
+  // headless-serve display path, not only the one we start below (#9785).
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('disable-gpu')
 }
 
 function xvfbSocketPath(displayNumber: number): string {
@@ -159,10 +164,6 @@ export function ensureVirtualDisplayForHeadlessServe(options: { isServeMode: boo
   }
 
   process.env.DISPLAY = VIRTUAL_DISPLAY
-  // Why: the offscreen browser must use software rendering; a virtual display has
-  // no GPU. Must be set before app.whenReady (this runs at module load).
-  app.disableHardwareAcceleration()
-  app.commandLine.appendSwitch('disable-gpu')
 
   // Why: don't leave a stray Xvfb process behind when serve exits.
   app.once('will-quit', stopVirtualDisplay)

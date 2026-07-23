@@ -78,6 +78,10 @@ describe('ensureVirtualDisplayForHeadlessServe', () => {
     expect(spawnMock).not.toHaveBeenCalled()
     expect(process.env.DISPLAY).toBe(':0')
     expect(appMock.commandLine.appendSwitch).toHaveBeenCalledWith('disable-dev-shm-usage')
+    // An externally provided DISPLAY is commonly Xvfb too, so software rendering
+    // must be forced on this path as well (#9785).
+    expect(appMock.disableHardwareAcceleration).toHaveBeenCalled()
+    expect(appMock.commandLine.appendSwitch).toHaveBeenCalledWith('disable-gpu')
   })
 
   it('reports unsupported (no spawn) when Xvfb is not installed', async () => {

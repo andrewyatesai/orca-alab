@@ -80,6 +80,33 @@ describe('serveOrcaApp', () => {
     vi.restoreAllMocks()
     delete process.env.ORCA_APP_EXECUTABLE
     delete process.env.ORCA_APP_EXECUTABLE_NEEDS_APP_ROOT
+    delete process.env.ORCA_APPIMAGE_NO_SANDBOX
+  })
+
+  it('preserves an AppImage no-sandbox launch for the server child', async () => {
+    process.env.ORCA_APPIMAGE_NO_SANDBOX = '1'
+    const child = {
+      kill: vi.fn(),
+      once: vi.fn(
+        (event: string, handler: (code: number | null, signal: string | null) => void) => {
+          if (event === 'exit') {
+            queueMicrotask(() => handler(0, null))
+          }
+          return child
+        }
+      )
+    }
+    spawnMock.mockReturnValue(child)
+
+    await expect(serveOrcaApp({ json: true })).resolves.toBe(0)
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      '/Applications/Orca.app/Contents/MacOS/Orca',
+      ['--no-sandbox', '--serve', '--serve-json'],
+      expect.any(Object)
+    )
+    const spawnOptions = spawnMock.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv }
+    expect(spawnOptions.env).not.toHaveProperty('ORCA_APPIMAGE_NO_SANDBOX')
   })
 
   it('pins the Electron child cwd to the app root instead of the caller cwd', async () => {

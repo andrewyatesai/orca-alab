@@ -75,7 +75,14 @@ export function serveOrcaApp(
   } = {}
 ): Promise<number> {
   const executable = resolveForegroundOrcaExecutable()
-  const childArgs = [...getExecutableAppArgs(), '--serve']
+  const childArgs = [...getExecutableAppArgs()]
+  // Why: an operator who launched the packaged AppImage with --no-sandbox
+  // (headless Linux without user namespaces) must keep that flag on the serve
+  // Electron child, or it re-enables the sandbox and crashes before pairing (#9785).
+  if (process.env.ORCA_APPIMAGE_NO_SANDBOX === '1') {
+    childArgs.push('--no-sandbox')
+  }
+  childArgs.push('--serve')
   if (args.json) {
     childArgs.push('--serve-json')
   }
@@ -101,12 +108,16 @@ export function serveOrcaApp(
     childArgs.push('--serve-recipe-json', '--serve-project-root', args.projectRoot)
   }
 
+  const childEnv = stripElectronRunAsNode(process.env)
+  // Why: consumed above as the --no-sandbox trigger; the child re-derives intent
+  // from argv, so don't also leak the marker into its environment (#9785).
+  delete childEnv.ORCA_APPIMAGE_NO_SANDBOX
   const child = spawnProcess(executable, childArgs, {
     detached: args.recipeJson === true,
     cwd: resolveAppRoot(),
     stdio: args.recipeJson === true ? ['ignore', 'pipe', 'inherit'] : 'inherit',
     ...getExecutableSpawnOptions(executable),
-    env: stripElectronRunAsNode(process.env)
+    env: childEnv
   })
 
   if (args.recipeJson) {

@@ -12,6 +12,7 @@ use crypto_box::{
     aead::{generic_array::GenericArray, Aead},
     PublicKey, SalsaBox, SecretKey,
 };
+use zeroize::Zeroize;
 
 pub const PUBLIC_KEY_BYTES: usize = 32;
 pub const SECRET_KEY_BYTES: usize = 32;
@@ -26,6 +27,21 @@ pub struct SharedBox(SalsaBox);
 pub struct KeyPair {
     pub public_key: [u8; PUBLIC_KEY_BYTES],
     pub secret_key: [u8; SECRET_KEY_BYTES],
+}
+
+impl Zeroize for KeyPair {
+    fn zeroize(&mut self) {
+        // Only the X25519 identity secret is sensitive; the public key is wire data.
+        self.secret_key.zeroize();
+    }
+}
+
+impl Drop for KeyPair {
+    // Why: secret_key is a bare copy of the identity secret; wipe it on drop so it
+    // can't be recovered from freed heap/stack/swap on a compromised host.
+    fn drop(&mut self) {
+        self.secret_key.zeroize();
+    }
 }
 
 fn array32(bytes: &[u8]) -> Option<[u8; 32]> {
@@ -123,6 +139,16 @@ mod tests {
         sealed[last] ^= 0x01;
         assert_eq!(decrypt_bytes(&sealed, &shared), None);
         assert_eq!(decrypt_bytes(&[0u8; NONCE_BYTES + OVERHEAD_BYTES - 1], &shared), None);
+    }
+
+    #[test]
+    fn zeroize_wipes_the_secret_key_but_keeps_the_public_key() {
+        let mut pair = key_pair_from_seed(&hex(ALICE_SK)).unwrap();
+        let public = pair.public_key;
+        pair.zeroize();
+        // Secret material is wiped; the wire public key is untouched.
+        assert_eq!(pair.secret_key, [0u8; SECRET_KEY_BYTES]);
+        assert_eq!(pair.public_key, public);
     }
 
     #[test]

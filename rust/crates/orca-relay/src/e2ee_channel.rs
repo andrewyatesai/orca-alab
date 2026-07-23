@@ -15,6 +15,7 @@ use orca_crypto::{
     PUBLIC_KEY_BYTES,
 };
 use serde_json::Value;
+use zeroize::Zeroizing;
 
 const MAX_CONSECUTIVE_DECRYPT_FAILURES: u32 = 5;
 /// Handshake watchdog the owner arms a timer for; on fire it calls
@@ -68,7 +69,8 @@ pub struct E2eeChannel {
     consecutive_failures: u32,
     handshake_complete: bool,
     destroyed: bool,
-    server_secret_key: Vec<u8>,
+    // Long-lived NaCl secret; wiped on drop so it can't linger in freed memory.
+    server_secret_key: Zeroizing<Vec<u8>>,
     device_token: Option<String>,
     validate_token: ValidateToken,
     next_nonce: NonceSource,
@@ -85,7 +87,7 @@ impl E2eeChannel {
             consecutive_failures: 0,
             handshake_complete: false,
             destroyed: false,
-            server_secret_key,
+            server_secret_key: Zeroizing::new(server_secret_key),
             device_token: None,
             validate_token,
             next_nonce,
@@ -331,6 +333,15 @@ mod tests {
 
     fn is_error(effect: &E2eeEffect) -> bool {
         matches!(effect, E2eeEffect::Error { .. })
+    }
+
+    #[test]
+    fn server_secret_key_is_held_in_a_zeroizing_container() {
+        let ctx = setup();
+        // Compile-time pin: the long-lived secret must live in a zeroize-on-drop
+        // container (not a bare Vec), while still holding the usable 32-byte key.
+        let key: &Zeroizing<Vec<u8>> = &ctx.channel.server_secret_key;
+        assert_eq!(key.len(), PUBLIC_KEY_BYTES);
     }
 
     #[test]

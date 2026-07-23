@@ -701,6 +701,7 @@ dependencies = [
  "crypto_secretbox",
  "curve25519-dalek",
  "salsa20",
+ "zeroize",
 ]
 
 [[package]]
@@ -791,6 +792,7 @@ dependencies = [
  "orca-crypto",
  "serde",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]

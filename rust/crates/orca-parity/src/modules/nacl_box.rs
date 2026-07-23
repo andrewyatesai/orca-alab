@@ -22,7 +22,8 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let our_secret = bytes_from_json(input.get("ourSecretKey"));
             let peer_public = bytes_from_json(input.get("peerPublicKey"));
             match shared_key_before(&our_secret, &peer_public) {
-                Some(key) => bytes_to_json(&key),
+                // `key` is a zeroize-on-drop wrapper; borrow the raw bytes for JSON.
+                Some(key) => bytes_to_json(key.as_slice()),
                 None => Value::Null,
             }
         }

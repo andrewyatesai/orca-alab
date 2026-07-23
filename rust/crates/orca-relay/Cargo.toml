@@ -18,10 +18,13 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 # feeding the relay/renderer wasm) can opt out and keep ~400 KB of curve25519/
 # salsa20/poly1305 out of an artifact that never runs the encrypted channel.
 orca-crypto = { path = "../orca-crypto", optional = true }
+# Wipe the long-lived server NaCl secret held by the channel on drop; only pulled
+# in with the e2ee channel that actually holds key material.
+zeroize = { version = "1", default-features = false, features = ["alloc"], optional = true }
 
 [features]
 default = ["e2ee"]
-e2ee = ["dep:orca-crypto"]
+e2ee = ["dep:orca-crypto", "dep:zeroize"]
 
 [lints.rust]
 unsafe_code = "forbid"

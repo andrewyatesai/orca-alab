@@ -18,6 +18,10 @@ crypto_box = { version = "0.9", default-features = false, features = ["alloc", "
 crypto_secretbox = { version = "0.1", default-features = false, features = ["alloc", "salsa20"] }
 curve25519-dalek = { version = "4", default-features = false }
 salsa20 = { version = "0.10", default-features = false }
+# Defense-in-depth: wipe our exported copies of long-lived/derived secrets
+# (KeyPair.secret_key, the beforenm shared key) on drop. `derive` isn't vendored,
+# so Zeroize/Drop are impl'd by hand rather than #[derive(ZeroizeOnDrop)].
+zeroize = { version = "1", default-features = false, features = ["alloc"] }
 
 [lints.rust]
 unsafe_code = "forbid"

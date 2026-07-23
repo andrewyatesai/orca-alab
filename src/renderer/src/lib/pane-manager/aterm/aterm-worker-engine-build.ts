@@ -21,6 +21,7 @@ import {
 } from './aterm-worker-font-registry'
 import type { AtermThemeColors } from './aterm-theme-colors'
 import { copyBudgetedStep, type EngineBudgetedSearchStep } from './aterm-engine-budgeted-search'
+import { presentCpuFrameBands } from './aterm-worker-band-present'
 
 export type { WorkerResidentFonts } from './aterm-worker-font-registry'
 export type { EngineBudgetedSearchStep } from './aterm-engine-budgeted-search'
@@ -242,7 +243,6 @@ export function workerWasmHeapBytes(): number {
   return (cpuWasmMemory?.buffer.byteLength ?? 0) + (gpuWasmMemory?.buffer.byteLength ?? 0)
 }
 
-// TEMP DIAGNOSTIC
 /** CPU engine: rasterize → zero-copy 2d blit (identical to the main-thread painter). */
 export async function buildCpuEngine(
   p: StoredInit,
@@ -277,12 +277,7 @@ export async function buildCpuEngine(
     t.render()
     width = t.width
     height = t.height
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-    const view = new Uint8ClampedArray(memory.buffer, t.rgba_ptr(), width * height * 4)
-    canvasCtx.putImageData(new ImageData(view, width, height), 0, 0)
+    presentCpuFrameBands(canvasCtx, canvas, t, memory, width, height)
   }
   return {
     kind: 'cpu',

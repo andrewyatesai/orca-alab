@@ -47,6 +47,11 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
   let lastCssH = -1
   let lastChromePad = -1
   let lastChromeHead = -1
+  // E3 overlay-triggered full-band policy: overlays (search/link/prediction)
+  // composite onto THIS canvas after the framebuffer, so banded present is only
+  // safe while no overlay pixels exist on glass. Any overlay active this frame
+  // OR last frame (its old pixels need erasing) forces the full blit.
+  let lastOverlaysActive = false
 
   return (): void => {
     const ctx = deps.ctx
@@ -64,11 +69,13 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
     const width = term.width
     const height = term.height
     // Only assign on a real size change: writing canvas.width/height (even the same
-    // value) resets + reallocates the backing store every frame. putImageData below
-    // overwrites the whole canvas, so skipping the no-op assign is safe.
+    // value) resets + reallocates the backing store every frame. A resize CLEARS
+    // the backing store, so it always forces the full blit below.
+    let resized = false
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width
       canvas.height = height
+      resized = true
     }
     // CSS size in logical pixels so the device-pixel framebuffer maps 1:1; reads
     // dpr live so a DPI move (M2) updates the on-screen size on the next frame.
@@ -97,47 +104,90 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
       lastChromePad = chromePad
       lastChromeHead = chromeHead
     }
+    // Overlay inputs for this frame, read once: they decide the present policy
+    // below AND feed the overlay painters.
+    const searchMatches = deps.getSearchMatches()
+    const searchActiveIndex = deps.getSearchActiveIndex()
+    const hoveredLinkSpan = deps.getHoveredLinkSpan()
+    const predictionCells = deps.getPredictionCells()
+    const overlaysActive =
+      searchMatches.length > 0 || hoveredLinkSpan !== null || predictionCells.length > 0
     // Zero-copy blit: view the engine's framebuffer directly in wasm linear memory
     // (no copy out of wasm at all — rgba_ptr returns the byte offset). Read the ptr
     // right after render() and use it synchronously before any other engine call:
     // render/process may reallocate the buffer, and wasm memory growth detaches
     // memory.buffer, so the view is rebuilt from the CURRENT buffer every frame.
-    const fbView = new Uint8ClampedArray(deps.memory.buffer, term.rgba_ptr(), width * height * 4)
-    ctx.putImageData(new ImageData(fbView, width, height), 0, 0)
-    // Cell metrics read from the engine each frame: set_px / set_line_height
-    // re-rasterize mid-life (DPI move, live font change) and stale copies would
-    // misplace the overlay rects below.
-    const cellWidth = term.cell_width
-    const cellHeight = term.cell_height
-    // Overlays are computed in grid coords; the grid sits at (pad, pad+head)
-    // inside the chrome-padded frame, so shift them onto the grid.
-    ctx.save()
-    ctx.translate(chromePad, chromePad + chromeHead)
-    // Overlay search highlights last so they sit above the rendered glyphs.
-    paintAtermSearchHighlights(ctx, deps.getSearchMatches(), deps.getSearchActiveIndex(), {
-      term,
-      cellWidth,
-      cellHeight,
-      rows: getRows()
-    })
-    // Then the hovered-link underline (its own affordance, above the glyphs).
-    paintAtermLinkUnderline(ctx, deps.getHoveredLinkSpan(), deps.getFgColor(), {
-      cellWidth,
-      cellHeight,
-      dpr
-    })
-    // Predictive-echo ghosts last: they sit above the real glyphs (display-only,
-    // in active-grid coords like search/link — inside the same chrome translate).
-    paintAtermPredictionOverlay(ctx, deps.getPredictionCells(), {
-      cellWidth,
-      cellHeight,
-      dpr,
-      fgColor: deps.getFgColor()
-    })
-    ctx.restore()
+    // Dirty-band present (audit E3): the engine re-converts only damaged bands
+    // into the persistent RGBA buffer and exports them; band blits are safe
+    // ONLY on an overlay-free canvas (overlay-triggered full-band policy —
+    // stale overlay pixels outside the bands would otherwise survive).
+    // `?.()` tolerates a pre-band artifact (fall back to full blit).
+    const bandCount: number | undefined = term.present_band_count?.()
+    const fullBlit =
+      resized || overlaysActive || lastOverlaysActive || bandCount === undefined
+    let blitted = false
+    if (fullBlit || (bandCount !== undefined && bandCount > 0)) {
+      const fbView = new Uint8ClampedArray(
+        deps.memory.buffer,
+        term.rgba_ptr(),
+        width * height * 4
+      )
+      const frame = new ImageData(fbView, width, height)
+      if (fullBlit) {
+        ctx.putImageData(frame, 0, 0)
+      } else {
+        // Packed x,y,w,h i32 quads, frame-absolute device px, read synchronously
+        // after render() (same discipline as rgba_ptr).
+        const bands = new Int32Array(
+          deps.memory.buffer,
+          term.present_bands_ptr(),
+          (bandCount as number) * 4
+        )
+        for (let i = 0; i < bands.length; i += 4) {
+          ctx.putImageData(frame, 0, 0, bands[i], bands[i + 1], bands[i + 2], bands[i + 3])
+        }
+      }
+      blitted = true
+    }
+    lastOverlaysActive = overlaysActive
+    if (overlaysActive) {
+      // Cell metrics read from the engine each frame: set_px / set_line_height
+      // re-rasterize mid-life (DPI move, live font change) and stale copies would
+      // misplace the overlay rects below.
+      const cellWidth = term.cell_width
+      const cellHeight = term.cell_height
+      // Overlays are computed in grid coords; the grid sits at (pad, pad+head)
+      // inside the chrome-padded frame, so shift them onto the grid.
+      ctx.save()
+      ctx.translate(chromePad, chromePad + chromeHead)
+      // Overlay search highlights last so they sit above the rendered glyphs.
+      paintAtermSearchHighlights(ctx, searchMatches, searchActiveIndex, {
+        term,
+        cellWidth,
+        cellHeight,
+        rows: getRows()
+      })
+      // Then the hovered-link underline (its own affordance, above the glyphs).
+      paintAtermLinkUnderline(ctx, hoveredLinkSpan, deps.getFgColor(), {
+        cellWidth,
+        cellHeight,
+        dpr
+      })
+      // Predictive-echo ghosts last: they sit above the real glyphs (display-only,
+      // in active-grid coords like search/link — inside the same chrome translate).
+      paintAtermPredictionOverlay(ctx, predictionCells, {
+        cellWidth,
+        cellHeight,
+        dpr,
+        fgColor: deps.getFgColor()
+      })
+      ctx.restore()
+    }
     // e2e latency probe: the putImageData above is the real CPU present, so
-    // stamp it here — only reached on a frame that actually blitted (the early
-    // returns above skip no-op coalesced frames). Flag-gated, no-op otherwise.
-    recordAtermPresent()
+    // stamp it here — only reached on a frame that actually blitted (zero-band
+    // overlay-free frames skip the canvas entirely). Flag-gated, no-op otherwise.
+    if (blitted) {
+      recordAtermPresent()
+    }
   }
 }

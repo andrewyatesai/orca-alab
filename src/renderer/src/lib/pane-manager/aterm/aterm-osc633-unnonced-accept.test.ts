@@ -85,23 +85,34 @@ describe('un-nonced OSC 633;E is accepted by the engine (real wasm)', () => {
     }
   })
 
-  it('surfaces the un-nonced command line once the engine exposes an accessor', () => {
+  it('an un-nonced 633 lifecycle builds the block ledger (E rides the same gate)', () => {
     const term = openTerminal()
     try {
-      term.process_str('\x1b]133;A\x07$ \x1b]633;E;npm run dev\x07\x1b]133;C\x07out\r\n')
-      term.process_str('\x1b]133;D;0\x07\x1b]133;A\x07$ ')
+      // A 633-only lifecycle: prompt → command input → explicit command text
+      // (E) → exec → output → finished; the next prompt's A seals the block.
+      term.process_str('\x1b]633;A\x07$ npm run dev')
+      term.process_str('\x1b]633;B\x07\r\n')
+      term.process_str('\x1b]633;E;npm run dev\x07')
+      term.process_str('\x1b]633;C\x07dev output line\r\n')
+      term.process_str('\x1b]633;D;0\x07')
+      term.process_str('\x1b]633;A\x07$ ')
 
-      // Feature-detect the Wave-3 engine binding (3A lane owns the pin bump):
-      // on the current pin none of these exist and the parse-path assertions
-      // above carry the contract; at the bump this hardens automatically.
-      const accessor = ['last_command_line', 'last_commandline', 'command_line_at']
-        .map((name) => (term as unknown as Record<string, unknown>)[name])
-        .find((candidate) => typeof candidate === 'function') as
-        | (() => string | undefined)
-        | undefined
-      if (accessor) {
-        expect(accessor.call(term)).toContain('npm run dev')
+      // A sealed, readable block is possible ONLY if the bare (un-nonced) 633
+      // sequences passed shell_nonce_gate_ok — handler_osc_633 gates ONCE at
+      // entry, so the same acceptance admits 633;E's commandline (stored on
+      // this block; preferred by block_command_text over screen extraction).
+      // A nonce-enforcing future pin would drop every mark and this read
+      // would return undefined — failing loudly, per the Critic note.
+      const raw = term.last_command_output()
+      expect(raw, 'un-nonced 633 lifecycle must yield a completed block').toBeTruthy()
+      const parsed = JSON.parse(raw as string) as {
+        status: string
+        text?: string
+        exitCode?: number | null
       }
+      expect(parsed.status).toBe('ok')
+      expect(parsed.text).toContain('dev output line')
+      expect(parsed.exitCode).toBe(0)
     } finally {
       term.free()
     }

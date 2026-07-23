@@ -323,6 +323,7 @@ const SkillsPage = lazy(() => import('./components/skills/SkillsPage'))
 const WorkspaceSpacePage = lazy(() => import('./components/workspace-space/WorkspaceSpacePage'))
 const MobilePage = lazy(() => import('./components/mobile/MobilePage'))
 const QuickOpen = lazy(() => import('./components/QuickOpen'))
+const FederatedSearchPalette = lazy(() => import('./components/FederatedSearchPalette'))
 const WorktreeJumpPalette = lazy(() => import('./components/WorktreeJumpPalette'))
 const WorkspaceCleanupDialog = lazy(
   () => import('./components/workspace-cleanup/WorkspaceCleanupDialog')
@@ -1550,6 +1551,15 @@ function App(): React.JSX.Element {
         actions.showRightSidebarSearch(query ? { query } : undefined)
       }
 
+      // In a terminal, Cmd/Ctrl+Shift+F means "search all terminals" (the federated
+      // palette, FEDERATED-SEARCH-DESIGN §1); everywhere else the chord keeps the
+      // sidebar file search below. Checked first so the terminal claim wins.
+      if (context === 'terminal' && matchShortcut('terminal.searchAllPanes')) {
+        input.preventDefault()
+        useAppStore.getState().openModal('federated-search')
+        return
+      }
+
       if (matchShortcut('sidebar.search.toggle') && canRevealRightSidebar) {
         // With a folder selected in the explorer, Cmd/Ctrl+Shift+F means "Find in Folder" — seed the include pattern with it, not a text search.
         const selectedFolderRelativePath =
@@ -2406,6 +2416,16 @@ function App(): React.JSX.Element {
                   compact
                 >
                   <QuickOpen />
+                </RecoverableRenderErrorBoundary>
+              ) : null}
+              {resolvedMountedLazyModalIds.has('federated-search') ? (
+                <RecoverableRenderErrorBoundary
+                  boundaryId="modal.federated-search"
+                  surface="modal"
+                  resetKey={activeModal === 'federated-search'}
+                  compact
+                >
+                  <FederatedSearchPalette />
                 </RecoverableRenderErrorBoundary>
               ) : null}
               {resolvedMountedLazyModalIds.has('worktree-palette') ? (

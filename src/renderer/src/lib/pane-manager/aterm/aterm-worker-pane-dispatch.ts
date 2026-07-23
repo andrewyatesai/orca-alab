@@ -3,7 +3,7 @@
 // messages (init / fallback / dispose); every other pane-scoped command lands here.
 // Split from the entry to keep both files under the line budget.
 
-import type { StoredInit, WorkerEngine } from './aterm-worker-engine-build'
+import type { EngineHandle, StoredInit, WorkerEngine } from './aterm-worker-engine-build'
 import type { WorkerTerminal } from './aterm-worker-terminal'
 import type { WorkerFrameScheduler } from './aterm-worker-frame-scheduler'
 import {
@@ -63,6 +63,9 @@ export type PaneRuntime = {
   engineKind: 'cpu' | 'gpu' | null
   /** The engine module's linear memory (the spill compositor's byte source). */
   engineMemory: WebAssembly.Memory | null
+  /** The full engine handle — the federated fan-out drives its budgeted-search
+   *  surface directly (never the pane's find-bar state machine). */
+  engineHandle: EngineHandle | null
   storedInit: StoredInit | null
   canvas: OffscreenCanvas | null
   /** Don't fall back twice if more than one init error is posted for this pane. */

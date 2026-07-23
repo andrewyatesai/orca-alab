@@ -27,6 +27,7 @@ import { wireAtermWindowChrome } from './aterm-effects-settings'
 import { wireAtermPaneSpill } from './aterm-pane-spill-wiring'
 import type { AtermPaneWiringConfig, AtermWiredPane } from './aterm-pane-wiring-types'
 import type { AtermPaneController } from './aterm-pane-controller-types'
+import { buildFederatedSearchTarget } from './aterm-pane-federated-target'
 import { createAtermControllerOptionReaders } from './aterm-controller-option-readers'
 import { createAtermPredictionEcho } from './aterm-prediction-echo'
 import { driveAtermRainPulse } from './aterm-rain-pulse'
@@ -70,8 +71,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // Apply the user's line-height before reading cell metrics so the grid is sized to
   // the real (scaled) cell height from frame 1; set_px re-applies it on later changes.
   term.set_line_height(getLineHeight())
-  metrics.cellWidth = term.cell_width
-  metrics.cellHeight = term.cell_height
+  Object.assign(metrics, { cellWidth: term.cell_width, cellHeight: term.cell_height })
   let disposed = false
 
   // Grid state + reflow + the explicit resize override live in the sizing module;
@@ -399,6 +399,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // feature-detected engine binding.
     lastCommandOutputAsync: buildAtermLastCommandOutputMember(term),
     bindSpillPaneKey: spill.bindSpillPaneKey,
+    // Federated search (5A): worker slot id or the in-process engine seam.
+    federatedSearchTarget: buildFederatedSearchTarget(term, pending, gridSizing, () => disposed),
     onSelectionMutation: (handler: () => void) => void selectionMutationListeners.add(handler),
     resize: (nextCols: number, nextRows: number) => gridSizing.resize(nextCols, nextRows),
     fitToContainer: () => gridSizing.fitToContainer(),

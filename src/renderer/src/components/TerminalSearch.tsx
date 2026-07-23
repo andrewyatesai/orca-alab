@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, type ReactElement, type ReactNode } from 'react'
-import { ChevronUp, ChevronDown, X, CaseSensitive, Regex } from 'lucide-react'
+import { ChevronUp, ChevronDown, X, CaseSensitive, Regex, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAppStore } from '@/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { SearchState } from '@/components/terminal-pane/keyboard-handlers'
 import { translate } from '@/i18n/i18n'
@@ -389,6 +390,20 @@ export default function TerminalSearch({
       </SearchButton>
 
       <div className="mx-0.5 h-4 w-px bg-border" />
+
+      <SearchButton
+        tip={translate('auto.components.TerminalSearch.searchAllTerminals', 'Search all terminals')}
+        onClick={() => {
+          // Escape hatch to the global federated palette, reopened with the
+          // current query (FEDERATED-SEARCH-DESIGN §1 Invocation).
+          const currentQuery = query
+          onClose()
+          useAppStore.getState().openModal('federated-search', { query: currentQuery })
+        }}
+        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+      >
+        <Layers size={14} />
+      </SearchButton>
 
       <SearchButton
         tip={translate('auto.components.TerminalSearch.db234b7519', 'Close')}

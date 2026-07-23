@@ -22,6 +22,9 @@ export type AtermPendingStrategy = {
   memory?: WebAssembly.Memory
   /** GPU only: the acquired WebGL adapter/backend string (else null). */
   adapterInfo: string | null
+  /** Worker path only: this pane's slot id on the shared render worker — the
+   *  federated fan-out (federatedFind) names panes by it. Unset in-process. */
+  federatedWorkerPaneId?: number
   bindPainter: (binding: AtermPainterBinding) => AtermDrawStrategy
 }
 

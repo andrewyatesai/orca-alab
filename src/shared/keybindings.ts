@@ -102,6 +102,7 @@ export type KeybindingActionId =
   | 'terminal.copySelection'
   | 'terminal.paste'
   | 'terminal.search'
+  | 'terminal.searchAllPanes'
   | 'terminal.clear'
   | 'terminal.focusNextPane'
   | 'terminal.focusPreviousPane'
@@ -950,6 +951,26 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     defaultBindings: platformBindings(['Mod+F'])
   },
   {
+    id: 'terminal.searchAllPanes',
+    title: 'Search all terminals',
+    group: 'Terminal Panes',
+    scope: 'terminal',
+    searchKeywords: [
+      'shortcut',
+      'terminal',
+      'search',
+      'find',
+      'all',
+      'panes',
+      'global',
+      'federated'
+    ],
+    // Why: shares Mod+Shift+F with the global sidebar file search on purpose — in a
+    // terminal the chord means "search terminals" (FEDERATED-SEARCH-DESIGN §1); the
+    // scopes differ, so the conflict detector doesn't flag the pair.
+    defaultBindings: platformBindings(['Mod+Shift+F'])
+  },
+  {
     id: 'terminal.clear',
     title: 'Clear active pane',
     group: 'Terminal Panes',
@@ -1068,7 +1089,15 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     group: 'Terminal Panes',
     scope: 'terminal',
     // Why: iTerm2 "Open Composer" parity (⇧⌘.); Warp's Ctrl+G is a live shell byte where Mod=Ctrl.
-    searchKeywords: ['shortcut', 'terminal', 'compose', 'multiline', 'draft', 'editor', 'rich input'],
+    searchKeywords: [
+      'shortcut',
+      'terminal',
+      'compose',
+      'multiline',
+      'draft',
+      'editor',
+      'rich input'
+    ],
     defaultBindings: platformBindings(['Mod+Shift+Period'])
   },
   ...buildAgentTabKeybindingDefinitions()
@@ -2155,7 +2184,9 @@ export function keybindingsShareConflictIdentity(
   second: string,
   platform: NodeJS.Platform
 ): boolean {
-  return keybindingConflictIdentity(first, platform) === keybindingConflictIdentity(second, platform)
+  return (
+    keybindingConflictIdentity(first, platform) === keybindingConflictIdentity(second, platform)
+  )
 }
 
 function keybindingConflictIdentities(

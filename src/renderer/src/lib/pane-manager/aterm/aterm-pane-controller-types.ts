@@ -3,6 +3,7 @@ import type {
   AtermFileLinkOpener,
   AtermLinkProviderSource
 } from './aterm-link-input'
+import type { AtermFederatedSearchTarget } from './aterm-federated-search-target'
 import type { AtermLastCommandOutput } from './aterm-last-command-output'
 import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
 import type { AtermLinkContext } from './aterm-url-link-routing'
@@ -47,10 +48,7 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  engine hit (worker query when available) with provider fallback; null on
    *  alt-screen / mouse tracking. Optional — feature-detected by the menu so
    *  older wirings/mocks keep compiling. */
-  contextLinkTargetAt?: (
-    clientX: number,
-    clientY: number
-  ) => Promise<AtermContextLinkTarget | null>
+  contextLinkTargetAt?: (clientX: number, clientY: number) => Promise<AtermContextLinkTarget | null>
   /** Open a resolved context target through the SAME routing as modifier-click
    *  (in-app preference, scheme-aware OSC-8, late-bound file opener, provider). */
   openContextLinkTarget?: (
@@ -124,6 +122,10 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  knowable earlier — and retained across context-loss rebuilds. No-op unless
    *  the wiring marked the engine spill-export capable. */
   bindSpillPaneKey: (paneKey: string) => void
+  /** Which engine host answers a federated scan for this pane (worker slot id or
+   *  the in-process engine), or null once disposed. Optional — feature-detected
+   *  by the federated live adapter so older wirings/mocks keep compiling. */
+  federatedSearchTarget?: () => AtermFederatedSearchTarget | null
   /** Re-theme the live engine in place (host theme change) without rebuilding the
    *  pane — updates default fg/bg/cursor/selection + ANSI palette + reply defaults
    *  and redraws, preserving scrollback. */

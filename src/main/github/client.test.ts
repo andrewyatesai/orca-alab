@@ -4345,3 +4345,104 @@ describe('GitHub GraphQL rate-limit guard', () => {
     expect(noteRateLimitSpendMock).not.toHaveBeenCalled()
   })
 })
+
+describe('getPRForBranchOutcome default-branch stale PR guard (#9171)', () => {
+  beforeEach(() => {
+    ghExecFileAsyncMock.mockReset()
+    getOwnerRepoMock.mockReset()
+    getOwnerRepoMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
+    getOwnerRepoForRemoteMock.mockReset()
+    resolvePRRepositoryCandidatesMock.mockReset()
+    resolvePRRepositoryCandidatesMock.mockImplementation(async (repoPath, connectionId) => {
+      const origin = await getOwnerRepoMock(repoPath, connectionId)
+      return { candidates: origin ? [origin] : [], headRepo: origin }
+    })
+    gitExecFileAsyncMock.mockReset()
+    getRateLimitMock.mockReset()
+    getRateLimitMock.mockResolvedValue({ resources: {} })
+    rateLimitGuardMock.mockReset()
+    rateLimitGuardMock.mockReturnValue({ blocked: false })
+    getSshGitProviderMock.mockReset()
+    readLocalGitConfigSignatureMock.mockReset()
+    readLocalGitConfigSignatureMock.mockResolvedValue(undefined)
+    acquireMock.mockReset()
+    releaseMock.mockReset()
+    acquireMock.mockResolvedValue(undefined)
+    _resetOwnerRepoCache()
+    _resetMergeQueueCacheForTests()
+    __resetTrackedUpstreamBranchCacheForTests()
+    __resetPRConflictSummaryCachesForTests()
+    resetMergedPRCommitMembershipCacheForTest()
+  })
+
+  // Why: git symbolic-ref/rev-parse drives resolveDefaultBaseRefViaExec; report origin/HEAD -> master.
+  const mockDefaultBranchMaster = (): void => {
+    gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'symbolic-ref') {
+        return { stdout: 'refs/remotes/origin/master\n', stderr: '' }
+      }
+      return { stdout: '', stderr: '' }
+    })
+  }
+
+  const closedBranchPR = {
+    number: 7,
+    title: 'Ancient PR that once had head=master',
+    state: 'closed',
+    html_url: 'https://github.com/acme/widgets/pull/7',
+    updated_at: '2024-01-01T00:00:00Z',
+    draft: false,
+    mergeable: null,
+    base: { ref: 'release', sha: 'base-oid' },
+    head: { ref: 'master', sha: 'stale-head-oid' }
+  }
+
+  it('does not surface a long-closed PR discovered on the repository default branch', async () => {
+    ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: JSON.stringify([closedBranchPR]) })
+    mockDefaultBranchMaster()
+
+    const outcome = await getPRForBranchOutcome('/repo-root', 'refs/heads/master')
+
+    // The bug path still fires the branch lookup, but the stale closed match is dropped.
+    expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
+      1,
+      ['api', 'repos/acme/widgets/pulls?head=acme%3Amaster&state=all&per_page=1'],
+      { cwd: '/repo-root' }
+    )
+    expect(outcome.kind).toBe('no-pr')
+  })
+
+  it('still surfaces an OPEN PR whose head is the default branch (master -> release)', async () => {
+    ghExecFileAsyncMock.mockResolvedValueOnce({
+      stdout: JSON.stringify([{ ...closedBranchPR, number: 8, state: 'open' }])
+    })
+    mockDefaultBranchMaster()
+
+    const outcome = await getPRForBranchOutcome('/repo-root', 'refs/heads/master')
+
+    expect(outcome.kind).toBe('found')
+    if (outcome.kind !== 'found') {
+      throw new Error('expected found')
+    }
+    expect(outcome.pr.number).toBe(8)
+    expect(outcome.pr.state).toBe('open')
+  })
+
+  it('keeps a closed PR discovered on a non-default branch', async () => {
+    ghExecFileAsyncMock.mockResolvedValueOnce({
+      stdout: JSON.stringify([
+        { ...closedBranchPR, number: 9, head: { ref: 'feature/x', sha: 'h' } }
+      ])
+    })
+    mockDefaultBranchMaster()
+
+    const outcome = await getPRForBranchOutcome('/repo-root', 'refs/heads/feature/x')
+
+    expect(outcome.kind).toBe('found')
+    if (outcome.kind !== 'found') {
+      throw new Error('expected found')
+    }
+    expect(outcome.pr.number).toBe(9)
+    expect(outcome.pr.state).toBe('closed')
+  })
+})

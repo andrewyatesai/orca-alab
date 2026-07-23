@@ -73,6 +73,11 @@ import {
   type MergedPRCommitMembership
 } from './merged-pr-commit-membership'
 import { getSshGitProvider } from '../providers/ssh-git-dispatch'
+import { resolveDefaultBaseRefViaExec } from '../git/repo'
+import {
+  defaultBaseRefToBranchName,
+  isStaleClosedDefaultBranchPR
+} from './default-branch-pr-filter'
 import {
   hasHostedReviewLocalGitOptions,
   getHostedReviewLocalGitOptions,
@@ -2165,6 +2170,29 @@ async function getCurrentHeadOid(
   }
 }
 
+// Why: resolve the repo default branch host-aware (SSH provider vs local/WSL git) so the
+// default-branch stale-PR guard (#9171) runs the same on every transport.
+async function getRepoDefaultBranchName(
+  repoPath: string,
+  connectionId?: string | null,
+  localGitOptions: { wslDistro?: string } = {}
+): Promise<string | null> {
+  try {
+    const provider = connectionId ? getSshGitProvider(connectionId) : null
+    const baseRef = await resolveDefaultBaseRefViaExec((argv) =>
+      provider
+        ? provider.exec(argv, repoPath)
+        : gitExecFileAsync(argv, {
+            cwd: repoPath,
+            ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
+          })
+    )
+    return defaultBaseRefToBranchName(baseRef)
+  } catch {
+    return null
+  }
+}
+
 function shouldHideMergedImplicitPR(
   data: PullRequestLookupData | null,
   linkedPRNumber: number | null | undefined,
@@ -3068,6 +3096,23 @@ export async function getPRForBranchOutcome(
     let mergedBranchLookupNumber: number | null = null
     if (await hideMergedImplicitPR(data, dataRepo)) {
       mergedBranchLookupNumber = data?.number ?? null
+      data = null
+      dataRepo = null
+      dataHeadRepo = headRepo
+    }
+    // Why: a `head=owner:<default>&state=all` branch lookup on the repo default branch returns a
+    // long-closed historical PR (#9171); drop it. Resolve the default branch lazily — only when a
+    // closed implicit match is in hand — so the common path pays no extra git call.
+    if (
+      data &&
+      typeof linkedPRNumber !== 'number' &&
+      mapPRState(data.state, data.isDraft) === 'closed' &&
+      isStaleClosedDefaultBranchPR({
+        branchName,
+        defaultBranchName: await getRepoDefaultBranchName(repoPath, connectionId, localGitOptions),
+        prState: 'closed'
+      })
+    ) {
       data = null
       dataRepo = null
       dataHeadRepo = headRepo

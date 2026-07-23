@@ -6630,6 +6630,23 @@ export class Store {
       normalizedLease.ptyId
     )
     const now = Date.now()
+    // Why (#9034): a pane keeps its leafId across SSH PTY respawns but each spawn upserts a lease
+    // with a NEW ptyId, so ptyId dedup can't catch it and dead leases for one leaf accumulate
+    // one-per-respawn. Supersede any prior lease for the same (targetId, leafId) so a leaf holds
+    // at most one live lease; clear their now-stale session bindings like removeSshRemotePtyLease.
+    const supersededLeases: SshRemotePtyLease[] = []
+    if (normalizedLease.leafId !== undefined) {
+      this.state.sshRemotePtyLeases = this.state.sshRemotePtyLeases.filter((entry) => {
+        const superseded =
+          entry.targetId === normalizedLease.targetId &&
+          entry.leafId === normalizedLease.leafId &&
+          entry.ptyId !== normalizedLease.ptyId
+        if (superseded) {
+          supersededLeases.push(entry)
+        }
+        return !superseded
+      })
+    }
     const existingIndex = this.state.sshRemotePtyLeases.findIndex(
       (entry) =>
         entry.targetId === normalizedLease.targetId && entry.ptyId === normalizedLease.ptyId
@@ -6645,6 +6662,9 @@ export class Store {
       this.state.sshRemotePtyLeases[existingIndex] = next
     } else {
       this.state.sshRemotePtyLeases.push(next)
+    }
+    if (supersededLeases.length > 0) {
+      this.clearSshRemotePtyBindingsForLeases(normalizedLease.targetId, supersededLeases)
     }
     this.flush()
   }

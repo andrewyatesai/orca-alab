@@ -10001,6 +10001,48 @@ describe('Store', () => {
     expect(persisted.every((lease) => lease.state === 'expired')).toBe(true)
   })
 
+  it('supersedes prior same-leaf SSH remote PTY leases when a pane respawns (#9034)', async () => {
+    // Why (#9034): a pane keeps its leafId across SSH PTY respawns but each spawn upserts a lease
+    // with a NEW ptyId, so ptyId dedup can't catch it. Without supersede, three respawns leave
+    // three leases for one leaf and the persisted store bloats one-per-respawn on long-lived remotes.
+    const store = await createStore()
+    const respawn = (ptyId: string): void =>
+      store.upsertSshRemotePtyLease({
+        targetId: 'ssh-1',
+        worktreeId: 'wt1',
+        tabId: 'tab1',
+        leafId: TEST_LEAF_1,
+        ptyId,
+        state: 'attached'
+      })
+    // A pane on a different leaf must never be superseded by this leaf's respawns.
+    store.upsertSshRemotePtyLease({
+      targetId: 'ssh-1',
+      worktreeId: 'wt1',
+      tabId: 'tab2',
+      leafId: TEST_LEAF_2,
+      ptyId: 'pty-other',
+      state: 'attached'
+    })
+
+    respawn('pty-1')
+    respawn('pty-2')
+    respawn('pty-3')
+
+    const leaf1Leases = store
+      .getSshRemotePtyLeases('ssh-1')
+      .filter((lease) => lease.leafId === TEST_LEAF_1)
+    expect(leaf1Leases).toEqual([
+      expect.objectContaining({ leafId: TEST_LEAF_1, ptyId: 'pty-3', state: 'attached' })
+    ])
+    // The unrelated leaf's lease survives untouched.
+    expect(
+      store.getSshRemotePtyLeases('ssh-1').filter((lease) => lease.leafId === TEST_LEAF_2)
+    ).toEqual([expect.objectContaining({ leafId: TEST_LEAF_2, ptyId: 'pty-other' })])
+    const persisted = (readDataFile() as PersistedState).sshRemotePtyLeases ?? []
+    expect(persisted.filter((lease) => lease.leafId === TEST_LEAF_1)).toHaveLength(1)
+  })
+
   it('removes SSH remote PTY leases when callers pass scoped app ids', async () => {
     const store = await createStore()
     store.upsertSshRemotePtyLease({

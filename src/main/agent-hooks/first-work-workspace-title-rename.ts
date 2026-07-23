@@ -1,4 +1,3 @@
-import { deriveWorkspaceDisplayName } from '../../shared/display-name-from-work'
 import { humanizeBranchSlug } from '../rust-branch-name-from-work'
 import {
   generateBranchNameFromContext,
@@ -57,11 +56,7 @@ export async function runFolderWorkspaceTitleAutoRename(
     return retry(`generation failed: ${generated.error}`)
   }
 
-  const newDisplayName = deriveWorkspaceDisplayName({
-    prompt,
-    slug: generated.slug,
-    humanizeBranchSlug
-  })
+  const newDisplayName = humanizeBranchSlug(generated.slug)
   deps.setDisplayName(worktreeId, newDisplayName)
   deps.setRenameError(worktreeId, null)
   deps.onRenamed(worktreeId)

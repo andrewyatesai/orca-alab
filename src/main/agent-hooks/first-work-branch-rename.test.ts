@@ -82,9 +82,11 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     )
   })
 
-  it('renames a fresh creature branch and its display name from the generated slug', async () => {
+  it('keeps incidental work-item markers from overriding the generated display name', async () => {
+    // #9821: a stray "#1" in the prompt must not lead the display name ("#1 - Fix");
+    // the name stays the humanized generated slug.
     const { deps, onRenamed, setDisplayName } = makeDeps()
-    await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
+    await maybeAutoRenameBranchOnFirstWork(workingEvent({ prompt: 'Fix auth from note #1' }), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
       ['branch', '-m', 'you/fix-auth'],
       expect.objectContaining({ cwd: '/repo/wt' })
@@ -219,7 +221,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
       getCurrentDisplayName: () => 'Platform workspace'
     })
 
-    await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
+    await maybeAutoRenameBranchOnFirstWork(workingEvent({ prompt: 'Fix auth from note #1' }), deps)
 
     expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
     expect(resolveTextGenerationParamsMock).toHaveBeenCalledWith(

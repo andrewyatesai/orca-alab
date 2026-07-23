@@ -1,7 +1,8 @@
 /* eslint-disable max-lines -- Why: this store owns Codex analytics persistence, scan policy, and renderer query semantics. Keeping them together prevents the Codex range/scope rules from drifting away from the scanner’s event model. */
 import { app } from 'electron'
 import { dirname, join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { writeFileAtomicSync } from '../atomic-file-write'
 import type {
   CodexUsageBreakdownKind,
   CodexUsageBreakdownRow,
@@ -360,9 +361,8 @@ export class CodexUsageStore {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
-    const tmpFile = `${usageFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
-    writeFileSync(tmpFile, JSON.stringify(this.state), 'utf-8')
-    renameSync(tmpFile, usageFile)
+    // Why fsync (via writeFileAtomicSync): power-loss-durable, and this store has no backup ring.
+    writeFileAtomicSync(usageFile, JSON.stringify(this.state))
   }
 
   async setEnabled(enabled: boolean): Promise<CodexUsageScanState> {

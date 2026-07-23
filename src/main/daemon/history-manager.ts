@@ -12,6 +12,7 @@ import {
   fstatSync,
   promises as fsPromises
 } from 'node:fs'
+import { writeFileAtomicAsync } from '../atomic-file-write'
 import { getHistorySessionDirName } from './history-paths'
 import { HISTORY_DIR_MODE, HISTORY_FILE_MODE } from './history-store-layout'
 import { readSessionMetaFromDir, updateSessionMeta } from './session-meta-store'
@@ -217,11 +218,13 @@ export class HistoryManager {
         checkpointedAt: new Date().toISOString()
       }
       const data = JSON.stringify(checkpointFile)
-      // Why: tmp+rename is atomic (corrupt checkpoint > stale); async so a sync ~MB write can't stall IPC (worse under Windows AV).
-      // The adapter's checkpointInFlight guard serializes checkpoints, so concurrent async writes can't collide on the fixed .tmp path.
-      const tmpPath = `${writer.checkpointPath}.tmp`
-      await fsPromises.writeFile(tmpPath, data, { mode: HISTORY_FILE_MODE })
-      await fsPromises.rename(tmpPath, writer.checkpointPath)
+      // Why: tmp+fsync+rename is atomic (corrupt checkpoint > stale) and power-loss-durable; async so a sync ~MB
+      // write can't stall IPC (worse under Windows AV). The adapter's checkpointInFlight guard serializes
+      // checkpoints, so concurrent async writes can't collide on the fixed .tmp path.
+      await writeFileAtomicAsync(writer.checkpointPath, data, {
+        mode: HISTORY_FILE_MODE,
+        tmpPath: `${writer.checkpointPath}.tmp`
+      })
       // Why: snapshot subsumes logged records, so reset the log to the new generation; a stale-generation log is ignored on restore.
       await fsPromises.writeFile(writer.logPath, encodeLogHeader(generation), {
         mode: HISTORY_FILE_MODE

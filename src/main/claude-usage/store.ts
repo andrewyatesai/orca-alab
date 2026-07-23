@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- Why: this store is the single main-process owner for Claude usage persistence, scan gating, and query semantics. Keeping those policy decisions together avoids split-brain range/scope logic across multiple files. */
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { writeFileAtomicSync } from '../atomic-file-write'
 import { dirname, join } from 'node:path'
 import type {
   ClaudeUsageBreakdownKind,
@@ -368,11 +369,9 @@ export class ClaudeUsageStore {
       mkdirSync(dir, { recursive: true })
     }
     // Why: scans can refresh while the app is in active use. Use the same
-    // atomic temp-file pattern as the main store so a crash or concurrent write
-    // cannot leave a truncated analytics file as the common failure mode.
-    const tmpFile = `${usageFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
-    writeFileSync(tmpFile, JSON.stringify(this.state, null, 2), 'utf-8')
-    renameSync(tmpFile, usageFile)
+    // atomic tmp+fsync+rename pattern as the main store so a crash or power loss
+    // cannot leave a truncated analytics file (this store has no backup ring).
+    writeFileAtomicSync(usageFile, JSON.stringify(this.state, null, 2))
   }
 
   async setEnabled(enabled: boolean): Promise<ClaudeUsageScanState> {

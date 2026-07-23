@@ -8,6 +8,7 @@ import {
 } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
+import { writeFileAtomicSync } from '../atomic-file-write'
 import type { GlobalSettings } from '../../shared/types'
 import {
   createDefaultLocalOrcaProfile,
@@ -128,9 +129,9 @@ export function writeProfileIndex(indexPath: string, index: OrcaProfileIndex): v
       // Best-effort backup; the primary write below still proceeds.
     }
   }
-  const tmpPath = `${indexPath}.tmp`
-  writeFileSync(tmpPath, JSON.stringify(index, null, 2), 'utf-8')
-  renameSync(tmpPath, indexPath)
+  // Why fsync (via writeFileAtomicSync): the profile index has only a single .bak that refreshes solely when
+  // the current parses, so a power-loss-torn index has a weaker recovery net than the primary store's ring.
+  writeFileAtomicSync(indexPath, JSON.stringify(index, null, 2))
 }
 
 function copyIfPresent(source: string, target: string): void {

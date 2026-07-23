@@ -1,16 +1,8 @@
 import { createHash } from 'node:crypto'
-import {
-  closeSync,
-  mkdirSync,
-  openSync,
-  readSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync
-} from 'node:fs'
+import { closeSync, mkdirSync, openSync, readSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
+import { writeFileAtomicSync } from './atomic-file-write'
 import type { WorkspaceSessionState } from '../shared/types'
 import { capTerminalScrollbackSessionBuffer } from '../shared/workspace-session-terminal-buffers'
 import {
@@ -118,18 +110,9 @@ export function writeTerminalScrollbackSnapshotSync(args: {
   }
   try {
     mkdirSync(snapshotRoot, { recursive: true, mode: 0o700 })
-    const tmpPath = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
     const bytes = trailingUtf8Bytes(args.buffer, TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT)
-    let renamed = false
-    try {
-      writeFileSync(tmpPath, bytes, { mode: 0o600 })
-      renameSync(tmpPath, path)
-      renamed = true
-    } finally {
-      if (!renamed) {
-        rmSync(tmpPath, { force: true })
-      }
-    }
+    // Why fsync (via writeFileAtomicSync): snapshots have no backup ring, so a power-loss-torn file is lost outright.
+    writeFileAtomicSync(path, bytes, { mode: 0o600 })
     return ref
   } catch (err) {
     console.warn(

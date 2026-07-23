@@ -1,5 +1,5 @@
 /* eslint-disable max-lines */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,7 +25,9 @@ vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof Fs>('fs')
   return {
     ...actual,
-    writeFileSync: vi.fn(actual.writeFileSync)
+    // Why renameSync: the store now writes via the durable atomic helper (open+fsync+rename), so the single
+    // rename-into-place is the reliable "one disk write happened" signal (writeFileSync is no longer used).
+    renameSync: vi.fn(actual.renameSync)
   }
 })
 
@@ -97,7 +99,7 @@ describe('CodexUsageStore', () => {
     tempUserData = mkdtempSync(join(tmpdir(), 'orca-codex-usage-store-'))
     getPathMock.mockReturnValue(tempUserData)
     initCodexUsagePath()
-    vi.mocked(writeFileSync).mockClear()
+    vi.mocked(renameSync).mockClear()
     vi.mocked(scanCodexUsageFiles).mockReset()
     vi.mocked(scanCodexUsageFiles).mockResolvedValue(createEmptyScanResult())
     vi.useFakeTimers()
@@ -122,7 +124,7 @@ describe('CodexUsageStore', () => {
 
     await store.refresh(true)
 
-    expect(writeFileSync).toHaveBeenCalledTimes(1)
+    expect(renameSync).toHaveBeenCalledTimes(1)
     const persistedJson = readFileSync(join(tempUserData, 'orca-codex-usage.json'), 'utf-8')
     expect(persistedJson).toBe(JSON.stringify(JSON.parse(persistedJson)))
     expect(persistedJson).not.toContain('\n')
@@ -155,13 +157,13 @@ describe('CodexUsageStore', () => {
       lastScanStartedAt: new Date('2026-04-10T12:00:00.000-04:00').getTime(),
       lastScanError: null
     })
-    expect(writeFileSync).not.toHaveBeenCalled()
+    expect(renameSync).not.toHaveBeenCalled()
 
     pendingScan.resolve(createEmptyScanResult())
     await refreshPromise
 
     expect(store.getScanState().isScanning).toBe(false)
-    expect(writeFileSync).toHaveBeenCalledTimes(1)
+    expect(renameSync).toHaveBeenCalledTimes(1)
   })
 
   it('reports no data for Orca scope when only non-Orca Codex usage exists', async () => {

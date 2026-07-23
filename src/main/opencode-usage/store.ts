@@ -1,7 +1,8 @@
 /* eslint-disable max-lines -- Why: this store owns OpenCode analytics persistence, scan policy, and renderer query semantics. Keeping range/scope queries next to scan persistence prevents UI totals from drifting from the SQLite projection. */
 import { app } from 'electron'
 import { dirname, join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { writeFileAtomicSync } from '../atomic-file-write'
 import type {
   OpenCodeUsageBreakdownKind,
   OpenCodeUsageBreakdownRow,
@@ -185,9 +186,8 @@ export class OpenCodeUsageStore {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
-    const tmpFile = `${usageFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
-    writeFileSync(tmpFile, JSON.stringify(this.state, null, 2), 'utf-8')
-    renameSync(tmpFile, usageFile)
+    // Why fsync (via writeFileAtomicSync): power-loss-durable, and this store has no backup ring.
+    writeFileAtomicSync(usageFile, JSON.stringify(this.state, null, 2))
   }
 
   async setEnabled(enabled: boolean): Promise<OpenCodeUsageScanState> {

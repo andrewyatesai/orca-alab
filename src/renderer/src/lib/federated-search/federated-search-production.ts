@@ -23,7 +23,12 @@ import {
   type FederatedSearchController
 } from './federated-search-controller'
 import { createLivePaneSearchAdapter } from './live-pane-search-adapter'
+import { createRemotePaneSearchAdapter } from './remote-pane-search-adapter'
 import { discoverLiveFederatedPanes } from './live-pane-discovery'
+import {
+  discoverRemoteFederatedPanes,
+  productionRemoteSearchCall
+} from './remote-pane-discovery'
 import type { FederatedGroupOrderContext } from './federated-search-grouping'
 import type { FederatedPaneRef, FederatedQueryOpts } from './federated-search-model'
 import {
@@ -226,6 +231,14 @@ export function createProductionFederatedSearchController(): FederatedSearchCont
         discoverPanes: discoverLiveFederatedPanes,
         postFederated: postAtermFederatedToSharedWorker,
         subscribeFederated: subscribeAtermSharedWorkerFederatedEvents
+      }),
+      // Remote/SSH source over the landed 5B wire (§2.4). Streams in behind the
+      // local results; inert until remote-pane enumeration lands (see
+      // remote-pane-discovery). Its host-row → client-row remap and same-session
+      // dedup already compose with the controller's merge.
+      createRemotePaneSearchAdapter({
+        discoverRemotePanes: discoverRemoteFederatedPanes,
+        searchRemote: productionRemoteSearchCall
       })
     ],
     orderContext: productionOrderContext

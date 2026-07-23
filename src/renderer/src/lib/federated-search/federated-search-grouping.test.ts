@@ -125,6 +125,53 @@ describe('mergeFederatedBatch', () => {
     expect(group.source).toBe('daemon-history')
   })
 
+  it('(d) totals are NOT summed across same-session batches (re-emit REPLACES)', () => {
+    const groups = new Map<string, FederatedResultGroup>()
+    // A live pane's batch reports total 5 for session s1.
+    mergeFederatedBatch(groups, liveBatch({ sessionId: 's1', matches: [match(9)], total: 5 }))
+    // The SAME source re-emits (incremental re-rank / streaming update) with an
+    // updated total 7 — the group total must REPLACE, not become 5 + 7 = 12.
+    mergeFederatedBatch(groups, liveBatch({ sessionId: 's1', matches: [match(9)], total: 7 }))
+    const group = [...groups.values()][0]
+    expect(group.total).toBe(7)
+  })
+
+  it('(d) a live pane and its daemon depth extension sum ONCE each (source once + disjoint depth)', () => {
+    const groups = new Map<string, FederatedResultGroup>()
+    // Live source total 10 (its window), depth extension adds 2 disjoint rows.
+    mergeFederatedBatch(groups, liveBatch({ sessionId: 's1', matches: [match(900)], total: 10 }))
+    mergeFederatedBatch(
+      groups,
+      liveBatch({
+        sessionId: 's1',
+        source: 'daemon-history',
+        depthExtension: true,
+        matches: [match(100), match(200)],
+        total: 999 // the daemon's own (possibly-overlapping) total is IGNORED
+      }),
+      400
+    )
+    const group = [...groups.values()][0]
+    // 10 (live, counted once) + 2 (disjoint depth rows) — NOT 10 + 999.
+    expect(group.total).toBe(12)
+  })
+
+  it('(d) a same-session live + remote batch count each source ONCE, not summed twice', () => {
+    const groups = new Map<string, FederatedResultGroup>()
+    mergeFederatedBatch(groups, liveBatch({ sessionId: 's1', matches: [match(9)], total: 4 }))
+    // A remote batch that resolves the SAME session re-reports 4 (the same
+    // authority) — merging must not double it to 8.
+    mergeFederatedBatch(
+      groups,
+      liveBatch({ sessionId: 's1', source: 'remote', matches: [match(9)], total: 4 })
+    )
+    const group = [...groups.values()][0]
+    // Both primaries describe the same session window: the latest total REPLACES,
+    // it is never summed to 8, and the identical span is deduped in matches.
+    expect(group.total).toBe(4)
+    expect(group.matches).toHaveLength(1)
+  })
+
   it('propagates incomplete and over-budget honesty flags', () => {
     const groups = new Map<string, FederatedResultGroup>()
     mergeFederatedBatch(groups, liveBatch({ incomplete: true }))

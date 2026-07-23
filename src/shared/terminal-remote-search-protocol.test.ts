@@ -134,4 +134,52 @@ describe('remapRemoteSearchRow', () => {
     })
     expect(last).toEqual({ kind: 'in-window', clientRow: 102, approximate: false })
   })
+
+  // (d) nearest-row-boundary remap for width-mismatched anchors.
+  it('(d) lands on the WHOLE nearest client row when widths differ, flagged approximate', () => {
+    const remap = remapRemoteSearchRow({
+      matchHostRow: 153,
+      responseAnchor: anchor(100, 5, 132), // host serialized at 132 cols
+      replayedAnchor: anchor(100, 5),
+      replayOriginRow: 0,
+      replayedRowCount: 100,
+      clientCols: 80 // client rewraps at 80 → the exact char position is unknowable
+    })
+    // Integer client row (nearest boundary): 153 − 100 + 0 = 53; approximate.
+    expect(remap).toEqual({ kind: 'in-window', clientRow: 53, approximate: true })
+  })
+
+  it('(d) flags approximate when the host omitted its width (cannot confirm equal widths)', () => {
+    const remap = remapRemoteSearchRow({
+      matchHostRow: 110,
+      responseAnchor: anchor(100, 5), // old host: no anchorHostCols
+      replayedAnchor: anchor(100, 5),
+      replayOriginRow: 0,
+      replayedRowCount: 100,
+      clientCols: 80
+    })
+    // Cannot verify the host matched the client width — must not claim exact.
+    expect(remap).toEqual({ kind: 'in-window', clientRow: 10, approximate: true })
+  })
+
+  // (d) stable-rows-across-host-resize: host rows are retained-origin-based, so a
+  // host resize does NOT shift a match's stable host row within the emulator
+  // incarnation. The remap depends only on the fixed SNAPSHOT anchor
+  // (hostRowAnchor + anchorHostCols recorded at serialize time), never on the
+  // host's live width — so a resize cannot move where a stable row lands.
+  it('(d) the remap uses the snapshot anchor width, not the host live width (resize-stable)', () => {
+    // Snapshot was serialized at 80 cols; the client replayed it at 80 cols.
+    // The host has SINCE resized its live grid to 132, but the match still comes
+    // back at the same stable host row 140 echoing the same snapshot anchor.
+    const remap = remapRemoteSearchRow({
+      matchHostRow: 140,
+      responseAnchor: anchor(100, 5, 80), // anchorHostCols = SNAPSHOT width (80)
+      replayedAnchor: anchor(100, 5),
+      replayOriginRow: 10,
+      replayedRowCount: 100,
+      clientCols: 80
+    })
+    // Stable → exact jump at clientRow 50; the live resize to 132 is irrelevant.
+    expect(remap).toEqual({ kind: 'in-window', clientRow: 50, approximate: false })
+  })
 })

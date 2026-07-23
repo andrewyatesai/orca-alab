@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "crate": "orca-crypto-wasm",
+  "sourceSha256": "8e0d368651574621cdffcf3cbf14f9e3d553028c904f9536f52c59f6a2272b2f",
+  "wasmSha256": "f5687e3d92e1f31cdf01d6956169c7ff4f47be751fa64b31e1ed3ce1289ea51b",
+  "artifacts": {
+    "src/shared/crypto-wasm/orca_crypto_wasm.js": {
+      "bytes": 8717,
+      "sha256": "f8f0f5154b7c49fdef780cdacfaebb7fc9a4d086749af9b2db104d95348bca9a"
+    },
+    "src/shared/crypto-wasm/orca_crypto_wasm.d.ts": {
+      "bytes": 2779,
+      "sha256": "b8f957061389e6c41e1be2561845de89e6147ce8bddc7a14226d4f7126625d14"
+    },
+    "src/shared/crypto-wasm/orca_crypto_wasm_bg.wasm.base64.ts": {
+      "bytes": 55489,
+      "sha256": "ebb46cc5643347c5a5ad2571f60a4db1daf75978d34dbca3524549d53ed3350e"
+    },
+    "src/shared/crypto-wasm/orca_crypto_wasm_bg.wasm.d.ts": {
+      "bytes": 678,
+      "sha256": "0ede23e9cdbf958eb3342031b0df06d1d00c496b0d71a8b919bce42866c47c53"
+    },
+    "src/renderer/src/lib/crypto-wasm/orca_crypto_wasm.js": {
+      "bytes": 8717,
+      "sha256": "f8f0f5154b7c49fdef780cdacfaebb7fc9a4d086749af9b2db104d95348bca9a"
+    },
+    "src/renderer/src/lib/crypto-wasm/orca_crypto_wasm.d.ts": {
+      "bytes": 2779,
+      "sha256": "b8f957061389e6c41e1be2561845de89e6147ce8bddc7a14226d4f7126625d14"
+    },
+    "src/renderer/src/lib/crypto-wasm/orca_crypto_wasm_bg.wasm": {
+      "bytes": 41453,
+      "sha256": "f5687e3d92e1f31cdf01d6956169c7ff4f47be751fa64b31e1ed3ce1289ea51b"
+    },
+    "src/renderer/src/lib/crypto-wasm/orca_crypto_wasm_bg.wasm.d.ts": {
+      "bytes": 678,
+      "sha256": "0ede23e9cdbf958eb3342031b0df06d1d00c496b0d71a8b919bce42866c47c53"
+    }
+  }
+}

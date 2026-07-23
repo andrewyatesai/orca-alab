@@ -1083,6 +1083,37 @@ describe('getSubmoduleStatus', () => {
     expect(result.entries).toContainEqual(
       expect.objectContaining({ path: 'lib/main.dart', status: 'modified', area: 'unstaged' })
     )
+    // Why(#9477): staged expansion is HEAD→index only, so the submodule worktree must not be scanned.
+    expect(gitExecFileAsyncMock.mock.calls.some(([args]) => args.includes('status'))).toBe(false)
+  })
+
+  it('caps staged commit-range entries before returning them to the renderer', async () => {
+    const OLD_OID = 'a'.repeat(40)
+    const NEW_OID = 'b'.repeat(40)
+    readFileMock.mockResolvedValue('gitdir: /repo/flutter_mine/.git\n')
+    existsSyncMock.mockReturnValue(false)
+    gitExecFileAsyncMock.mockReset()
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args.includes('--name-status')) {
+        return Promise.resolve({ stdout: 'M\tlib/a.dart\nM\tlib/b.dart\n' })
+      }
+      if (args[0] === 'ls-files') {
+        return Promise.resolve({ stdout: `160000 ${NEW_OID} 0\tflutter_mine\n` })
+      }
+      if (args[0] === 'ls-tree') {
+        return Promise.resolve({ stdout: `160000 commit ${OLD_OID}\tflutter_mine\n` })
+      }
+      return Promise.resolve({ stdout: '' })
+    })
+
+    const result = await getSubmoduleStatus('/repo', 'flutter_mine', {
+      staged: true,
+      limit: 1
+    })
+
+    expect(result.entries).toHaveLength(1)
+    expect(result.didHitLimit).toBe(true)
+    expect(result.statusLength).toBe(2)
   })
 })
 
@@ -1805,6 +1836,34 @@ describe('getStatus', () => {
     expect(result.entries.length).toBe(10)
     // attachLineStats (numstat) must be skipped when the limit was hit — only
     // the single streamed status read should have happened.
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces an early conflict even when ordinary entries trip the cap (#9477)', async () => {
+    readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
+    existsSyncMock.mockReturnValue(false)
+    // The conflict appears before the ordinary rows that overshoot the cap. Its
+    // `u` record isn't counted toward the entry cap, so the streamer collects it
+    // separately — the fix must still surface it instead of dropping it.
+    const stdout =
+      'u UU N... 100644 100644 100644 100644 aa bb cc conflict.ts\n' +
+      `${Array.from({ length: 5 }, (_, i) => `? file${i}.txt`).join('\n')}\n`
+    gitExecFileAsyncMock.mockReset()
+    gitExecFileAsyncMock.mockResolvedValue({ stdout: '' })
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout })
+
+    const result = await getStatus('/repo', { limit: 2 })
+
+    expect(result.didHitLimit).toBe(true)
+    expect(result.entries).toHaveLength(2)
+    // The conflict is kept ahead of the capped ordinary rows rather than dropped.
+    expect(result.entries[0]).toMatchObject({
+      path: 'conflict.ts',
+      conflictKind: 'both_modified',
+      conflictStatus: 'unresolved'
+    })
+    expect(result.entries.map((entry) => entry.path)).toContain('conflict.ts')
+    // Only the single streamed status read runs (numstat is skipped at the cap).
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
   })
 

@@ -41,7 +41,7 @@ import {
 } from './runner'
 import { streamGitStatus } from './git-status-stream'
 import { untrackedAdditionsCounter } from './untracked-additions-counter'
-import { DEFAULT_GIT_STATUS_LIMIT } from '../../shared/git-status-limit'
+import { capGitStatusEntries, resolveGitStatusLimit } from '../../shared/git-status-limit'
 import { describeMaxBufferOverflowError, isMaxBufferOverflowError } from './max-buffer-overflow'
 import {
   removeSafeUntrackedDiscardTarget,
@@ -240,10 +240,7 @@ export async function getStatus(
 
 function getStatusReadKey(worktreePath: string, options: GetStatusOptions): string {
   // Why: each key part can change the output shape or runtime routing.
-  const limit =
-    typeof options.limit === 'number' && Number.isInteger(options.limit) && options.limit >= 0
-      ? options.limit
-      : DEFAULT_GIT_STATUS_LIMIT
+  const limit = resolveGitStatusLimit(options.limit)
   return [
     worktreePath,
     options.wslDistro ?? '',
@@ -263,10 +260,7 @@ async function runGetStatus(
   let effectiveUpstreamStatus: GitUpstreamStatus | undefined
   let statusSucceeded = false
   // Why: a bad limit (negative/fractional/NaN) breaks early-stop; require a valid non-negative int (0 disables the cap).
-  const limit =
-    typeof options.limit === 'number' && Number.isInteger(options.limit) && options.limit >= 0
-      ? options.limit
-      : DEFAULT_GIT_STATUS_LIMIT
+  const limit = resolveGitStatusLimit(options.limit)
 
   // Why: detectConflictOperation and git status are independent, so run them concurrently to save I/O latency.
   const conflictPromise = detectConflictOperation(worktreePath)
@@ -301,19 +295,25 @@ async function runGetStatus(
   )
   statusSucceeded = streamed.succeeded
   const didHitLimit = streamed.didHitLimit
-  // entries are already capped to `limit` by streamGitStatus when stopped.
-  const entries = streamed.entries
   const { head, branch, upstreamName, upstreamAheadBehind } = streamed
 
-  // Why: unmerged (`u`) records need async per-file lookups; resolve them off the hot path (conflicts are rare).
-  if (!didHitLimit) {
-    for (const line of streamed.unmergedLines) {
-      const unmergedEntry = await parseUnmergedEntry(worktreePath, line)
-      if (unmergedEntry) {
-        entries.push(unmergedEntry)
-      }
+  // Why: unmerged (`u`) records need async per-file lookups (conflicts are rare).
+  // The streamer collects them separately and doesn't count them toward the entry
+  // cap, so resolve them even when the cap was hit — otherwise a capped huge change
+  // set silently drops early conflict rows behind later ordinary ones (#9477).
+  const unmergedEntries: GitStatusEntry[] = []
+  for (const line of streamed.unmergedLines) {
+    const unmergedEntry = await parseUnmergedEntry(worktreePath, line)
+    if (unmergedEntry) {
+      unmergedEntries.push(unmergedEntry)
     }
   }
+  // Why: conflicts always appear before the cap boundary, so surface them ahead of
+  // the capped ordinary rows and re-cap the combined list to `limit` (#9477). Below
+  // the cap, keep the original entries-then-conflicts order.
+  const entries = didHitLimit
+    ? capGitStatusEntries([...unmergedEntries, ...streamed.entries], limit).entries
+    : [...streamed.entries, ...unmergedEntries]
 
   if (statusSucceeded && !didHitLimit && shouldProbeEffectiveUpstreamStatus(branch, upstreamName)) {
     const branchName = getShortBranchName(branch)
@@ -414,10 +414,14 @@ export function resolveSubmoduleWorktreePath(worktreePath: string, submodulePath
 export async function getSubmoduleStatus(
   worktreePath: string,
   submodulePath: string,
-  options: GitRuntimeOptions & { staged?: boolean } = {}
+  options: GetStatusOptions & { staged?: boolean } = {}
 ): Promise<GitStatusResult> {
   const submoduleWorktreePath = resolveSubmoduleWorktreePath(worktreePath, submodulePath)
-  const workingResult = await getStatus(submoduleWorktreePath, options)
+  const limit = resolveGitStatusLimit(options.limit)
+  // Why: staged expansion only represents HEAD→index; scanning the submodule worktree is wasted work (#9477).
+  const workingResult: GitStatusResult = options.staged
+    ? { entries: [], conflictOperation: 'unknown' }
+    : await getStatus(submoduleWorktreePath, options)
   // Why: a moved gitlink (clean worktree) has no status rows; surface the parent-commit→checkout range as inner rows.
   const fromOid = options.staged
     ? await readGitlinkOidFromTree(worktreePath, 'HEAD', submodulePath, options)
@@ -434,7 +438,7 @@ export async function getSubmoduleStatus(
       options
     )
     if (options.staged) {
-      return { ...workingResult, entries: rangeEntries }
+      return { ...workingResult, ...capGitStatusEntries(rangeEntries, limit) }
     }
     const rangePaths = new Set(rangeEntries.map((entry) => entry.path))
     // Range rows win on overlap so the diff matches getDiff's commit-range route.
@@ -442,7 +446,7 @@ export async function getSubmoduleStatus(
       ...rangeEntries,
       ...workingResult.entries.filter((entry) => !rangePaths.has(entry.path))
     ]
-    return { ...workingResult, entries }
+    return { ...workingResult, ...capGitStatusEntries(entries, limit, workingResult) }
   }
   if (options.staged) {
     return { ...workingResult, entries: [] }

@@ -4,7 +4,7 @@ import type { TuiAgent } from '../../../../shared/types'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { translate } from '@/i18n/i18n'
-import type { CustomAgentDraftRow } from './custom-agent-profile-draft'
+import { newCustomAgentEnvPair, type CustomAgentDraftRow } from './custom-agent-profile-draft'
 
 type CustomAgentProfileEditorProps = {
   draft: CustomAgentDraftRow
@@ -74,7 +74,7 @@ export function CustomAgentProfileEditor({
         </span>
         <div className="space-y-1.5">
           {draft.envPairs.map((pair, idx) => (
-            <div key={idx} className="flex items-center gap-2">
+            <div key={pair.id} className="flex items-center gap-2">
               <Input
                 value={pair.key}
                 onChange={(e) => {
@@ -111,7 +111,7 @@ export function CustomAgentProfileEditor({
                 onClick={() => {
                   const envPairs = draft.envPairs.filter((_, i) => i !== idx)
                   onDraftChange({
-                    envPairs: envPairs.length === 0 ? [{ key: '', value: '' }] : envPairs
+                    envPairs: envPairs.length === 0 ? [newCustomAgentEnvPair()] : envPairs
                   })
                 }}
                 title={translate(
@@ -129,7 +129,7 @@ export function CustomAgentProfileEditor({
           type="button"
           variant="ghost"
           size="xs"
-          onClick={() => onDraftChange({ envPairs: [...draft.envPairs, { key: '', value: '' }] })}
+          onClick={() => onDraftChange({ envPairs: [...draft.envPairs, newCustomAgentEnvPair()] })}
           className="h-7 text-xs text-muted-foreground hover:text-foreground"
         >
           <Plus className="size-3" />{' '}

@@ -8,11 +8,15 @@ function makeDispatcher(overrides?: {
 }): {
   dispatcher: ReturnType<typeof createMainDeepLinkDispatcher>
   sent: OrcaDeepLinkUiEvent[]
+  activated: { repoId: string; worktreeId: string }[]
+  focused: { tabId: string; worktreeId: string; leafId: string | null }[]
   focusMainWindow: ReturnType<typeof vi.fn>
   focusTerminal: (handle: string) => Promise<unknown>
   logged: string[]
 } {
   const sent: OrcaDeepLinkUiEvent[] = []
+  const activated: { repoId: string; worktreeId: string }[] = []
+  const focused: { tabId: string; worktreeId: string; leafId: string | null }[] = []
   const focusMainWindow = vi.fn()
   const focusTerminal = overrides?.focusTerminal ?? vi.fn(() => Promise.resolve({}))
   const logged: string[] = []
@@ -22,10 +26,18 @@ function makeDispatcher(overrides?: {
       sent.push(event)
       return true
     },
+    sendActivateWorktree: (payload) => {
+      activated.push(payload)
+      return true
+    },
+    sendFocusTerminal: (payload) => {
+      focused.push(payload)
+      return true
+    },
     focusMainWindow,
     log: (message) => logged.push(message)
   })
-  return { dispatcher, sent, focusMainWindow, focusTerminal, logged }
+  return { dispatcher, sent, activated, focused, focusMainWindow, focusTerminal, logged }
 }
 
 async function flushMicrotasks(): Promise<void> {
@@ -63,15 +75,50 @@ describe('createMainDeepLinkDispatcher', () => {
     expect(sent).toEqual([{ type: 'notice', notice: 'terminal-gone' }])
   })
 
-  it('worktree/pair/run forward to the renderer with the transport-stamped origin', () => {
+  it('worktree dispatch mirrors the notification-click channel', () => {
+    const { dispatcher, activated, focused, sent } = makeDispatcher()
+
+    dispatcher.dispatch({ kind: 'worktree', worktreeId: 'repo-1::/w/tree' }, { source: 'os' })
+
+    expect(activated).toEqual([{ repoId: 'repo-1', worktreeId: 'repo-1::/w/tree' }])
+    expect(focused).toEqual([])
+    expect(sent).toEqual([])
+  })
+
+  it('worktree ?tab= follows activation with a focusTerminal targeting the tab', () => {
+    const { dispatcher, activated, focused } = makeDispatcher()
+
+    dispatcher.dispatch(
+      { kind: 'worktree', worktreeId: 'repo-1::/w/tree', tabId: 'tab-7' },
+      { source: 'os' }
+    )
+
+    expect(activated).toHaveLength(1)
+    expect(focused).toEqual([{ tabId: 'tab-7', worktreeId: 'repo-1::/w/tree', leafId: null }])
+  })
+
+  it('worktree id without the :: separator is rejected as unrecognized', () => {
+    const { dispatcher, activated, sent } = makeDispatcher()
+
+    dispatcher.dispatch({ kind: 'worktree', worktreeId: 'no-separator' }, { source: 'os' })
+
+    expect(activated).toEqual([])
+    expect(sent).toEqual([{ type: 'notice', notice: 'unrecognized' }])
+  })
+
+  it('pair/run forward to the renderer with the transport-stamped origin', () => {
     const { dispatcher, sent } = makeDispatcher()
 
-    dispatcher.dispatch({ kind: 'worktree', worktreeId: 'r::p' }, { source: 'os' })
     dispatcher.dispatch({ kind: 'pair', code: 'abc' }, { source: 'os' })
+    dispatcher.dispatch({ kind: 'run', worktreeId: 'r::p', command: 'ls' }, { source: 'os' })
 
     expect(sent).toEqual([
-      { type: 'link', link: { kind: 'worktree', worktreeId: 'r::p' }, origin: { source: 'os' } },
-      { type: 'link', link: { kind: 'pair', code: 'abc' }, origin: { source: 'os' } }
+      { type: 'link', link: { kind: 'pair', code: 'abc' }, origin: { source: 'os' } },
+      {
+        type: 'link',
+        link: { kind: 'run', worktreeId: 'r::p', command: 'ls' },
+        origin: { source: 'os' }
+      }
     ])
   })
 
@@ -81,6 +128,17 @@ describe('createMainDeepLinkDispatcher', () => {
     dispatcher.dispatch({ kind: 'pair', code: 'super-secret' }, { source: 'os' })
 
     expect(logged.join('\n')).not.toContain('super-secret')
+  })
+
+  it('logs run dispatches without the command text', () => {
+    const { dispatcher, logged } = makeDispatcher()
+
+    dispatcher.dispatch(
+      { kind: 'run', worktreeId: 'r::p', command: 'curl secret-token' },
+      { source: 'os' }
+    )
+
+    expect(logged.join('\n')).not.toContain('secret-token')
   })
 
   it('notifyUnrecognized sends the unrecognized notice', () => {

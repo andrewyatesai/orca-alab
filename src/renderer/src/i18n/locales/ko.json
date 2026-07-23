@@ -640,7 +640,12 @@
             "notices": {
               "unrecognized": "Unrecognized Orca link",
               "unsupported": "This Orca link type is not supported yet",
-              "terminalGone": "Terminal is no longer running"
+              "terminalGone": "Terminal is no longer running",
+              "unknownWorkspace": "The workspace in this Orca link was not found",
+              "runIgnored": "Another Orca run link was ignored while a confirmation is open",
+              "pairRouted": "Orca pairing is set up from Settings — pairing links never connect automatically",
+              "originTerminal": "Clicked in terminal output of \"{{name}}\" — terminal output is untrusted",
+              "originOs": "Opened from outside Orca (a browser or another application)"
             }
           }
         }
@@ -2773,6 +2778,15 @@
             "dont_ask_again": "고정된 탭에 대해 다시 묻지 않기",
             "0b38ee2f86": "취소",
             "c337c9d75c": "닫기"
+          },
+          "RunCommandConsentDialog": {
+            "title": "Run this command?",
+            "targetWorkspace": "Workspace: {{name}}",
+            "targetPath": "Path: {{path}}",
+            "hostLocal": "Runs on: this computer",
+            "hostRemote": "Runs on: {{host}}",
+            "cancel": "Cancel",
+            "confirm": "Run command"
           },
           "TerminalDeadPaneOverlay": {
             "failed": "Terminal exited",

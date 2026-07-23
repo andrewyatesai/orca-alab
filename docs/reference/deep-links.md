@@ -1,15 +1,18 @@
-# `orca://` deep links (PR1: focus)
+# `orca://` deep links
 
-Clickable links that focus a specific Orca terminal pane, from inside a pane (OSC-8), a
-browser, or another app (#4384). Design: `upstream-triage/designs/orca-deep-links.md`;
+Clickable links that focus a specific Orca terminal pane, navigate to a workspace, or
+(consent-gated) run a command, from inside a pane (OSC-8), a browser, or another app
+(#4384). Design: `upstream-triage/designs/orca-deep-links.md`;
 manual registration QA: `upstream-triage/designs/orca-deep-links-manual-qa.md`.
 
 ## Grammar (parser: `src/shared/orca-deep-link.ts`)
 
-| URL | PR1 behavior |
+| URL | Behavior |
 |---|---|
 | `orca://focus/term_<uuid>` | Focus that pane (revives sleeping sessions); stale handle → "Terminal is no longer running" |
-| `orca://worktree/…`, `orca://pair?…`, `orca://run?…` | Parsed (grammar is forward-fixed) but toast "not supported yet" — PR2 adds navigation, pair pre-fill, and consent-gated run |
+| `orca://worktree/<pct-encoded worktreeId>[?tab=<tabId>]` | Activate that workspace (and terminal tab); id is `repoId::worktreePath`, percent-encoded |
+| `orca://pair?code=…` | Routes to Settings → Mobile. The desktop mints pairing offers — it never consumes a code, so nothing auto-pairs and the code is dropped |
+| `orca://run?worktree=<pct id>&cmd=<pct command>[&title=<pct>]` | **Always** raises a modal consent dialog (full command, target workspace + execution host, origin label). Confirm spawns a NEW terminal tab running the command — never an existing pane's stdin. No "always allow", no bypass setting |
 | anything else | "Unrecognized Orca link" |
 
 Handles come from `orca terminal list --json` (field `handle`). URLs are capped at 2048
@@ -37,6 +40,15 @@ Activation is Cmd/Ctrl+click, same as http links.
   (1 per 300 ms, queue depth 4), and queued until the renderer's listeners attach.
 - The engine only linkifies `orca://` because the host mints the scheme per pane
   (`authorize_hyperlink_scheme`, fail-closed, never-allow set for `javascript:`/`file:`/etc.).
+- Consent labels state provenance, stamped by the **transport** (never parsed from the URL):
+  OS-routed → "Opened from outside Orca…"; in-pane click → "Clicked in terminal output of
+  \<worktree\> — terminal output is untrusted". `ui:deepLink` is main→renderer only; no
+  renderer→main IPC accepts an origin claim.
+- While a run-consent dialog is open, navigation dispatches (`ui:focusTerminal`,
+  `ui:activateWorktree`, in-pane worktree links) are held by the renderer listeners and
+  released when it closes (`deep-link-consent-gate.ts`) — a focus link cannot re-target the
+  UI under the user's pointer mid-consent. A second `run` link while one is pending is
+  dropped, never swapped into the open dialog.
 
 ## Dev-mode registration
 

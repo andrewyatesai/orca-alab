@@ -3,9 +3,9 @@ import { routeTerminalOrcaDeepLink } from './terminal-orca-deep-links'
 import { focusRendererTerminalHandle, focusRuntimeTerminalHandle } from './terminal-handle-links'
 import {
   showDeepLinkTerminalGoneToast,
-  showDeepLinkUnrecognizedToast,
-  showDeepLinkUnsupportedToast
+  showDeepLinkUnrecognizedToast
 } from '@/lib/deep-link-ui-notices'
+import { dispatchDeepLinkInRenderer } from '@/lib/deep-link-renderer-dispatch'
 
 vi.mock('./terminal-handle-links', () => ({
   focusRendererTerminalHandle: vi.fn(() => true),
@@ -14,8 +14,11 @@ vi.mock('./terminal-handle-links', () => ({
 
 vi.mock('@/lib/deep-link-ui-notices', () => ({
   showDeepLinkTerminalGoneToast: vi.fn(),
-  showDeepLinkUnrecognizedToast: vi.fn(),
-  showDeepLinkUnsupportedToast: vi.fn()
+  showDeepLinkUnrecognizedToast: vi.fn()
+}))
+
+vi.mock('@/lib/deep-link-renderer-dispatch', () => ({
+  dispatchDeepLinkInRenderer: vi.fn()
 }))
 
 const context = { worktreeId: 'repo::wt-origin', runtimeEnvironmentId: null }
@@ -70,12 +73,30 @@ describe('routeTerminalOrcaDeepLink', () => {
     expect(focusRendererTerminalHandle).not.toHaveBeenCalled()
   })
 
-  it('worktree/pair/run toast unsupported until PR2', () => {
+  it('worktree/pair/run dispatch with the terminal-stamped origin (never from the URL)', () => {
     routeTerminalOrcaDeepLink('orca://worktree/repo%3A%3Apath', context)
     routeTerminalOrcaDeepLink('orca://pair?code=YWJj', context)
     routeTerminalOrcaDeepLink('orca://run?worktree=r%3A%3Ap&cmd=ls', context)
 
-    expect(showDeepLinkUnsupportedToast).toHaveBeenCalledTimes(3)
+    const terminalOrigin = { source: 'terminal', worktreeId: 'repo::wt-origin' }
+    expect(vi.mocked(dispatchDeepLinkInRenderer).mock.calls).toEqual([
+      [{ kind: 'worktree', worktreeId: 'repo::path' }, terminalOrigin],
+      [{ kind: 'pair', code: 'YWJj' }, terminalOrigin],
+      [{ kind: 'run', worktreeId: 'r::p', command: 'ls' }, terminalOrigin]
+    ])
     expect(focusRendererTerminalHandle).not.toHaveBeenCalled()
+  })
+
+  it('run link opens consent with terminal origin (routes through renderer dispatch)', () => {
+    const consumed = routeTerminalOrcaDeepLink('orca://run?worktree=r%3A%3Ap&cmd=echo%20hi', {
+      worktreeId: 'repo::clicked-in',
+      runtimeEnvironmentId: null
+    })
+
+    expect(consumed).toBe(true)
+    expect(dispatchDeepLinkInRenderer).toHaveBeenCalledWith(
+      { kind: 'run', worktreeId: 'r::p', command: 'echo hi' },
+      { source: 'terminal', worktreeId: 'repo::clicked-in' }
+    )
   })
 })

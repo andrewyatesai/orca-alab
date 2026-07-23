@@ -202,6 +202,32 @@ describe('onboarding feature setup runner', () => {
     expect(deps.clipboardWrites).toEqual([ALL_SKILL_INSTALL_COMMAND])
   })
 
+  it('skips computer use permission setup without warning when the helper app is unavailable (#8950)', async () => {
+    const deps = createDeps({
+      getComputerUsePermissionStatus: vi.fn(
+        async (): Promise<ComputerUsePermissionStatusResult> => ({
+          platform: 'darwin',
+          helperAppPath: null,
+          helperUnavailableReason: 'Orca Computer Use.app was not found',
+          permissions: [
+            { id: 'accessibility', status: 'not-granted' },
+            { id: 'screenshots', status: 'not-granted' }
+          ]
+        })
+      )
+    })
+
+    const result = await runOnboardingFeatureSetup(
+      { browserUse: false, computerUse: true, orchestration: false, linearTickets: false },
+      deps
+    )
+
+    expect(deps.getComputerUsePermissionStatus).toHaveBeenCalledTimes(1)
+    expect(deps.openComputerUsePermissionSetup).not.toHaveBeenCalled()
+    expect(result.computerUsePermissionsOpened).toBe(false)
+    expect(result.warnings).toEqual([])
+  })
+
   it('keeps invasive Browser Use and Computer Use setup untouched when only Orchestration is selected', async () => {
     const deps = createDeps()
     const selection: OnboardingFeatureSetupSelection = {

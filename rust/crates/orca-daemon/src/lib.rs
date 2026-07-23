@@ -10,6 +10,7 @@
 
 // The connection logic is transport-generic (see connection::DaemonStream), so it
 // compiles on every platform; each `serve` below supplies its own socket type.
+pub mod bounded_stream_channel;
 pub mod connection;
 pub mod pending_output;
 pub mod process_query;

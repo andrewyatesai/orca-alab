@@ -8,4 +8,4 @@
 
 pub mod session;
 
-pub use session::{PtyCommand, PtySession, PtySize};
+pub use session::{PtyCommand, PtySession, PtySize, PtyWriter};

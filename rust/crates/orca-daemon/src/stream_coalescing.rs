@@ -6,10 +6,10 @@
 //! snapshot/stream duplication; coalescing only merges items ALREADY queued
 //! (`try_recv`), so an interactive keystroke's echo flushes immediately.
 
+use crate::bounded_stream_channel::StreamReceiver;
 use crate::protocol::{data_event, data_frame, event_frame};
 use orca_net::encode_ndjson_line;
 use std::io::Write;
-use std::sync::mpsc::Receiver;
 
 /// One semantic stream-plane message, queued per client. Encoding happens in
 /// the writer thread (per the negotiated wire format), not at enqueue time.
@@ -59,7 +59,7 @@ pub fn encode_stream_item(item: &StreamItem, format: StreamWireFormat) -> Vec<u8
 /// (socket closed) — matching the old per-frame drain's exit conditions.
 pub fn drain_stream_items<W: Write>(
     writer: &mut W,
-    rx: &Receiver<StreamItem>,
+    rx: &StreamReceiver,
     format: StreamWireFormat,
 ) {
     // An item pulled while coalescing that must NOT merge (an event, or another
@@ -108,8 +108,8 @@ pub fn drain_stream_items<W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bounded_stream_channel::stream_channel;
     use crate::protocol::{exit_event, FRAME_HEADER_SIZE, FRAME_TYPE_DATA, FRAME_TYPE_EVENT};
-    use std::sync::mpsc::channel;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn adjacent_same_session_items_coalesce_into_one_write() {
-        let (tx, rx) = channel();
+        let (tx, rx) = stream_channel();
         tx.send(data("s", "one ")).unwrap();
         tx.send(data("s", "two ")).unwrap();
         tx.send(data("s", "three")).unwrap();
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn event_never_merges_and_pending_data_flushes_before_it() {
-        let (tx, rx) = channel();
+        let (tx, rx) = stream_channel();
         tx.send(data("s", "before-a ")).unwrap();
         tx.send(data("s", "before-b")).unwrap();
         tx.send(StreamItem::Event {
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn cross_session_data_never_merges_and_keeps_order() {
-        let (tx, rx) = channel();
+        let (tx, rx) = stream_channel();
         tx.send(data("s1", "a1")).unwrap();
         tx.send(data("s2", "b1")).unwrap();
         tx.send(data("s1", "a2")).unwrap();
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn coalescing_caps_near_32kib() {
         let chunk = "x".repeat(10 * 1024);
-        let (tx, rx) = channel();
+        let (tx, rx) = stream_channel();
         for _ in 0..5 {
             tx.send(data("s", &chunk)).unwrap();
         }
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn single_item_flushes_immediately_while_channel_stays_open() {
-        let (tx, rx) = channel();
+        let (tx, rx) = stream_channel();
         let log = WriteLog::default();
         let mut writer = log.clone();
         let drain =
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn sender_dropped_mid_queue_still_flushes_the_tail() {
-        let (tx, rx) = channel();
+        let (tx, rx) = stream_channel();
         tx.send(data("s", "tail-a")).unwrap();
         tx.send(data("s", "tail-b")).unwrap();
         drop(tx); // disconnect BEFORE the drain runs
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn ndjson_drain_coalesces_and_flushes_before_events_like_binary() {
-        let (tx, rx) = channel();
+        let (tx, rx) = stream_channel();
         tx.send(data("s", "a")).unwrap();
         tx.send(data("s", "b")).unwrap();
         tx.send(StreamItem::Event {
@@ -334,7 +334,7 @@ mod tests {
                 Ok(())
             }
         }
-        let (tx, rx) = channel();
+        let (tx, rx) = stream_channel();
         tx.send(data("s", "x")).unwrap();
         tx.send(StreamItem::Event {
             json: exit_event("s", 0),

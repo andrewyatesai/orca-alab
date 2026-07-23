@@ -9,7 +9,7 @@ use orca_daemon::registry::Registry;
 use orca_daemon::rpc::dispatch_request;
 use orca_daemon::stream_coalescing::{encode_stream_item, StreamItem, StreamWireFormat};
 use serde_json::{json, Value};
-use std::sync::mpsc::{channel, Receiver};
+use orca_daemon::bounded_stream_channel::{stream_channel, StreamReceiver};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -26,7 +26,7 @@ fn ndjson_line(item: &StreamItem) -> String {
 
 /// Read the stream Receiver until an `exit` event for `session` arrives; returns
 /// its `code`. Data events (buffered output) are skipped.
-fn wait_for_exit_code(rx: &Receiver<StreamItem>, session: &str, timeout: Duration) -> Option<i64> {
+fn wait_for_exit_code(rx: &StreamReceiver, session: &str, timeout: Duration) -> Option<i64> {
     let start = Instant::now();
     while start.elapsed() < timeout {
         if let Ok(item) = rx.recv_timeout(Duration::from_millis(100)) {
@@ -56,7 +56,7 @@ fn wait_until(mut pred: impl FnMut() -> bool, timeout: Duration) -> bool {
 fn exit_event_carries_the_real_child_code() {
     let reg = Arc::new(Registry::new());
     let client = "c-exit";
-    let (tx, rx) = channel::<StreamItem>();
+    let (tx, rx) = stream_channel();
     reg.register_stream(client.to_string(), tx);
 
     let created = dispatch(
@@ -81,7 +81,7 @@ fn exit_event_carries_the_real_child_code() {
 fn signal_kills_a_live_session() {
     let reg = Arc::new(Registry::new());
     let client = "c-sig";
-    let (tx, rx) = channel::<StreamItem>();
+    let (tx, rx) = stream_channel();
     reg.register_stream(client.to_string(), tx);
 
     dispatch(
@@ -120,7 +120,7 @@ fn signal_kills_a_live_session() {
 
 /// Read the stream Receiver's `data` events until `needle` is seen. Used to observe
 /// what the spawned child actually printed.
-fn wait_for_data(rx: &Receiver<StreamItem>, session: &str, needle: &str, timeout: Duration) -> bool {
+fn wait_for_data(rx: &StreamReceiver, session: &str, needle: &str, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
         if let Ok(item) = rx.recv_timeout(Duration::from_millis(100)) {
@@ -146,7 +146,7 @@ fn wait_for_data(rx: &Receiver<StreamItem>, session: &str, needle: &str, timeout
 fn create_or_attach_applies_session_env_and_deletions() {
     let reg = Arc::new(Registry::new());
     let client = "c-env";
-    let (tx, rx) = channel::<StreamItem>();
+    let (tx, rx) = stream_channel();
     reg.register_stream(client.to_string(), tx);
     dispatch(
         &reg,

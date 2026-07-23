@@ -14,7 +14,7 @@ use orca_daemon::registry::Registry;
 use orca_daemon::rpc::dispatch_request;
 use orca_daemon::stream_coalescing::{encode_stream_item, StreamItem, StreamWireFormat};
 use serde_json::{json, Value};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use orca_daemon::bounded_stream_channel::{stream_channel, StreamReceiver, StreamSender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -40,7 +40,7 @@ fn wait_until(mut pred: impl FnMut() -> bool, timeout: Duration) -> bool {
 }
 
 /// Scan a stream Receiver for a `data` event carrying `needle` (drains as it goes).
-fn wait_for_data(rx: &Receiver<StreamItem>, session: &str, needle: &str, timeout: Duration) -> bool {
+fn wait_for_data(rx: &StreamReceiver, session: &str, needle: &str, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
         if let Ok(item) = rx.recv_timeout(Duration::from_millis(100)) {
@@ -60,7 +60,7 @@ fn wait_for_data(rx: &Receiver<StreamItem>, session: &str, needle: &str, timeout
 
 /// Drain everything currently queued on a Receiver into one string of data-event
 /// payloads (for MUST-NOT-receive assertions).
-fn drain_data(rx: &Receiver<StreamItem>, session: &str) -> String {
+fn drain_data(rx: &StreamReceiver, session: &str) -> String {
     let mut out = String::new();
     while let Ok(item) = rx.try_recv() {
         let v: Value = serde_json::from_str(&ndjson_line(&item)).expect("event JSON");
@@ -71,7 +71,7 @@ fn drain_data(rx: &Receiver<StreamItem>, session: &str) -> String {
     out
 }
 
-fn wait_for_exit(rx: &Receiver<StreamItem>, session: &str, timeout: Duration) -> bool {
+fn wait_for_exit(rx: &StreamReceiver, session: &str, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
         if let Ok(item) = rx.recv_timeout(Duration::from_millis(100)) {
@@ -102,8 +102,8 @@ fn create_marked_session(
     owner: &str,
     session: &str,
     marker: &str,
-) -> Receiver<StreamItem> {
-    let (tx, rx) = channel::<StreamItem>();
+) -> StreamReceiver {
+    let (tx, rx) = stream_channel();
     reg.register_stream(owner.to_string(), tx);
     let created = dispatch(
         reg,
@@ -123,8 +123,8 @@ fn create_marked_session(
     rx
 }
 
-fn register_stream(reg: &Arc<Registry>, client: &str) -> (Sender<StreamItem>, Receiver<StreamItem>) {
-    let (tx, rx) = channel::<StreamItem>();
+fn register_stream(reg: &Arc<Registry>, client: &str) -> (StreamSender, StreamReceiver) {
+    let (tx, rx) = stream_channel();
     reg.register_stream(client.to_string(), tx.clone());
     (tx, rx)
 }

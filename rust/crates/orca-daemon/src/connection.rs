@@ -2,19 +2,19 @@
 //! the stream (events) role for its client. Faithful to the Node daemon, where
 //! each client opens a control socket and a stream socket correlated by clientId.
 
+use crate::bounded_stream_channel::{stream_channel, StreamReceiver};
 use crate::protocol::{
     hello_err, hello_ok, hello_ok_binary_stream, parse_hello, MIN_SUPPORTED_PROTOCOL_VERSION,
     PROTOCOL_VERSION,
 };
 use crate::registry::Registry;
 use crate::rpc::dispatch_request;
-use crate::stream_coalescing::{drain_stream_items, StreamItem, StreamWireFormat};
+use crate::stream_coalescing::{drain_stream_items, StreamWireFormat};
 use orca_net::{encode_ndjson_line, NdjsonEvent, NdjsonSplitter, NDJSON_MAX_LINE_BYTES};
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
-use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
 
@@ -240,7 +240,7 @@ fn serve_stream<S: DaemonStream>(
     // and coalesces adjacent same-session output (stream_coalescing).
     // Install the sender. Detached-while-idle output isn't buffered for raw replay —
     // the reattach snapshot (built from the engine) restores state instead.
-    let (tx, rx) = channel::<StreamItem>();
+    let (tx, rx) = stream_channel();
     registry.register_stream(client_id.clone(), tx);
     let format = if binary_stream {
         StreamWireFormat::Binary
@@ -263,7 +263,7 @@ fn serve_stream<S: DaemonStream>(
 /// without any reordering risk.
 fn spawn_stream_drain<S>(
     mut writer: S,
-    rx: std::sync::mpsc::Receiver<StreamItem>,
+    rx: StreamReceiver,
     format: StreamWireFormat,
 ) -> thread::JoinHandle<()>
 where

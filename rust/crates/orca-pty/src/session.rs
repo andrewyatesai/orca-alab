@@ -8,6 +8,13 @@ use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize as Port
 use std::io::{self, Read, Write};
 #[cfg(unix)]
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+
+/// A cloneable, independently-lockable handle to a PTY's input writer. The daemon
+/// writes stdin under THIS lock — never the global registry lock — so a child that
+/// stopped draining its tty (a SIGSTOP'd foreground process, `^S`/IXON) can block a
+/// `write_all` on the full kernel PTY buffer without wedging every other session.
+pub type PtyWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
 fn to_io(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
@@ -40,7 +47,7 @@ pub struct PtyCommand {
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
-    writer: Box<dyn Write + Send>,
+    writer: PtyWriter,
 }
 
 impl PtySession {
@@ -66,9 +73,16 @@ impl PtySession {
         let child = pair.slave.spawn_command(builder).map_err(to_io)?;
         // Drop the slave so the master observes EOF once the child exits.
         drop(pair.slave);
-        let writer = pair.master.take_writer().map_err(to_io)?;
+        let writer = Arc::new(Mutex::new(pair.master.take_writer().map_err(to_io)?));
 
         Ok(Self { master: pair.master, child, writer })
+    }
+
+    /// A clone of the input-writer handle so callers can write stdin under the
+    /// per-session writer lock alone, off any shared lock they may hold. See
+    /// `PtyWriter`: a blocking write to a stalled child must not wedge the daemon.
+    pub fn writer_handle(&self) -> PtyWriter {
+        Arc::clone(&self.writer)
     }
 
     /// A fresh reader over the master end (node-pty's `onData` stream).
@@ -84,10 +98,12 @@ impl PtySession {
         self.master.as_raw_fd()
     }
 
-    /// Write input to the PTY (node-pty's `write`).
-    pub fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
-        self.writer.write_all(data)?;
-        self.writer.flush()
+    /// Write input to the PTY (node-pty's `write`). Takes `&self` (the writer is
+    /// behind its own lock), so a caller can write without an exclusive borrow.
+    pub fn write_all(&self, data: &[u8]) -> io::Result<()> {
+        let mut writer = self.writer.lock().unwrap();
+        writer.write_all(data)?;
+        writer.flush()
     }
 
     /// Resize the PTY (node-pty's `resize`).

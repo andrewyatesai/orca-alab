@@ -6,7 +6,7 @@
 
 use crate::pending_output::PendingOutput;
 use crate::protocol::{rpc_err, rpc_ok, SUBSCRIBER_READ_ONLY_ERROR};
-use crate::registry::{Registry, SessionEngine, SessionEntry};
+use crate::registry::{ReattachOutcome, Registry, SessionEngine, SessionEntry};
 use crate::shell_ready_barrier::{
     GateTimer, ShellReadyBarrier, POST_READY_FLUSH_DELAY_MS, POST_READY_FLUSH_FALLBACK_MS,
     SHELL_READY_TIMEOUT_MS,
@@ -15,7 +15,7 @@ use crate::utf8_stream_decoder::Utf8StreamDecoder;
 use orca_pty::{PtyCommand, PtySession, PtySize};
 use orca_terminal::{HeadlessTerminal, MouseTracking, DEFAULT_SCROLLBACK};
 use serde_json::{json, Value};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -43,11 +43,18 @@ fn field_str<'a>(payload: &'a Value, key: &str) -> &'a str {
     payload.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
+/// A client-controlled `u16` dimension (cols/rows). CLAMP, don't truncate: a plain
+/// `as u16` cast turns `65536` into `0` and `65616` into `80`, so a skewed/hostile
+/// client could push a genuine `0x0` TIOCSWINSZ to the kernel (the engine grid
+/// self-clamps to 1x1, but the PTY winsize and the persisted checkpoint dims would
+/// not) — desyncing the kernel winsize from the engine grid. Clamp to the same
+/// `1..=u16::MAX` band orca-terminal's `dim()` enforces (also rejecting explicit
+/// `0`); absent/non-integer keeps the caller's default, mirroring `scrollback_rows`.
 fn field_u16(payload: &Value, key: &str, default: u16) -> u16 {
-    payload
-        .get(key)
-        .and_then(Value::as_u64)
-        .unwrap_or(default as u64) as u16
+    match payload.get(key).and_then(Value::as_u64) {
+        Some(v) => v.clamp(1, u16::MAX as u64) as u16,
+        None => default,
+    }
 }
 
 /// Bounds mirror src/shared/terminal-scrollback-policy.ts so both daemons
@@ -160,6 +167,9 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                 .unwrap_or(false);
             if immediate {
                 match registry.with_session(&session_id, |e| {
+                    // Fence reattach: a session being torn down must not be handed
+                    // back by createOrAttach (see reattach_if_alive).
+                    e.terminating = true;
                     let _ = e.pty.kill();
                 }) {
                     Some(()) => void_ack(id),
@@ -167,6 +177,7 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                 }
             } else {
                 match registry.with_session(&session_id, |e| {
+                    e.terminating = true;
                     let _ = e.pty.signal("SIGHUP");
                     e.pid
                 }) {
@@ -395,13 +406,24 @@ fn create_or_attach(
     // REAL snapshot so the reattacher repaints — matching terminal-host.ts's live
     // branch (getSnapshot + detachAllClients + attachClient). A blank snapshot here
     // would leave a warm-reattached pane frozen after relaunch.
-    if let Some((engine, shell_state)) = registry.reattach_if_alive(&session_id, client_id) {
-        let snapshot = build_snapshot(&mut engine.lock().unwrap().terminal);
-        let pid = registry.session_pid(&session_id);
-        return rpc_ok(
-            id,
-            json!({ "isNew": false, "snapshot": snapshot, "pid": pid, "shellState": shell_state }),
-        );
+    match registry.reattach_if_alive(&session_id, client_id) {
+        ReattachOutcome::Reattached(engine, shell_state) => {
+            let snapshot = build_snapshot(&mut engine.lock().unwrap().terminal);
+            let pid = registry.session_pid(&session_id);
+            return rpc_ok(
+                id,
+                json!({ "isNew": false, "snapshot": snapshot, "pid": pid, "shellState": shell_state }),
+            );
+        }
+        // A session mid-teardown (kill dispatched, 5s SIGKILL escalation pending)
+        // must NOT be handed back: reattaching the dying shell would let the force
+        // kill SIGKILL the freshly-reopened pane. Error like terminal-host.ts's
+        // isTerminating fence; the client retries once teardown completes. Spawning
+        // fresh here instead would orphan the dying child AND let its reap remove the
+        // fresh entry from the map.
+        ReattachOutcome::Terminating => return rpc_err(id, "Session is terminating"),
+        // Unknown id: fall through to spawn fresh.
+        ReattachOutcome::Unknown => {}
     }
     // Not a live session: drop any lingering dead entry for this id, then spawn fresh.
     registry.remove_session(&session_id);
@@ -479,6 +501,7 @@ fn create_or_attach(
             created_at_ms,
             engine: Arc::clone(&engine),
             barrier: barrier.clone(),
+            terminating: false,
         },
     );
     // Barrier timers + pump start only AFTER the session is registered: a fast
@@ -674,45 +697,66 @@ fn plain_session_args() -> Vec<String> {
     Vec::new()
 }
 
+/// Write `data` to a PTY writer under ITS OWN lock. Never call this while holding
+/// the registry lock: a child that stopped draining its tty (SIGSTOP, `^S`/IXON)
+/// fills the kernel PTY buffer and blocks this write — under the registry lock that
+/// would wedge every session's pump + control RPC until the child drains.
+fn write_pty(writer: &mut dyn Write, data: &[u8]) -> std::io::Result<()> {
+    writer.write_all(data)?;
+    writer.flush()
+}
+
 /// Write to a session's PTY through the shell-ready barrier: while the barrier
 /// is pending (or its post-ready flush gate hasn't fired), the data queues so
 /// it can't race ahead of the buffered startup command — session.ts write().
-/// Barrier locked INSIDE the registry lock (the crate-wide lock order).
+///
+/// The PER-SESSION writer lock — resolved off the registry lock, which is dropped
+/// immediately — is the ordering authority: it serializes with the barrier flush
+/// (`flush_queue_if`) so a queued startup command and later input stay in order,
+/// while the actual (possibly blocking) write never holds the global registry lock.
 fn session_write(
     registry: &Arc<Registry>,
     session_id: &str,
     data: &str,
 ) -> Option<std::io::Result<()>> {
-    registry.with_session(session_id, |e| {
-        if let Some(barrier) = &e.barrier {
-            let mut barrier = barrier.lock().unwrap();
-            if barrier.should_queue() {
-                barrier.push_queued(data.to_string());
-                return Ok(());
-            }
+    let (writer, barrier) =
+        registry.with_session(session_id, |e| (e.pty.writer_handle(), e.barrier.clone()))?;
+    // Writer lock BEFORE barrier lock (lock order: writer → barrier), both off the
+    // registry lock. `flush_queue_if` takes the same writer lock, so the queue
+    // check and the write can't interleave with a concurrent flush.
+    let mut w = writer.lock().unwrap();
+    if let Some(barrier) = &barrier {
+        let mut barrier = barrier.lock().unwrap();
+        if barrier.should_queue() {
+            barrier.push_queued(data.to_string());
+            return Some(Ok(()));
         }
-        e.pty.write_all(data.as_bytes())
-    })
+    }
+    Some(write_pty(&mut **w, data.as_bytes()))
 }
 
 /// Drain the barrier's stdin queue into the PTY iff `take` (a generation-checked
-/// gate/timeout acceptance) approves — all under the registry lock so no
-/// concurrent write can interleave with the flushed startup command.
+/// gate/timeout acceptance) approves. The gate flip + drain run under the
+/// per-session writer lock (resolved off the registry lock) so no concurrent
+/// `session_write` can interleave with the flushed startup command — and no
+/// blocking write is held under the global registry lock.
 fn flush_queue_if(
     registry: &Arc<Registry>,
     session_id: &str,
     barrier: &Arc<Mutex<ShellReadyBarrier>>,
     take: impl FnOnce(&mut ShellReadyBarrier) -> bool,
 ) {
-    registry.with_session(session_id, |e| {
-        let mut barrier = barrier.lock().unwrap();
-        if !take(&mut barrier) {
-            return;
-        }
-        for data in barrier.drain_queue() {
-            let _ = e.pty.write_all(data.as_bytes());
-        }
-    });
+    let Some(writer) = registry.with_session(session_id, |e| e.pty.writer_handle()) else {
+        return;
+    };
+    let mut w = writer.lock().unwrap();
+    let mut barrier = barrier.lock().unwrap();
+    if !take(&mut barrier) {
+        return;
+    }
+    for data in barrier.drain_queue() {
+        let _ = write_pty(&mut **w, data.as_bytes());
+    }
 }
 
 /// Schedule the post-ready flush gate timer a barrier transition asked for.
@@ -751,24 +795,35 @@ fn spawn_ready_timeout(
 ) {
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(timeout_ms));
-        // Transition + engine feed + queue flush in ONE registry-lock turn so a
-        // concurrent write can't slip between the state flip and the flush.
-        let held = registry
-            .with_session(&session_id, |e| {
-                let mut b = barrier.lock().unwrap();
-                let held = b.on_ready_timeout_elapsed()?;
-                if !held.is_empty() {
-                    if let Ok(mut engine) = e.engine.lock() {
-                        engine.terminal.process(held.as_bytes());
-                        engine.pending.record_output(&held);
+        // Resolve the writer + engine handles under the registry lock, then release
+        // it. The transition + engine feed + queue flush run under the per-session
+        // writer lock (writer → barrier → engine order) so a concurrent write can't
+        // slip between the state flip and the flush, WITHOUT holding the registry
+        // lock across a potentially-blocking PTY write.
+        let Some((writer, engine)) =
+            registry.with_session(&session_id, |e| (e.pty.writer_handle(), Arc::clone(&e.engine)))
+        else {
+            return;
+        };
+        let held = {
+            let mut w = writer.lock().unwrap();
+            let mut b = barrier.lock().unwrap();
+            match b.on_ready_timeout_elapsed() {
+                None => return,
+                Some(held) => {
+                    if !held.is_empty() {
+                        if let Ok(mut engine) = engine.lock() {
+                            engine.terminal.process(held.as_bytes());
+                            engine.pending.record_output(&held);
+                        }
                     }
+                    for data in b.drain_queue() {
+                        let _ = write_pty(&mut **w, data.as_bytes());
+                    }
+                    Some(held)
                 }
-                for data in b.drain_queue() {
-                    let _ = e.pty.write_all(data.as_bytes());
-                }
-                Some(held)
-            })
-            .flatten();
+            }
+        };
         // Stream the released bytes outside the registry lock (route_output
         // re-takes it). Ordering vs concurrent output is cosmetic here: the
         // held bytes are at most a partial ESC]777 prefix.
@@ -1031,5 +1086,48 @@ mod tests {
         assert_eq!(rows(json!({ "scrollbackRows": -1 })), DEFAULT);
         assert_eq!(rows(json!({ "scrollbackRows": "50000" })), DEFAULT);
         assert_eq!(rows(json!({ "scrollbackRows": null })), DEFAULT);
+    }
+
+    fn cols(payload: Value) -> u16 {
+        field_u16(&payload, "cols", 80)
+    }
+
+    /// Protocol skew: a missing dimension keeps the caller's default.
+    #[test]
+    fn field_u16_absent_keeps_default() {
+        assert_eq!(cols(json!({ "sessionId": "s" })), 80);
+        assert_eq!(field_u16(&json!({}), "rows", 24), 24);
+    }
+
+    #[test]
+    fn field_u16_forwards_in_range_values() {
+        assert_eq!(cols(json!({ "cols": 1 })), 1);
+        assert_eq!(cols(json!({ "cols": 120 })), 120);
+        assert_eq!(cols(json!({ "cols": 65_535 })), 65_535);
+    }
+
+    /// The bug: a plain `as u16` cast turned 65536→0 and 65616→80. Clamping keeps
+    /// these at the u16 ceiling instead of wrapping to a tiny/bogus winsize.
+    #[test]
+    fn field_u16_clamps_overflow_instead_of_truncating() {
+        assert_eq!(cols(json!({ "cols": 65_536 })), 65_535, "must not wrap to 0");
+        assert_eq!(cols(json!({ "cols": 65_616 })), 65_535, "must not wrap to 80");
+        assert_eq!(cols(json!({ "cols": 10_000_000 })), 65_535);
+        assert_eq!(cols(json!({ "cols": u64::MAX })), 65_535);
+    }
+
+    /// Explicit 0 is clamped UP to 1 — never a 0x0 TIOCSWINSZ to the kernel.
+    #[test]
+    fn field_u16_clamps_zero_up_to_one() {
+        assert_eq!(cols(json!({ "cols": 0 })), 1);
+    }
+
+    /// Untrusted JSON: floats, negatives, strings, null fall back to the default.
+    #[test]
+    fn field_u16_rejects_non_integer_values() {
+        assert_eq!(cols(json!({ "cols": 80.5 })), 80);
+        assert_eq!(cols(json!({ "cols": -1 })), 80);
+        assert_eq!(cols(json!({ "cols": "120" })), 80);
+        assert_eq!(cols(json!({ "cols": null })), 80);
     }
 }

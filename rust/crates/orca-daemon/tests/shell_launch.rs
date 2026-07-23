@@ -10,7 +10,7 @@ use orca_daemon::registry::Registry;
 use orca_daemon::rpc::dispatch_request;
 use orca_daemon::stream_coalescing::{encode_stream_item, StreamItem, StreamWireFormat};
 use serde_json::{json, Value};
-use std::sync::mpsc::{channel, Receiver};
+use orca_daemon::bounded_stream_channel::{stream_channel, StreamReceiver};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -28,7 +28,7 @@ fn ndjson_line(item: &StreamItem) -> String {
 /// Collect streamed `data` payloads for `session` until its `exit` event (or
 /// the timeout). Lets tests observe short-lived children (e.g. /bin/echo)
 /// whose sessions are reaped before a snapshot can be polled.
-fn collect_stream_output(rx: &Receiver<StreamItem>, session: &str, timeout: Duration) -> String {
+fn collect_stream_output(rx: &StreamReceiver, session: &str, timeout: Duration) -> String {
     let start = Instant::now();
     let mut out = String::new();
     while start.elapsed() < timeout {
@@ -78,7 +78,7 @@ fn snapshot_ansi(reg: &Arc<Registry>, client: &str, sid: &str) -> String {
 fn plain_session_spawns_a_login_shell() {
     let reg = Arc::new(Registry::new());
     let client = "c-login";
-    let (tx, rx) = channel::<StreamItem>();
+    let (tx, rx) = stream_channel();
     reg.register_stream(client.to_string(), tx);
     let created = dispatch(
         &reg,
@@ -101,7 +101,7 @@ fn plain_session_spawns_a_login_shell() {
 fn shell_args_from_the_payload_are_the_spawn_argv() {
     let reg = Arc::new(Registry::new());
     let client = "c-args";
-    let (tx, rx) = channel::<StreamItem>();
+    let (tx, rx) = stream_channel();
     reg.register_stream(client.to_string(), tx);
     let created = dispatch(
         &reg,

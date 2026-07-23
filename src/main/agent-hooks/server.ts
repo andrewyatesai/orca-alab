@@ -3,7 +3,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 import { timingSafeTokenCompare } from '../../shared/timing-safe-token-compare'
 
@@ -64,6 +64,7 @@ import {
   type AgentProviderSessionMetadata
 } from '../../shared/agent-session-resume'
 import { isCommandCodeNewTurnWhileWorking } from '../../shared/command-code-turn-boundary'
+import { clearDaemonRosterCache, resolveClaudeForkParentSessionId } from './daemon-roster-resolver'
 
 export type { AgentHookSource }
 
@@ -334,56 +335,6 @@ function readHookBodyClaudeMeta(record: Record<string, unknown>): HookBodyClaude
       readString(record.hookEventName),
     transcriptPath: readString(p.transcript_path) ?? readString(p.transcriptPath)
   }
-}
-
-// Why: `--resume`/`--continue` FORK the session id, so the forked id has no
-// spawn-time binding. Claude's daemon records each fork's parent in
-// <configDir>/daemon/roster.json (dispatch.launch.sessionId names the parent
-// transcript), and the hook payload's transcript_path locates configDir —
-// so lineage resolves without knowing the user's CLAUDE_CONFIG_DIR.
-function resolveClaudeForkParentSessionId(
-  sessionId: string,
-  transcriptPath: string | null
-): string | null {
-  if (!transcriptPath) {
-    return null
-  }
-  const projectsDir = dirname(dirname(transcriptPath))
-  if (basename(projectsDir) !== 'projects') {
-    return null
-  }
-  const rosterPath = join(dirname(projectsDir), 'daemon', 'roster.json')
-  let workers: Record<string, unknown>
-  try {
-    const parsed = JSON.parse(readFileSync(rosterPath, 'utf8')) as Record<string, unknown>
-    if (typeof parsed.workers !== 'object' || parsed.workers === null) {
-      return null
-    }
-    workers = parsed.workers as Record<string, unknown>
-  } catch {
-    return null
-  }
-  for (const worker of Object.values(workers)) {
-    if (typeof worker !== 'object' || worker === null) {
-      continue
-    }
-    const w = worker as Record<string, unknown>
-    if (w.sessionId !== sessionId) {
-      continue
-    }
-    const launch = ((w.dispatch as Record<string, unknown> | undefined)?.launch ?? {}) as Record<
-      string,
-      unknown
-    >
-    const ref = launch.sessionId ?? launch.transcriptPath
-    const base = typeof ref === 'string' ? basename(ref) : ''
-    if (base.endsWith('.jsonl')) {
-      const parent = base.slice(0, -'.jsonl'.length)
-      return parent !== sessionId ? parent : null
-    }
-    return null
-  }
-  return null
 }
 
 function trackEmptyPaneKeyHook(body: unknown): void {
@@ -1338,8 +1289,12 @@ export class AgentHookServer {
     if (!sessionId || !isValidPaneKey(paneKey)) {
       return
     }
-    // Why: bounded — one entry per spawn-pinned session; re-registration on
-    // re-attach moves the session to its current pane.
+    // Why: bounded LRU — one entry per spawn-pinned session. delete-then-set so
+    // a re-registered/reattached session refreshes its eviction recency (a plain
+    // re-set keeps a Map key at its original insertion slot, which would evict a
+    // hot reattached binding before idle newer ones and fall back to the stale
+    // posted pane key — the #9236 misattribution this map prevents).
+    this.providerSessionPanes.delete(sessionId)
     this.providerSessionPanes.set(sessionId, { paneKey, ptyId })
     while (this.providerSessionPanes.size > MAX_PROVIDER_SESSION_PANES) {
       const oldest = this.providerSessionPanes.keys().next().value
@@ -1364,14 +1319,14 @@ export class AgentHookServer {
     this.claudePaneInputProbe = probe
   }
 
-  private normalizeHookBodyProviderSessionPane(body: unknown): unknown {
-    if (typeof body !== 'object' || body === null) {
-      return body
-    }
-    const record = body as Record<string, unknown>
-    const meta = readHookBodyClaudeMeta(record)
+  // Why: resolve the spawn-pinned pane that actually owns a Claude session, so
+  // the local HTTP body path and the remote (SSH/WSL) relay path fix
+  // daemon-worker misattribution (#9236) identically. Returns the owning pane
+  // key when a session→pane binding applies, else null (fail open to the posted
+  // key). May register a new binding from the daemon roster or input probe.
+  private resolveProviderSessionPaneKey(meta: HookBodyClaudeMeta): string | null {
     if (!meta.sessionId) {
-      return body
+      return null
     }
     // Why: resume/continue fork the session id, so the fork arrives unbound.
     // The daemon roster names the fork's parent — inherit the parent's pane.
@@ -1397,14 +1352,22 @@ export class AgentHookServer {
         this.registerProviderSessionPane(meta.sessionId, pane.paneKey, pane.ptyId)
       }
     }
-    const pinned = this.providerSessionPanes.get(meta.sessionId)
-    if (!pinned || record.paneKey === pinned.paneKey) {
+    return this.providerSessionPanes.get(meta.sessionId)?.paneKey ?? null
+  }
+
+  private normalizeHookBodyProviderSessionPane(body: unknown): unknown {
+    if (typeof body !== 'object' || body === null) {
+      return body
+    }
+    const record = body as Record<string, unknown>
+    const pinnedPaneKey = this.resolveProviderSessionPaneKey(readHookBodyClaudeMeta(record))
+    if (!pinnedPaneKey || record.paneKey === pinnedPaneKey) {
       return body
     }
     // Why: daemon-hosted Claude workers post the daemon's env-derived pane
     // key; the spawn-time session binding names the pane that actually owns
     // this session, so trust it over the posted key.
-    return { ...record, paneKey: pinned.paneKey, tabId: parsePaneKey(pinned.paneKey)?.tabId }
+    return { ...record, paneKey: pinnedPaneKey, tabId: parsePaneKey(pinnedPaneKey)?.tabId }
   }
 
   private normalizeHookBodyPaneKeyAlias(body: unknown): unknown {
@@ -1513,8 +1476,26 @@ export class AgentHookServer {
     if (!envelope || typeof envelope.paneKey !== 'string') {
       return
     }
+    // Why: run the HTTP body path's spawn-pinned session→pane rebind on the
+    // remote path too, so a shared/daemon Claude host over SSH/WSL can't
+    // cross-attribute a worker's status to the daemon's stale posted pane
+    // (#9236). The host owns the session→pane map from spawn-time registration;
+    // the relay envelope carries the Claude session_id and transcript path in
+    // providerSession, so the same binding logic applies. Fail open to the
+    // posted key when no binding exists.
+    const relayProviderSession =
+      normalizeAgentProviderSession(envelope.providerSession) ?? undefined
+    const sessionPinnedPaneKey = this.resolveProviderSessionPaneKey({
+      sessionId: relayProviderSession?.key === 'session_id' ? relayProviderSession.id : null,
+      eventName:
+        typeof envelope.hookEventName === 'string' && envelope.hookEventName.trim().length > 0
+          ? envelope.hookEventName.trim()
+          : null,
+      transcriptPath: relayProviderSession?.transcriptPath ?? null
+    })
+    const usedSessionPin = sessionPinnedPaneKey !== null
     // Why: trim paneKey to match the HTTP path, else remote-vs-local events for one pane diverge.
-    const physicalPaneKey = envelope.paneKey.trim()
+    const physicalPaneKey = (sessionPinnedPaneKey ?? envelope.paneKey).trim()
     const paneKey = this.resolvePaneKeyAlias(physicalPaneKey)
     const parsedPaneKey = parsePaneKey(paneKey)
     if (paneKey.length === 0) {
@@ -1539,13 +1520,17 @@ export class AgentHookServer {
         ? envelope.tabId.trim()
         : undefined
     if (
+      !usedSessionPin &&
       paneKey === physicalPaneKey &&
       reportedTabId !== undefined &&
       reportedTabId !== parsedPaneKey.tabId
     ) {
       return
     }
-    const tabId = paneKey !== physicalPaneKey ? parsedPaneKey.tabId : reportedTabId
+    // Why: on a session rebind the envelope's tabId names the stale daemon pane,
+    // so trust the pinned pane's own identity (as the HTTP body path does).
+    const tabId =
+      usedSessionPin || paneKey !== physicalPaneKey ? parsedPaneKey.tabId : reportedTabId
     if (this.shouldSuppressClosedTabStatus(paneKey)) {
       return
     }
@@ -1574,7 +1559,7 @@ export class AgentHookServer {
       typeof envelope.toolAgentType === 'string' && envelope.toolAgentType.trim().length > 0
         ? envelope.toolAgentType.trim()
         : undefined
-    const providerSession = normalizeAgentProviderSession(envelope.providerSession) ?? undefined
+    const providerSession = relayProviderSession
     // Why: relay crosses a trust boundary — re-run the canonical normalizer to enforce caps/invariants (returns null on malformed).
     const normalizedPayload = normalizeAgentStatusPayload(envelope.payload)
     if (!normalizedPayload) {
@@ -2146,5 +2131,6 @@ export const _internals = {
     clearAllListenerCaches(agentHookServer._getStateForTests())
     agentHookServer._resetPromptSentDedupeForTests()
     agentHookServer._resetConnectionTimestampWatermarksForTests()
+    clearDaemonRosterCache()
   }
 }

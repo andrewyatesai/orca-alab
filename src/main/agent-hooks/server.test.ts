@@ -7471,11 +7471,7 @@ describe('AgentHookServer provider-session pane attribution', () => {
     await server.start({ env: 'production' })
     try {
       const env = server.buildPtyEnv()
-      server.registerProviderSessionPane(
-        'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-        GOOD_PANE,
-        'pty-1'
-      )
+      server.registerProviderSessionPane('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', GOOD_PANE, 'pty-1')
 
       const response = await fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/claude`, {
         method: 'POST',
@@ -7524,6 +7520,52 @@ describe('AgentHookServer provider-session pane attribution', () => {
     expect(internals.providerSessionPanes.size).toBe(512)
     expect(internals.providerSessionPanes.has('session-0')).toBe(false)
     expect(internals.providerSessionPanes.has(`session-${total - 1}`)).toBe(true)
+  })
+
+  it('refreshes eviction recency on re-registration so a hot reattached binding survives', () => {
+    const server = new AgentHookServer()
+    const internals = server as unknown as {
+      providerSessionPanes: Map<string, { paneKey: string; ptyId: string }>
+    }
+    // Fill exactly to capacity; session-0 is the oldest by insertion order.
+    for (let i = 0; i < 512; i += 1) {
+      server.registerProviderSessionPane(`session-${i}`, GOOD_PANE, `pty-${i}`)
+    }
+    // Re-register (reattach) the oldest — must move it to the LRU tail.
+    server.registerProviderSessionPane('session-0', GOOD_PANE, 'pty-0-reattached')
+    // The next insert overflows: it must evict the now-oldest (session-1), not
+    // the freshly reattached session-0.
+    server.registerProviderSessionPane('session-512', GOOD_PANE, 'pty-512')
+    expect(internals.providerSessionPanes.size).toBe(512)
+    expect(internals.providerSessionPanes.has('session-0')).toBe(true)
+    expect(internals.providerSessionPanes.has('session-1')).toBe(false)
+  })
+
+  it('re-attributes a remote (SSH/WSL) daemon-hosted claude event to the spawn-pinned pane', () => {
+    const server = new AgentHookServer()
+    const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    // Host owns the spawn-pinned binding for this remote Claude session.
+    server.registerProviderSessionPane(sessionId, GOOD_PANE, 'pty-remote')
+    // The guest relay forwards the daemon's stale pane key (PANE) and its tabId,
+    // but providerSession names the pinned session — the host must rebind, just
+    // as the local HTTP body path does (#9236 over SSH).
+    server.ingestRemote(
+      {
+        paneKey: PANE,
+        tabId: 'tab-1',
+        hookEventName: 'PostToolUse',
+        providerSession: { key: 'session_id', id: sessionId },
+        payload: { state: 'working', prompt: 'remote daemon turn', agentType: 'claude' }
+      },
+      'ssh-host'
+    )
+    expect(server.getStatusSnapshot()).toEqual([
+      expect.objectContaining({
+        paneKey: GOOD_PANE,
+        state: 'working',
+        prompt: 'remote daemon turn'
+      })
+    ])
   })
 })
 

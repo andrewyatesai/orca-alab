@@ -135,7 +135,9 @@ export const CORE_HANDLERS: Record<string, CommandHandler> = {
   },
   status: async ({ client, json }) => {
     const result = await client.getCliStatus()
-    if (!json && !result.result.runtime.reachable) {
+    // Why: an unreachable runtime must exit nonzero in --json mode too, so scripts
+    // gating on `orca status --json && …` don't get a false green against a dead runtime.
+    if (!result.result.runtime.reachable) {
       process.exitCode = 1
     }
     printResult(result, json, formatStatus)

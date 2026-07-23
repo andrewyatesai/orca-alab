@@ -131,3 +131,60 @@ describe('orca claude-teams CLI handler', () => {
     }
   )
 })
+
+describe('orca status CLI handler exit code', () => {
+  let previousExitCode: typeof process.exitCode
+  let logSpy: ReturnType<typeof vi.spyOn>
+
+  function makeStatus(reachable: boolean) {
+    return {
+      result: {
+        app: { running: reachable, pid: reachable ? 1234 : null, desktopWindowStatus: null },
+        runtime: { state: reachable ? 'ready' : 'unreachable', reachable, runtimeId: null },
+        graph: { state: 'idle' }
+      }
+    }
+  }
+
+  function runStatus(reachable: boolean, json: boolean): Promise<void> {
+    const client = {
+      getCliStatus: vi.fn().mockResolvedValue(makeStatus(reachable))
+    } as unknown as RuntimeClient
+    const ctx: HandlerContext = {
+      flags: new Map(),
+      client,
+      cwd: '/tmp/repo',
+      json,
+      rawArgs: []
+    }
+    return CORE_HANDLERS['status'](ctx)
+  }
+
+  beforeEach(() => {
+    previousExitCode = process.exitCode
+    process.exitCode = undefined
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    logSpy.mockRestore()
+    process.exitCode = previousExitCode
+  })
+
+  // Why: scripts gate on `orca status --json && …`; an unreachable runtime must
+  // exit nonzero even in --json mode, matching the plain-text path (regression guard).
+  it('exits 1 when the runtime is unreachable in --json mode', async () => {
+    await runStatus(false, true)
+    expect(process.exitCode).toBe(1)
+  })
+
+  it('exits 1 when the runtime is unreachable in plain-text mode', async () => {
+    await runStatus(false, false)
+    expect(process.exitCode).toBe(1)
+  })
+
+  it('leaves the exit code unset when the runtime is reachable', async () => {
+    await runStatus(true, true)
+    expect(process.exitCode).toBeUndefined()
+  })
+})

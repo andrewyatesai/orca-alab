@@ -13,6 +13,7 @@ import {
   CornerDownLeft,
   FolderPlus,
   LoaderCircle,
+  Monitor,
   PlugZap,
   Settings2,
   Server
@@ -58,6 +59,7 @@ import type {
   ProjectHostSetupOption,
   ReadyProjectHostSetupOption
 } from '@/lib/project-host-setup-options'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 import type { WorkspaceCreateErrorDisplay } from '@/lib/workspace-create-error-format'
 import type { SshConnectionStatus } from '../../../shared/ssh-types'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
@@ -315,6 +317,16 @@ function HostPathTooltip({ path }: { path: string }): React.JSX.Element {
   )
 }
 
+// Why: the local machine reads as a desktop, not a Server; distinguish it from SSH/runtime hosts.
+function HostRowIcon({
+  hostId
+}: {
+  hostId: ReadyProjectHostSetupOption['hostId']
+}): React.JSX.Element {
+  const Icon = hostId === LOCAL_EXECUTION_HOST_ID ? Monitor : Server
+  return <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+}
+
 function WorkspaceRunTargetCombobox({
   hostOptions,
   hostValue,
@@ -381,7 +393,7 @@ function WorkspaceRunTargetCombobox({
             </span>
           ) : selectedHost ? (
             <span className="inline-flex min-w-0 items-center gap-1.5">
-              <Server className="size-3.5 shrink-0 text-muted-foreground" />
+              <HostRowIcon hostId={selectedHost.hostId} />
               <span className="truncate">{selectedHost.label}</span>
             </span>
           ) : (
@@ -412,7 +424,7 @@ function WorkspaceRunTargetCombobox({
                 key={option.id}
                 value={`host:${option.id}`}
                 onSelect={() => handleHostSelect(option.id)}
-                className="items-center gap-2 px-3 py-2"
+                className="items-center gap-2 px-3 py-1.5"
               >
                 <Check
                   className={cn(
@@ -420,7 +432,7 @@ function WorkspaceRunTargetCombobox({
                     !selectedRecipe && option.id === selectedHost?.id ? 'opacity-100' : 'opacity-0'
                   )}
                 />
-                <Server className="size-3.5 shrink-0 text-muted-foreground" />
+                <HostRowIcon hostId={option.hostId} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{option.label}</div>
                   <HostPathTooltip path={option.path} />
@@ -434,7 +446,7 @@ function WorkspaceRunTargetCombobox({
                   <CommandItem
                     value="per-workspace-env"
                     onSelect={() => setVmRecipesOpen(true)}
-                    className="items-center gap-2 px-3 py-2"
+                    className="items-center gap-2 px-3 py-1.5"
                   >
                     <Check
                       className={cn(
@@ -464,7 +476,7 @@ function WorkspaceRunTargetCombobox({
                           key={recipe.id}
                           value={`recipe:${recipe.id}`}
                           onSelect={() => handleRecipeSelect(recipe.id)}
-                          className="items-center gap-2 px-3 py-2"
+                          className="items-center gap-2 px-3 py-1.5"
                         >
                           <Check
                             className={cn(

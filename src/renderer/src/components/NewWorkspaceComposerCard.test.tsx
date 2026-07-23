@@ -477,6 +477,43 @@ describe('NewWorkspaceComposerCard folder task source mode', () => {
     expect(hostChanges).toEqual([])
   })
 
+  it('renders a Monitor glyph for the local machine and Server for remote hosts (#10120)', () => {
+    current = renderCard({
+      projectHostSetupOptions: [
+        {
+          kind: 'ready',
+          id: 'setup-local',
+          hostId: 'local',
+          label: 'Local Mac',
+          path: '/Users/alice/orca'
+        },
+        {
+          kind: 'ready',
+          id: 'setup-builder',
+          hostId: 'ssh:builder',
+          label: 'Builder',
+          path: '/workspace/orca'
+        }
+      ] as never,
+      selectedProjectHostSetupId: 'setup-local',
+      onProjectHostSetupChange: () => {}
+    })
+
+    const runTargetButton =
+      current.container.querySelector<HTMLButtonElement>('button[role="combobox"]')
+    act(() => runTargetButton?.click())
+
+    const options = [...document.body.querySelectorAll<HTMLElement>('[cmdk-item]')]
+    const localRow = options.find((item) => item.textContent?.includes('Local Mac'))
+    const builderRow = options.find((item) => item.textContent?.includes('Builder'))
+    expect(localRow?.querySelector('.lucide-monitor')).toBeTruthy()
+    expect(localRow?.querySelector('.lucide-server')).toBeNull()
+    expect(builderRow?.querySelector('.lucide-server')).toBeTruthy()
+    // Why: rows are tightened to py-1.5 (not py-2) per the create-dialog polish.
+    expect(localRow?.className).toContain('py-1.5')
+    expect(localRow?.className).not.toContain('py-2')
+  })
+
   it('clears the selected VM recipe when an existing host is selected', () => {
     const hostChanges: string[] = []
     const recipeChanges: (string | null)[] = []

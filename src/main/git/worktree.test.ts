@@ -30,7 +30,8 @@ import {
   moveWorktree,
   parseWorktreeList,
   removeWorktree,
-  WORKTREE_ADD_TIMEOUT_MS
+  WORKTREE_ADD_TIMEOUT_MS,
+  WORKTREE_LIST_TIMEOUT_MS
 } from './worktree'
 
 const PARALLEL_CHECKOUT_GIT_ARGS = ['-c', 'checkout.workers=0']
@@ -230,6 +231,49 @@ describe('listWorktrees in-flight sharing', () => {
     ])
 
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('defaults a timeout on the worktree list exec so a wedged scan fails fast (#9786)', async () => {
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        return Promise.resolve({ stdout: 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n' })
+      }
+      return Promise.resolve({ stdout: '' })
+    })
+
+    await listWorktrees('/repo')
+
+    const listCall = gitExecFileAsyncMock.mock.calls.find(
+      ([args]) => args[0] === 'worktree' && args[1] === 'list'
+    )
+    expect(listCall?.[1]).toMatchObject({ timeout: WORKTREE_LIST_TIMEOUT_MS })
+  })
+
+  it('does not share a scan across callers with different timeouts (#9786)', async () => {
+    // Warm the capability probe for this host so the concurrent scans below aren't serialized by discovery.
+    gitExecFileAsyncMock.mockResolvedValue({ stdout: '' })
+    await listWorktrees('/repo')
+
+    const scanResolvers: (() => void)[] = []
+    gitExecFileAsyncMock.mockReset()
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        return new Promise((resolve) => {
+          scanResolvers.push(() => resolve({ stdout: '' }))
+        })
+      }
+      return Promise.resolve({ stdout: '' })
+    })
+
+    const fastDeadline = listWorktrees('/repo', { timeout: 1_000 })
+    const slowDeadline = listWorktrees('/repo', { timeout: 60_000 })
+    // Why: a shared scan carries one timeout; callers with different deadlines must not join it.
+    expect(scanResolvers).toHaveLength(2)
+
+    for (const resolve of scanResolvers) {
+      resolve()
+    }
+    await Promise.all([fastDeadline, slowDeadline])
   })
 })
 
@@ -553,7 +597,8 @@ branch refs/heads/feature/test
 
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['worktree', 'list', '--porcelain', '-z'], {
-      cwd: '/repo'
+      cwd: '/repo',
+      timeout: WORKTREE_LIST_TIMEOUT_MS
     })
   })
 
@@ -597,8 +642,11 @@ branch refs/heads/main-2
     ])
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
-      [['worktree', 'list', '--porcelain', '-z'], { cwd: '/repo' }],
-      [['worktree', 'list', '--porcelain'], { cwd: '/repo' }]
+      [
+        ['worktree', 'list', '--porcelain', '-z'],
+        { cwd: '/repo', timeout: WORKTREE_LIST_TIMEOUT_MS }
+      ],
+      [['worktree', 'list', '--porcelain'], { cwd: '/repo', timeout: WORKTREE_LIST_TIMEOUT_MS }]
     ])
   })
 
@@ -630,8 +678,11 @@ branch refs/heads/main
     ])
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
-      [['worktree', 'list', '--porcelain', '-z'], { cwd: '/repo' }],
-      [['worktree', 'list', '--porcelain'], { cwd: '/repo' }]
+      [
+        ['worktree', 'list', '--porcelain', '-z'],
+        { cwd: '/repo', timeout: WORKTREE_LIST_TIMEOUT_MS }
+      ],
+      [['worktree', 'list', '--porcelain'], { cwd: '/repo', timeout: WORKTREE_LIST_TIMEOUT_MS }]
     ])
   })
 
@@ -648,7 +699,10 @@ branch refs/heads/main
     await expect(listWorktreeGraph('/repo')).resolves.toEqual([])
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
-      [['worktree', 'list', '--porcelain', '-z'], { cwd: '/repo' }]
+      [
+        ['worktree', 'list', '--porcelain', '-z'],
+        { cwd: '/repo', timeout: WORKTREE_LIST_TIMEOUT_MS }
+      ]
     ])
   })
 
@@ -976,7 +1030,10 @@ describe('addWorktree', () => {
         ],
         { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
       ],
-      [['worktree', 'list', '--porcelain', '-z'], { cwd: '/repo' }]
+      [
+        ['worktree', 'list', '--porcelain', '-z'],
+        { cwd: '/repo', timeout: WORKTREE_LIST_TIMEOUT_MS }
+      ]
     ])
   })
 

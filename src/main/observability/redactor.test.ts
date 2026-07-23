@@ -5,6 +5,7 @@
 // rule families (labeled kv, URL userinfo, .env-line, attribute blocklist)
 // plus the server-side mode that drops install_id.
 
+import os from 'node:os'
 import { describe, it, expect } from 'vitest'
 import {
   redactString,
@@ -97,6 +98,35 @@ describe('redactor — provider-key fingerprints', () => {
       })
     })
   }
+})
+
+describe('redactor — home-directory collapse', () => {
+  it('folds the running user home dir to ~ so the OS username never egresses', () => {
+    const home = os.homedir()
+    const username = home.split(/[/\\]/).findLast(Boolean) ?? ''
+    const out = redactString(`${home}/projects/orca`)
+    expect(username.length).toBeGreaterThan(0)
+    expect(out).not.toContain(username)
+    expect(out).not.toContain(home)
+    // Relative structure — the diagnostic value — is retained.
+    expect(out).toContain('~/projects/orca')
+  })
+  it('folds the home dir when embedded in a larger string (cwd/worktree spans)', () => {
+    const home = os.homedir()
+    const username = home.split(/[/\\]/).findLast(Boolean) ?? ''
+    const out = redactString(`git failed in cwd=${home}/repo (exit 128)`)
+    expect(out).not.toContain(username)
+    expect(out).toContain('~/repo')
+  })
+  it('is idempotent — a second pass does not re-fold', () => {
+    const once = redactString(`${os.homedir()}/x`)
+    expect(redactString(once)).toBe(once)
+  })
+  it('preserves other users home paths verbatim (foreign-user paths are diagnostic)', () => {
+    // A different user's home never matches the running user's os.homedir().
+    const out = redactString('/Users/someoneelse-not-me/projects/orca')
+    expect(out).toBe('/Users/someoneelse-not-me/projects/orca')
+  })
 })
 
 describe('redactor — labeled key-value', () => {

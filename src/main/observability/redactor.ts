@@ -3,11 +3,35 @@
 // server-ingest; the server pass is defense-in-depth since the client runs on an
 // attacker-controllable binary, and it additionally drops PostHog identity keys.
 //
-// The five rule families run in order; the string passes are idempotent, which
+// The rule families run in order; the string passes are idempotent, which
 // is what makes the three-location placement safe.
 //
 // No per-attribute length cap: envelope bounds already cap size, and truncation
 // would eat the tail of long stack chains — the most diagnostic part.
+
+import os from 'node:os'
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Rule 0 — collapse the running user's home directory to `~`. cwd/worktree.path
+// land raw on spans and egress in shared/crash-attached bundles; the sibling
+// sanitizeCrashReportString treats /Users/<user>/… as PII, so match it here.
+// Only the current homedir is folded — other users' paths stay verbatim as
+// diagnostic data. Relative repo structure (the useful part) survives. Case-
+// insensitive on Windows/macOS where the filesystem is.
+const HOME_DIR = (() => {
+  try {
+    return os.homedir()
+  } catch {
+    return ''
+  }
+})()
+const HOME_DIR_RE =
+  HOME_DIR.length > 0
+    ? new RegExp(escapeRegExp(HOME_DIR), process.platform === 'linux' ? 'g' : 'gi')
+    : null
 
 // `\b` stops this from stealing rule-4's `FOO_SECRET=` matches; the value alternation eats the whole `Bearer <jwt>`/`Token <pat>` segment.
 const LABELED_KV =
@@ -91,12 +115,18 @@ function shouldDropAttributeKey(key: string, mode: RedactorMode): boolean {
   return false
 }
 
-/** Apply rules 1–4 to a string. Idempotent, which makes triple-application safe. */
+/** Apply rules 0–4 to a string. Idempotent, which makes triple-application safe. */
 export function redactString(input: string): string {
   if (typeof input !== 'string' || input.length === 0) {
     return input
   }
   let out = input
+
+  // Rule 0 — fold the home directory to `~` before other rules so the OS
+  // username never egresses (idempotent: `~/…` contains no homedir prefix).
+  if (HOME_DIR_RE) {
+    out = out.replace(HOME_DIR_RE, '~')
+  }
 
   // Rule 1 — labeled key-value. Drop the key alongside the value; the label name adds no debug context once the value is gone.
   out = out.replace(LABELED_KV, '[redacted:labeled-kv]')

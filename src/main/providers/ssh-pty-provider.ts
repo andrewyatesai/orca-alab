@@ -1,6 +1,7 @@
 import type { SshChannelMultiplexer } from '../ssh/ssh-channel-multiplexer'
 import type { IPtyProvider, PtyProcessInfo, PtySpawnOptions, PtySpawnResult } from './types'
 import { toAppSshPtyId, toRelaySshPtyId } from './ssh-pty-id'
+import { createSshPtyAppliedSizeReader } from './ssh-pty-applied-size'
 import { seedPowerlevel10kWizardEnv } from '../pty/powerlevel10k-wizard-env'
 import { PTY_STARTUP_INGRESS_VERSION } from '../../shared/pty-startup-ingress'
 
@@ -56,6 +57,8 @@ export class SshPtyProvider implements IPtyProvider {
   // multiplexer. Without this, notification callbacks keep firing after
   // the provider is torn down on disconnect, routing events to stale state.
   private unsubscribeNotifications: (() => void) | null = null
+  // Why: #9626 wake repair reads the relay-applied grid; a provider-owned null means "could not verify" so the renderer re-forwards a dropped resize.
+  readonly getAppliedSize: NonNullable<IPtyProvider['getAppliedSize']>
 
   constructor(
     connectionId: string,
@@ -64,6 +67,7 @@ export class SshPtyProvider implements IPtyProvider {
   ) {
     this.connectionId = connectionId
     this.mux = mux
+    this.getAppliedSize = createSshPtyAppliedSizeReader(mux, connectionId)
 
     // Subscribe to relay notifications for PTY events
     this.unsubscribeNotifications = mux.onNotification((method, params) => {

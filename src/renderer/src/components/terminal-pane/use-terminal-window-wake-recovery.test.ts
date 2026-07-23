@@ -97,6 +97,60 @@ describe('useTerminalWindowWakeRecovery', () => {
     ])
   })
 
+  it('reasserts pane PTY sizes after the window-focus fit (#9626)', () => {
+    // Why: without requestAnimationFrame (beforeEach stub) the immediate wake pass reasserts inline, so a dropped resize is re-forwarded once after the fit.
+    const reassertPtySizeAfterWindowWake = vi.fn()
+    renderHook(() =>
+      useTerminalWindowWakeRecovery({
+        isVisible: true,
+        managerRef: { current: manager },
+        isActiveRef: { current: true },
+        isVisibleRef: { current: true },
+        panePtyBindingsRef: {
+          current: new Map([[1, { dispose: vi.fn(), reassertPtySizeAfterWindowWake }]]) as never
+        }
+      })
+    )
+
+    window.dispatchEvent(new Event('focus'))
+
+    expect(reassertPtySizeAfterWindowWake).toHaveBeenCalledTimes(1)
+    expect(recoverVisibleTerminalWindowWakeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      reassertPtySizeAfterWindowWake.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    )
+  })
+
+  it('reasserts once after the settled fit when animation frames are available (#9626)', () => {
+    const scheduled: { settle: FrameRequestCallback | null } = { settle: null }
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      scheduled.settle = callback
+      return 1
+    })
+    const reassertPtySizeAfterWindowWake = vi.fn()
+    renderHook(() =>
+      useTerminalWindowWakeRecovery({
+        isVisible: true,
+        managerRef: { current: manager },
+        isActiveRef: { current: true },
+        isVisibleRef: { current: true },
+        panePtyBindingsRef: {
+          current: new Map([[1, { dispose: vi.fn(), reassertPtySizeAfterWindowWake }]]) as never
+        }
+      })
+    )
+
+    window.dispatchEvent(new Event('focus'))
+    expect(reassertPtySizeAfterWindowWake).not.toHaveBeenCalled()
+    expect(scheduled.settle).not.toBeNull()
+
+    scheduled.settle?.(performance.now())
+
+    expect(reassertPtySizeAfterWindowWake).toHaveBeenCalledTimes(1)
+    expect(recoverVisibleTerminalWindowWakeMock.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      reassertPtySizeAfterWindowWake.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    )
+  })
+
   it('unsubscribes from the system resume event on cleanup', () => {
     const { unmount } = renderWakeRecoveryHook()
     expect(onSystemResumed).toHaveBeenCalledTimes(1)

@@ -3130,11 +3130,7 @@ export function registerPtyHandlers(
         // Why: runtime-owned CLI PTYs bypass the renderer pty:spawn handler; record paneKey here too since hook titles and cache cleanup need this reverse lookup.
         const paneKey = rememberPaneKeyForPty(result.id, env?.ORCA_PANE_KEY)
         if (claudePin.pinnedSessionId && paneKey) {
-          agentHookServer.registerProviderSessionPane(
-            claudePin.pinnedSessionId,
-            paneKey,
-            result.id
-          )
+          agentHookServer.registerProviderSessionPane(claudePin.pinnedSessionId, paneKey, result.id)
         }
         const pendingSerializer = paneKey ? pendingByPaneKey.get(paneKey) : undefined
         const inheritRendererReadiness =
@@ -4868,10 +4864,11 @@ export function registerPtyHandlers(
   ipcMain.handle(
     'pty:getSize',
     async (_event, args: { id: string }): Promise<{ cols: number; rows: number } | null> => {
+      const provider = tryGetProviderForPty(args.id)
       try {
-        const applied = await tryGetProviderForPty(args.id)?.getAppliedSize?.(args.id)
-        if (applied) {
-          return applied
+        if (provider?.getAppliedSize) {
+          // Why: a provider-owned null means it could not verify the applied grid; preserve null so the renderer re-forwards instead of trusting the requested-size cache that may describe a dropped resize (#9626).
+          return await provider.getAppliedSize(args.id)
         }
       } catch {
         // Fall through to the requested-size cache so a dead daemon/relay can't throw across the IPC boundary.

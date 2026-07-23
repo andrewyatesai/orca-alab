@@ -470,6 +470,33 @@ describe('SshPtyProvider', () => {
     expect(mux.notify).toHaveBeenCalledWith('pty.resize', { id: 'pty-1', cols: 120, rows: 40 })
   })
 
+  it('reads the applied PTY size from the relay with a one-second timeout (#9626)', async () => {
+    mux.request.mockResolvedValue({ cols: 120, rows: 40 })
+
+    await expect(provider.getAppliedSize(scopedPty1)).resolves.toEqual({ cols: 120, rows: 40 })
+    expect(mux.request).toHaveBeenCalledWith('pty.getSize', { id: 'pty-1' }, { timeoutMs: 1_000 })
+  })
+
+  it('caches only an old relay method-not-found response (#9626)', async () => {
+    mux.request.mockRejectedValue(Object.assign(new Error('Method not found'), { code: -32601 }))
+
+    await expect(provider.getAppliedSize(scopedPty1)).resolves.toBeNull()
+    await expect(provider.getAppliedSize(scopedPty1)).resolves.toBeNull()
+    expect(mux.request).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries an applied-size read after a transient relay failure (#9626)', async () => {
+    mux.request
+      .mockRejectedValueOnce(
+        Object.assign(new Error('connection lost'), { code: 'CONNECTION_LOST' })
+      )
+      .mockResolvedValueOnce({ cols: 100, rows: 30 })
+
+    await expect(provider.getAppliedSize(scopedPty1)).resolves.toBeNull()
+    await expect(provider.getAppliedSize(scopedPty1)).resolves.toEqual({ cols: 100, rows: 30 })
+    expect(mux.request).toHaveBeenCalledTimes(2)
+  })
+
   it('shutdown sends pty.shutdown request', async () => {
     await provider.shutdown(scopedPty1, { immediate: true })
     expect(mux.request).toHaveBeenCalledWith(

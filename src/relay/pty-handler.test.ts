@@ -1408,6 +1408,24 @@ describe('PtyHandler', () => {
     expect(mockResize).toHaveBeenCalledWith(120, 40)
   })
 
+  it('reports the PTY grid actually applied by node-pty and null for a missing PTY (#9626)', async () => {
+    mockPtySpawn.mockReturnValue({
+      ...mockPtyInstance,
+      cols: 132,
+      rows: 43,
+      onData: vi.fn(),
+      onExit: vi.fn()
+    })
+
+    const spawned = (await dispatcher.callRequest('pty.spawn', {})) as { id: string }
+
+    await expect(dispatcher.callRequest('pty.getSize', { id: spawned.id })).resolves.toEqual({
+      cols: 132,
+      rows: 43
+    })
+    await expect(dispatcher.callRequest('pty.getSize', { id: 'missing' })).resolves.toBeNull()
+  })
+
   it('kills PTY on shutdown with SIGTERM by default', async () => {
     const mockKill = vi.fn()
     mockPtySpawn.mockReturnValue({

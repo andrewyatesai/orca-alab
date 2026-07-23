@@ -17,7 +17,13 @@ export function getBrowserLinkRoutingShortcutLabel(platform: BrowserShortcutPlat
 }
 
 export function getBrowserLinkRoutingDescription(platform: BrowserShortcutPlatform): string {
-  return `Open http(s) links in Orca's built-in browser — from the terminal, markdown, and the editor. ${getBrowserLinkRoutingShortcutLabel(platform)} always uses your system browser.`
+  // Why: localize like the sibling entries (#9442) — the shortcut label stays a
+  // {{shortcut}} placeholder so translated catalogs keep the platform-correct symbols.
+  return translate(
+    'auto.components.settings.browser.search.d5e0a1b9c2',
+    "Open http(s) links in Orca's built-in browser — from the terminal, markdown, and the editor. {{shortcut}} always uses your system browser.",
+    { shortcut: getBrowserLinkRoutingShortcutLabel(platform) }
+  )
 }
 
 export function getBrowserPaneSearchEntries(

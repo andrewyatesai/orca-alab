@@ -159,18 +159,19 @@ host-compatibility, or cleanup boundaries that the walkthrough teaches.
 
 ## Terminal engine pin and artifact provenance
 
-The `rust/aterm` submodule is pinned to the upstream revision below. The
-canonical record of this provenance is the schema-2 artifact manifest at
+The `rust/aterm` submodule is pinned to the public
+[aterm](https://github.com/alabsystems/aterm) revision below. The canonical
+record of this provenance is the schema-2 artifact manifest at
 `src/renderer/src/lib/pane-manager/aterm/aterm_wasm_artifact_pin.json`; the
-table restates it as re-verified against the checkout on July 22, 2026.
-Upstream `main` keeps moving, so the pin is a fixed, manifest-bound revision
-rather than a live latest-`main` claim:
+table restates it as re-verified against the checkout on July 22, 2026. The pin
+is a fixed, manifest-bound revision of the public engine, not a live
+latest-`main` claim:
 
 | Provenance field                               | Exact value                                                        |
 | ---------------------------------------------- | ------------------------------------------------------------------ |
-| Upstream commit                                | `3016aa9f78c5b46248c8d0a54741edbb7259f698`                         |
-| `git describe --tags --always --long`          | `public/v0.1.0-6-g3016aa9f`                                        |
-| Cargo workspace version / embedded WASM marker | `0.58.0` / `aterm(0.58.0)`                                         |
+| aterm commit                                   | `e268133cbc6b96add0cddd1fb79e250884035899`                         |
+| `git describe --tags --always`                 | `e268133c` (public release snapshot, tag `v0.1.0`)                 |
+| Cargo workspace version / embedded WASM marker | `0.1.0` / `aterm(0.1.0)`                                           |
 | Artifact manifest                              | schema `2`                                                         |
 | Downstream compatibility patch                 | `config/patches/aterm-gpu-wasm-clock.patch`                        |
 | Patch SHA-256                                  | `af2e17dda30efbbf3666eeed1ac852aa8dff67d4456f2796bc814209be1bd757` |
@@ -178,18 +179,20 @@ rather than a live latest-`main` claim:
 | `wasm-bindgen` CLI                             | `0.2.108`                                                          |
 | Binaryen optimizer                             | `wasm-opt version 131`                                             |
 
-This upstream head descends from the `public/v0.1.0` distribution tag. That tag
-and the engine's Cargo version are separate namespaces: the workspace and
-embedded marker remain `0.58.0`. The manifest binds Orca to the exact commit so
-neither human-facing tag needs to stand in for provenance.
+The pin is the public `aterm v0.1.0` release snapshot at
+[alabsystems/aterm](https://github.com/alabsystems/aterm), so a
+`--recurse-submodules` clone of this repository resolves the engine from a
+public revision. aterm versions as `MAJOR.MINOR.DEV`, where a released snapshot
+always carries the public `X.Y.0` form (its internal development version resets
+the `DEV` component to `0` at publication).
 
-Schema 2 binds the clean upstream commit and exact compatibility-patch digest to
+Schema 2 binds the aterm commit and exact compatibility-patch digest to
 all eight generated CPU/GPU files: JavaScript glue, TypeScript declarations,
 WASM binaries, and WASM declarations. It records byte length and SHA-256 for
-each. The current CPU binary is 3,766,832 bytes with SHA-256
-`3900eb47fedf2d612a62222651e21205747af751e0742a0f65512375de2e8eab`;
-the GPU binary is 6,228,120 bytes with SHA-256
-`c16bcec668aa73b77d231bf52f5b89e16e4e462e3da72f275cf1d43bbb2909bd`.
+each. The current CPU binary is 3,767,662 bytes with SHA-256
+`c48b050ff901eb72f8d4c1a788d6b6959bb8e704519d2cddceaa136c2757dc35`;
+the GPU binary is 6,229,686 bytes with SHA-256
+`d15eaed0bfecedd8c8d6f17ff53f98a835ecb7da02a5009ecc30f27cb33db558`.
 These figures restate `aterm_wasm_artifact_pin.json`; if this document and the
 manifest ever disagree, the manifest is the value `pnpm check:aterm-pin`
 enforces.
@@ -615,10 +618,9 @@ pin-identity, and artifact-provenance checks below were re-run at the current
 checkout on July 22, 2026; older lane counts are explicitly carried forward
 rather than relabelled as fresh runs:
 
-- Orca was fast-forwarded to `origin/main` at
-  `97ce100760e4277ffb9e1216e1116176a66a9715` before the final validation;
-  aterm's latest upstream `main` resolved to
-  `3016aa9f78c5b46248c8d0a54741edbb7259f698`. The submodule checkout is clean,
+- Orca was fast-forwarded to `origin/main` before the final validation; the
+  `rust/aterm` submodule is pinned to the public `aterm v0.1.0` release at
+  `e268133cbc6b96add0cddd1fb79e250884035899`. The submodule checkout is clean,
   detached at that revision, and matches both the worktree gitlink and the
   manifest's `sourceCommit`.
 - Fresh walkthrough validation: all **337/337** focused unit/component tests and

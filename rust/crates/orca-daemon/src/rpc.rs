@@ -7,6 +7,7 @@
 use crate::pending_output::PendingOutput;
 use crate::protocol::{rpc_err, rpc_ok, SUBSCRIBER_READ_ONLY_ERROR};
 use crate::registry::{ReattachOutcome, Registry, SessionEngine, SessionEntry};
+use crate::scrollback_compress::{spawn_compress_worker, COMPRESS_SIGNAL_AT};
 use crate::shell_ready_barrier::{
     GateTimer, ShellReadyBarrier, POST_READY_FLUSH_DELAY_MS, POST_READY_FLUSH_FALLBACK_MS,
     SHELL_READY_TIMEOUT_MS,
@@ -472,6 +473,17 @@ fn create_or_attach(
             .terminal
             .process(history_seed.as_bytes());
     }
+    // E1 (3A integrator note): pair the tiered store with a compress-offload
+    // drain worker so LZ4/zstd tier promotion never runs inline on the pump's
+    // PTY-drain path. Set AFTER the seed feed (the seed drains inline, pre-E1
+    // style) and only when the worker actually spawned — otherwise the flag
+    // stays inactive and ingest keeps its bounded inline drains.
+    let compress_tx = spawn_compress_worker(Arc::clone(&engine));
+    engine
+        .lock()
+        .unwrap()
+        .terminal
+        .set_compress_offload_active(compress_tx.is_some());
     // The shell-ready barrier (session.ts): while pending, stdin writes queue and
     // the pump scans output for the wrapper's OSC 777 marker. Bounded by the
     // client's shellReadyTimeoutMs (Codex markerless: 300ms) or the 15s default.
@@ -526,7 +538,9 @@ fn create_or_attach(
     // moves into the registry entry.
     let pump_registry = registry.clone();
     let pump_session = session_id.clone();
-    thread::spawn(move || pump_output(reader, pump_registry, pump_session, engine, barrier));
+    thread::spawn(move || {
+        pump_output(reader, pump_registry, pump_session, engine, barrier, compress_tx)
+    });
     // Interactive-spawn sessions get their startup command through stdin (queued
     // behind the barrier when one is armed) — terminal-host.ts createOrAttach.
     // Legacy `-lc` spawns already carry it in argv.
@@ -841,6 +855,7 @@ fn pump_output(
     session_id: String,
     engine: Arc<Mutex<SessionEngine>>,
     barrier: Option<Arc<Mutex<ShellReadyBarrier>>>,
+    compress_tx: Option<std::sync::mpsc::SyncSender<()>>,
 ) {
     let mut buf = [0u8; 65536];
     // Barrier-less sessions feed the engine RAW bytes (its VT parser is
@@ -885,6 +900,7 @@ fn pump_output(
                 // A fully-withheld chunk (all bytes held by the marker scanner)
                 // feeds nothing, like session.ts's empty-output early return.
                 if scanned.is_none() || !text.is_empty() {
+                    let mut backlog = 0;
                     if let Ok(mut engine) = engine.lock() {
                         // Barrier sessions keep the DECODED engine feed for their whole
                         // lifetime: the decoder can hold a split multibyte char as carry
@@ -897,6 +913,18 @@ fn pump_output(
                             engine.terminal.process(&buf[..n]);
                         }
                         engine.pending.record_output(text);
+                        // E1: read the deferred-compression backlog under the lock
+                        // we already hold, to decide below whether to wake the worker.
+                        backlog = engine.terminal.lazy_backlog_len();
+                    }
+                    // E1: past the signal point, wake the compress worker to promote
+                    // the backlog off this critical path. `try_send` on the
+                    // capacity-1 channel: a queued token means a drain is already
+                    // pending, so the drop is a harmless coalesce.
+                    if backlog >= COMPRESS_SIGNAL_AT {
+                        if let Some(tx) = &compress_tx {
+                            let _ = tx.try_send(());
+                        }
                     }
                     // Stream the same boundary-safe copy live to the attached client
                     // (dropped if detached — the reattach snapshot restores it).

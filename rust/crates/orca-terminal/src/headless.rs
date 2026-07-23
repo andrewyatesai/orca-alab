@@ -125,14 +125,48 @@ impl HeadlessTerminal {
         // while still retaining hyperlink spans; the visible grid keeps full
         // colour. Global + idempotent.
         aterm_grid::set_scrollback_text_only(true);
-        // `ring_buffer_size` sizes the scrolled-off history ring; capping it at
-        // the requested limit mirrors the old engine's bounded scrollback (the
-        // `Terminal::new` default would otherwise keep 10k lines).
-        let inner = TerminalBuilder::new()
+        // E1 (Wave-3 3A): attach the engine-default tiered store (fixed hot
+        // ring + hot/warm compressed tiers; cold codec follows the BUILD —
+        // zstd/disk here, never copied into the wasm ctor) instead of a bare
+        // uncompressed ring (~640 B/line, content-independent).
+        let mut inner = TerminalBuilder::new()
             .size(dim(rows), dim(cols))
-            .ring_buffer_size(scrollback_limit.max(1))
+            .tiered_scrollback_defaults()
             .build();
+        // ONE total retention limit (Codex-corrected E1): the P4-forwarded
+        // value caps ring + staged + store TOGETHER — never `limit + ring`,
+        // and never the store's 100k `DEFAULT_LINE_LIMIT` (#7929).
+        inner.set_scrollback_line_limit(Some(scrollback_limit.max(1)));
         Self { inner, serialize_cache: None }
+    }
+
+    /// The unified scrollback retention total (ring + staged + store), as set
+    /// at construction from the P4-forwarded rows value. `None` = unlimited.
+    pub fn scrollback_line_limit(&self) -> Option<usize> {
+        self.inner.scrollback_line_limit()
+    }
+
+    /// THRU-5: attach/detach the off-thread compression worker. While active,
+    /// PTY-feed ingest defers tier promotion to whoever drives
+    /// [`drain_lazy_bounded`](Self::drain_lazy_bounded) — the daemon must pair
+    /// this with a drain worker or the staged backlog only drains at the
+    /// engine's backpressure cap. Inactive (default), ingest promotes inline
+    /// in bounded batches on the feeding thread.
+    pub fn set_compress_offload_active(&mut self, active: bool) {
+        self.inner.set_compress_offload_active(active);
+    }
+
+    /// THRU-5: lines staged awaiting off-thread tier promotion (the compression
+    /// worker's backlog; 0 when offload is inactive or drained).
+    pub fn lazy_backlog_len(&self) -> usize {
+        self.inner.lazy_backlog_len()
+    }
+
+    /// THRU-5: promote up to `max_lines` staged lines into the compressed
+    /// tiers (one bounded LZ4/zstd batch under the caller's lock hold);
+    /// returns the lines still staged so a worker can loop.
+    pub fn drain_lazy_bounded(&mut self, max_lines: usize) -> usize {
+        self.inner.drain_lazy_bounded(max_lines)
     }
 
     /// Number of lines currently held in scrollback (off-screen above the grid).
@@ -734,6 +768,74 @@ mod tests {
             term.process_str(&format!("L{i}\r\n"));
         }
         assert!(term.scrollback_len() <= 3, "exceeded cap: {}", term.scrollback_len());
+    }
+
+    #[test]
+    fn tiered_attach_keeps_one_total_retention_limit() {
+        // E1 wiring (Wave-3 3A / 3BC prep): the P4-forwarded rows value is the
+        // WHOLE budget — the unified getter must round-trip it exactly, never
+        // the store's 100k DEFAULT_LINE_LIMIT (#7929) and never `value + ring`.
+        let term = HeadlessTerminal::with_scrollback(24, 80, 7000);
+        assert_eq!(term.scrollback_line_limit(), Some(7000));
+        let small = HeadlessTerminal::with_scrollback(24, 80, DEFAULT_SCROLLBACK);
+        assert_eq!(small.scrollback_line_limit(), Some(DEFAULT_SCROLLBACK));
+    }
+
+    #[test]
+    fn tiered_scrollback_text_and_links_match_ring_only() {
+        // 3BC prep oracle: the daemon reads scrollback as text + OSC-8 spans
+        // under the global scrollback-text-only mode; the tiered store's warm
+        // codec must preserve that contract exactly as the raw ring did.
+        let feed = |term: &mut HeadlessTerminal| {
+            term.process_str("\x1b[1;31mred alert\x1b[0m\r\n");
+            term.process_str("a \x1b]8;;https://example.com/t\x07link\x1b]8;;\x07 z\r\n");
+            for i in 0..40 {
+                term.process_str(&format!("bulk line {i}\r\n"));
+            }
+            term.process_str("last");
+        };
+        let mut tiered = HeadlessTerminal::with_scrollback(2, 40, 1000);
+        feed(&mut tiered);
+        // Ring-only reference at identical content (the pre-E1 construction).
+        let inner = TerminalBuilder::new().size(2, 40).ring_buffer_size(1000).build();
+        let mut ring = HeadlessTerminal { inner, serialize_cache: None };
+        feed(&mut ring);
+
+        assert_eq!(tiered.scrollback_len(), ring.scrollback_len());
+        for i in 0..ring.scrollback_len() {
+            assert_eq!(
+                tiered.scrollback_row_text(i),
+                ring.scrollback_row_text(i),
+                "history row {i} diverged between tiered and ring-only stores"
+            );
+        }
+        assert_eq!(tiered.osc_link_ranges(None), ring.osc_link_ranges(None));
+    }
+
+    #[test]
+    fn offload_drain_promotes_staged_backlog_without_losing_rows() {
+        // The daemon pairs the tiered store with a compress-offload drain
+        // worker (3A integrator note): with offload active, ingest stages
+        // scrolled-off lines and a bounded drain promotes them without
+        // reordering or dropping history.
+        // Past the fixed hot-ring cap so overflow actually stages (the ring
+        // absorbs the first ~1000 history lines before the lazy buffer fills).
+        let mut term = HeadlessTerminal::with_scrollback(2, 20, 3000);
+        term.set_compress_offload_active(true);
+        for i in 0..2200 {
+            term.process_str(&format!("row {i}\r\n"));
+        }
+        assert!(term.lazy_backlog_len() > 0, "offload-active ingest should stage lines");
+        let mut guard = 0;
+        while term.drain_lazy_bounded(64) > 0 {
+            guard += 1;
+            assert!(guard < 100, "bounded drain must make progress");
+        }
+        assert_eq!(term.lazy_backlog_len(), 0);
+        assert_eq!(term.scrollback_row_text(0), "row 0");
+        let len = term.scrollback_len();
+        assert!(len >= 2100, "history retained through the drain, got {len}");
+        assert!(len <= 3000, "the ONE total limit bounds ring+staged+store");
     }
 
     #[test]

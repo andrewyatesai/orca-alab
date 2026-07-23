@@ -2,6 +2,26 @@
 // the modal switched from a 12-tile grid to a workflow split view.
 
 export type FeatureWallRailNavigationKey = 'ArrowUp' | 'ArrowDown' | 'Home' | 'End'
+export type FeatureWallRailOrientation = 'horizontal' | 'vertical'
+
+export function normalizeFeatureWallRailNavigationKey(
+  key: string,
+  orientation: FeatureWallRailOrientation
+): FeatureWallRailNavigationKey | null {
+  if (key === 'Home' || key === 'End') {
+    return key
+  }
+  if (orientation === 'vertical') {
+    return key === 'ArrowUp' || key === 'ArrowDown' ? key : null
+  }
+  if (key === 'ArrowLeft') {
+    return 'ArrowUp'
+  }
+  if (key === 'ArrowRight') {
+    return 'ArrowDown'
+  }
+  return null
+}
 
 export function getFeatureWallRailNavigationTarget(args: {
   currentIndex: number

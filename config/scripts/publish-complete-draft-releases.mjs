@@ -157,7 +157,7 @@ export function writeGithubOutputs({ published, skipped }, outputPath = process.
 
 async function main() {
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-  const repo = process.env.GITHUB_REPOSITORY || 'andrewyatesai/orca-alab'
+  const repo = process.env.GITHUB_REPOSITORY || 'alabsystems/orca-alab'
   const result = await publishCompleteDraftReleases({ repo, token })
   writeGithubOutputs(result)
 }

@@ -1,7 +1,7 @@
 /* oxlint-disable react-doctor/no-adjust-state-on-prop-change -- Why: this visual is a timed storyboard; phase and cursor state intentionally advance from animation effects and reduced-motion gates. */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { ArrowRight, CircleDot } from 'lucide-react'
+import { ArrowRight, CheckCircle2, ChevronDown, CircleDot, Github } from 'lucide-react'
 import { AgentStateDot } from '@/components/AgentStateDot'
 import { ClaudeIcon } from '../status-bar/icons'
 import { FeatureWallClickRing } from './FeatureWallClickRing'
@@ -31,14 +31,21 @@ type Phase =
   | { kind: 'creating'; issueIdx: number }
   | { kind: 'ready'; issueIdx: number }
 
-// Beat timings (ms). Match the HTML mock's runCycle so the React port reads
-// the same as the prototype.
-const HOVER_SETTLE_MS = 700
-const HOVER_TO_BUTTON_MS = 700
-const PRESS_MS = 360
-const CREATING_MS = 2000
-const READY_MS = 2400
-const RESET_MS = 500
+const CURSOR_ENTRY_MS = 50
+const BUTTON_REVEAL_LEAD_MS = 40
+const HOVER_SETTLE_MS = 550
+const HOVER_TO_BUTTON_MS = 550
+const PRESS_MS = 240
+const CREATING_MS = 1500
+const WORKSPACE_REVEAL_MS = 320
+const TASK_MOTION_DURATION_MS =
+  CURSOR_ENTRY_MS +
+  HOVER_SETTLE_MS +
+  BUTTON_REVEAL_LEAD_MS +
+  HOVER_TO_BUTTON_MS +
+  PRESS_MS +
+  CREATING_MS +
+  WORKSPACE_REVEAL_MS
 
 function CursorIcon(): JSX.Element {
   return (
@@ -125,15 +132,17 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
   const rowRefs = useRef<(HTMLDivElement | null)[]>([])
   const buttonRefs = useRef<(HTMLButtonElement | null)[]>([])
 
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  const [phase, setPhase] = useState<Phase>(() =>
+    reducedMotion ? { kind: 'ready', issueIdx: 0 } : { kind: 'idle' }
+  )
   const [cursorTarget, setCursorTarget] = useState<CursorTarget>({ kind: 'hidden' })
   const [rippleKey, setRippleKey] = useState(0)
 
-  // Why: drive the animation loop as a chain of setTimeouts. Each step is
-  // self-contained so reduced-motion can short-circuit the entire effect.
+  // Why: a single pass teaches the handoff without turning the walkthrough
+  // into perpetual background motion.
   useEffect(() => {
     if (reducedMotion) {
-      setPhase({ kind: 'idle' })
+      setPhase({ kind: 'ready', issueIdx: 0 })
       setCursorTarget({ kind: 'hidden' })
       return
     }
@@ -149,56 +158,29 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
       timeouts.push(id)
     }
 
-    function runCycle(): void {
-      const issueIdx = 0
-      // 1. Cursor enters and travels toward the row.
-      setPhase({ kind: 'idle' })
-      setCursorTarget({ kind: 'row', issueIdx, settle: false })
-      schedule(() => {
-        setCursorTarget({ kind: 'row', issueIdx, settle: true })
-      }, 50)
+    const issueIdx = 0
+    setPhase({ kind: 'idle' })
+    setCursorTarget({ kind: 'row', issueIdx, settle: false })
+    schedule(() => setCursorTarget({ kind: 'row', issueIdx, settle: true }), CURSOR_ENTRY_MS)
+    schedule(() => setPhase({ kind: 'hover', issueIdx }), CURSOR_ENTRY_MS + HOVER_SETTLE_MS)
+    schedule(
+      () => setCursorTarget({ kind: 'button', issueIdx }),
+      CURSOR_ENTRY_MS + HOVER_SETTLE_MS + BUTTON_REVEAL_LEAD_MS
+    )
 
-      // 2. Activate the row — Start workspace button slides in.
-      schedule(() => {
-        setPhase({ kind: 'hover', issueIdx })
-      }, 50 + HOVER_SETTLE_MS)
-      schedule(
-        () => {
-          setCursorTarget({ kind: 'button', issueIdx })
-        },
-        50 + HOVER_SETTLE_MS + 40
-      )
+    const pressStart =
+      CURSOR_ENTRY_MS + HOVER_SETTLE_MS + BUTTON_REVEAL_LEAD_MS + HOVER_TO_BUTTON_MS
+    schedule(() => {
+      setPhase({ kind: 'pressing', issueIdx })
+      setRippleKey((key) => key + 1)
+    }, pressStart)
 
-      // 3. Click the button.
-      const pressStart = 50 + HOVER_SETTLE_MS + 40 + HOVER_TO_BUTTON_MS
-      schedule(() => {
-        setPhase({ kind: 'pressing', issueIdx })
-        setRippleKey((k) => k + 1)
-      }, pressStart)
-
-      // 4. Workspace card materializes below with a running agent.
-      const creatingStart = pressStart + PRESS_MS
-      schedule(() => {
-        setPhase({ kind: 'creating', issueIdx })
-        setCursorTarget({ kind: 'hidden' })
-      }, creatingStart)
-
-      // 5. Agent finishes — flip the spinner to a check.
-      const readyStart = creatingStart + CREATING_MS
-      schedule(() => {
-        setPhase({ kind: 'ready', issueIdx })
-      }, readyStart)
-
-      // 6. Tear down for next cycle.
-      const teardown = readyStart + READY_MS
-      schedule(() => {
-        setPhase({ kind: 'idle' })
-      }, teardown)
-      schedule(() => {
-        runCycle()
-      }, teardown + RESET_MS)
-    }
-    runCycle()
+    const creatingStart = pressStart + PRESS_MS
+    schedule(() => {
+      setPhase({ kind: 'creating', issueIdx })
+      setCursorTarget({ kind: 'hidden' })
+    }, creatingStart)
+    schedule(() => setPhase({ kind: 'ready', issueIdx }), creatingStart + CREATING_MS)
     return () => {
       cancelled = true
       timeouts.forEach((id) => window.clearTimeout(id))
@@ -226,11 +208,36 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
     <div
       ref={panelRef}
       className="relative overflow-hidden rounded-xl border border-border bg-card p-2.5 text-foreground"
+      data-feature-wall-tasks-visual
+      data-animation-state={phase.kind}
+      data-animation-duration-ms={TASK_MOTION_DURATION_MS}
     >
+      <div
+        className="mb-2.5 flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-2.5 py-2"
+        data-feature-wall-task-provider="github"
+      >
+        <span className="inline-flex min-w-0 items-center gap-2 text-[11px] font-semibold">
+          <Github className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <span>{translate('auto.fw.tasks.provider.github', 'GitHub')}</span>
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+        </span>
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+          <CheckCircle2 className="size-3 shrink-0 text-status-success" aria-hidden />
+          <span className="truncate">
+            {translate(
+              'auto.components.feature.wall.ConnectIntegrationsList.3dddb2d565',
+              'connected for tasks'
+            )}{' '}
+            {' · '}
+            {translate('auto.fw.tasks.provider.repository', 'stablyai/orca')}
+          </span>
+        </span>
+      </div>
       <div>
         {ISSUES.map((issue, i) => {
           const isActive = i === activeIdx
           const isPressing = phase.kind === 'pressing' && phase.issueIdx === i
+          const isWorkspaceReady = phase.kind === 'ready' && phase.issueIdx === i
           return (
             <div
               key={issue.number}
@@ -243,9 +250,18 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
                 isActive ? 'bg-foreground/[0.05] shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]' : ''
               }`}
             >
-              <span className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/50 px-1.5 py-px font-mono text-[11px] text-muted-foreground">
+              <span
+                className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/50 px-1.5 py-px font-mono text-[11px] text-muted-foreground"
+                data-feature-wall-linked-issue-context
+              >
                 <CircleDot className="size-[11px]" aria-hidden />
-                <span>#{issue.number}</span>
+                <span>
+                  {translate(
+                    'auto.components.sidebar.WorktreeCardMeta.3f2649eeb8',
+                    'Linked issue #{{value0}}',
+                    { value0: issue.number }
+                  )}
+                </span>
               </span>
               <div className="min-w-0">
                 <div className="truncate text-[12.5px] font-semibold leading-[1.2] text-foreground">
@@ -254,7 +270,7 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
               </div>
               <div className="relative flex items-center justify-end">
                 {!isActive ? (
-                  <span className="inline-flex items-center justify-center rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-px text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                  <span className="inline-flex items-center justify-center rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-px text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                     {translate(
                       'auto.components.feature.wall.TasksAnimatedVisual.4331c4d0f8',
                       'Open'
@@ -272,10 +288,15 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
                       isPressing ? 'scale-[0.94] brightness-[1.4]' : 'scale-100'
                     }`}
                   >
-                    {translate(
-                      'auto.components.feature.wall.TasksAnimatedVisual.b68c92fbdc',
-                      'Start workspace'
-                    )}
+                    {isWorkspaceReady
+                      ? translate(
+                          'auto.components.feature.wall.TasksAnimatedVisual.c130000001',
+                          'Open workspace'
+                        )
+                      : translate(
+                          'auto.components.feature.wall.TasksAnimatedVisual.b68c92fbdc',
+                          'Start workspace'
+                        )}
                     <ArrowRight className="size-2.5" aria-hidden />
                   </button>
                 )}
@@ -292,7 +313,7 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
             : 'mt-0 max-h-0 border-t border-transparent pt-0 opacity-0'
         }`}
       >
-        <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
           {workspaceCreating ? (
             <span className="inline-block size-[9px] animate-spin rounded-full border-[1.5px] border-yellow-500 border-t-transparent" />
           ) : (
@@ -313,7 +334,11 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
         {workspaceIssue ? (
           <div
             key={workspaceIssue.number}
-            className="animate-[tasks-workspace-in_320ms_cubic-bezier(.2,.8,.2,1)_both] rounded-[10px] bg-foreground/[0.05] px-2 py-2.5 shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]"
+            className={`${
+              reducedMotion
+                ? ''
+                : 'animate-[tasks-workspace-in_320ms_cubic-bezier(.2,.8,.2,1)_both]'
+            } rounded-[10px] bg-foreground/[0.05] px-2 py-2.5 shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]`}
           >
             <div className="grid grid-cols-[14px_minmax(0,1fr)] items-center gap-3 px-1.5">
               <span className="inline-block size-[9px] rounded-full bg-emerald-500" />

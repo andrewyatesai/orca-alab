@@ -11632,14 +11632,18 @@
             "25ec5356d6": "设置"
           },
           "FeatureWallModal": {
-            "33dca8bbbe": "Orca 的一个简短的、逐个工作流程的浏览。",
-            "3567e147c8": "了解 Orca"
+            "33dca8bbbe": "11 个引导页面 · 约 4 分钟",
+            "3567e147c8": "探索 Orca: ALab Edition",
+            "a120000001": "返回 Orca",
+            "a130000001": "完成设置",
+            "a130000002": "13 个引导页面 · 约 6 分钟",
+            "a140000001": "14 个引导页面 · 约 7 分钟"
           },
           "FeatureWallPreview": {
             "a666384798": "也在这个工作流程中"
           },
           "FeatureWallRail": {
-            "69ea857689": "已完成",
+            "69ea857689": "已查看",
             "7593d15f94": "工作流程"
           },
           "FeatureWallSetupChecklist": {
@@ -11661,7 +11665,12 @@
             "522cce9e33": "添加项目"
           },
           "FeatureWallTourPanel": {
-            "af7d622f6f": "可选"
+            "af7d622f6f": "可选",
+            "a120000001": "第 {{value0}} 个，共 {{value1}} 个",
+            "a120000002": "了解更多",
+            "a120000004": "第 {{value0}} 步，共 {{value1}} 步：{{value2}}",
+            "a120000003": "导览进度",
+            "a120000005": "详细了解 {{value0}}"
           },
           "KeepAwakeCard": {
             "209713d3c7": "可选"
@@ -11724,7 +11733,8 @@
             "b13375617e": "工作树选择器截断名称",
             "72f9e516a3": "按下",
             "fe47c9c9e8": "工作区准备就绪",
-            "61ffda7601": "创建工作区"
+            "61ffda7601": "创建工作区",
+            "c130000001": "打开工作区"
           },
           "WorkbenchAnimatedVisual": {
             "633a91e358": "思维…",
@@ -11750,7 +11760,14 @@
             "16877e038d": "向下拆分",
             "a2b114dad0": "向右拆分 ·",
             "0bc9ad0cd1": "同一窗格：",
-            "fc84f17fe7": "Codex 会话已开始"
+            "fc84f17fe7": "Codex 会话已开始",
+            "h130000001": "› 渲染指标",
+            "h130000002": "› 更新头像",
+            "h130000003": "› 导出 CSV",
+            "h130000004": "› 切换深色模式",
+            "h130000005": "检查 src/auth 是否缺少错误处理",
+            "h130000006": "修复失败的 checkout 测试",
+            "h130000007": "checkout 超时"
           },
           "agent": {
             "capability": {
@@ -11800,7 +11817,7 @@
                 },
                 "ship": {
                   "styles": {
-                    "90cdcd2ecc": ".ravs-ship-root { position: absolute; inset: 0; } .ravs-ship-stack { position: absolute; inset: 0; display: grid; grid-template-columns: 232px minmax(0,1fr); gap: 14px; padding: 4px 2px; /* Why: cards size to their content rather than stretch to the parent's full height, so the two cards don't show empty space below their content. */ align-items: start; } /* Source Control mini-sidebar — ahead-count header, commit textarea + split Commit button, then a CHANGES section with file rows. The file rows are the surface the \"reading\" pulse animates over. */ .ravs-sc-card { display: flex; flex-direction: column; background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(24,24,27,0.04); } /* Both card headers share the same fixed height so the SC card and PR dialog align across the top edge regardless of header content. */ .ravs-sc-header, .ravs-pr-head { height: 36px; box-sizing: border-box; } .ravs-sc-header { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-bottom: 1px solid var(--border); } .ravs-sc-ahead { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--foreground, #18181b); } .ravs-sc-ahead svg { color: var(--muted-foreground, #71717a); } .ravs-sc-commit-area { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; } .ravs-sc-textarea { position: relative; border: 1px solid var(--border); border-radius: 6px; background: var(--editor-surface, var(--card)); padding: 6px 26px 6px 8px; min-height: 56px; font-size: 12px; line-height: 1.45; color: var(--foreground, #18181b); white-space: pre-wrap; word-break: break-word; overflow: hidden; } .ravs-sc-textarea .ravs-placeholder { color: rgba(113,113,122,0.7); } .ravs-sc-sparkle { position: absolute; right: 6px; top: 6px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--muted-foreground, #71717a); background: transparent; transition: color 160ms ease, background 160ms ease; } .ravs-sc-sparkle.is-scanning { color: rgb(109 40 217); background: color-mix(in srgb, rgb(139 92 246) 18%, transparent); } .ravs-sc-split { display: flex; align-items: stretch; } /* Why: Commit + Create PR are surrounding chrome — the violet AI affordances are the focal points. Render them as quiet secondary buttons so they don't compete with the sparkle/scan signals. */ .ravs-sc-split .ravs-primary { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 10px; background: var(--secondary, #f5f5f5); color: var(--secondary-foreground, #171717); font-size: 11px; font-weight: 500; border-radius: 6px 0 0 6px; border: 1px solid var(--border); transition: background 240ms ease, border-color 240ms ease, color 240ms ease; } .ravs-sc-split .ravs-chev { display: inline-flex; align-items: center; justify-content: center; width: 22px; background: var(--secondary, #f5f5f5); color: var(--muted-foreground, #71717a); border-radius: 0 6px 6px 0; border: 1px solid var(--border); border-left: 1px solid var(--border); transition: background 240ms ease, border-color 240ms ease, color 240ms ease; } /* Why: when AI has filled the commit message, tint the Commit button green to signal \"ready to commit\". Uses the same success-green family as the PR flash so the two beats rhyme. Mix is intentionally strong (~28%) — at 14% it disappeared next to the violet sparkle and PR flash, so users only saw the PR change color. */ .ravs-sc-split.is-ready .ravs-primary, .ravs-sc-split.is-ready .ravs-chev { background: color-mix(in srgb, rgb(34 197 94) 28%, var(--secondary, #f5f5f5)); border-color: rgb(34 197 94); color: rgb(21 128 61); transition: background 220ms ease, border-color 220ms ease, color 220ms ease; } .ravs-sc-split.is-ready .ravs-chev { border-left-color: rgba(34, 197, 94, 0.55); } .ravs-sc-changes-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground, #71717a); } .ravs-sc-changes-count { color: var(--foreground, #18181b); font-weight: 600; margin-left: 2px; } .ravs-sc-view-all { font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted-foreground, #71717a); } .ravs-sc-files { display: flex; flex-direction: column; padding: 2px 6px 8px; flex: 1; min-height: 0; overflow: hidden; } .ravs-sc-file { display: grid; grid-template-columns: 14px minmax(0,1fr) 12px; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 4px; font-size: 11px; line-height: 1.35; color: var(--foreground, #18181b); position: relative; transition: background 220ms ease; } .ravs-sc-ficon { color: rgb(180 83 9); display: inline-flex; } .ravs-sc-fname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ravs-sc-fmark { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-align: right; color: rgb(180 83 9); } .ravs-sc-file.is-reading { background: color-mix(in srgb, rgb(139 92 246) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(139 92 246) 28%, transparent); } /* PR dialog — matches the .ravs-sc-card chrome (same border, radius, elevation) so the two cards read as one design language. */ .ravs-pr-dialog { background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 2px rgba(24,24,27,0.04); display: flex; flex-direction: column; min-width: 0; overflow: hidden; } .ravs-pr-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 1px solid var(--border); } .ravs-pr-title-text { font-size: 11px; font-weight: 500; color: var(--foreground, #18181b); } /* Icon-only AI-assist chip — mirrors .ravs-sc-sparkle so the affordance reads identically across both cards. */ .ravs-pr-gen-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border-radius: 4px; color: var(--muted-foreground, #71717a); background: transparent; border: 0; cursor: pointer; transition: color 160ms ease, background 160ms ease; } .ravs-pr-gen-btn:hover { background: rgba(24,24,27,0.06); color: var(--foreground, #18181b); } .ravs-pr-gen-btn.is-scanning { color: rgb(109 40 217); background: color-mix(in srgb, rgb(139 92 246) 18%, transparent); } .ravs-pr-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; } .ravs-pr-field { display: flex; flex-direction: column; gap: 4px; } .ravs-pr-field-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground, #71717a); } .ravs-pr-base { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--foreground, #18181b); background: var(--editor-surface, var(--card)); align-self: flex-start; } .ravs-pr-base svg { color: var(--muted-foreground, #71717a); } .ravs-pr-input { position: relative; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--editor-surface, var(--card)); min-height: 28px; font-size: 12px; line-height: 1.45; color: var(--foreground, #18181b); white-space: pre-wrap; word-break: break-word; overflow: hidden; } .ravs-pr-input.is-body { min-height: 50px; font-size: 11px; line-height: 1.4; } .ravs-pr-input .ravs-placeholder { color: rgba(113,113,122,0.7); } .ravs-pr-footer { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-top: 2px; } .ravs-pr-btn { font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: 6px; line-height: 1; border: 1px solid transparent; outline: none; } .ravs-pr-btn:focus, .ravs-pr-btn:focus-visible { outline: none; } /* Cancel reads as a quiet ghost button so it doesn't compete with the affirmative Create PR action. */ .ravs-pr-btn.is-outline { background: transparent; color: var(--muted-foreground, #71717a); border-color: transparent; } .ravs-pr-btn.is-outline:hover { background: rgba(24,24,27,0.05); color: var(--foreground, #18181b); } /* Quiet secondary fill — see the .ravs-sc-split note above. The flash ring still uses success-green so the \"PR created\" beat reads. The Create-PR button is slightly larger than Cancel so the affirmative action remains the bigger target. */ .ravs-pr-btn.is-solid { background: var(--secondary, #f5f5f5); color: var(--secondary-foreground, #171717); border-color: var(--border); font-size: 12px; padding: 7px 14px; transition: background 220ms ease, border-color 220ms ease, color 220ms ease, box-shadow 220ms ease; } .ravs-pr-btn.is-solid.is-ready { background: color-mix(in srgb, rgb(34 197 94) 28%, var(--secondary, #f5f5f5)); border-color: rgb(34 197 94); color: rgb(21 128 61); } .ravs-pr-btn.is-solid.is-flash { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.30); } .ravs-cursor { position: absolute; z-index: 40; pointer-events: none; transition: transform 600ms cubic-bezier(.45,.05,.2,1), opacity 200ms ease; transform: translate(-30px, 220px); opacity: 0; } .ravs-cursor.is-visible { opacity: 1; } .ravs-cursor .ravs-ripple { position: absolute; left: -6px; top: -6px; width: 28px; height: 28px; border-radius: 999px; border: 2px solid rgba(24,24,27,0.5); opacity: 0; } .ravs-cursor.is-clicking .ravs-ripple { animation: ravs-ripple 460ms ease-out forwards; } @keyframes ravs-ripple { 0% { transform: scale(0.4); opacity: 0.9; } 100% { transform: scale(1.4); opacity: 0; } } .ravs-caret { display: inline-block; width: 1.5px; height: 1em; background: currentColor; vertical-align: -2px; margin-left: 1px; animation: ravs-caret-blink 1.05s steps(1) infinite; } @keyframes ravs-caret-blink { 0%, 50% { opacity: 1 } 51%, 100% { opacity: 0 } }"
+                    "90cdcd2ecc": ".ravs-ship-root { position: absolute; inset: 0; } .ravs-ship-stack { position: absolute; inset: 0; display: grid; grid-template-columns: 232px minmax(0,1fr); gap: 14px; padding: 4px 2px; /* Why: cards size to their content rather than stretch to the parent's full height, so the two cards don't show empty space below their content. */ align-items: start; } /* Source Control mini-sidebar — ahead-count header, commit textarea + split Commit button, then a CHANGES section with file rows. The file rows are the surface the \"reading\" pulse animates over. */ .ravs-sc-card { display: flex; flex-direction: column; background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(24,24,27,0.04); } /* Both card headers share the same fixed height so the SC card and PR dialog align across the top edge regardless of header content. */ .ravs-sc-header, .ravs-pr-head { height: 36px; box-sizing: border-box; } .ravs-sc-header { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-bottom: 1px solid var(--border); } .ravs-sc-ahead { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--foreground, #18181b); } .ravs-sc-ahead svg { color: var(--muted-foreground, #71717a); } .ravs-sc-commit-area { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; } .ravs-sc-textarea { position: relative; border: 1px solid var(--border); border-radius: 6px; background: var(--editor-surface, var(--card)); padding: 6px 26px 6px 8px; min-height: 56px; font-size: 12px; line-height: 1.45; color: var(--foreground, #18181b); white-space: pre-wrap; word-break: break-word; overflow: hidden; } .ravs-sc-textarea .ravs-placeholder { color: rgba(113,113,122,0.7); } .ravs-sc-sparkle { position: absolute; right: 6px; top: 6px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--muted-foreground, #71717a); background: transparent; transition: color 160ms ease, background 160ms ease; } .ravs-sc-sparkle.is-scanning { color: rgb(109 40 217); background: color-mix(in srgb, rgb(139 92 246) 18%, transparent); } .ravs-sc-split { display: inline-flex; align-items: stretch; } /* Why: Commit + Create PR are surrounding chrome — the violet AI affordances are the focal points. Render them as quiet secondary buttons so they don't compete with the sparkle/scan signals. */ .ravs-sc-split .ravs-primary { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 10.5rem; padding: 5px 10px; background: var(--secondary, #f5f5f5); color: var(--secondary-foreground, #171717); font-size: 11px; font-weight: 500; border-radius: 6px 0 0 6px; border: 1px solid var(--border); transition: background 240ms ease, border-color 240ms ease, color 240ms ease; } .ravs-sc-split .ravs-chev { display: inline-flex; align-items: center; justify-content: center; width: 22px; background: var(--secondary, #f5f5f5); color: var(--muted-foreground, #71717a); border-radius: 0 6px 6px 0; border: 1px solid var(--border); border-left: 1px solid var(--border); transition: background 240ms ease, border-color 240ms ease, color 240ms ease; } /* Why: when AI has filled the commit message, tint the Commit button green to signal \"ready to commit\". Uses the same success-green family as the PR flash so the two beats rhyme. Mix is intentionally strong (~28%) — at 14% it disappeared next to the violet sparkle and PR flash, so users only saw the PR change color. */ .ravs-sc-split.is-ready .ravs-primary, .ravs-sc-split.is-ready .ravs-chev { background: color-mix(in srgb, rgb(34 197 94) 28%, var(--secondary, #f5f5f5)); border-color: rgb(34 197 94); color: rgb(21 128 61); transition: background 220ms ease, border-color 220ms ease, color 220ms ease; } .ravs-sc-split.is-ready .ravs-chev { border-left-color: rgba(34, 197, 94, 0.55); } .ravs-sc-changes-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground, #71717a); } .ravs-sc-changes-count { color: var(--foreground, #18181b); font-weight: 600; margin-left: 2px; } .ravs-sc-view-all { font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted-foreground, #71717a); } .ravs-sc-files { display: flex; flex-direction: column; padding: 2px 6px 8px; flex: 1; min-height: 0; overflow: hidden; } .ravs-sc-file { display: grid; grid-template-columns: 14px minmax(0,1fr) 12px; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 4px; font-size: 11px; line-height: 1.35; color: var(--foreground, #18181b); position: relative; transition: background 220ms ease; } .ravs-sc-ficon { color: rgb(180 83 9); display: inline-flex; } .ravs-sc-fname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ravs-sc-fmark { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-align: right; color: rgb(180 83 9); } .ravs-sc-file.is-reading { background: color-mix(in srgb, rgb(139 92 246) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(139 92 246) 28%, transparent); } /* PR dialog — matches the .ravs-sc-card chrome (same border, radius, elevation) so the two cards read as one design language. */ .ravs-pr-dialog { background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 2px rgba(24,24,27,0.04); display: flex; flex-direction: column; min-width: 0; overflow: hidden; } .ravs-pr-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 1px solid var(--border); } .ravs-pr-title-text { font-size: 11px; font-weight: 500; color: var(--foreground, #18181b); } /* Icon-only AI-assist chip — mirrors .ravs-sc-sparkle so the affordance reads identically across both cards. */ .ravs-pr-gen-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border-radius: 4px; color: var(--muted-foreground, #71717a); background: transparent; border: 0; cursor: pointer; transition: color 160ms ease, background 160ms ease; } .ravs-pr-gen-btn:hover { background: rgba(24,24,27,0.06); color: var(--foreground, #18181b); } .ravs-pr-gen-btn.is-scanning { color: rgb(109 40 217); background: color-mix(in srgb, rgb(139 92 246) 18%, transparent); } .ravs-pr-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; } .ravs-pr-field { display: flex; flex-direction: column; gap: 4px; } .ravs-pr-field-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground, #71717a); } .ravs-pr-base { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--foreground, #18181b); background: var(--editor-surface, var(--card)); align-self: flex-start; } .ravs-pr-base svg { color: var(--muted-foreground, #71717a); } .ravs-pr-input { position: relative; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--editor-surface, var(--card)); min-height: 28px; font-size: 12px; line-height: 1.45; color: var(--foreground, #18181b); white-space: pre-wrap; word-break: break-word; overflow: hidden; } .ravs-pr-input.is-body { min-height: 50px; font-size: 11px; line-height: 1.4; } .ravs-pr-input .ravs-placeholder { color: rgba(113,113,122,0.7); } .ravs-pr-footer { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-top: 2px; } .ravs-pr-btn { font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: 6px; line-height: 1; border: 1px solid transparent; outline: none; } .ravs-pr-btn:focus, .ravs-pr-btn:focus-visible { outline: none; } /* Cancel reads as a quiet ghost button so it doesn't compete with the affirmative Create PR action. */ .ravs-pr-btn.is-outline { background: transparent; color: var(--muted-foreground, #71717a); border-color: transparent; } .ravs-pr-btn.is-outline:hover { background: rgba(24,24,27,0.05); color: var(--foreground, #18181b); } /* Quiet secondary fill — see the .ravs-sc-split note above. The flash ring still uses success-green so the \"PR created\" beat reads. The Create-PR button is slightly larger than Cancel so the affirmative action remains the bigger target. */ .ravs-pr-btn.is-solid { background: var(--secondary, #f5f5f5); color: var(--secondary-foreground, #171717); border-color: var(--border); font-size: 12px; padding: 7px 14px; transition: background 220ms ease, border-color 220ms ease, color 220ms ease, box-shadow 220ms ease; } .ravs-pr-btn.is-solid.is-ready { background: color-mix(in srgb, rgb(34 197 94) 28%, var(--secondary, #f5f5f5)); border-color: rgb(34 197 94); color: rgb(21 128 61); } .ravs-pr-btn.is-solid.is-flash { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.30); } .ravs-cursor { position: absolute; z-index: 40; pointer-events: none; transition: transform 600ms cubic-bezier(.45,.05,.2,1), opacity 200ms ease; transform: translate(-30px, 220px); opacity: 0; } .ravs-cursor.is-visible { opacity: 1; } .ravs-cursor .ravs-ripple { position: absolute; left: -6px; top: -6px; width: 28px; height: 28px; border-radius: 999px; border: 2px solid rgba(24,24,27,0.5); opacity: 0; } .ravs-cursor.is-clicking .ravs-ripple { animation: ravs-ripple 460ms ease-out forwards; } @keyframes ravs-ripple { 0% { transform: scale(0.4); opacity: 0.9; } 100% { transform: scale(1.4); opacity: 0; } } .ravs-caret { display: inline-block; width: 1.5px; height: 1em; background: currentColor; vertical-align: -2px; margin-left: 1px; animation: ravs-caret-blink 1.05s steps(1) infinite; } @keyframes ravs-caret-blink { 0%, 50% { opacity: 1 } 51%, 100% { opacity: 0 } }"
                   }
                 }
               }
@@ -11817,14 +11834,87 @@
             "orchestration": {
               "OrchestrationPage": {
                 "30b509a467": "2名儿童",
-                "862605d066": "2 个子工作区"
+                "862605d066": "2 个子工作区",
+                "h130000001": "正在将身份验证重写拆分为 2 个 PR…",
+                "h130000002": "正在编写 users 表迁移…",
+                "h130000003": "正在设计 withSession 中间件…",
+                "h130000004": "正在添加 email_verified 列…",
+                "h130000005": "正在连接 withSession 中间件…",
+                "h130000006": "PR 1/2 已就绪",
+                "h130000007": "PR 2/2 已就绪",
+                "h130000008": "重新设计身份验证流程",
+                "h130000009": "PR 1/2：迁移 users.sql",
+                "h130000010": "PR 2/2：withSession 中间件",
+                "h130000050": "依赖",
+                "h130000051": "决策",
+                "h130000052": "恢复",
+                "h130000011": "决策关卡 · 需要回答",
+                "h130000012": "正在转达你的决定 · false + 显式回填",
+                "h130000013": "已收到人工决定 · 正在应用回填…",
+                "h130000014": "任务 1 已完成 · schema 契约就绪",
+                "h130000015": "依赖已满足 · 正在释放任务 2",
+                "h130000016": "Schema 就绪 · 正在接入中间件…",
+                "h130000017": "已阻塞 · 身份验证契约检查失败",
+                "h130000018": "已接管阻塞项 · 需要恢复",
+                "h130000019": "恢复 · rebase 后重新运行检查",
+                "h130000020": "已 rebase · 正在重新运行契约检查…",
+                "h130000021": "已恢复 · 契约检查通过",
+                "h130000022": "协调器已接受恢复后的运行",
+                "h130000023": "规划",
+                "h130000024": "协调器绘制依赖关系图",
+                "h130000025": "分派",
+                "h130000026": "任务 1 启动；任务 2 仍受关卡限制",
+                "h130000027": "依赖",
+                "h130000028": "中间件等待 schema 契约",
+                "h130000029": "问题",
+                "h130000030": "工作智能体暂停流程图，等待回答",
+                "h130000031": "人工决定",
+                "h130000032": "由你解决数据策略关卡",
+                "h130000033": "已释放",
+                "h130000034": "任务 1 解锁依赖它的工作智能体",
+                "h130000035": "阻塞项",
+                "h130000036": "失败的检查返回协调器",
+                "h130000037": "恢复",
+                "h130000038": "协调器分配 rebase 和重新运行",
+                "h130000039": "协调结果",
+                "h130000040": "2 个任务已完成 · 1 项人工决定 · 1 次恢复",
+                "h130000041": "已释放 · schema 就绪",
+                "h130000042": "任务 2 等待任务 1",
+                "h130000043": "需要回答",
+                "h130000044": "人工批准 · false + 回填",
+                "h130000045": "关卡待定",
+                "h130000046": "已恢复 · 检查通过",
+                "h130000047": "正在 rebase + 重新运行",
+                "h130000048": "协调器负责阻塞项",
+                "h130000049": "正在监控工作智能体检查",
+                "h130000063": "双工作智能体依赖关系图",
+                "h130000064": "2 个工作智能体 · 任务 2 依赖任务 1",
+                "h130000053": "正在梳理 2 个任务及其依赖关系…",
+                "h130000054": "正在等待迁移任务分派…",
+                "h130000055": "等待任务 1 的 schema 契约",
+                "h130000056": "正在分派迁移工作智能体…",
+                "h130000057": "正在添加 email_verified + 回填…",
+                "h130000058": "暂缓中间件，等待任务 1…",
+                "h130000059": "问题 · 是否将旧行默认为 false？",
+                "h130000060": "协调器 · 身份验证重写",
+                "h130000061": "任务 1 · 迁移 users.sql",
+                "h130000062": "任务 2 · withSession（在任务 1 之后）",
+                "h150000001": "你已解决关卡 · false + 显式回填",
+                "h150000002": "转达",
+                "h150000003": "协调器转达你已批准的策略"
               },
               "StatusesPage": {
                 "2f549fc0ba": "src/auth/session.test.ts",
                 "139e3d7458": "已更新",
                 "7b26349cb2": "pnpm 迁移最新",
                 "78f0318ac1": "想跑",
-                "79971d1539": "重新设计身份验证流程"
+                "79971d1539": "重新设计身份验证流程",
+                "h130000001": "编辑",
+                "h130000002": "Bash",
+                "h130000003": "读取",
+                "h130000004": "正在检查会话中间件…",
+                "h130000005": "类型检查已通过。接下来检查登录路由。",
+                "h130000006": "正在为重定向路径添加测试。"
               },
               "UsageAccountsCard": {
                 "6986b36708": "表面利率限制和内联掉期账户。",
@@ -11845,7 +11935,14 @@
                 "0470aaed99": "每周",
                 "f421abf962": "会话",
                 "5e45fb1238": "更新于 1 分钟前",
-                "6a4b1d3c38": "Codex"
+                "6a4b1d3c38": "Codex",
+                "h130000001": "已使用 0%",
+                "h130000002": "已使用 96%",
+                "h130000003": "5 小时后重置",
+                "h130000004": "47 分钟后重置",
+                "h130000005": "团队",
+                "h130000006": "5 小时已使用 0% · 本周已使用 4%",
+                "h130000007": "47 分钟已使用 96%"
               },
               "orchestration": {
                 "cards": {
@@ -11908,6 +12005,466 @@
             "0d6efe9cf4": "当项目或工作树位于受保护文件夹时，建议在 macOS 上开启。",
             "dac08ec03e": "正在打开...",
             "6e3d62b816": "打开完全磁盘访问权限"
+          },
+          "AnywhereWorkflowVisuals": {
+            "e110000001": "Orca 桌面版",
+            "e110000002": "选择并指导工作",
+            "e110000003": "Orca 运行时",
+            "e110000004": "本机或已配对的远程运行时",
+            "e110000005": "Orca Mobile",
+            "e110000006": "监控并回复",
+            "e110000007": "桌面端是事实来源",
+            "e110000008": "智能体提醒",
+            "e110000009": "安全重连",
+            "e110000010": "可见 App 范围",
+            "e110000011": "功能已检查",
+            "e110000012": "终端",
+            "e110000013": "编辑器",
+            "e110000014": "辅助功能快照",
+            "e110000015": "窗口“终端”",
+            "e110000016": "组“会话控件”",
+            "e110000017": "按钮“重新连接”",
+            "e110000018": "文本“智能体正在等待”",
+            "e110000019": "当所选 App 提供相应操作时，可进行检查、点击、输入、滚动和拖动。",
+            "e110000020": "完整客户端",
+            "e110000021": "运行时",
+            "e110000022": "可选下游",
+            "e110000023": "SSH 项目主机",
+            "e110000024": "运行 Git、文件和终端",
+            "e110000025": "访问权限",
+            "e110000026": "原生辅助程序 + 声明的操作",
+            "e110000027": "仅限 App 提供的操作",
+            "e110000028": "配套客户端",
+            "e110000029": "测试版",
+            "e130000001": "按需",
+            "e130000002": "工作区环境",
+            "e130000003": "由 orca.yaml 预配",
+            "e130000004": "快速命令",
+            "e130000005": "通知",
+            "e130000006": "监控 + 回复",
+            "e130000007": "仅限 macOS · 辅助功能 + 屏幕录制",
+            "e150000001": "调用声明的操作",
+            "e150000002": "可见结果",
+            "e150000003": "智能体已连接"
+          },
+          "FeatureWallTourSurface": {
+            "a110000001": "继续",
+            "a110000002": "返回",
+            "a120000003": "完成",
+            "a120000004": "可随时从“帮助 > 探索 Orca”重新打开。"
+          },
+          "ReviewShipWorkflowVisual": {
+            "c110000001": "src/terminal/session.ts",
+            "c110000002": "修订 · 3 项更改",
+            "c110000003": "export async function restoreSession(id: string) {",
+            "c110000004": "return reconnect(id)",
+            "c110000005": "const session = await reconnect(id)",
+            "c110000006": "return verifyScrollback(session)",
+            "c110000007": "审查备注",
+            "c110000008": "在窗格显示前保留已恢复的终端回滚内容。",
+            "c110000009": "从审查到发布",
+            "c110000010": "添加批注",
+            "c110000011": "修订",
+            "c110000012": "运行检查",
+            "c110000013": "发布",
+            "c110000014": "Pull / Merge Request",
+            "c110000015": "检查已通过",
+            "header": {
+              "title": "审查与发布",
+              "detail": "比较、恢复、确认，然后完成工作区闭环"
+            },
+            "timeline": {
+              "title": "审查路径"
+            },
+            "footer": {
+              "disclaimer": "仅为流程示意：检查、冲突和提供商结果取决于仓库和 Git 托管平台。"
+            },
+            "candidate": {
+              "title": "候选方案比较",
+              "a": "候选方案 A",
+              "aFiles": "3 个文件",
+              "b": "候选方案 B",
+              "bFiles": "5 个文件",
+              "focused": "已聚焦"
+            },
+            "panel": {
+              "progress": "第 {{value0}}/10 步 · 审查路径"
+            },
+            "story": {
+              "compare": {
+                "title": "比较候选方案",
+                "detail": "选择方向前，先检查并行方案的 diff。"
+              },
+              "annotate": {
+                "title": "添加批注并发送修订请求",
+                "detail": "将反馈附在候选方案上，并请求再次处理。"
+              },
+              "decision": {
+                "title": "审查决策",
+                "detail": "执行验证或 Git 写入操作前，再次检查修订后的 diff。"
+              },
+              "blocked": {
+                "title": "检查失败 / 冲突",
+                "detail": "不要跳过失败的检查或合并冲突，要让其保持可见。"
+              },
+              "retry": {
+                "title": "返回、解决并重试",
+                "detail": "返回同一工作区上下文，处理阻塞项，然后重试。"
+              },
+              "passed": {
+                "title": "检查通过",
+                "detail": "将刷新后的结果作为最终人工决策的依据。"
+              },
+              "rereview": {
+                "title": "重新审查已解决的 diff",
+                "detail": "暂存或写入前，由人工批准恢复后的 diff。"
+              },
+              "confirm": {
+                "title": "确认 commit + push，再创建 PR / MR",
+                "detail": "将 Git 写入与创建 Pull Request 或 Merge Request 明确区分。"
+              },
+              "archive": {
+                "title": "工作区已归档",
+                "detail": "将已完成的示例移出活动工作区列表。"
+              },
+              "stage": {
+                "title": "暂存聚焦的代码块",
+                "detail": "在 Git 写入前，只暂存已审查的代码块。"
+              }
+            },
+            "evidence": {
+              "compare": "打开两份 diff，再选择要完善的候选方案。",
+              "note": "审查备注：在显示窗格前保留恢复后的终端回滚内容。",
+              "send": "发送修订请求",
+              "decision": "执行检查或 Git 写入操作前，需要人工决策。",
+              "blocker": "示例阻塞项",
+              "blockerDetail": "某项聚焦检查失败，或某个合并冲突需要审查。",
+              "resolve": "在工作区中解决",
+              "retry": "重新运行聚焦检查",
+              "passed": "示例结果 · 检查通过",
+              "rereview": "人工批准 · 已审查恢复后的 diff 和刷新后的检查结果",
+              "commit": "确认 commit + push",
+              "review": "确认 PR / MR",
+              "archive": "示例结束状态 · 工作区已归档。",
+              "stage": "暂存聚焦的代码块 · src/terminal/session.ts"
+            }
+          },
+          "ScaleWorkflowVisuals": {
+            "d110000001": "自动化",
+            "d110000002": "保存工作，按需或按计划运行",
+            "d110000003": "2 个已保存工作流",
+            "d110000004": "回归问题分类",
+            "d110000005": "已计划 · 工作日 09:00 UTC",
+            "d110000006": "依赖项审查",
+            "d110000007": "手动 · 新工作区",
+            "d110000008": "近期运行",
+            "d110000009": "已完成",
+            "d110000010": "2 分钟前",
+            "d110000011": "已计划",
+            "d110000012": "明天 09:00 UTC",
+            "d130000001": "正在运行预检",
+            "d130000002": "分派前正在验证目标",
+            "d130000003": "预检失败",
+            "d130000004": "运行已保留 · 修复后重新运行",
+            "d130000005": "正在重新运行",
+            "d130000006": "同一已保存工作流 · 新工作区",
+            "d130000007": "已计划 · 工作日 · 已启用预检",
+            "d130000008": "历史记录和输出已保留",
+            "d140000001": "上次尝试 · 预检失败",
+            "d140000002": "目标不可用 · 运行已保留",
+            "d140000003": "重新运行后已恢复",
+            "d140000004": "新工作区 · 历史记录和输出已保留"
+          },
+          "WorkspacesAnimatedVisual": {
+            "f110000001": "基础分支",
+            "f110000002": "隔离的 worktree + 分支",
+            "f110000003": "隔离 worktree 中的智能体活动",
+            "f110000004": "设置 orca.yaml",
+            "f110000005": "修复登录竞争条件",
+            "f110000006": "加快 CI 流水线",
+            "f110000007": "Codex",
+            "f110000008": "Claude Code",
+            "f110000009": "OpenCode",
+            "f110000010": "同一任务，三个候选结果",
+            "f110000011": "候选结果",
+            "f110000012": "检查",
+            "f110000013": "Diff",
+            "f110000014": "1 个任务 → 1 个胜出结果",
+            "f110000016": "就绪",
+            "f110000017": "工作中",
+            "f110000018": "已完成",
+            "f110000019": "胜出",
+            "f110000020": "已归档",
+            "f110000021": "从 main 上的一个任务开始",
+            "f110000022": "分散到三个隔离的 worktree",
+            "f110000023": "Codex、Claude 和 OpenCode 并行工作",
+            "f110000025": "候选结果已完成 · 比较检查与 diff 结果",
+            "f110000026": "已选择 Codex 作为胜出结果",
+            "f110000027": "保留胜出结果 · 另外两个方案已归档",
+            "f140000001": "Git 项目 · 基础分支"
+          },
+          "TerminalProjectWorkflowVisuals": {
+            "b110000001": "Shell",
+            "b110000002": "Codex",
+            "b110000003": "上次登录：今天，通过控制台",
+            "b110000004": "codex",
+            "b110000005": "智能体会话已连接",
+            "b110000006": "已在当前工作区终端中就绪。",
+            "b110000008": "会话",
+            "b110000009": "持久性",
+            "b110000010": "会话在重新连接后仍然保留",
+            "b110000011": "布局",
+            "b110000012": "标签页与嵌套拆分",
+            "b110000013": "引擎",
+            "b110000014": "aterm · Rust",
+            "b110000015": "本机",
+            "b110000016": "在此设备上使用 Orca",
+            "b110000017": "SSH 主机",
+            "b110000018": "通过 SSH 连接现有机器",
+            "b110000019": "已配对的 Orca 运行时",
+            "b110000020": "与另一台电脑上运行的 Orca 配对",
+            "b110000021": "添加项目",
+            "b110000022": "先选择工作运行位置，再选择代码库如何到达该位置。",
+            "b110000023": "1 · 位置",
+            "b110000024": "项目操作的运行位置",
+            "b110000025": "2 · 代码库",
+            "b110000026": "代码如何到达该位置",
+            "b110000027": "打开现有文件夹",
+            "b110000028": "保留当前 checkout 和分支",
+            "b110000029": "克隆仓库",
+            "b110000030": "克隆到所选位置",
+            "b110000031": "创建项目",
+            "b110000032": "从空文件夹开始",
+            "b130000001": "主机重启",
+            "b130000002": "恢复布局 + 回滚内容",
+            "b130000003": "热重启",
+            "b130000004": "实时进程重新连接",
+            "b140000001": "本机主机或 Windows 上的 WSL"
+          },
+          "feature-wall-step-localization": {
+            "g120000001": "终端优先",
+            "g120000002": "从终端开始——项目终端或临时终端",
+            "g120000003": "当前有活动工作区时，Orca 默认打开其终端。运行任意 CLI 智能体，拆分标签页和窗格，并在重新连接后返回持久会话。",
+            "g120000004": "添加项目",
+            "g120000005": "导入代码库",
+            "g120000006": "选择项目操作的运行位置——本机、SSH 主机或已配对的 Orca 运行时——然后打开现有文件夹、克隆仓库或创建项目。现有 checkout 保持在当前分支。",
+            "g120000007": "任务",
+            "g120000008": "将任务转化为可立即运行的工作",
+            "g120000009": "连接你使用的提供商，浏览 GitHub、GitLab、Linear 和 Jira 中的工作，然后将 issue 或审查作为关联上下文带入工作区。",
+            "g120000010": "工作区",
+            "g120000011": "让每项任务彼此隔离",
+            "g120000012": "每个 Git 工作区都有各自的 worktree、分支、终端、文件、浏览器状态和智能体会话，因此并行工作互不冲突。",
+            "g120000013": "智能体群组",
+            "g120000014": "一览所有智能体",
+            "g120000015": "运行任意基于终端的智能体。对于受支持的智能体，无需逐个打开终端即可查看哪些会话正在工作、等待、阻塞或已完成。",
+            "g120000016": "工作台",
+            "g120000017": "将实现上下文集中在一起",
+            "g120000018": "在终端拆分、编辑器、文件、端口和嵌入式浏览器之间切换；使用 Design Mode 将选定的 UI 上下文发送给智能体。",
+            "g120000019": "审查与交付",
+            "g120000020": "审查、修订，然后发布",
+            "g120000021": "在本地 diff 上添加批注，并向智能体发送一个聚焦的修订包。连接 Git 提供商后，可检查托管检查项，并准备 commit 以及 pull 或 merge request。",
+            "g120000022": "编排",
+            "g120000023": "协调需要团队完成的工作",
+            "g120000024": "将相互依赖的任务交给协调者，让工作智能体报告进度或阻塞情况，并将结果汇总到一次责任明确的运行中。",
+            "g120000025": "自动化",
+            "g120000026": "让重复性工作可重复执行",
+            "g120000027": "保存 prompt 和目标，然后手动或按计划运行。远程目标必须可访问；每次运行都可使用新的或现有工作区，并保留在历史记录中。",
+            "g120000028": "远程与移动端",
+            "g120000029": "离开本机后也能继续推进工作",
+            "g120000030": "完成一次性配对后，Orca Mobile 可作为配套客户端用于监控和跟进，而桌面端/运行时仍是事实来源。项目可以在那里运行，也可以在单独的 SSH 主机上运行。",
+            "g120000031": "Computer Use",
+            "g120000032": "在安全约束下操作桌面 App",
+            "g120000033": "Computer Use 针对各平台提供原生辅助工具。在 macOS 上，请授予“辅助功能”和“屏幕录制”权限；在所有平台上，请先检查可用能力，再检查可见 App 并调用该 App 提供的操作。对于 Orca 内的网页，请使用 Orca 的浏览器工具。",
+            "g120000034": "测试版",
+            "g120000035": "Mobile 测试版",
+            "g130000001": "浏览器与 Design Mode",
+            "g130000002": "将渲染后的 UI 转化为精确的智能体上下文",
+            "g130000003": "在工作区中打开真实的 Chromium 页面，在 Design Mode 中选择元素，并将其 DOM、计算样式以及（如可用）源代码提示和裁剪截图发送给智能体。仅在你选择复用已认证会话时，才将 Cookie 导入所选浏览器配置。检查上下文，热重载结果并验证更改后的状态。",
+            "g130000004": "CLI 与技能",
+            "g130000005": "让智能体操作 Orca 自身",
+            "g130000006": "Orca CLI 以及版本匹配的内置、个人、仓库和插件技能，让智能体能够操作工作区、终端、文件、浏览器和自动化。技能发现跟随实际运行工作的主机——本机、SSH 或已配对的运行时。",
+            "g130000007": "Orca 默认打开工作区终端；尚无项目时，则打开本地临时终端。运行任意 CLI 智能体，拆分标签页或窗格，并先审查再启动快速命令。orca.yaml 中的项目命令在你批准当前共享内容前不会执行；内容变更后需要重新审查。GPU/CPU 渲染、感知焦点的 QoS、预测回显、完整终端回滚搜索、内联图像、终端特效和捆绑构建工具可支持高负载的智能体工作。App 重启后，热会话会重新连接；主机重启后，Orca 会恢复布局和终端回滚内容，而不会恢复已退出的进程。",
+            "g130000008": "竞速不同方案",
+            "g130000009": "规划、分散并保留胜出方案",
+            "g130000010": "从同一基础创建多个隔离的工作区，为智能体分配相同任务，比较它们的 diff 和检查，保留最佳结果，再归档其他方案。",
+            "g130000011": "智能体与关注事项",
+            "g130000012": "立即介入，稍后恢复上下文",
+            "g130000013": "运行受支持或自定义的终端智能体，然后通过状态、可选的智能体动态和通知，找到等待中或已阻塞的工作。搜索智能体会话历史，在可用时检查日志、跳转到对应 worktree；当对话记录包含会话内容且目标工作区和主机兼容时，可恢复会话。手动模式保留智能体权限检查；完全自主模式会要求受支持的智能体绕过这些检查。两者都不会让 worktree 成为机器安全沙箱。",
+            "g130000014": "在代码与上下文之间顺畅切换",
+            "g130000015": "使用快速打开和跳转面板，在工作区标签页、文件、设置、操作、端口和丰富预览之间切换；将上下文拖入智能体提示。默认开启的浮动工作区可用于跨仓库或临时终端、智能体、Markdown 和浏览器标签页。当焦点位于 SSH 或已配对运行时工作区时，其目录和标签页仍保留在本机。完成模型和麦克风设置后，可选的语音听写会将转录文本输入当前聚焦窗格。",
+            "g130000016": "有意识地比较、恢复和发布",
+            "g130000017": "比较候选 diff、批注行、发送修订包，并暂存聚焦的代码块。解决冲突或失败的检查，必要时从检查点恢复，明确确认发布，然后归档已完成的工作区。",
+            "g130000018": "协调具有依赖关系的工作",
+            "g130000019": "对于相互独立的方案，使用简单的工作区竞速。当任务彼此依赖时，向协调器提供工作智能体流程图；工作智能体提出问题时暂停流程图，由人工解决决策关卡，再由协调器转达已批准的决定。随后恢复阻塞项，并将结果汇总为一次责任明确的运行。",
+            "g130000020": "保存 prompt 和目标，添加可选预检，然后在新工作区或现有工作区中手动或按计划运行。检查历史记录、恢复失败的运行，并在所选本机或远程目标可访问时重新运行。",
+            "g130000021": "在本机、通过 SSH、已配对的运行时，或由 orca.yaml 描述的按需环境中运行项目。完成一次性配对后，Orca Mobile 仍作为配套客户端提供通知、监控、快速命令和后续操作；桌面端/运行时负责协调会话，而所选本地主机或 SSH 主机保留执行权限。",
+            "g140000006": "选择项目操作的运行位置——此电脑（本机或 WSL）、SSH 主机或已配对的 Orca 运行时——然后打开现有文件夹、克隆仓库或创建项目。现有 checkout 保持在当前分支。",
+            "g140000001": "使用工作区面板在状态泳道中整理现有工作区。对于 Git 项目，将一项任务从同一基础分散到隔离的 worktree，对比各项 diff 和检查结果，保留胜出方案，再归档其他方案。纯文件夹项目仍共享其原始根目录；面板不会启动或合并这场竞速。",
+            "g140000002": "比较候选 diff、为代码行添加批注并发送修订包。如果检查失败或出现冲突，请回到同一工作区，解决问题并重试，然后重新运行检查。只有在人工重新审查已解决的 diff 和更新后的检查结果后，才暂存聚焦的代码块。分别确认 Git 写入和 PR/MR 发布，然后归档已完成的工作区。",
+            "g140000003": "App 模拟器",
+            "g140000004": "操作 iOS 和 Android 测试设备",
+            "g140000005": "在装有 Xcode 的 Mac 上，打开 Orca 工作区范围的 iOS Simulator 窗格。在 macOS、Linux 或 Windows 上，通过同一 CLI 命名空间连接已启动的 Android 模拟器或实体 ADB 设备，并将画面串流到 Orca 的工作区模拟器窗格；AVD 也可保持自身窗口打开。让智能体加载版本匹配的技能，发现准确设备，检查辅助功能或日志，执行操作并验证；iOS 控制仅限本机 Mac。",
+            "g150000001": "选择项目操作的运行位置——此电脑（本机或 WSL）、SSH 主机或已配对的 Orca 运行时——然后打开现有文件夹、克隆仓库或创建项目。现有 checkout 保持在当前分支。之后创建 Git 工作区时，在你批准共享的 orca.yaml 命令内容后，配置的仓库设置/安装命令便可在其新 worktree 中自动运行；内容变更后需要重新审查。"
+          },
+          "feature-wall-workflow-localization": {
+            "f120000001": "开始",
+            "f120000002": "终端 · 项目",
+            "f120000003": "从本地临时终端开始，或在当前工作区终端中继续；需要时再添加其他代码库和运行时。",
+            "f120000004": "规划",
+            "f120000005": "任务 · 工作区",
+            "f120000006": "将传入工作转换为附带上下文的隔离环境。",
+            "f120000007": "构建",
+            "f120000008": "智能体 · 工作台",
+            "f120000009": "运行你已在使用的智能体，并将实现上下文集中在一处。",
+            "f120000010": "交付",
+            "f120000011": "审查 · 检查 · 发布",
+            "f120000012": "将智能体结果转化为经过审查、可提交给提供商的更改。",
+            "f120000013": "扩展",
+            "f120000014": "编排 · 自动化",
+            "f120000015": "协调相互依赖的工作，并让可重复任务按需或按计划运行。",
+            "f120000016": "随处工作",
+            "f120000017": "SSH · 移动端 · Computer Use",
+            "f120000018": "通过 Orca 运行时连接桌面端及其移动配套客户端，通过 SSH 访问独立项目主机，并在受支持的平台上操作可见桌面 App。",
+            "f130000001": "智能体 · 工作台 · 浏览器",
+            "f130000002": "指导你正在使用的智能体，将实现上下文集中在一起，并就地验证 UI 工作。",
+            "f130000003": "CLI 与技能 · 编排 · 自动化",
+            "f130000004": "让智能体操作 Orca、协调依赖工作，并让可重复任务按需或按计划运行。",
+            "f140000001": "SSH · Mobile · 模拟器 · Computer Use",
+            "f140000002": "触达远程工作，通过 Mobile 监控，在 iOS 或 Android 上测试 App，并在支持的平台上操作可见的桌面软件。"
+          },
+          "feature-wall-terminal-shell": {
+            "h130000001": "持久 Shell 会话已就绪"
+          },
+          "CliSkillsWorkflowVisual": {
+            "j130000001": "智能体控制闭环",
+            "j130000009": "内置",
+            "j130000010": "仓库",
+            "j130000011": "个人",
+            "j130000012": "插件",
+            "j130000014": "发现",
+            "j130000015": "创建",
+            "j130000016": "操作",
+            "j130000017": "验证",
+            "j130000002": "智能体终端 · SSH 构建主机",
+            "j130000003": "Orca 示例状态",
+            "j130000004": "已加载版本匹配的技能",
+            "j130000005": "工作区已出现",
+            "j130000006": "已定位浏览器元素",
+            "j130000007": "结果已验证",
+            "j130000008": "JSON 输出让智能体操作可检查、可编写脚本。",
+            "j130000018": "已解析 CLI · orca-dev（开发示例）",
+            "j130000019": "点击后快照 · 已观察状态",
+            "j140000020": "按钮"
+          },
+          "WorkbenchContextWorkflowVisual": {
+            "i130000008": "终端",
+            "i130000009": "session.ts",
+            "i130000001": "预览",
+            "i130000010": "1 · 查找",
+            "i130000011": "2 · 编辑",
+            "i130000012": "3 · 附加",
+            "i130000013": "4 · 预览",
+            "i130000002": "文件",
+            "i130000003": "已选上下文",
+            "i130000004": "会话恢复",
+            "i130000005": "主机重启后，布局和回滚内容仍可用。",
+            "i130000006": "智能体上下文",
+            "i130000007": "检查恢复行为并更新测试。"
+          },
+          "BrowserDesignPayloadSummary": {
+            "a140000001": "DOM",
+            "a140000005": "已附加",
+            "a140000006": "目标 · 此工作区中的 Claude",
+            "a140000007": "发送前检查——捕获的上下文可能包含可见网站内容。",
+            "a140000008": "敏感上下文边界 · 捕获的上下文可能包含可见网站内容。",
+            "a150000001": "计算样式",
+            "a150000002": "源代码提示 · 可用时",
+            "a150000003": "裁剪后的 PNG · 可用时",
+            "a150000005": "敏感上下文边界 · 捕获的上下文可能包含可见网站内容。浏览器配置或 Cookie 重用需主动选择。",
+            "a150000004": "发送前检查——捕获的上下文可能包含可见网站内容。浏览器配置或 Cookie 重用需主动选择。",
+            "profile": {
+              "label": "浏览器配置",
+              "value": "工作区 QA"
+            },
+            "cookies": {
+              "label": "Cookie 导入",
+              "value": "关闭 · 选择以启用"
+            }
+          },
+          "FeatureWallStepVisual": {
+            "k130000001": "说明性示例",
+            "k150000001": "说明性示例：Orca 打开当前工作区终端；尚无任何项目时，则打开本地临时终端。审查并运行项目快速命令，然后查看 GPU/CPU 渲染、感知焦点的 QoS、预测回显、完整终端回滚搜索、内联图像、特效和捆绑构建工具。热重启后实时会话会重新连接；主机重启后则恢复布局和终端回滚内容。",
+            "k150000002": "说明性示例：选择此电脑或 WSL、SSH 或已配对的运行时，然后打开、克隆或创建代码库，而不更改当前 checkout。",
+            "k150000003": "说明性示例：连接任务提供商，将 issue 作为工作区上下文打开，等待内容读取完毕，再打开就绪的工作区。",
+            "k150000004": "说明性示例：移动现有工作区卡片并查看泳道计数更新，将一项 Git 任务分散到隔离的 worktree，比较检查和 diff，明确选择胜出方案，再归档其他方案。",
+            "k150000005": "说明性示例：监控需要关注的智能体，回复并恢复会话、切换账户，再搜索智能体会话历史；仅当存在对话内容且目标兼容时恢复，或跳转到所属 worktree、检查可用的本地日志。",
+            "k150000006": "说明性示例：使用快速打开和跳转面板，进行编辑并自动保存、附加上下文、预览丰富文件，并在完成模型和麦克风设置后听写到当前聚焦窗格。默认开启的本地浮动工作区可容纳跨仓库智能体、临时终端、笔记和浏览器标签页，同时让远程工作仍保留在远程。",
+            "k150000007": "说明性示例：选择渲染后的 UI，检查 DOM、计算样式、可选的源代码提示与裁剪截图、目标和敏感上下文，将其发送给工作区智能体，再验证更新后的页面。",
+            "k150000008": "说明性示例：比较候选方案，为修订添加行批注并发送修订包。在同一工作区解决失败的检查或冲突、重试并重新运行检查。人工重新审查已解决的 diff 和更新后的检查结果后，暂存已审查的代码块；分别确认 Git 写入和审查请求写入，然后归档。",
+            "k150000009": "说明性示例：在 SSH 主机上发现版本匹配的技能，通过 orca 中继创建 worktree，检查快照、对元素引用执行操作，再用新快照验证。",
+            "k150000010": "说明性示例：协调依赖任务；工作智能体提出问题时暂停流程图，由人工解决决策关卡，再让协调器转达已批准的决定。随后从失败的契约检查中恢复，并接受责任明确的结果。",
+            "k150000011": "说明性示例：保存带预检的计划或手动工作，保留失败历史记录，在重新运行时恢复，并检查完成的结果。",
+            "k150000012": "说明性示例：让 SSH 执行仍由远程主机负责，重连后恢复转发端口，预配 orca.yaml 环境，并通过 Mobile 监控或回复。",
+            "k150000013": "说明性示例：选择准确的 iOS 或 Android 设备，检查辅助功能和日志，以 emulator-5554 重试来恢复缺失或过期的目标，轻点“Email”、输入 agent@example.com，再验证更新后的个人资料状态。",
+            "k150000014": "说明性示例：检查平台能力和权限，将工作限制在可见 App 内，检查终端的辅助功能，调用已声明的“重新连接”操作，并查看可见结果“智能体已连接”。",
+            "k150000015": "说明性示例：选择此电脑或 WSL、SSH 或已配对的运行时，并在不更改分支的情况下打开现有文件夹。添加项目后，明确创建 Git 工作区；Orca 会创建隔离的 worktree，在其中运行已批准的共享 orca.yaml 设置命令，并保持工作区终端和已完成的设置输出可见。"
+          },
+          "MobileEmulatorsWorkflowVisual": {
+            "m140000001": "工作区 App 测试循环",
+            "m140000002": "已选择准确设备",
+            "m140000003": "iOS Simulator",
+            "m140000004": "本机 Mac · 需要 Xcode",
+            "m140000005": "Orca 实时模拟器窗格",
+            "m140000006": "附加工作区设备",
+            "m140000007": "检查辅助功能",
+            "m140000008": "轻点、输入、手势",
+            "m140000009": "Android 模拟器/设备",
+            "m140000010": "macOS · Linux · Windows",
+            "m140000011": "可见的 Android 模拟器窗口",
+            "m140000012": "发现已启动的 ADB 设备",
+            "m140000013": "安装、启动、检查日志",
+            "m140000014": "轻点、输入、验证",
+            "m140000015": "没有活动目标或目标已过期",
+            "m140000016": "列出、附加或启动",
+            "m140000017": "使用明确的设备 ID 重试",
+            "m140000018": "iOS 控制保留在运行 Simulator 的 Mac 上。模拟器操作可能更改运行中的 App 及其测试数据，因此请先检查目标再执行操作。",
+            "m150000001": "Orca 实时模拟器窗格",
+            "m150000002": "串流、安装、启动、检查日志",
+            "m150000003": "设备已连接",
+            "m150000004": "轻点“Email” · 输入 agent@example.com",
+            "m150000005": "已验证 App 状态",
+            "m150000006": "个人资料邮箱 · agent@example.com"
+          },
+          "RemoteMobileWorkflowVisual": {
+            "b140000001": "完整客户端",
+            "b140000002": "Orca 桌面版",
+            "b140000003": "选择并指导工作",
+            "b140000004": "运行时",
+            "b140000005": "Orca 运行时",
+            "b140000006": "桌面端是事实来源",
+            "b140000007": "配套客户端",
+            "b140000008": "Orca Mobile",
+            "b140000009": "监控并回复",
+            "b140000010": "测试版",
+            "b140000011": "可操作的 SSH 路径",
+            "b140000012": "可选下游",
+            "b140000013": "SSH 项目主机",
+            "b140000026": "终端",
+            "b140000027": "Git",
+            "b140000028": "文件",
+            "b140000014": "已转发端口 :3000",
+            "b140000015": "在 Orca 浏览器中预览",
+            "b140000016": "SSH 断开连接",
+            "b140000017": "重新连接 + 恢复",
+            "b140000018": "保留 SSH 执行主体",
+            "b140000019": "工作区仍分配给远程主机；重连后会恢复已保存的端口转发，绝不会改为本机执行。",
+            "b140000020": "按需",
+            "b140000021": "工作区环境",
+            "b140000022": "由 orca.yaml 预配",
+            "b140000023": "Mobile 配套客户端",
+            "b140000024": "通知 + 后续操作",
+            "b140000025": "监控 · 回复 · 快速命令",
+            "b140000029": "执行 + 会话管理主体"
           }
         },
         "tips": {
@@ -13826,6 +14383,213 @@
           "b3d7e0f1a8": "合并请求",
           "a2c6d9e0f7": "合并请求",
           "91b5c8d7e6": "GitLab"
+        }
+      }
+    },
+    "fw": {
+      "agentAttention": {
+        "f130000001": "智能体群组",
+        "f130000002": "受支持和自定义的终端智能体",
+        "f130000003": "已重新连接 · 已恢复 3 个会话",
+        "f130000004": "活动会话",
+        "f130000005": "3 个智能体",
+        "f130000006": "Claude",
+        "f130000007": "受支持",
+        "f130000044": "工作中",
+        "f130000008": "正在改进重连流程",
+        "f130000009": "Codex",
+        "f130000024": "需要关注",
+        "f130000010": "运行聚焦测试需要批准",
+        "f130000011": "正在运行已批准的测试套件",
+        "f130000012": "正在追踪会话状态",
+        "f130000013": "发布 QA",
+        "f130000014": "自定义 CLI",
+        "f130000045": "已完成",
+        "f130000015": "已检查 Windows 和 SSH 行为",
+        "f130000016": "会话回复",
+        "f130000017": "已恢复对话记录 + 回滚内容",
+        "f130000018": "你",
+        "f130000019": "运行聚焦测试套件。",
+        "f130000020": "正在等待智能体请求…",
+        "f130000021": "在同一终端会话中继续。",
+        "f130000022": "收件箱",
+        "f130000023": "需要关注 · 已解决",
+        "f130000025": "正在监控所有会话",
+        "f130000026": "已从收件箱打开 · 回复已发送给 Codex",
+        "f130000027": "直接跳转到等待中或已阻塞的工作。",
+        "f130000028": "在收件箱中打开",
+        "f130000029": "用量与账户",
+        "f130000030": "示例状态",
+        "f130000031": "Codex 账户",
+        "f130000032": "团队",
+        "f130000033": "个人",
+        "f130000034": "已使用 {{value0}}% · 5 小时后重置",
+        "f130000035": "Claude 每周",
+        "f130000036": "已使用 41%",
+        "f130000037": "从个人账户切换时已使用 94%",
+        "f130000046": "切换到团队 · 已使用 18%",
+        "f130000038": "自主模式边界",
+        "f130000039": "worktree 隔离文件，不隔离机器。完全自主模式使用你的主机访问权限。",
+        "f130000040": "手动",
+        "f130000041": "敏感操作前询问",
+        "f130000042": "完全自主",
+        "f130000043": "更少的批准提示",
+        "vault": {
+          "title": "智能体会话历史",
+          "optional": "可选 · 实验性",
+          "search": "工作区范围 · 重连",
+          "result": "Codex · 重连流程",
+          "jump": "跳转到所属 worktree",
+          "resume": "恢复 · 对话内容 + 兼容目标",
+          "log": "查看日志 · 本地路径可用"
+        }
+      },
+      "automation": {
+        "phase": {
+          "precheck": "预检",
+          "failed": "恢复",
+          "rerun": "重新运行",
+          "completed": "检查"
+        }
+      },
+      "workbenchContext": {
+        "file": {
+          "src": "src",
+          "terminal": "terminal",
+          "session": "session.ts",
+          "readme": "README.md",
+          "image": "flow.png",
+          "csv": "results.csv"
+        },
+        "code": {
+          "function": "export async function restoreSession(id: string) {",
+          "reconnect": "  const session = await reconnect(id)",
+          "verify": "  return verifyScrollback(session)",
+          "verifyRestored": "  return verifyRestoredScrollback(session)"
+        },
+        "selection": "session.ts:20",
+        "preview": {
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "image": "图像",
+          "csv": "CSV"
+        },
+        "attachment": "session.ts:20",
+        "search": {
+          "query": "session",
+          "session": "session.ts",
+          "path": "src/terminal",
+          "test": "session.test.ts"
+        },
+        "floating": {
+          "agent": "跨仓库智能体",
+          "terminal": "临时终端",
+          "note": "Markdown 笔记",
+          "browser": "浏览器标签页",
+          "title": "浮动工作区",
+          "default": "默认开启",
+          "boundary": "所选本地目录 · 聚焦 SSH/运行时工作区时仍保留在本机"
+        },
+        "voice": {
+          "title": "可选语音听写",
+          "model": "模型 + 麦克风已就绪",
+          "target": "转录文本 → 当前聚焦窗格"
+        },
+        "edit": {
+          "saved": "已保存"
+        },
+        "jump": {
+          "title": "跳转面板",
+          "action": "端口 → 打开 :3000"
+        }
+      },
+      "terminalFirst": {
+        "quickCommands": {
+          "title": "快速命令 · 信任边界",
+          "project": "项目 orca.yaml · 审查前不执行；变更后需重新审查",
+          "user": "用户自有命令 · 正常运行",
+          "review": "审查项目命令 · 检查",
+          "trusted": "已信任此内容",
+          "run": "运行检查"
+        },
+        "capabilities": {
+          "output": {
+            "action": "智能体大量输出",
+            "result": "聚焦时 GPU/WebGL · CPU 回退 · 后台 QoS"
+          },
+          "input": {
+            "action": "远程输入",
+            "result": "预测回显已确认 · 特效可用"
+          },
+          "search": {
+            "action": "搜索“failed”",
+            "result": "完整终端回滚内容中有 12 项匹配"
+          },
+          "media": {
+            "action": "智能体构建 + 工件",
+            "result": "内联图像 · 捆绑的编译器 + 求解器"
+          }
+        }
+      },
+      "workspaces": {
+        "board": {
+          "todo": "待办",
+          "progress": "进行中",
+          "review": "审查中",
+          "done": "已完成",
+          "title": "工作区面板",
+          "boundary": "现有工作区 · 状态由用户分配"
+        },
+        "winnerRationale": "人工选择 · 所有检查均通过；聚焦范围内的 diff 最小",
+        "winnerEvidence": "Codex · 18/18 · +42 −8"
+      },
+      "addProject": {
+        "story": "说明性流程 · 操作 → 进度 → 结果",
+        "stage": {
+          "action": "操作",
+          "progress": "进度"
+        },
+        "hostStep": "1 · 执行主机",
+        "selected": "已选择",
+        "codebaseStep": "2 · 代码库路径",
+        "confirm": "用户确认 · 添加此项目",
+        "project": {
+          "branch": "现有 checkout · 分支保持不变",
+          "added": "项目已添加"
+        },
+        "workspace": {
+          "detail": "session-recovery",
+          "action": "用户操作 · 创建工作区"
+        },
+        "worktree": {
+          "detail": "隔离的 worktree · 分支 feature/session-recovery",
+          "title": "新建 Git worktree"
+        },
+        "setup": {
+          "command": "orca.yaml scripts.setup · pnpm install",
+          "title": "运行已批准的共享设置"
+        },
+        "result": {
+          "ready": "工作区已就绪",
+          "detail": "终端已打开 · 仓库设置完成"
+        },
+        "boundary": "说明性示例 · 共享 orca.yaml 设置只有在仓库命令内容获批后，才会在新的 Git worktree 中自动运行；内容变更后需要重新审查。命令和耗时因仓库及主机而异。"
+      },
+      "walkthrough": {
+        "moreBelow": "下方还有内容",
+        "collapseDescription": "折叠说明",
+        "expandDescription": "显示完整说明"
+      },
+      "cliSkills": {
+        "commandName": "orca"
+      },
+      "mobileEmulators": {
+        "deviceId": "emulator-5554"
+      },
+      "tasks": {
+        "provider": {
+          "github": "GitHub",
+          "repository": "stablyai/orca"
         }
       }
     }

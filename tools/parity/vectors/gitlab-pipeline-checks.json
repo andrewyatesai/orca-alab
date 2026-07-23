@@ -51,7 +51,7 @@
         {
           "name": "deploy: deploy",
           "status": "completed",
-          "conclusion": "neutral",
+          "conclusion": "action_required",
           "url": null,
           "checkRunId": 2
         },
@@ -121,25 +121,46 @@
     {
       "function": "mapGitLabPipelineJobStatusToConclusion",
       "note": "case-insensitive success maps to success",
-      "input": "Success",
+      "input": {
+        "status": "Success",
+        "allowFailure": false
+      },
       "expected": "success"
     },
     {
       "function": "mapGitLabPipelineJobStatusToConclusion",
       "note": "canceling maps to cancelled",
-      "input": "canceling",
+      "input": {
+        "status": "canceling",
+        "allowFailure": false
+      },
       "expected": "cancelled"
     },
     {
       "function": "mapGitLabPipelineJobStatusToConclusion",
-      "note": "manual maps to neutral so the Checks tab does not look stuck",
-      "input": "manual",
+      "note": "a blocking manual gate maps to action_required",
+      "input": {
+        "status": "manual",
+        "allowFailure": false
+      },
+      "expected": "action_required"
+    },
+    {
+      "function": "mapGitLabPipelineJobStatusToConclusion",
+      "note": "an optional manual job maps to neutral",
+      "input": {
+        "status": "manual",
+        "allowFailure": true
+      },
       "expected": "neutral"
     },
     {
       "function": "mapGitLabPipelineJobStatusToConclusion",
       "note": "unknown status returns null (top-level null, not omitted)",
-      "input": "bogus",
+      "input": {
+        "status": "bogus",
+        "allowFailure": false
+      },
       "expected": null
     }
   ]

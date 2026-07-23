@@ -8,6 +8,7 @@ import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { FeatureWallClickRing } from './FeatureWallClickRing'
 import { CodexInlineIcon } from './feature-tour-preview-glyphs'
 import { translate } from '@/i18n/i18n'
+import { getFeatureWallTerminalShell } from './feature-wall-terminal-shell'
 
 // Why: the right-click menu needs the same icons as the real Orca menu so the
 // visual reads as the actual product, not a generic terminal mockup.
@@ -67,10 +68,42 @@ function CursorIcon(): JSX.Element {
 }
 
 const RUN_QUEUE: readonly { name: string; desc: string }[] = [
-  { name: 'dashboard.spec.ts', desc: '› renders metrics' },
-  { name: 'profile.spec.ts', desc: '› updates avatar' },
-  { name: 'invoices.spec.ts', desc: '› exports CSV' },
-  { name: 'settings.spec.ts', desc: '› toggles dark mode' }
+  {
+    name: 'dashboard.spec.ts',
+    get desc() {
+      return translate(
+        'auto.components.feature.wall.WorkbenchAnimatedVisual.h130000001',
+        '› renders metrics'
+      )
+    }
+  },
+  {
+    name: 'profile.spec.ts',
+    get desc() {
+      return translate(
+        'auto.components.feature.wall.WorkbenchAnimatedVisual.h130000002',
+        '› updates avatar'
+      )
+    }
+  },
+  {
+    name: 'invoices.spec.ts',
+    get desc() {
+      return translate(
+        'auto.components.feature.wall.WorkbenchAnimatedVisual.h130000003',
+        '› exports CSV'
+      )
+    }
+  },
+  {
+    name: 'settings.spec.ts',
+    get desc() {
+      return translate(
+        'auto.components.feature.wall.WorkbenchAnimatedVisual.h130000004',
+        '› toggles dark mode'
+      )
+    }
+  }
 ]
 
 type Phase =
@@ -130,20 +163,70 @@ const CHECKLIST_FINAL_HOLD_MS = 3800
 const RUN_TICK_MS = 2400
 
 const CLAUDE_CMD = 'claude'
-const REVIEW_PROMPT = 'review src/auth for missing error handling'
 const CODEX_CMD = 'codex'
-const CODEX_PROMPT = 'fix failing checkout test'
 const RESPONSE_WIDTHS = [72, 88, 64, 78] as const
+
+function getReviewPrompt(): string {
+  return translate(
+    'auto.components.feature.wall.WorkbenchAnimatedVisual.h130000005',
+    'review src/auth for missing error handling'
+  )
+}
+
+function getCodexPrompt(): string {
+  return translate(
+    'auto.components.feature.wall.WorkbenchAnimatedVisual.h130000006',
+    'fix failing checkout test'
+  )
+}
+
+function getAgentActionLabel(action: 'read' | 'grep' | 'edit'): string {
+  switch (action) {
+    case 'read':
+      return translate('auto.components.feature.wall.WorkbenchAnimatedVisual.9923847785', 'Read')
+    case 'grep':
+      return translate('auto.components.feature.wall.WorkbenchAnimatedVisual.17cfdc3344', 'Grep')
+    case 'edit':
+      return translate('auto.components.feature.wall.WorkbenchAnimatedVisual.99f5224f1e', 'Edit')
+  }
+}
+
+function getTourReducedMotionLines(): readonly RightLine[] {
+  return [
+    { kind: 'submitted-command', text: CLAUDE_CMD },
+    { kind: 'session-started' },
+    { kind: 'submitted-prompt', text: getReviewPrompt() },
+    { kind: 'response-skeleton', widthPct: RESPONSE_WIDTHS[0], withGlyph: true },
+    { kind: 'response-skeleton', widthPct: RESPONSE_WIDTHS[1], withGlyph: false },
+    { kind: 'response-skeleton', widthPct: RESPONSE_WIDTHS[2], withGlyph: false }
+  ]
+}
 
 function getTwoAgentsReducedMotionLines(): readonly RightLine[] {
   return [
     { kind: 'submitted-command', text: CODEX_CMD },
     { kind: 'session-started' },
-    { kind: 'submitted-prompt', text: CODEX_PROMPT },
-    { kind: 'agent-action', action: 'Read', target: 'checkout.test.ts' },
-    { kind: 'agent-action', action: 'Grep', target: 'timeout checkout' },
-    { kind: 'agent-action', action: 'Edit', target: 'src/checkout.ts', working: true }
+    { kind: 'submitted-prompt', text: getCodexPrompt() },
+    { kind: 'agent-action', action: getAgentActionLabel('read'), target: 'checkout.test.ts' },
+    {
+      kind: 'agent-action',
+      action: getAgentActionLabel('grep'),
+      target: translate(
+        'auto.components.feature.wall.WorkbenchAnimatedVisual.h130000007',
+        'timeout checkout'
+      )
+    },
+    {
+      kind: 'agent-action',
+      action: getAgentActionLabel('edit'),
+      target: 'src/checkout.ts',
+      working: true
+    }
   ]
+}
+
+function getReducedMotionLines(isTwoAgentsChecklist: boolean): readonly RightLine[] {
+  return isTwoAgentsChecklist ? getTwoAgentsReducedMotionLines() : getTourReducedMotionLines()
 }
 
 type WorkbenchAnimatedVisualVariant = 'tour' | 'two-agents-checklist'
@@ -154,6 +237,7 @@ export function WorkbenchAnimatedVisual(props: {
 }): JSX.Element {
   const { reducedMotion, variant = 'tour' } = props
   const isTwoAgentsChecklist = variant === 'two-agents-checklist'
+  const shellPrompt = getFeatureWallTerminalShell().prompt
   const splitRightShortcutLabel = useShortcutLabel('terminal.splitRight')
   const splitDownShortcutLabel = useShortcutLabel('terminal.splitDown')
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -161,17 +245,17 @@ export function WorkbenchAnimatedVisual(props: {
   const splitRowRef = useRef<HTMLDivElement | null>(null)
 
   const [phase, setPhase] = useState<Phase>(() =>
-    reducedMotion && isTwoAgentsChecklist ? { kind: 'split-active' } : { kind: 'idle' }
+    reducedMotion ? { kind: 'split-active' } : { kind: 'idle' }
   )
   const [runIdx, setRunIdx] = useState(0)
   const [cursorTarget, setCursorTarget] = useState<CursorTarget>({ kind: 'hidden' })
   const [rightTyped, setRightTyped] = useState('')
   const [rightLines, setRightLines] = useState<readonly RightLine[]>(() =>
-    reducedMotion && isTwoAgentsChecklist ? getTwoAgentsReducedMotionLines() : []
+    reducedMotion ? getReducedMotionLines(isTwoAgentsChecklist) : []
   )
-  const [showInputLine, setShowInputLine] = useState(!(reducedMotion && isTwoAgentsChecklist))
-  const [promptGlyph, setPromptGlyph] = useState<'$' | '>'>('$')
-  const [showCaret, setShowCaret] = useState(true)
+  const [showInputLine, setShowInputLine] = useState(!reducedMotion)
+  const [promptGlyph, setPromptGlyph] = useState<'>' | '›'>(shellPrompt)
+  const [showCaret, setShowCaret] = useState(!reducedMotion)
   const [rippleKey, setRippleKey] = useState(0)
 
   // Cycle the running test on the left, independent of the loop, so the
@@ -190,13 +274,13 @@ export function WorkbenchAnimatedVisual(props: {
   // can short-circuit the entire effect cleanly.
   useEffect(() => {
     if (reducedMotion) {
-      setPhase(isTwoAgentsChecklist ? { kind: 'split-active' } : { kind: 'idle' })
+      setPhase({ kind: 'split-active' })
       setCursorTarget({ kind: 'hidden' })
       setRightTyped('')
-      setRightLines(isTwoAgentsChecklist ? getTwoAgentsReducedMotionLines() : [])
-      setShowInputLine(!isTwoAgentsChecklist)
-      setPromptGlyph('$')
-      setShowCaret(!isTwoAgentsChecklist)
+      setRightLines(getReducedMotionLines(isTwoAgentsChecklist))
+      setShowInputLine(false)
+      setPromptGlyph(shellPrompt)
+      setShowCaret(false)
       return
     }
     let cancelled = false
@@ -215,7 +299,7 @@ export function WorkbenchAnimatedVisual(props: {
         setRightTyped('')
         setRightLines([])
         setShowInputLine(true)
-        setPromptGlyph('$')
+        setPromptGlyph(shellPrompt)
         setShowCaret(true)
         await wait(PRE_HOVER_MS)
         if (cancelled) {
@@ -297,7 +381,7 @@ export function WorkbenchAnimatedVisual(props: {
           return
         }
         setShowInputLine(true)
-        setPromptGlyph('>')
+        setPromptGlyph('›')
         setRightTyped('')
         await wait(PRE_PROMPT_TYPE_MS)
         if (cancelled) {
@@ -305,7 +389,7 @@ export function WorkbenchAnimatedVisual(props: {
         }
 
         // 8. Type the task prompt.
-        const taskPrompt = isTwoAgentsChecklist ? CODEX_PROMPT : REVIEW_PROMPT
+        const taskPrompt = isTwoAgentsChecklist ? getCodexPrompt() : getReviewPrompt()
         for (let i = 1; i <= taskPrompt.length; i += 1) {
           if (cancelled) {
             return
@@ -339,7 +423,11 @@ export function WorkbenchAnimatedVisual(props: {
             const withoutThinking = lines.filter((l) => l.kind !== 'thinking')
             return [
               ...withoutThinking,
-              { kind: 'agent-action', action: 'Read', target: 'checkout.test.ts' }
+              {
+                kind: 'agent-action',
+                action: getAgentActionLabel('read'),
+                target: 'checkout.test.ts'
+              }
             ]
           })
           await wait(RESPONSE_GAP_MS)
@@ -348,7 +436,14 @@ export function WorkbenchAnimatedVisual(props: {
           }
           setRightLines((lines) => [
             ...lines,
-            { kind: 'agent-action', action: 'Grep', target: 'timeout checkout' }
+            {
+              kind: 'agent-action',
+              action: getAgentActionLabel('grep'),
+              target: translate(
+                'auto.components.feature.wall.WorkbenchAnimatedVisual.h130000007',
+                'timeout checkout'
+              )
+            }
           ])
           await wait(RESPONSE_GAP_LATER_MS)
           if (cancelled) {
@@ -356,7 +451,12 @@ export function WorkbenchAnimatedVisual(props: {
           }
           setRightLines((lines) => [
             ...lines,
-            { kind: 'agent-action', action: 'Edit', target: 'src/checkout.ts', working: true }
+            {
+              kind: 'agent-action',
+              action: getAgentActionLabel('edit'),
+              target: 'src/checkout.ts',
+              working: true
+            }
           ])
           await wait(CHECKLIST_FINAL_HOLD_MS)
           if (cancelled) {
@@ -409,7 +509,7 @@ export function WorkbenchAnimatedVisual(props: {
       cancelled = true
       timeouts.forEach((id) => window.clearTimeout(id))
     }
-  }, [isTwoAgentsChecklist, reducedMotion])
+  }, [isTwoAgentsChecklist, reducedMotion, shellPrompt])
 
   const cursor = useFakeCursor(panelRef, leftPaneRef, splitRowRef, cursorTarget, reducedMotion)
 
@@ -429,9 +529,10 @@ export function WorkbenchAnimatedVisual(props: {
     >
       {/* Faux titlebar — three traffic lights, nothing else. */}
       <div className="flex h-7 items-center gap-1.5 border-b border-border bg-muted/40 px-3">
-        <span className="size-2.5 rounded-full bg-rose-400/70" />
-        <span className="size-2.5 rounded-full bg-amber-400/70" />
-        <span className="size-2.5 rounded-full bg-emerald-400/70" />
+        {/* Why: neutral window chrome reads correctly on macOS, Windows, and Linux. */}
+        <span className="size-2.5 rounded-full border border-border bg-background" />
+        <span className="size-2.5 rounded-full border border-border bg-background" />
+        <span className="size-2.5 rounded-full border border-border bg-background" />
       </div>
 
       {/* Why: onboarding previews can flip theme without remounting this visual;
@@ -449,9 +550,13 @@ export function WorkbenchAnimatedVisual(props: {
         {/* Left pane: source work that remains visible after the split. */}
         <div ref={leftPaneRef} className="relative flex min-w-0 flex-col gap-1.5 px-3 py-2.5">
           {isTwoAgentsChecklist ? (
-            <ClaudeChecklistPane reducedMotion={reducedMotion} />
+            <ClaudeChecklistPane reducedMotion={reducedMotion} shellPrompt={shellPrompt} />
           ) : (
-            <PlaywrightPane running={running} reducedMotion={reducedMotion} />
+            <PlaywrightPane
+              running={running}
+              reducedMotion={reducedMotion}
+              shellPrompt={shellPrompt}
+            />
           )}
 
           {/* Right-click context menu — theme card, skeleton bars for the
@@ -478,10 +583,11 @@ export function WorkbenchAnimatedVisual(props: {
             lines={rightLines}
             isCodex={isTwoAgentsChecklist}
             promptAccentClass={promptAccentClass}
+            shellPrompt={shellPrompt}
           />
           {showInputLine ? (
             <TermLine wrap>
-              <Prompt claude={promptGlyph === '>'}>{promptGlyph}</Prompt>
+              <Prompt claude={promptGlyph === '›'}>{promptGlyph}</Prompt>
               <span className="text-foreground">{rightTyped}</span>
               {showCaret ? (
                 <span className="ml-px inline-block h-[11px] w-[5px] -translate-y-px animate-pulse bg-foreground align-[-1px]" />
@@ -534,11 +640,12 @@ export function WorkbenchAnimatedVisual(props: {
 function PlaywrightPane(props: {
   running: (typeof RUN_QUEUE)[number]
   reducedMotion: boolean
+  shellPrompt: '>'
 }): JSX.Element {
   return (
     <>
       <TermLine>
-        <Prompt>$</Prompt>
+        <Prompt>{props.shellPrompt}</Prompt>
         <span className="text-foreground">
           {translate(
             'auto.components.feature.wall.WorkbenchAnimatedVisual.4371cc9931',
@@ -598,11 +705,11 @@ function PlaywrightPane(props: {
   )
 }
 
-function ClaudeChecklistPane(props: { reducedMotion: boolean }): JSX.Element {
+function ClaudeChecklistPane(props: { reducedMotion: boolean; shellPrompt: '>' }): JSX.Element {
   return (
     <>
       <TermLine>
-        <Prompt>$</Prompt>
+        <Prompt>{props.shellPrompt}</Prompt>
         <span className="text-foreground">
           {translate('auto.components.feature.wall.WorkbenchAnimatedVisual.000106adfe', 'claude')}
         </span>
@@ -617,9 +724,7 @@ function ClaudeChecklistPane(props: { reducedMotion: boolean }): JSX.Element {
         )}
       </TermLine>
       <TermLine wrap>
-        <span className="mr-1.5 text-amber-600">
-          {translate('auto.components.feature.wall.WorkbenchAnimatedVisual.932c4b3a97', '>')}
-        </span>
+        <span className="mr-1.5 text-amber-600">›</span>
         {translate(
           'auto.components.feature.wall.WorkbenchAnimatedVisual.c0eb94125e',
           'review auth edge cases'
@@ -627,9 +732,7 @@ function ClaudeChecklistPane(props: { reducedMotion: boolean }): JSX.Element {
       </TermLine>
       <TermLine>
         <span className="mr-1.5 font-bold text-emerald-600">✓</span>
-        <span className="text-foreground">
-          {translate('auto.components.feature.wall.WorkbenchAnimatedVisual.9923847785', 'Read')}
-        </span>
+        <span className="text-foreground">{getAgentActionLabel('read')}</span>
         <span className="ml-1.5 truncate text-muted-foreground">
           {translate(
             'auto.components.feature.wall.WorkbenchAnimatedVisual.b85eab49dd',
@@ -639,9 +742,7 @@ function ClaudeChecklistPane(props: { reducedMotion: boolean }): JSX.Element {
       </TermLine>
       <TermLine>
         <span className="mr-1.5 font-bold text-emerald-600">✓</span>
-        <span className="text-foreground">
-          {translate('auto.components.feature.wall.WorkbenchAnimatedVisual.17cfdc3344', 'Grep')}
-        </span>
+        <span className="text-foreground">{getAgentActionLabel('grep')}</span>
         <span className="ml-1.5 truncate text-muted-foreground">
           {translate(
             'auto.components.feature.wall.WorkbenchAnimatedVisual.0d93c298a7',
@@ -651,9 +752,7 @@ function ClaudeChecklistPane(props: { reducedMotion: boolean }): JSX.Element {
       </TermLine>
       <TermLine>
         <RunSpinner reducedMotion={props.reducedMotion} />
-        <span className="text-foreground">
-          {translate('auto.components.feature.wall.WorkbenchAnimatedVisual.99f5224f1e', 'Edit')}
-        </span>
+        <span className="text-foreground">{getAgentActionLabel('edit')}</span>
         <span className="ml-1.5 truncate text-muted-foreground">
           {translate(
             'auto.components.feature.wall.WorkbenchAnimatedVisual.b85eab49dd',
@@ -798,6 +897,7 @@ function RightPaneScrollback(props: {
   lines: readonly RightLine[]
   isCodex?: boolean
   promptAccentClass?: string
+  shellPrompt: '>'
 }): JSX.Element {
   return (
     <>
@@ -806,7 +906,7 @@ function RightPaneScrollback(props: {
         if (line.kind === 'submitted-command') {
           return (
             <TermLine key={i}>
-              <Prompt>$</Prompt>
+              <Prompt>{props.shellPrompt}</Prompt>
               <span className="text-foreground">{line.text}</span>
             </TermLine>
           )
@@ -836,9 +936,7 @@ function RightPaneScrollback(props: {
         if (line.kind === 'submitted-prompt') {
           return (
             <TermLine key={i} wrap>
-              <span className={cn('mr-1.5', props.promptAccentClass ?? 'text-amber-600')}>
-                {translate('auto.components.feature.wall.WorkbenchAnimatedVisual.932c4b3a97', '>')}
-              </span>
+              <span className={cn('mr-1.5', props.promptAccentClass ?? 'text-amber-600')}>›</span>
               {line.text}
             </TermLine>
           )

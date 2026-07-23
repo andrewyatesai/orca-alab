@@ -739,79 +739,24 @@ describe('createUISlice hydratePersistedUI', () => {
     expect(createUIStore().getState().activeView).toBe('terminal')
   })
 
-  it('restores the persisted active top-level view on hydration', () => {
-    const store = createUIStore()
-
-    store.getState().hydratePersistedUI(makePersistedUI({ activeView: 'tasks' }), 'startup')
-
-    expect(store.getState().activeView).toBe('tasks')
-  })
-
-  it('falls back to terminal when persisted active view is missing (older data)', () => {
-    const store = createUIStore()
-    store.setState({ activeView: 'tasks' })
-
-    store.getState().hydratePersistedUI(
-      {
-        ...makePersistedUI(),
-        activeView: undefined as unknown as PersistedUIState['activeView']
-      },
-      'startup'
-    )
-
-    expect(store.getState().activeView).toBe('terminal')
-  })
-
-  it('falls back to terminal when the persisted active view is not a known view', () => {
+  it('opens terminal on startup while preserving the persisted Tasks project mode', () => {
     const store = createUIStore()
 
     store.getState().hydratePersistedUI(
       makePersistedUI({
-        activeView: 'not-a-real-view' as unknown as PersistedUIState['activeView']
+        activeView: 'tasks',
+        taskResumeState: { githubMode: 'project' }
       }),
       'startup'
     )
 
     expect(store.getState().activeView).toBe('terminal')
-  })
-
-  it('drops a persisted activity view when experimental activity is disabled', () => {
-    const store = createUIStore()
-    store.setState({
-      settings: { experimentalActivity: false } as AppState['settings']
-    })
-
-    store.getState().hydratePersistedUI(makePersistedUI({ activeView: 'activity' }), 'startup')
-
-    expect(store.getState().activeView).toBe('terminal')
-  })
-
-  it('restores a persisted activity view when experimental activity is enabled', () => {
-    const store = createUIStore()
-    store.setState({
-      settings: { experimentalActivity: true } as AppState['settings']
-    })
-
-    store.getState().hydratePersistedUI(makePersistedUI({ activeView: 'activity' }), 'startup')
-
-    expect(store.getState().activeView).toBe('activity')
-  })
-
-  it('restores a default-on view (mobile) even when its nav button is hidden', () => {
-    const store = createUIStore()
-    store.setState({
-      settings: { showMobileButton: false } as AppState['settings']
-    })
-
-    store.getState().hydratePersistedUI(makePersistedUI({ activeView: 'mobile' }), 'startup')
-
-    expect(store.getState().activeView).toBe('mobile')
+    expect(store.getState().taskResumeState).toEqual({ githubMode: 'project' })
   })
 
   it('does not overwrite the current view on a later cross-window sync hydration', () => {
     const store = createUIStore()
-    store.getState().hydratePersistedUI(makePersistedUI({ activeView: 'tasks' }), 'startup')
-    expect(store.getState().activeView).toBe('tasks')
+    store.setState({ activeView: 'tasks' })
 
     store
       .getState()

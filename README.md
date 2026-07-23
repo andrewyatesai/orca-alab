@@ -157,6 +157,11 @@ pnpm bump:aterm
 pnpm check:aterm-pin
 ```
 
+This maintainer path additionally requires the stable
+`wasm32-unknown-unknown` target and Binaryen's `wasm-opt` on `PATH` (`brew
+install binaryen` on macOS). The bump refreshes both Cargo lockfiles as well as
+the native addon, Rust daemon, and committed WASM artifacts.
+
 The bump fails closed if a downstream compatibility patch no longer applies,
 which forces that patch to be reviewed when upstream changes the same code.
 

@@ -1,92 +1,53 @@
 import { useCallback, useEffect, useRef } from 'react'
-import type { AgentsStepId } from '../../../../shared/agents-orchestration-steps'
-import type { FeatureWallWorkflowId } from '../../../../shared/feature-wall-workflows'
+import type {
+  FeatureWallStepId,
+  FeatureWallWorkflowId
+} from '../../../../shared/feature-wall-workflows'
 import type { FeatureWallTourDepthSummary } from '../../../../shared/feature-wall-tour-depth'
 import { buildFeatureWallTourDepthSummary } from '@/lib/git-wasm/feature-wall-tour-depth'
-import type { ReviewStepId } from '../../../../shared/review-steps'
-import type { WorkbenchStepId } from '../../../../shared/workbench-steps'
 import { getFeatureWallCompletionProgress } from './feature-wall-completion-progress'
 
 type FeatureWallSessionDepthInput = {
   isOpen: boolean
-  hasConnectedTaskSource: boolean
-  isCheckingTaskSources: boolean
-  hasUsageAccount: boolean
-  orchestrationSkillInstalled: boolean
-  browserUseSkillInstalled: boolean
-  githubConfigured: boolean
-  aiCommitPrConfigured: boolean
   onTourDepthSummaryChange?: (summary: FeatureWallTourDepthSummary) => void
 }
 
 export type FeatureWallSessionDepthTracker = {
   markWorkflowVisitedForSession: (id: FeatureWallWorkflowId) => void
-  markAgentStepVisitedForSession: (id: AgentsStepId) => void
-  markWorkbenchStepVisitedForSession: (id: WorkbenchStepId) => void
-  markReviewStepVisitedForSession: (id: ReviewStepId) => void
+  markStepVisitedForSession: (id: FeatureWallStepId) => void
   getTourDepthSummary: () => FeatureWallTourDepthSummary
+}
+
+type SessionDepthState = {
+  visitedWorkflows: Set<FeatureWallWorkflowId>
+  visitedSteps: Set<FeatureWallStepId>
+  lastGroupId: FeatureWallWorkflowId | null
+}
+
+function createEmptySessionDepth(): SessionDepthState {
+  return {
+    visitedWorkflows: new Set(),
+    visitedSteps: new Set(),
+    lastGroupId: null
+  }
 }
 
 export function useFeatureWallSessionDepth(
   input: FeatureWallSessionDepthInput
 ): FeatureWallSessionDepthTracker {
-  const {
-    isOpen,
-    hasConnectedTaskSource,
-    isCheckingTaskSources,
-    hasUsageAccount,
-    orchestrationSkillInstalled,
-    browserUseSkillInstalled,
-    githubConfigured,
-    aiCommitPrConfigured,
-    onTourDepthSummaryChange
-  } = input
-  const sessionDepthRef = useRef<{
-    visitedWorkflows: Set<FeatureWallWorkflowId>
-    visitedAgentSteps: Set<AgentsStepId>
-    visitedWorkbenchSteps: Set<WorkbenchStepId>
-    visitedReviewSteps: Set<ReviewStepId>
-    lastGroupId: FeatureWallWorkflowId | null
-  }>({
-    visitedWorkflows: new Set(),
-    visitedAgentSteps: new Set(),
-    visitedWorkbenchSteps: new Set(),
-    visitedReviewSteps: new Set(),
-    lastGroupId: null
-  })
+  const { isOpen, onTourDepthSummaryChange } = input
+  const sessionDepthRef = useRef<SessionDepthState>(createEmptySessionDepth())
 
   const getTourDepthSummary = useCallback((): FeatureWallTourDepthSummary => {
     const session = sessionDepthRef.current
-    const progress = getFeatureWallCompletionProgress({
-      visitedWorkflows: session.visitedWorkflows,
-      visitedAgentSteps: session.visitedAgentSteps,
-      visitedWorkbenchSteps: session.visitedWorkbenchSteps,
-      visitedReviewSteps: session.visitedReviewSteps,
-      hasConnectedTaskSource,
-      isCheckingTaskSources,
-      hasUsageAccount,
-      orchestrationSkillInstalled,
-      browserUseSkillInstalled,
-      githubConfigured,
-      aiCommitPrConfigured
-    })
+    const progress = getFeatureWallCompletionProgress(session)
     return buildFeatureWallTourDepthSummary({
       ...progress,
       visitedWorkflows: session.visitedWorkflows,
-      visitedAgentSteps: session.visitedAgentSteps,
-      visitedWorkbenchSteps: session.visitedWorkbenchSteps,
-      visitedReviewSteps: session.visitedReviewSteps,
+      visitedSteps: session.visitedSteps,
       lastGroupId: session.lastGroupId
     })
-  }, [
-    aiCommitPrConfigured,
-    browserUseSkillInstalled,
-    githubConfigured,
-    hasConnectedTaskSource,
-    hasUsageAccount,
-    isCheckingTaskSources,
-    orchestrationSkillInstalled
-  ])
+  }, [])
 
   const publishTourDepthSummary = useCallback((): void => {
     onTourDepthSummaryChange?.(getTourDepthSummary())
@@ -98,19 +59,12 @@ export function useFeatureWallSessionDepth(
       wasOpenRef.current = false
       return
     }
-    const openedNow = !wasOpenRef.current
-    wasOpenRef.current = true
-    if (openedNow) {
-      // Why: depth telemetry is per explicit tour session; persisted completion
-      // can color the UI but must not leak into current-session depth fields.
-      sessionDepthRef.current = {
-        visitedWorkflows: new Set(),
-        visitedAgentSteps: new Set(),
-        visitedWorkbenchSteps: new Set(),
-        visitedReviewSteps: new Set(),
-        lastGroupId: null
-      }
+    if (!wasOpenRef.current) {
+      // Why: close-depth telemetry describes this explicit replay, not progress
+      // restored from a previous walkthrough session.
+      sessionDepthRef.current = createEmptySessionDepth()
     }
+    wasOpenRef.current = true
     publishTourDepthSummary()
   }, [isOpen, publishTourDepthSummary])
 
@@ -123,23 +77,9 @@ export function useFeatureWallSessionDepth(
     },
     [publishTourDepthSummary]
   )
-  const markAgentStepVisitedForSession = useCallback(
-    (id: AgentsStepId): void => {
-      sessionDepthRef.current.visitedAgentSteps.add(id)
-      publishTourDepthSummary()
-    },
-    [publishTourDepthSummary]
-  )
-  const markWorkbenchStepVisitedForSession = useCallback(
-    (id: WorkbenchStepId): void => {
-      sessionDepthRef.current.visitedWorkbenchSteps.add(id)
-      publishTourDepthSummary()
-    },
-    [publishTourDepthSummary]
-  )
-  const markReviewStepVisitedForSession = useCallback(
-    (id: ReviewStepId): void => {
-      sessionDepthRef.current.visitedReviewSteps.add(id)
+  const markStepVisitedForSession = useCallback(
+    (id: FeatureWallStepId): void => {
+      sessionDepthRef.current.visitedSteps.add(id)
       publishTourDepthSummary()
     },
     [publishTourDepthSummary]
@@ -147,9 +87,7 @@ export function useFeatureWallSessionDepth(
 
   return {
     markWorkflowVisitedForSession,
-    markAgentStepVisitedForSession,
-    markWorkbenchStepVisitedForSession,
-    markReviewStepVisitedForSession,
+    markStepVisitedForSession,
     getTourDepthSummary
   }
 }

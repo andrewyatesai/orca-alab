@@ -8,19 +8,63 @@ import { ClaudeIcon, OpenAIIcon } from '../../status-bar/icons'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 
-type ClaudeActivity = { kind: 'tool'; tool: string; arg: string } | { kind: 'msg'; text: ReactNode }
+type ClaudeTool = 'edit' | 'bash' | 'read'
+type ClaudeMessage = 'session-middleware' | 'typecheck-passed' | 'redirect-tests'
+type ClaudeActivity =
+  | { kind: 'tool'; tool: ClaudeTool; arg: string }
+  | { kind: 'msg'; messageId: ClaudeMessage }
 
 const CLAUDE_ACTIVITIES: readonly ClaudeActivity[] = [
-  { kind: 'tool', tool: 'Edit', arg: 'auth/withSession.ts' },
-  { kind: 'msg', text: 'Looking at the session middleware now…' },
-  { kind: 'tool', tool: 'Bash', arg: 'pnpm run typecheck:node' },
-  { kind: 'msg', text: 'Typecheck passes. Pulling on the login route next.' },
-  { kind: 'tool', tool: 'Read', arg: 'routes/login.ts' },
-  { kind: 'tool', tool: 'Edit', arg: 'middleware/session.ts' },
-  { kind: 'msg', text: 'Adding tests for the redirect path.' },
-  { kind: 'tool', tool: 'Bash', arg: 'pnpm test auth' },
-  { kind: 'tool', tool: 'Edit', arg: 'auth.test.ts' }
+  { kind: 'tool', tool: 'edit', arg: 'auth/withSession.ts' },
+  { kind: 'msg', messageId: 'session-middleware' },
+  { kind: 'tool', tool: 'bash', arg: 'pnpm run typecheck:node' },
+  { kind: 'msg', messageId: 'typecheck-passed' },
+  { kind: 'tool', tool: 'read', arg: 'routes/login.ts' },
+  { kind: 'tool', tool: 'edit', arg: 'middleware/session.ts' },
+  { kind: 'msg', messageId: 'redirect-tests' },
+  { kind: 'tool', tool: 'bash', arg: 'pnpm test auth' },
+  { kind: 'tool', tool: 'edit', arg: 'auth.test.ts' }
 ]
+
+function getClaudeToolLabel(tool: ClaudeTool): string {
+  switch (tool) {
+    case 'edit':
+      return translate(
+        'auto.components.feature.wall.agents.orchestration.StatusesPage.h130000001',
+        'Edit'
+      )
+    case 'bash':
+      return translate(
+        'auto.components.feature.wall.agents.orchestration.StatusesPage.h130000002',
+        'Bash'
+      )
+    case 'read':
+      return translate(
+        'auto.components.feature.wall.agents.orchestration.StatusesPage.h130000003',
+        'Read'
+      )
+  }
+}
+
+function getClaudeMessage(message: ClaudeMessage): string {
+  switch (message) {
+    case 'session-middleware':
+      return translate(
+        'auto.components.feature.wall.agents.orchestration.StatusesPage.h130000004',
+        'Looking at the session middleware now…'
+      )
+    case 'typecheck-passed':
+      return translate(
+        'auto.components.feature.wall.agents.orchestration.StatusesPage.h130000005',
+        'Typecheck passes. Pulling on the login route next.'
+      )
+    case 'redirect-tests':
+      return translate(
+        'auto.components.feature.wall.agents.orchestration.StatusesPage.h130000006',
+        'Adding tests for the redirect path.'
+      )
+  }
+}
 
 export function StatusesPage(props: { active: boolean; reducedMotion: boolean }): JSX.Element {
   const { active, reducedMotion } = props
@@ -169,13 +213,13 @@ function AgentRow(props: {
 function ClaudeActivityLine(props: { activity: ClaudeActivity }): JSX.Element {
   const a = props.activity
   if (a.kind === 'msg') {
-    return <span>{a.text}</span>
+    return <span>{getClaudeMessage(a.messageId)}</span>
   }
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 truncate">
       <span className="inline-flex items-center gap-1 font-semibold text-muted-foreground">
         <Wrench className="size-2.5" aria-hidden />
-        {a.tool}
+        {getClaudeToolLabel(a.tool)}
       </span>
       <CodeChip>{a.arg}</CodeChip>
     </span>
@@ -204,15 +248,22 @@ function Skel(props: { widthPct: number }): JSX.Element {
 function SupportedAgentsMarquee(props: { reducedMotion: boolean }): JSX.Element {
   const trackRef = useRef<HTMLDivElement | null>(null)
   const agentCatalog = getAgentCatalog()
+  // Why: a fixed, representative set avoids ending the static reduced-motion
+  // preview on a clipped duplicate pill while the animated marquee stays exhaustive.
+  const displayedAgents = props.reducedMotion
+    ? agentCatalog.slice(0, 5)
+    : [...agentCatalog, ...agentCatalog]
   return (
     <div className="relative -mx-1 mb-1 border-b border-border pb-2 pt-1 overflow-hidden">
       <div
         className="overflow-hidden"
         style={{
-          WebkitMaskImage:
-            'linear-gradient(to right, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%)',
-          maskImage:
-            'linear-gradient(to right, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%)'
+          WebkitMaskImage: props.reducedMotion
+            ? 'none'
+            : 'linear-gradient(to right, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%)',
+          maskImage: props.reducedMotion
+            ? 'none'
+            : 'linear-gradient(to right, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%)'
         }}
       >
         <div
@@ -222,11 +273,8 @@ function SupportedAgentsMarquee(props: { reducedMotion: boolean }): JSX.Element 
             props.reducedMotion ? '' : 'feature-wall-marquee-track'
           )}
         >
-          {agentCatalog.map((agent) => (
-            <MarqueePill key={`a-${agent.id}`} agentId={agent.id} label={agent.label} />
-          ))}
-          {agentCatalog.map((agent) => (
-            <MarqueePill key={`b-${agent.id}`} agentId={agent.id} label={agent.label} />
+          {displayedAgents.map((agent, index) => (
+            <MarqueePill key={`${index}-${agent.id}`} agentId={agent.id} label={agent.label} />
           ))}
         </div>
       </div>
@@ -236,7 +284,10 @@ function SupportedAgentsMarquee(props: { reducedMotion: boolean }): JSX.Element 
 
 function MarqueePill(props: { agentId: AgentCatalogEntry['id']; label: string }): JSX.Element {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-2.5 py-1 text-[11px] leading-none shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]">
+    <span
+      data-feature-wall-supported-agent-id={props.agentId}
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-2.5 py-1 text-[11px] leading-none shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]"
+    >
       <span className="inline-flex size-3.5 items-center justify-center">
         <AgentIcon agent={props.agentId} size={14} />
       </span>

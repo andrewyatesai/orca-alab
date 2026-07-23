@@ -44,13 +44,11 @@ describe('updater-feed-endpoints', () => {
     expect(UPDATE_CHANGELOG_JSON_URL).toBeNull()
   })
 
-  it('treats the fork slug as configured and the public slug as unusable', () => {
+  it('treats any non-empty slug as configured', () => {
     expect(isUpdateFeedConfigured()).toBe(true)
-    expect(isUpdateFeedSlugUsable('stablyai/orca')).toBe(false)
-    expect(isUpdateFeedSlugUsable('StablyAI/Orca')).toBe(false)
     expect(isUpdateFeedSlugUsable('')).toBe(false)
     expect(isUpdateFeedSlugUsable('   ')).toBe(false)
-    expect(isUpdateFeedSlugUsable('andrewyatesai/orca-alab')).toBe(true)
+    expect(isUpdateFeedSlugUsable('alabsystems/orca-alab')).toBe(true)
   })
 
   it('mines release tags for the fork repo only', () => {

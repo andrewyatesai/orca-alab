@@ -1,21 +1,16 @@
-// Renderer feature-wall tour-depth telemetry builders, driven by the Rust
-// `orca_core::feature_wall_tour_depth` port in the orca-git wasm (the shared TS
-// bodies were deleted; the enum data + types still live in TS). Every build goes
-// through the single `op` JSON boundary. Pre-ready the op returns null, so the
-// summary degrades to an all-zero depth (never a mis-counted payload) during the
-// ~tens-of-ms wasm boot window — the sole consumer emits telemetry off a valid
-// summary either way.
+// Renderer feature-wall depth builders driven by the Rust orca_core port in
+// orca-git wasm. Pre-ready summaries degrade to zero rather than guessing.
 import { isGitWasmReady } from './git-line-stats'
 import { orcaDispatch } from './orca_git_wasm.js'
-import type { AgentsStepId } from '../../../../shared/agents-orchestration-steps'
-import type { FeatureWallWorkflowId } from '../../../../shared/feature-wall-workflows'
+import type {
+  FeatureWallStepId,
+  FeatureWallWorkflowId
+} from '../../../../shared/feature-wall-workflows'
 import type {
   FeatureWallTourDepthInput,
   FeatureWallTourDepthStep,
   FeatureWallTourDepthSummary
 } from '../../../../shared/feature-wall-tour-depth'
-import type { ReviewStepId } from '../../../../shared/review-steps'
-import type { WorkbenchStepId } from '../../../../shared/workbench-steps'
 
 function op(fn: string, input: unknown): unknown | null {
   if (!isGitWasmReady()) {
@@ -26,33 +21,26 @@ function op(fn: string, input: unknown): unknown | null {
 
 export function getFeatureWallTourDepthStep(input: {
   workflowId: FeatureWallWorkflowId
-  agentStepId?: AgentsStepId
-  workbenchStepId?: WorkbenchStepId
-  reviewStepId?: ReviewStepId
+  stepId?: FeatureWallStepId
 }): FeatureWallTourDepthStep {
-  const r = op('getFeatureWallTourDepthStep', input) as FeatureWallTourDepthStep | null
-  // No in-app consumer (parity-only); pre-ready fall back to the first canonical step.
-  return r ?? 'workspaces'
+  const result = op('getFeatureWallTourDepthStep', input) as FeatureWallTourDepthStep | null
+  return result ?? 'terminal'
 }
 
 export function buildFeatureWallTourDepthSummary(
   input: FeatureWallTourDepthInput
 ): FeatureWallTourDepthSummary {
-  // Rust reads the visited sets as JSON arrays; JSON.stringify(Set) yields `{}`,
-  // so spread each Set to an array before crossing the boundary.
-  const r = op('buildFeatureWallTourDepthSummary', {
+  // Why: Sets serialize as empty objects, so flatten them before the JSON-only
+  // wasm boundary used by both renderer telemetry and parity tests.
+  const result = op('buildFeatureWallTourDepthSummary', {
     visitedWorkflows: [...input.visitedWorkflows],
-    visitedAgentSteps: [...input.visitedAgentSteps],
-    visitedWorkbenchSteps: [...input.visitedWorkbenchSteps],
-    visitedReviewSteps: [...input.visitedReviewSteps],
+    visitedSteps: [...input.visitedSteps],
     workflowDone: input.workflowDone,
-    agentStepDone: input.agentStepDone,
-    workbenchStepDone: input.workbenchStepDone,
-    reviewStepDone: input.reviewStepDone,
+    stepDone: input.stepDone,
     lastGroupId: input.lastGroupId
   }) as FeatureWallTourDepthSummary | null
   return (
-    r ?? {
+    result ?? {
       visited_workflow_count: 0,
       visited_substep_count: 0,
       completed_workflow_count: 0,

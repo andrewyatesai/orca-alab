@@ -38,6 +38,9 @@ pub enum TerminalStreamOpcode {
     /// Viewport-claim frame; older runtimes ignore this opcode and still receive
     /// the compatibility Resize frame behind it. Mirrors the TS enum's 14.
     ClaimViewport = 14,
+    /// Transformed output plus its pre-transform length, encoded as JSON so
+    /// sequence-gap detection can preserve the raw terminal byte count.
+    OutputSpan = 15,
 }
 
 impl TerminalStreamOpcode {
@@ -57,6 +60,7 @@ impl TerminalStreamOpcode {
             12 => Some(Self::Metadata),
             13 => Some(Self::Ack),
             14 => Some(Self::ClaimViewport),
+            15 => Some(Self::OutputSpan),
             _ => None,
         }
     }
@@ -246,11 +250,13 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_ack_and_claim_viewport_opcodes_13_and_14() {
-        // Ack (13) + ClaimViewport (14) were added to the TS enum after the original
-        // port; a decoder missing these arms decodes them to None (vs a valid frame in
-        // TS), so the remote-multiplex flow-control frames would silently drop on cutover.
-        for opcode in [TerminalStreamOpcode::Ack, TerminalStreamOpcode::ClaimViewport] {
+    fn round_trips_post_metadata_opcodes_13_through_15() {
+        // Why: missing a live TS opcode silently drops that frame at the Rust relay boundary.
+        for opcode in [
+            TerminalStreamOpcode::Ack,
+            TerminalStreamOpcode::ClaimViewport,
+            TerminalStreamOpcode::OutputSpan,
+        ] {
             let frame = decode_terminal_stream_frame(&encode_terminal_stream_frame(
                 &TerminalStreamFrame { opcode, stream_id: 7, seq: 3, payload: Vec::new() },
             ))
@@ -260,14 +266,14 @@ mod tests {
             assert_eq!(frame.seq, 3);
             assert!(frame.payload.is_empty());
         }
-        // Opcode 15 is now the first unknown value beyond ClaimViewport.
+        // Opcode 16 is now the first unknown value beyond OutputSpan.
         let mut unknown = encode_terminal_stream_frame(&TerminalStreamFrame {
             opcode: TerminalStreamOpcode::Output,
             stream_id: 1,
             seq: 1,
             payload: Vec::new(),
         });
-        unknown[2] = 15;
+        unknown[2] = 16;
         assert_eq!(decode_terminal_stream_frame(&unknown), None);
     }
 

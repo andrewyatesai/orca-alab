@@ -1,19 +1,12 @@
 /**
  * Single source of truth for every remote endpoint the auto-updater touches.
- *
- * Why: this fork must NEVER poll public Orca's update feed — one accepted
- * public update would silently replace the fork build with the public one
- * (staging-launch audit F1). Every updater URL derives from
- * UPDATE_FEED_REPO_SLUG, and when that slug is blank or points at the public
- * upstream repo the updater goes fully dormant instead of falling back to any
- * public URL.
+ * Every updater URL derives from UPDATE_FEED_REPO_SLUG — the public repo that
+ * hosts releases and update manifests.
  */
 
-const PUBLIC_UPSTREAM_REPO_SLUG = 'stablyai/orca'
-
-/** GitHub `owner/repo` that hosts this fork's releases and update manifests.
+/** GitHub `owner/repo` that hosts public releases and update manifests.
  *  Must match the publish block in config/electron-builder.config.cjs. */
-export const UPDATE_FEED_REPO_SLUG = 'andrewyatesai/orca-alab'
+export const UPDATE_FEED_REPO_SLUG = 'alabsystems/orca-alab'
 
 // Why: public Orca points these at onorca.dev, the upstream vendor's service —
 // which can remotely re-prompt users to update (nudge) and serves the public
@@ -23,11 +16,10 @@ export const UPDATE_NUDGE_URL: string | null = null
 export const UPDATE_CHANGELOG_JSON_URL: string | null = null
 
 export function isUpdateFeedSlugUsable(slug: string): boolean {
-  const normalized = slug.trim().toLowerCase()
-  return normalized !== '' && normalized !== PUBLIC_UPSTREAM_REPO_SLUG
+  return slug.trim() !== ''
 }
 
-/** False means "no fork-owned feed exists": the updater must stay dormant. */
+/** False means "no feed configured": the updater stays dormant. */
 export function isUpdateFeedConfigured(): boolean {
   return isUpdateFeedSlugUsable(UPDATE_FEED_REPO_SLUG)
 }

@@ -61,7 +61,7 @@ fn frame_to_json(frame: &TerminalStreamFrame) -> Value {
 
 fn frame_from_json(input: &Value) -> Option<TerminalStreamFrame> {
     // Delegate to the canonical enum mapping (now `pub`) instead of a local copy:
-    // a duplicated table drifted stale here (missing Ack=13/ClaimViewport=14).
+    // a duplicated table drifted stale here when new wire opcodes were added.
     let opcode = TerminalStreamOpcode::from_u8(input.get("opcode")?.as_u64()? as u8)?;
     let stream_id = input.get("streamId")?.as_u64()? as u32;
     let seq = input.get("seq")?.as_u64()?;

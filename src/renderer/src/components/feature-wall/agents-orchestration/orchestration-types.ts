@@ -1,67 +1,189 @@
-// Beat timings — slow enough to read at a glance.
-export const BUBBLE_FLIGHT_MS = 1600
-export const BUBBLE_LAND_MS = BUBBLE_FLIGHT_MS + 360
-export const BUBBLE_GAP_MS = 3400
-export const ORCHESTRATION_CLI_COMMAND_TIMINGS_MS = [250, 2500, 5200, 8600] as const
-export const ORCHESTRATION_CLI_COMMAND_LOOP_MS = 12800
+// Why: the walkthrough must show the full dependency/recovery story once and settle before five seconds.
+export const BUBBLE_FLIGHT_MS = 260
+export const BUBBLE_LAND_MS = BUBBLE_FLIGHT_MS + 260
+export const BUBBLE_GAP_MS = 420
+export const RESPONSE_BEAT_GAP_MS = 380
+export const ORCHESTRATION_CLI_COMMAND_TIMINGS_MS = [120, 480, 800, 1160] as const
 
 export type AgentKey = 'coord-claude' | 'child-codex' | 'child-claude'
 
+export type OrchestrationMessageId =
+  | 'coord-planning'
+  | 'coord-dispatching-migration'
+  | 'coord-linking-dependency'
+  | 'coord-decision-gate'
+  | 'coord-human-decision-resolved'
+  | 'coord-decision-recorded'
+  | 'coord-releasing-dependency'
+  | 'coord-recovery-gate'
+  | 'coord-recovery-plan'
+  | 'coord-result-complete'
+  | 'migration-waiting-dispatch'
+  | 'migration-running'
+  | 'migration-blocking-question'
+  | 'migration-applying-decision'
+  | 'migration-complete'
+  | 'middleware-waiting-dependency'
+  | 'middleware-dependency-released'
+  | 'middleware-check-blocked'
+  | 'middleware-rerunning-check'
+  | 'middleware-recovered'
+
+export type OrchestrationPhase =
+  | 'plan'
+  | 'dispatch'
+  | 'dependency'
+  | 'question'
+  | 'decision'
+  | 'relay'
+  | 'unblocked'
+  | 'blocker'
+  | 'recovery'
+  | 'complete'
+
+export const ORCHESTRATION_PHASE_SEQUENCE: readonly OrchestrationPhase[] = [
+  'plan',
+  'dispatch',
+  'dependency',
+  'question',
+  'decision',
+  'relay',
+  'unblocked',
+  'blocker',
+  'recovery',
+  'complete'
+]
+
+export type AgentRowState = 'working' | 'waiting' | 'question' | 'blocked' | 'done'
+
 export type Beat = {
+  actor?: 'human' | 'coordinator'
+  delivery?: 'bubble' | 'local'
   from: AgentKey
   to: AgentKey
-  recipientMsg?: string
-  coordMsg?: string
-  // The "send" *is* the "finish" — flipping the spinner to a check the
-  // moment the bubble departs reads as the agent wrapping up and reporting
-  // back to the orchestrator.
-  senderFinishes?: boolean
+  phase: OrchestrationPhase
+  senderMessage?: OrchestrationMessageId
+  recipientMessage?: OrchestrationMessageId
+  senderState?: AgentRowState
+  recipientState?: AgentRowState
 }
 
-export const PHASE1_BEATS: readonly Beat[] = [
+export const ORCHESTRATION_BEATS: readonly Beat[] = [
   {
     from: 'coord-claude',
     to: 'child-codex',
-    recipientMsg: 'Adding the email_verified column…'
+    phase: 'dispatch',
+    senderMessage: 'coord-dispatching-migration',
+    recipientMessage: 'migration-running',
+    recipientState: 'working'
   },
   {
     from: 'coord-claude',
     to: 'child-claude',
-    recipientMsg: 'Wiring withSession middleware…'
+    phase: 'dependency',
+    senderMessage: 'coord-linking-dependency',
+    recipientMessage: 'middleware-waiting-dependency',
+    recipientState: 'waiting'
   },
   {
     from: 'child-codex',
     to: 'coord-claude',
-    coordMsg: 'PR 1/2 ready',
-    senderFinishes: true
+    phase: 'question',
+    senderMessage: 'migration-blocking-question',
+    recipientMessage: 'coord-decision-gate',
+    senderState: 'question',
+    recipientState: 'waiting'
+  },
+  {
+    actor: 'human',
+    delivery: 'local',
+    from: 'coord-claude',
+    to: 'coord-claude',
+    phase: 'decision',
+    senderMessage: 'coord-human-decision-resolved',
+    senderState: 'working'
+  },
+  {
+    actor: 'coordinator',
+    from: 'coord-claude',
+    to: 'child-codex',
+    phase: 'relay',
+    senderMessage: 'coord-decision-recorded',
+    recipientMessage: 'migration-applying-decision',
+    senderState: 'working',
+    recipientState: 'working'
+  },
+  {
+    from: 'child-codex',
+    to: 'coord-claude',
+    phase: 'unblocked',
+    senderMessage: 'migration-complete',
+    recipientMessage: 'coord-releasing-dependency',
+    senderState: 'done',
+    recipientState: 'working'
+  },
+  {
+    from: 'coord-claude',
+    to: 'child-claude',
+    phase: 'unblocked',
+    senderMessage: 'coord-releasing-dependency',
+    recipientMessage: 'middleware-dependency-released',
+    recipientState: 'working'
   },
   {
     from: 'child-claude',
     to: 'coord-claude',
-    coordMsg: 'PR 2/2 ready',
-    senderFinishes: true
+    phase: 'blocker',
+    senderMessage: 'middleware-check-blocked',
+    recipientMessage: 'coord-recovery-gate',
+    senderState: 'blocked',
+    recipientState: 'waiting'
+  },
+  {
+    from: 'coord-claude',
+    to: 'child-claude',
+    phase: 'recovery',
+    senderMessage: 'coord-recovery-plan',
+    recipientMessage: 'middleware-rerunning-check',
+    senderState: 'working',
+    recipientState: 'working'
+  },
+  {
+    from: 'child-claude',
+    to: 'coord-claude',
+    phase: 'complete',
+    senderMessage: 'middleware-recovered',
+    recipientMessage: 'coord-result-complete',
+    senderState: 'done',
+    recipientState: 'done'
   }
 ]
 
-export const COORD_INITIAL_MSG = 'Splitting auth rewrite into 2 PRs…'
-export const CHILD_CODEX_INITIAL_MSG = 'Writing the users table migration…'
-export const CHILD_CLAUDE_INITIAL_MSG = 'Sketching withSession middleware…'
-
-export type AgentRowState = 'working' | 'done'
-
 export type RowState = Record<AgentKey, AgentRowState>
-export type RowMessages = Record<AgentKey, string>
+export type RowMessages = Record<AgentKey, OrchestrationMessageId>
 export type RowFlash = Partial<Record<AgentKey, number>>
 export type RowPending = Partial<Record<AgentKey, boolean>>
 
 export const INITIAL_ROW_STATE: RowState = {
   'coord-claude': 'working',
-  'child-codex': 'working',
-  'child-claude': 'working'
+  'child-codex': 'waiting',
+  'child-claude': 'waiting'
 }
 
 export const INITIAL_ROW_MESSAGES: RowMessages = {
-  'coord-claude': COORD_INITIAL_MSG,
-  'child-codex': CHILD_CODEX_INITIAL_MSG,
-  'child-claude': CHILD_CLAUDE_INITIAL_MSG
+  'coord-claude': 'coord-planning',
+  'child-codex': 'migration-waiting-dispatch',
+  'child-claude': 'middleware-waiting-dependency'
+}
+
+export const COMPLETED_ROW_STATE: RowState = {
+  'coord-claude': 'done',
+  'child-codex': 'done',
+  'child-claude': 'done'
+}
+
+export const COMPLETED_ROW_MESSAGES: RowMessages = {
+  'coord-claude': 'coord-result-complete',
+  'child-codex': 'migration-complete',
+  'child-claude': 'middleware-recovered'
 }

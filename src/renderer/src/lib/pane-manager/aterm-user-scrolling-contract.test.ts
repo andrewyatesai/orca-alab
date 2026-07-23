@@ -38,10 +38,10 @@ import { getTerminalScrollIntentKind } from './terminal-scroll-intent'
 const ATERM_DIR = new URL('./aterm/', import.meta.url)
 const FONT_URL = new URL('../../assets/fonts/jetbrains-mono.ttf', import.meta.url)
 
-// The engine's REAL retention boundary: this wasm build attaches no tiered
-// deep-history store (Terminal::new -> Grid::new, scrollback: None), so
-// set_scrollback_limit cannot shrink retention — the in-grid ring's fixed
-// 10_000-line cap IS the live trim boundary the write path runs against.
+// The trim boundary these tests pin. Since E1 the wasm ctor attaches the
+// tiered store (100k-line default total), so trim tests set this explicitly
+// via set_scrollback_limit — the ONE total retention limit (ring + staged +
+// store together) — to make eviction real at a bounded depth.
 const RING_SCROLLBACK_CAP = 10_000
 
 let fontBytes: Uint8Array
@@ -91,6 +91,15 @@ function pumpChunk(term: AtermTerminal, data: string): void {
 function pumpLines(term: AtermTerminal, count: number, label: string, start = 0): void {
   for (let i = start; i < start + count; i += 1) {
     pumpChunk(term, `${label}${i}\r\n`)
+  }
+}
+
+/** E1: tier promotion is deferred (render()/hosts drain in batches), so the
+ *  ONE total retention limit is exact only after the staged backlog settles.
+ *  Trim-boundary assertions drain first, like a quiescent pane would. */
+function settleScrollback(term: AtermTerminal): void {
+  while (term.drain_scrollback_backlog(4096) > 0) {
+    // drain to empty
   }
 }
 
@@ -167,7 +176,9 @@ describe('aterm native user-scrolling contract (real wasm engine)', () => {
 
   it('walks a pinned viewport content-stably when scrollback trims', () => {
     const term = openEngine(5, 20)
+    term.set_scrollback_limit(RING_SCROLLBACK_CAP)
     pumpLineBurst(term, RING_SCROLLBACK_CAP + 20, 'x')
+    settleScrollback(term)
     expect(term.display_offset).toBe(0)
     const fullBase = term.base_y
 
@@ -184,6 +195,7 @@ describe('aterm native user-scrolling contract (real wasm engine)', () => {
     const pinnedTop = term.row_text(0)
 
     pumpLines(term, 10, 'x', RING_SCROLLBACK_CAP + 20)
+    settleScrollback(term)
     // Upstream xterm renumbers rows on trim, so its baseY froze at the cap
     // while the pinned viewportY walked down (viewportY == max(0, pinnedY -
     // trimmed)) to keep content still. aterm's absolute rows are monotonic —
@@ -197,13 +209,16 @@ describe('aterm native user-scrolling contract (real wasm engine)', () => {
 
   it('clamps a top-pinned viewport at the retention cap once its rows are evicted', () => {
     const term = openEngine(5, 20)
+    term.set_scrollback_limit(RING_SCROLLBACK_CAP)
     pumpLineBurst(term, RING_SCROLLBACK_CAP + 20, 'x')
+    settleScrollback(term)
     term.scroll_to_top()
     expect(term.display_offset).toBe(RING_SCROLLBACK_CAP)
     const topOrigin = term.display_origin_absolute
     expect(term.row_text(0)).toBe(`x${topOrigin}`)
 
     pumpLines(term, 20, 'x', RING_SCROLLBACK_CAP + 20)
+    settleScrollback(term)
     // The pinned rows themselves were trimmed: the offset clamps at the
     // retention cap (upstream's max(0, ...) floor) and the content walks.
     expect(term.display_offset).toBe(RING_SCROLLBACK_CAP)

@@ -169,6 +169,27 @@ impl HeadlessTerminal {
         self.inner.drain_lazy_bounded(max_lines)
     }
 
+    /// Settle deferred tier promotion so retention and serialization reflect
+    /// the final ONE-total-limit state: staged lines are counted by reads but
+    /// only evicted against the limit when promoted, so a quiescent grid can
+    /// sit transiently over-limit by the staged residue. No-progress guard:
+    /// while the store is detached for an off-thread reflow the drain no-ops.
+    pub fn settle_scrollback(&mut self) {
+        if self.inner.lazy_backlog_len() == 0 {
+            return;
+        }
+        let mut prev = usize::MAX;
+        loop {
+            let remaining = self.inner.drain_lazy_bounded(4096);
+            if remaining == 0 || remaining >= prev {
+                break;
+            }
+            prev = remaining;
+        }
+        // Promotion can evict over-limit rows without bumping content_gen.
+        self.serialize_cache = None;
+    }
+
     /// Number of lines currently held in scrollback (off-screen above the grid).
     pub fn scrollback_len(&self) -> usize {
         // Total history = ring buffer + tiered scrollback. (`Terminal::scrollback()`
@@ -369,6 +390,9 @@ impl HeadlessTerminal {
     /// session/reconnect default), `Some(0)` is viewport-only, `Some(n)` keeps the
     /// last `n` rows — matching `@xterm/addon-serialize`'s `serialize({scrollback})`.
     pub fn serialize_ansi(&mut self, scrollback_rows: Option<usize>) -> String {
+        // Snapshot observation settles retention (P4 contract: clients see the
+        // exact forwarded rows value, not a staged-residue overshoot).
+        self.settle_scrollback();
         let key = (self.inner.grid().content_gen(), self.cursor());
         if let Some((gen, cursor, cap, ref cached)) = self.serialize_cache {
             if (gen, cursor) == key && cap == scrollback_rows {
@@ -836,6 +860,19 @@ mod tests {
         let len = term.scrollback_len();
         assert!(len >= 2100, "history retained through the drain, got {len}");
         assert!(len <= 3000, "the ONE total limit bounds ring+staged+store");
+    }
+
+    #[test]
+    fn snapshot_observation_settles_retention_to_the_exact_limit() {
+        // P4 skew contract: getSnapshot-style reads (serialize first, then
+        // scrollback_len) report the exact forwarded limit, not the staged
+        // residue overshoot the deferred promotion leaves behind.
+        let mut term = HeadlessTerminal::with_scrollback(2, 20, 1500);
+        for i in 0..2000 {
+            term.process_str(&format!("L{i}\r\n"));
+        }
+        let _ = term.serialize_ansi(Some(0));
+        assert_eq!(term.scrollback_len(), 1500);
     }
 
     #[test]

@@ -7,7 +7,11 @@ describe('serve desktop activation wiring', () => {
 
   it('routes second-instance and app activation through one safety gate', () => {
     expect(source).toContain('createServeDesktopActivationGate({')
-    expect(source).toContain('acquireSingleInstanceLock(app, requestDesktopActivation)')
+    // Deep-links PR1: the second-instance callback composes the activation
+    // gate FIRST, then routes any OS-relayed orca:// argv through the router.
+    expect(source).toContain('acquireSingleInstanceLock(app, (argv) => {')
+    expect(source).toContain('requestDesktopActivation()')
+    expect(source).toContain("deepLinkRouter.routeRaw(raw, { source: 'os' })")
     expect(source).toContain("app.on('activate', requestDesktopActivation)")
     expect(source).toContain('getDesktopWindowStatus: getDesktopWindowStatus')
   })

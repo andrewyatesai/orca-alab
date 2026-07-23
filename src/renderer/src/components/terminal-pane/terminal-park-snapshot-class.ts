@@ -44,12 +44,11 @@ export function isSnapshotBackedTerminalPty(
   if (snapshotClass === 'daemon') {
     return true
   }
-  // Why: ssh bytes transit local main's headless model, so reveal restores from
-  // pty:getMainBufferSnapshot — parkable once the remote-class switch is on.
-  if (snapshotClass === 'ssh-main-model') {
-    return opts?.remoteParkingEnabled === true
+  if (snapshotClass === null) {
+    return false
   }
-  // Why: remote-wire reveal needs the phase-2 watcher byte source and exit
-  // classification (Wave 4); keep the class excluded until that lands.
-  return false
+  // Why: ssh reveal restores from main's headless model; remote-wire reveal is
+  // the ordinary mount path (host subscribe snapshot) — both classes gate only
+  // on the scoped remote-parking switch.
+  return opts?.remoteParkingEnabled === true
 }

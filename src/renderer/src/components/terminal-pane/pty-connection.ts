@@ -5627,6 +5627,14 @@ export function connectPanePty(
             if (isCurrent()) {
               onError(message)
             }
+          },
+          onSnapshotOverflow: (): void => {
+            // Why: an old host's unbudgeted subscribe snapshot got dropped at the
+            // 2 MiB replay limit; the requested-snapshot restore path is server-
+            // bounded and alt-screen-aware, so the pane doesn't reveal empty.
+            if (isCurrent()) {
+              markHiddenOutputRestoreNeeded()
+            }
           }
         }
       }

@@ -186,6 +186,82 @@ describe('remote runtime terminal data subscriptions', () => {
     dispose()
   })
 
+  it('reports end and transport-close to onStreamEnd once the stream is established', async () => {
+    const onStreamEnd = vi.fn()
+    const subscription = subscribeToRuntimeTerminalData(
+      { activeRuntimeEnvironmentId: 'env-fallback' },
+      'remote:env-1@@terminal-1',
+      'watcher-1',
+      vi.fn(),
+      { startAtLiveTail: true, onStreamEnd }
+    )
+    await vi.waitFor(() => expect(sendBinary).toHaveBeenCalled())
+    const subscribeFrame = decodeTerminalStreamFrame(sendBinary.mock.calls[0][0])
+    const subscribePayload =
+      subscribeFrame && decodeTerminalStreamJson<{ streamId: number }>(subscribeFrame.payload)
+    const streamId = subscribePayload!.streamId
+    callbacks?.onBinary?.(
+      encodeTerminalStreamFrame({
+        opcode: TerminalStreamOpcode.SnapshotStart,
+        streamId,
+        seq: 0,
+        payload: encodeTerminalStreamJson({ seq: 0 })
+      })
+    )
+    callbacks?.onBinary?.(
+      encodeTerminalStreamFrame({
+        opcode: TerminalStreamOpcode.SnapshotEnd,
+        streamId,
+        seq: 0,
+        payload: new Uint8Array()
+      })
+    )
+    const dispose = await subscription
+    expect(onStreamEnd).not.toHaveBeenCalled()
+
+    // A host end frame is ambiguous (exit OR server cleanup) — the caller classifies.
+    callbacks?.onResponse({ ok: true, result: { type: 'end', streamId } })
+    expect(onStreamEnd).toHaveBeenCalledWith('end')
+    dispose()
+  })
+
+  it('reports transport close to onStreamEnd distinctly from a host end frame', async () => {
+    const onStreamEnd = vi.fn()
+    const subscription = subscribeToRuntimeTerminalData(
+      { activeRuntimeEnvironmentId: 'env-fallback' },
+      'remote:env-1@@terminal-1',
+      'watcher-1',
+      vi.fn(),
+      { startAtLiveTail: true, onStreamEnd }
+    )
+    await vi.waitFor(() => expect(sendBinary).toHaveBeenCalled())
+    const subscribeFrame = decodeTerminalStreamFrame(sendBinary.mock.calls[0][0])
+    const subscribePayload =
+      subscribeFrame && decodeTerminalStreamJson<{ streamId: number }>(subscribeFrame.payload)
+    const streamId = subscribePayload!.streamId
+    callbacks?.onBinary?.(
+      encodeTerminalStreamFrame({
+        opcode: TerminalStreamOpcode.SnapshotStart,
+        streamId,
+        seq: 0,
+        payload: encodeTerminalStreamJson({ seq: 0 })
+      })
+    )
+    callbacks?.onBinary?.(
+      encodeTerminalStreamFrame({
+        opcode: TerminalStreamOpcode.SnapshotEnd,
+        streamId,
+        seq: 0,
+        payload: new Uint8Array()
+      })
+    )
+    const dispose = await subscription
+
+    callbacks?.onClose?.()
+    expect(onStreamEnd).toHaveBeenCalledWith('transport-close')
+    dispose()
+  })
+
   it('keeps the shared terminal multiplexer until the last watcher closes', async () => {
     const firstDispose = await subscribeToRuntimeTerminalData(
       { activeRuntimeEnvironmentId: 'env-fallback' },

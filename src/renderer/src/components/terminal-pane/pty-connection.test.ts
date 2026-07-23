@@ -213,6 +213,7 @@ type ConnectCallbacks = {
   ) => void
   onReplayData?: (data: string, meta?: { clearBeforeReplay?: boolean }) => void
   onError?: (msg: string) => void
+  onSnapshotOverflow?: () => void
 }
 
 type MockTransport = {
@@ -12232,6 +12233,42 @@ describe('connectPanePty', () => {
     expect(pane.terminal.write).not.toHaveBeenCalledWith(hidden)
     expect(pane.terminal.write).toHaveBeenCalledWith(
       expect.stringContaining('remote snapshot with hidden remote output'),
+      expect.any(Function)
+    )
+    disposable.dispose()
+  })
+
+  it('restores through the budgeted requested snapshot when an old host overflows the subscribe snapshot', async () => {
+    // Why: skew fallback (ssh-pane-parking.md §3.3) — the transport reports the
+    // dropped initial snapshot and the pane restores via serializeBuffer.
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('remote:env-1@@terminal-1')
+    const capturedCallbacks: { current: ConnectCallbacks | null } = { current: null }
+    transport.serializeBuffer = vi.fn().mockResolvedValue({
+      data: 'budgeted requested snapshot\r\n',
+      cols: 120,
+      rows: 40,
+      seq: 64,
+      source: 'headless'
+    })
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedCallbacks.current = callbacks ?? null
+      return 'remote:env-1@@terminal-1'
+    })
+    transportFactoryQueue.push(transport)
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps({ isVisibleRef: { current: true } })
+    const disposable = connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks(6)
+
+    capturedCallbacks.current?.onSnapshotOverflow?.()
+    await flushAsyncTicks(20)
+
+    expect(transport.serializeBuffer).toHaveBeenCalledWith({ scrollbackRows: 5000 })
+    expect(pane.terminal.write).toHaveBeenCalledWith(
+      expect.stringContaining('budgeted requested snapshot'),
       expect.any(Function)
     )
     disposable.dispose()

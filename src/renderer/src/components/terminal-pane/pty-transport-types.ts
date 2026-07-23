@@ -81,6 +81,10 @@ type PtyCallbacks = {
   onStatus?: (shell: string) => void
   onError?: (message: string, errors?: string[]) => void
   onExit?: (code: number) => void
+  /** Remote-runtime only: the initial subscribe snapshot exceeded the client
+   *  replay limit and was dropped (old host without the subscribe budget); the
+   *  pane should restore via the server-bounded requested-snapshot path. */
+  onSnapshotOverflow?: () => void
 }
 
 export type PtyTransport = {

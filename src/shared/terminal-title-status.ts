@@ -153,8 +153,8 @@ export function detectAgentStatusFromTitle(title: string): AgentStatus | null {
       return 'idle'
     }
 
-    // Why: Droid's hook events are authoritative; don't treat a name-only native title as a completion.
-    if (hasDroidAgentName && !hasLegacyAgentName) {
+    // Why: Droid/Hermes/Antigravity ship authoritative hook services (#6011); don't treat a name-only native title as a completion.
+    if ((hasDroidAgentName || hasHermesAgentName || hasAgyAgentName) && !hasLegacyAgentName) {
       return null
     }
 

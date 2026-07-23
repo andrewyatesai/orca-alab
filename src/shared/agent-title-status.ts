@@ -193,9 +193,10 @@ export function detectAgentStatusFromTitle(title: string): AgentStatus | null {
     return 'idle'
   }
 
-  // Why: Droid hook events are authoritative; native name-only titles should
-  // not turn a still-sleeping execute tool into completion.
-  if (hasDroidAgentName && !hasLegacyAgentName) {
+  // Why: Droid/Hermes/Antigravity ship authoritative hook services (#6011);
+  // a name-only native title must defer to the hook, not turn a still-sleeping
+  // execute tool into completion. Legacy-named titles keep their idle default.
+  if ((hasDroidAgentName || hasHermesAgentName || hasAgyAgentName) && !hasLegacyAgentName) {
     return null
   }
 

@@ -180,6 +180,40 @@ describe('Pi-compatible title detection', () => {
   )
 })
 
+describe('authoritative-hook name-only title defers', () => {
+  // Why: Droid/Hermes/Antigravity ship authoritative hook services (#6011). A bare
+  // name-only native title (no keyword/spinner/prefix) must defer to the hook by
+  // returning null, not fall through to 'idle' and race a still-working pane to
+  // false completion. Previously only Droid was guarded; Hermes/agy fell to 'idle'.
+  it.each(['Droid', 'Hermes', 'agy'])(
+    'defers name-only authoritative-hook title %j to hooks (null, not idle)',
+    (title) => {
+      expect(detectAgentStatusFromTitle(title)).toBeNull()
+    }
+  )
+
+  // Why: keyword/spinner/prefix titles still classify — the defer only covers
+  // name-only titles, so a hook agent's explicit status is not swallowed.
+  it.each([
+    ['Hermes ready', 'idle'],
+    ['Hermes working', 'working'],
+    ['⠋ Hermes', 'working'],
+    ['Hermes - action required', 'permission'],
+    ['. Hermes', 'working'],
+    ['* Hermes', 'idle'],
+    ['agy ready', 'idle'],
+    ['⠋ agy', 'working']
+  ] as const)('still classifies explicit-status hook title %j as %s', (title, expected) => {
+    expect(detectAgentStatusFromTitle(title)).toBe(expected)
+  })
+
+  // Why: 'antigravity' is a legacy agent name, so a bare legacy-named title keeps
+  // its idle default (the defer is scoped to non-legacy name-only titles).
+  it('keeps the idle default for a bare legacy-named title', () => {
+    expect(detectAgentStatusFromTitle('Antigravity')).toBe('idle')
+  })
+})
+
 describe('Cursor agent title identity', () => {
   // Why: the accepted vocabulary is the set of labels Orca actually synthesizes for Cursor.
   // Pin it to that profile so renaming a label there cannot silently drop @cursor to zero

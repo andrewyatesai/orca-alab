@@ -161,7 +161,8 @@ const MESSAGES_FRESH_SQL: &str = r#"CREATE TABLE messages (
         sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
         delivered_at  TEXT,
-        sender_pane_key TEXT
+        sender_pane_key TEXT,
+        recipient_pane_key TEXT
       )"#;
 
 const TASKS_FRESH_SQL: &str = r#"CREATE TABLE tasks (
@@ -233,7 +234,7 @@ const MESSAGES_MIGRATED_SQL: &str = r#"CREATE TABLE "messages" (
               sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
               created_at    TEXT NOT NULL DEFAULT (datetime('now')),
               delivered_at  TEXT
-            , sender_pane_key TEXT)"#;
+            , sender_pane_key TEXT, recipient_pane_key TEXT)"#;
 
 // ALTER TABLE ADD COLUMN appends `, <col> ...` before the closing paren.
 const TASKS_MIGRATED_SQL: &str = r#"CREATE TABLE tasks (
@@ -376,7 +377,7 @@ fn fresh_open_matches_ts_fresh_database() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 6, "fresh DB lands on SCHEMA_VERSION");
+    assert_eq!(user_version(&conn), 7, "fresh DB lands on SCHEMA_VERSION");
     let journal: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
     assert_eq!(journal, "wal", "journal_mode=WAL persists in the DB file");
     assert_master_matches(&dump_master(&conn), &expected_fresh_master());
@@ -398,15 +399,15 @@ fn v1_database_migrates_to_current_preserving_data() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 6);
+    assert_eq!(user_version(&conn), 7);
     assert_master_matches(&dump_master(&conn), &expected_migrated_v1_master());
 
     // Row-level goldens from the TS-migrated fixture.
     assert_eq!(
         dump_rows(&conn, "messages", "sequence"),
         vec![
-            r#"id=msg_a1|from_handle=coordinator|to_handle=worker-1|subject=first|body=body one|type=dispatch|priority=high|thread_id=thread-1|payload={"k":1}|read=1|sequence=1|created_at=2025-01-02 03:04:05|delivered_at=NULL|sender_pane_key=NULL"#,
-            "id=msg_a2|from_handle=worker-1|to_handle=coordinator|subject=second|body=|type=status|priority=normal|thread_id=NULL|payload=NULL|read=0|sequence=2|created_at=2025-01-02 03:04:06|delivered_at=NULL|sender_pane_key=NULL",
+            r#"id=msg_a1|from_handle=coordinator|to_handle=worker-1|subject=first|body=body one|type=dispatch|priority=high|thread_id=thread-1|payload={"k":1}|read=1|sequence=1|created_at=2025-01-02 03:04:05|delivered_at=NULL|sender_pane_key=NULL|recipient_pane_key=NULL"#,
+            "id=msg_a2|from_handle=worker-1|to_handle=coordinator|subject=second|body=|type=status|priority=normal|thread_id=NULL|payload=NULL|read=0|sequence=2|created_at=2025-01-02 03:04:06|delivered_at=NULL|sender_pane_key=NULL|recipient_pane_key=NULL",
         ]
     );
     assert_eq!(
@@ -450,6 +451,7 @@ fn v1_database_migrates_to_current_preserving_data() {
         thread_id: None,
         payload: None,
         sender_pane_key: None,
+        recipient_pane_key: None,
     })
     .unwrap();
 }
@@ -467,7 +469,7 @@ fn already_current_open_is_a_noop() {
         let conn = Connection::open(&path).unwrap();
         (user_version(&conn), dump_master(&conn), dump_rows(&conn, "tasks", "id"))
     };
-    assert_eq!(version_before, 6);
+    assert_eq!(version_before, 7);
 
     drop(open_orchestration(&path).unwrap());
 
@@ -529,4 +531,67 @@ fn failed_migration_rolls_back_atomically() {
         )
         .unwrap();
     assert!(!messages_sql.contains("'heartbeat'"), "messages CHECK untouched after rollback");
+}
+
+// ── (e) v6 → v7 ladder row: recipient_pane_key lands via ALTER, data intact ──
+
+#[test]
+fn v6_database_migrates_to_v7_adding_recipient_pane_key() {
+    let path = temp_db_path("v6-to-v7");
+    {
+        // A v6 DB is the current fresh schema minus recipient_pane_key.
+        let fixture = Connection::open(&path).unwrap();
+        fixture
+            .execute_batch(&format!(
+                "{};\nPRAGMA user_version = 6;",
+                MESSAGES_FRESH_SQL.replace(",\n        recipient_pane_key TEXT", "")
+            ))
+            .unwrap();
+        fixture
+            .execute_batch(
+                "INSERT INTO messages (id, from_handle, to_handle, subject, sender_pane_key, created_at)
+                 VALUES ('msg_v6', 'coord', 'worker-1', 'pre-v7', 'tab_1:leaf_1', '2025-01-02 03:04:05')",
+            )
+            .unwrap();
+    }
+
+    drop(open_orchestration(&path).unwrap());
+
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(user_version(&conn), 7, "v6 ladder row advances to v7");
+    let messages_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    // ALTER TABLE ADD COLUMN appends before the closing paren.
+    assert!(messages_sql.ends_with(", recipient_pane_key TEXT)"), "column added via ALTER: {messages_sql}");
+    assert_eq!(
+        dump_rows(&conn, "messages", "sequence"),
+        vec![
+            "id=msg_v6|from_handle=coord|to_handle=worker-1|subject=pre-v7|body=|type=status|priority=normal|thread_id=NULL|payload=NULL|read=0|sequence=1|created_at=2025-01-02 03:04:05|delivered_at=NULL|sender_pane_key=tab_1:leaf_1|recipient_pane_key=NULL",
+        ]
+    );
+    drop(conn);
+
+    // Behavioral proof: the migrated DB persists + returns the new column.
+    let db = open_orchestration(&path).unwrap();
+    let stored = db
+        .send_message(&NewMessage {
+            id: "msg_v7".to_string(),
+            from_handle: "coord".to_string(),
+            to_handle: "worker-1".to_string(),
+            subject: "post-v7".to_string(),
+            body: String::new(),
+            message_type: "status".to_string(),
+            priority: "normal".to_string(),
+            thread_id: None,
+            payload: None,
+            sender_pane_key: None,
+            recipient_pane_key: Some("tab_1:leaf_1".to_string()),
+        })
+        .unwrap();
+    assert_eq!(stored.recipient_pane_key.as_deref(), Some("tab_1:leaf_1"));
 }

@@ -12,6 +12,7 @@ fn msg(id: &str, to: &str, subject: &str) -> NewMessage {
         thread_id: None,
         payload: None,
         sender_pane_key: None,
+        recipient_pane_key: None,
     }
 }
 

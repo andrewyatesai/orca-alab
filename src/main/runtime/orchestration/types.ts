@@ -33,6 +33,7 @@ export type MessageRow = {
   created_at: string
   delivered_at: string | null
   sender_pane_key: string | null
+  recipient_pane_key: string | null
 }
 
 export type TaskRow = {

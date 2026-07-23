@@ -55,7 +55,8 @@ export type RustOrchestrationStoreHandle = {
     priority: string,
     threadId: string | null,
     payload: string | null,
-    senderPaneKey: string | null
+    senderPaneKey: string | null,
+    recipientPaneKey: string | null
   ): string
   getMessageById(id: string): string | null
   /** Rewrite a superseded worker_done/heartbeat into an audit-only rejection. */

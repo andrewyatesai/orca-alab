@@ -104,6 +104,7 @@ fn run_op_sequence(input: &Value) -> Value {
                     thread_id: opt_str_field(op, "threadId"),
                     payload: opt_str_field(op, "payload"),
                     sender_pane_key: opt_str_field(op, "senderPaneKey"),
+                    recipient_pane_key: opt_str_field(op, "recipientPaneKey"),
                 };
                 let ok = db.send_message(&message).is_ok();
                 if ok {

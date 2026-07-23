@@ -96,9 +96,12 @@ export class OrchestrationDb {
     threadId?: string
     payload?: string
     senderPaneKey?: string
+    recipientPaneKey?: string
   }): MessageRow {
     // senderPaneKey is the remint-stable pane identity persisted with the row so
     // worker_done/heartbeat lifecycle authority survives handle remints (v6 col).
+    // recipientPaneKey lets delivery follow the pane after the addressed handle
+    // goes stale (#9163, v7 col).
     return messageRowFromJson(
       this.store.insertMessage(
         generateId('msg'),
@@ -110,7 +113,8 @@ export class OrchestrationDb {
         msg.priority ?? 'normal',
         msg.threadId ?? null,
         msg.payload ?? null,
-        msg.senderPaneKey ?? null
+        msg.senderPaneKey ?? null,
+        msg.recipientPaneKey ?? null
       )
     )
   }

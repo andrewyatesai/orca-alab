@@ -1009,6 +1009,7 @@ class InMemoryOrchestrationMessages {
     priority?: MessagePriority
     threadId?: string
     payload?: string
+    recipientPaneKey?: string
   }): MessageRow {
     this.sequence += 1
     const row: MessageRow = {
@@ -1025,7 +1026,8 @@ class InMemoryOrchestrationMessages {
       sequence: this.sequence,
       created_at: '1970-01-01 00:00:00',
       delivered_at: null,
-      sender_pane_key: null
+      sender_pane_key: null,
+      recipient_pane_key: msg.recipientPaneKey ?? null
     }
     this.messages.push(row)
     return row
@@ -15609,6 +15611,126 @@ describe('OrcaRuntimeService', () => {
 
     const read = await runtime.readTerminal(handle)
     expect(read.tail).toEqual(['after unavailable'])
+  })
+
+  // RD-9163 ask 3: one PTY must never expose two live handle aliases.
+  function issueHandleForLeafKey(runtime: OrcaRuntimeService, leafKey: string): string {
+    const internals = runtime as unknown as {
+      leaves: Map<string, unknown>
+      issueHandle: (leaf: unknown) => string
+    }
+    const leaf = internals.leaves.get(leafKey)
+    if (!leaf) {
+      throw new Error(`expected leaf record for ${leafKey}`)
+    }
+    return internals.issueHandle(leaf)
+  }
+
+  it('create and list return one canonical handle when the leaf handle was minted before the PTY bound', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    const preAllocated = runtime.preAllocateHandleForPty('pty-1')
+    // Reveal window: the renderer tab exists (and mints a leaf handle) before the PTY binds.
+    syncSinglePty(runtime, null)
+    const leafMinted = issueHandleForLeafKey(runtime, 'tab-1::pane:1')
+    expect(leafMinted).not.toBe(preAllocated)
+
+    // Graph sync binds the PTY — the pre-allocated agent identity must win the mint.
+    syncSinglePty(runtime)
+    expect(issueHandleForLeafKey(runtime, 'tab-1::pane:1')).toBe(preAllocated)
+    // Critic note 2: retirement cleared handleByLeafKey, so a SUBSEQUENT issue
+    // call must not re-mint the retired alias from a stale map entry.
+    expect(issueHandleForLeafKey(runtime, 'tab-1::pane:1')).toBe(preAllocated)
+
+    const listed = (await runtime.listTerminals()).terminals.map((t) => t.handle)
+    expect(listed).toEqual([preAllocated])
+
+    // The retired leaf-minted alias fails loud — two live ids was the reported bug.
+    runtime.onPtyData('pty-1', 'ready\n', 100)
+    await expect(runtime.readTerminal(leafMinted)).rejects.toThrow('terminal_handle_stale')
+    await expect(runtime.readTerminal(preAllocated)).resolves.toMatchObject({
+      handle: preAllocated,
+      tail: ['ready']
+    })
+  })
+
+  it('leaf-minted waiters are rejected stale when the pre-allocated handle takes over', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.preAllocateHandleForPty('pty-1')
+    syncSinglePty(runtime, null)
+    const leafMinted = issueHandleForLeafKey(runtime, 'tab-1::pane:1')
+
+    const wait = runtime.waitForTerminal(leafMinted, { condition: 'exit' })
+    // Binding the PTY retires the leaf-minted alias; its waiters must fail fast.
+    syncSinglePty(runtime)
+    await expect(wait).rejects.toThrow('terminal_handle_stale')
+  })
+
+  it('pane-key fallback delivers a pending message after the pane remints its handle', async () => {
+    vi.useFakeTimers()
+    try {
+      const leafId = '11111111-1111-4111-8111-111111111111'
+      const syncUuidLeaf = (runtime: OrcaRuntimeService, ptyId: string): void => {
+        runtime.attachWindow(1)
+        runtime.syncWindowGraph(1, {
+          tabs: [
+            {
+              tabId: 'tab-1',
+              worktreeId: TEST_WORKTREE_ID,
+              title: 'Codex',
+              activeLeafId: leafId,
+              layout: null
+            }
+          ],
+          leaves: [
+            {
+              tabId: 'tab-1',
+              worktreeId: TEST_WORKTREE_ID,
+              leafId,
+              paneRuntimeId: 1,
+              ptyId,
+              paneTitle: null
+            }
+          ]
+        })
+      }
+      const paneKey = `tab-1:${leafId}`
+      const runtime = new OrcaRuntimeService(store)
+      const db = new InMemoryOrchestrationMessages()
+      const write = vi.fn().mockReturnValue(true)
+      setInMemoryOrchestrationMessages(runtime, db)
+      runtime.setPtyController({
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+      syncUuidLeaf(runtime, 'pty-1')
+
+      const [terminal] = (await runtime.listTerminals()).terminals
+      db.insertMessage({
+        from: 'term_sender',
+        to: terminal.handle,
+        subject: 'hello',
+        recipientPaneKey: paneKey
+      })
+
+      // The pane's PTY is replaced (agent relaunch): the old handle goes stale
+      // and the same pane key now resolves a reminted handle.
+      syncUuidLeaf(runtime, 'pty-2')
+      runtime.onPtyData('pty-2', '\x1b]0;Codex working\x07', 100)
+      runtime.onPtyData('pty-2', '\x1b]0;Codex done\x07', 101)
+      const [reminted] = (await runtime.listTerminals()).terminals
+      expect(reminted.handle).not.toBe(terminal.handle)
+
+      // Without the persisted pane key the stale handle stays undeliverable.
+      runtime.deliverPendingMessagesForHandle(terminal.handle)
+      expect(write).not.toHaveBeenCalled()
+
+      // With it, the row addressed to the stale handle injects into the same pane's current terminal.
+      runtime.deliverPendingMessagesForHandle(terminal.handle, paneKey)
+      expect(write).toHaveBeenCalledWith('pty-2', expect.stringContaining('Subject: hello'))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps runtime-created PTY handles valid after graph unavailable', async () => {

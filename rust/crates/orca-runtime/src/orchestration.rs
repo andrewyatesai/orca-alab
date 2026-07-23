@@ -27,6 +27,9 @@ pub struct NewMessage {
     pub thread_id: Option<String>,
     pub payload: Option<String>,
     pub sender_pane_key: Option<String>,
+    // Why: recorded at send time so delivery can re-resolve the pane's current
+    // handle after the addressed handle goes stale (#9163).
+    pub recipient_pane_key: Option<String>,
 }
 
 // Row structs are FULL rows (every column) with field names + `Serialize` output
@@ -49,6 +52,7 @@ pub struct Message {
     pub created_at: String,
     pub delivered_at: Option<String>,
     pub sender_pane_key: Option<String>,
+    pub recipient_pane_key: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -117,7 +121,7 @@ pub struct CoordinatorRun {
 
 // Column lists keep every SELECT and its row_to_* reader in lock-step order.
 const MESSAGE_COLUMNS: &str =
-    "id, from_handle, to_handle, subject, body, type, priority, thread_id, payload, read, sequence, created_at, delivered_at, sender_pane_key";
+    "id, from_handle, to_handle, subject, body, type, priority, thread_id, payload, read, sequence, created_at, delivered_at, sender_pane_key, recipient_pane_key";
 const TASK_COLUMNS: &str =
     "id, parent_id, created_by_terminal_handle, task_title, display_name, spec, status, deps, result, created_at, completed_at";
 const DISPATCH_COLUMNS: &str =
@@ -165,12 +169,12 @@ impl OrchestrationDb {
     /// the `msg_<hex>` id shape stable.
     pub fn send_message(&self, message: &NewMessage) -> Result<Message, StoreError> {
         self.db.connection().execute(
-            "INSERT INTO messages (id, from_handle, to_handle, subject, body, type, priority, thread_id, payload, sender_pane_key)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO messages (id, from_handle, to_handle, subject, body, type, priority, thread_id, payload, sender_pane_key, recipient_pane_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 message.id, message.from_handle, message.to_handle, message.subject, message.body,
                 message.message_type, message.priority, message.thread_id, message.payload,
-                message.sender_pane_key,
+                message.sender_pane_key, message.recipient_pane_key,
             ],
         )?;
         self.get_message_by_id(&message.id)?
@@ -994,6 +998,7 @@ fn row_to_message(row: &SqlRow<'_>) -> rusqlite::Result<Message> {
         created_at: row.get(11)?,
         delivered_at: row.get(12)?,
         sender_pane_key: row.get(13)?,
+        recipient_pane_key: row.get(14)?,
     })
 }
 

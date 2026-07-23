@@ -23605,19 +23605,59 @@ export class OrcaRuntimeService {
     return this.getLeavesForPty(ptyId)[0] ?? null
   }
 
-  deliverPendingMessagesForHandle(handle: string): void {
+  deliverPendingMessagesForHandle(handle: string, recipientPaneKey?: string): void {
     try {
       const { leaf } = this.getLiveLeafForHandle(handle)
       if (this.hasSatisfiedTuiIdle(leaf)) {
         this.deliverPendingMessages(leaf)
       }
+      return
     } catch {
-      // Unknown/stale handles can't be pushed now; the persisted message stays available via explicit check or future idle delivery.
+      // Stale handle — fall through to the pane-key fallback below (#9163).
+    }
+    // Why: delivery follows the pane, not the frozen handle — a renderer reload
+    // remints handles, but the message row's pane key still names the live pane.
+    const leaf = recipientPaneKey ? this.getLiveLeafForPaneKeyFallback(recipientPaneKey) : null
+    if (leaf && this.hasSatisfiedTuiIdle(leaf)) {
+      // The DB rows are addressed to the stale handle; query by it, inject into the current pane.
+      this.deliverPendingMessages(leaf, handle)
+    }
+    // Pane gone too: keep the existing silent skip — the persisted message stays available via explicit check.
+  }
+
+  // Why: the fallback must not trust a leaf-key hit alone — the current handle's
+  // liveness checks (epoch/ptyGeneration) are what prove the pane is still real.
+  private getLiveLeafForPaneKeyFallback(paneKey: string): RuntimeLeafRecord | null {
+    try {
+      const currentHandle = this.getTerminalHandleForPaneKey(paneKey)
+      if (!currentHandle) {
+        return null
+      }
+      return this.getLiveLeafForHandle(currentHandle).leaf
+    } catch {
+      return null
     }
   }
 
   // Why: wake blocking orchestration.check --wait calls on this handle so they return the new message immediately instead of polling.
-  notifyMessageArrived(handle: string, messageType?: string): void {
+  notifyMessageArrived(handle: string, messageType?: string, recipientPaneKey?: string): void {
+    this.notifyMessageWaiters(handle, messageType)
+    if (!recipientPaneKey) {
+      return
+    }
+    // Why: a check --wait opened under the pane's reminted handle must also wake
+    // when a message addressed to the pane's previous handle arrives (#9163).
+    try {
+      const currentHandle = this.getTerminalHandleForPaneKey(recipientPaneKey)
+      if (currentHandle && currentHandle !== handle) {
+        this.notifyMessageWaiters(currentHandle, messageType)
+      }
+    } catch {
+      // Graph not ready — handle-keyed waiters were already notified above.
+    }
+  }
+
+  private notifyMessageWaiters(handle: string, messageType?: string): void {
     const waiters = this.messageWaitersByHandle.get(handle)
     if (!waiters || waiters.size === 0) {
       return
@@ -23877,6 +23917,13 @@ export class OrcaRuntimeService {
         existingRecord.ptyId === leaf.ptyId &&
         existingRecord.ptyGeneration === leaf.ptyGeneration
       ) {
+        // Why: the ptyId-keyed handle is the canonical agent identity (#9163);
+        // a leaf-minted alias must retire so create and list converge on one id.
+        const preAllocated = leaf.ptyId ? this.handleByPtyId.get(leaf.ptyId) : undefined
+        if (preAllocated && preAllocated !== existingHandle) {
+          this.invalidateLeafHandle(leafKey)
+          return this.adoptPreAllocatedHandle(leaf) ?? existingHandle
+        }
         return existingHandle
       }
     }
@@ -23908,6 +23955,11 @@ export class OrcaRuntimeService {
       return null
     }
     const leafKey = this.getLeafKey(leaf.tabId, leaf.leafId)
+    // Why: installing the canonical handle must retire a differing leaf-minted
+    // alias, or the pane keeps two live ids (#9163 create/list split).
+    if ((this.handleByLeafKey.get(leafKey) ?? preAllocated) !== preAllocated) {
+      this.invalidateLeafHandle(leafKey)
+    }
     this.handles.set(preAllocated, {
       handle: preAllocated,
       runtimeId: this.runtimeId,
@@ -23991,6 +24043,26 @@ export class OrcaRuntimeService {
     const record = handle ? this.handles.get(handle) : null
     if (!handle || !record || record.ptyId !== null || ptyId === null) {
       return false
+    }
+    const preAllocated = this.handleByPtyId.get(ptyId)
+    if (preAllocated && preAllocated !== handle) {
+      // Why: the PTY already has a pre-allocated agent-identity handle (#9163);
+      // binding it to the leaf-minted one would leave one PTY with two live ids.
+      // Retire the leaf mint (waiters reject stale, leafKey mapping cleared) and
+      // install the canonical handle for this leaf.
+      this.invalidateLeafHandle(leafKey)
+      this.handles.set(preAllocated, {
+        handle: preAllocated,
+        runtimeId: this.runtimeId,
+        rendererGraphEpoch: this.rendererGraphEpoch,
+        worktreeId: record.worktreeId,
+        tabId: record.tabId,
+        leafId: record.leafId,
+        ptyId,
+        ptyGeneration
+      })
+      this.handleByLeafKey.set(leafKey, preAllocated)
+      return true
     }
     this.handles.set(handle, { ...record, ptyId, ptyGeneration })
     return true
@@ -24385,12 +24457,15 @@ export class OrcaRuntimeService {
   }
 
   // Why: push-on-idle delivery is event-driven (no polling) because the runtime owns both the message store and terminal status detection.
-  private deliverPendingMessages(leaf: RuntimeLeafRecord): void {
+  // `addressedHandle` overrides the inbox key for the #9163 pane-key fallback:
+  // rows addressed to a now-stale handle inject into this (same-pane) leaf.
+  private deliverPendingMessages(leaf: RuntimeLeafRecord, addressedHandle?: string): void {
     if (!this._orchestrationDb) {
       return
     }
 
-    const handle = this.handleByLeafKey.get(this.getLeafKey(leaf.tabId, leaf.leafId))
+    const handle =
+      addressedHandle ?? this.handleByLeafKey.get(this.getLeafKey(leaf.tabId, leaf.leafId))
     if (!handle) {
       return
     }

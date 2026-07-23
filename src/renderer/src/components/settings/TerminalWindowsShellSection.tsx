@@ -51,6 +51,8 @@ export function TerminalWindowsShellSection({
   const showGitBashOption = gitBashAvailable || windowsShell === WINDOWS_GIT_BASH_SHELL
   // Why: keep a selected-but-missing shell visible (disabled) so the setting is never silently hidden — same rule as Git Bash.
   const showNushellOption = nushellAvailable || windowsShell === WINDOWS_NUSHELL_SHELL
+  // Why (#9779): selecting WSL here would omit its required distro, but an existing WSL default must stay visible.
+  const showWslOption = windowsShell === 'wsl.exe'
 
   return (
     <section key="windows-shell" className="space-y-3">
@@ -163,6 +165,22 @@ export function TerminalWindowsShellSection({
                             'Nushell'
                           ),
                           disabled: !nushellAvailable
+                        }
+                      ]
+                    : []),
+                  ...(showWslOption
+                    ? [
+                        {
+                          value: 'wsl.exe',
+                          label: windowsShellLabel(
+                            'wsl.exe',
+                            translate('auto.components.settings.TerminalPane.b637dd57a7', 'WSL')
+                          ),
+                          ariaLabel: translate(
+                            'auto.components.settings.TerminalPane.b637dd57a7',
+                            'WSL'
+                          ),
+                          disabled: true
                         }
                       ]
                     : []),

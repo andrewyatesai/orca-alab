@@ -73,6 +73,36 @@ describe('TerminalWindowsShellSection', () => {
     expect(nushellOption).toBeChecked()
   })
 
+  it('keeps a persisted WSL default visible as a disabled selected segment (#9779)', () => {
+    render(
+      <TerminalWindowsShellSection
+        updateSettings={vi.fn()}
+        windowsShell="wsl.exe"
+        gitBashAvailable={false}
+        nushellAvailable={false}
+      />
+    )
+
+    const wslOption = screen.getByRole('radio', { name: 'WSL' })
+    expect(wslOption).toBeDisabled()
+    expect(wslOption).toBeChecked()
+    // Why (#9779): PowerShell must not be shown as selected when the real default is WSL.
+    expect(screen.getByRole('radio', { name: 'PowerShell' })).not.toBeChecked()
+  })
+
+  it('does not offer WSL when the default shell is not WSL (#9779)', () => {
+    render(
+      <TerminalWindowsShellSection
+        updateSettings={vi.fn()}
+        windowsShell="powershell.exe"
+        gitBashAvailable={false}
+        nushellAvailable={false}
+      />
+    )
+
+    expect(screen.queryByRole('radio', { name: 'WSL' })).not.toBeInTheDocument()
+  })
+
   it('persists a custom absolute path typed into the Custom… input (#7467)', async () => {
     const user = userEvent.setup()
     const updateSettings = vi.fn()

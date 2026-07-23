@@ -254,6 +254,19 @@ export class AtermTerminal {
         return ret !== 0;
     }
     /**
+     * Promote up to `max_lines` staged lines into the compressed store
+     * (`0` = the render-frame batch size) and apply any pending global-share
+     * change. Returns the lines STILL staged. For hosts draining a pane
+     * whose `render()` is throttled — see the glue contract in the module
+     * docs.
+     * @param {number} max_lines
+     * @returns {number}
+     */
+    drain_scrollback_backlog(max_lines) {
+        const ret = wasm.atermterminal_drain_scrollback_backlog(this.__wbg_ptr, max_lines);
+        return ret >>> 0;
+    }
+    /**
      * Milliseconds until the next rain engine tick, or `undefined` when
      * active frame-rate motion needs rAF (and when every effect is idle).
      * @returns {number | undefined}
@@ -707,6 +720,32 @@ export class AtermTerminal {
         wasm.atermterminal_predict_session_reset(this.__wbg_ptr);
     }
     /**
+     * Number of dirty present bands from the LAST `render()`. `0` = the
+     * frame is byte-identical to the previous one — skip RGBA reads and
+     * `putImageData` entirely. Read together with
+     * [`present_bands_ptr`](Self::present_bands_ptr).
+     * @returns {number}
+     */
+    present_band_count() {
+        const ret = wasm.atermterminal_present_band_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Byte offset (in wasm linear memory) of the packed dirty-band array:
+     * `present_band_count()` bands of 4 `i32`s — `x, y, w, h`,
+     * FRAME-ABSOLUTE device px, non-overlapping, top-to-bottom. Same read
+     * discipline as `rgba_ptr`: consume synchronously after `render()`,
+     * never cache the JS view across engine calls. The host presents each
+     * band with `putImageData(imageData, 0, 0, x, y, w, h)` over the SAME
+     * full-frame ImageData `rgba_ptr` backs. See the module docs for the
+     * overlay/second-canvas contract.
+     * @returns {number}
+     */
+    present_bands_ptr() {
+        const ret = wasm.atermterminal_present_bands_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * Feed raw PTY output bytes into the engine.
      * @param {Uint8Array} bytes
      */
@@ -958,6 +997,58 @@ export class AtermTerminal {
      */
     scroll_to_top() {
         wasm.atermterminal_scroll_to_top(this.__wbg_ptr);
+    }
+    /**
+     * Lines currently staged for promotion (the compress backlog).
+     * @returns {number}
+     */
+    scrollback_backlog_lines() {
+        const ret = wasm.atermterminal_scrollback_backlog_lines(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * This pane's EFFECTIVE scrollback budget in bytes (per-pane budget
+     * after the module-global equal-share cap).
+     * @returns {number}
+     */
+    scrollback_budget_effective() {
+        const ret = wasm.atermterminal_scrollback_budget_effective(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Bytes currently held by the tiered scrollback store (hot + warm + cold,
+     * including caches/overhead). Staged-but-unpromoted lines are not yet
+     * counted; `drain_scrollback_backlog` settles them.
+     * @returns {number}
+     */
+    scrollback_memory_used() {
+        const ret = wasm.atermterminal_scrollback_memory_used(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Current scrollback memory-pressure watermark: 0 = green, 1 = yellow
+     * (eager compression active), 2 = red (throttle recommended) — the
+     * store's budget watermark, co-landed with the truncation counter
+     * (audit E10a) so budget pressure is observable before loss begins.
+     * @returns {number}
+     */
+    scrollback_pressure() {
+        const ret = wasm.atermterminal_scrollback_pressure(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Monotonic count of history lines LOST to non-user-requested truncation
+     * (audit E10a): flood-backpressure staged-line drops, reflow-window cap
+     * drops, and memory-pressure store evictions. The OUT-OF-BAND truncation
+     * signal — the engine never injects a sentinel line into content; the
+     * host polls this (e.g. per frame settle) and surfaces the loss in its
+     * own chrome. `f64` because a sustained flood can outgrow `u32` (exact
+     * to 2^53).
+     * @returns {number}
+     */
+    scrollback_truncated_lines() {
+        const ret = wasm.atermterminal_scrollback_truncated_lines(this.__wbg_ptr);
+        return ret;
     }
     /**
      * Search the full retained buffer (scrollback + visible) for `query`,
@@ -1608,14 +1699,35 @@ export class AtermTerminal {
         wasm.atermterminal_set_px(this.__wbg_ptr, px);
     }
     /**
+     * Set this pane's scrollback byte budget (the tiered store evicts oldest
+     * history to stay inside it). The module-global budget can only lower
+     * the effective value, never raise it past this. `0` clamps to the
+     * engine's 1-byte floor (retain ~nothing) — pass the real budget.
+     * @param {number} bytes
+     */
+    set_scrollback_budget(bytes) {
+        wasm.atermterminal_set_scrollback_budget(this.__wbg_ptr, bytes);
+    }
+    /**
+     * Set the MODULE-GLOBAL scrollback budget shared by every pane of this
+     * wasm module/worker (`0` = unlimited, the default): each pane's
+     * effective budget becomes `min(its own budget, global / live panes)`,
+     * applied as each pane is next rendered/drained.
+     * @param {number} bytes
+     */
+    static set_scrollback_global_budget(bytes) {
+        wasm.atermterminal_set_scrollback_global_budget(bytes);
+    }
+    /**
      * Set the engine's scrollback line limit (history lines retained behind the live
-     * viewport). `lines == 0` means unlimited (bounded only by host memory). This
-     * engine is ring-only (no tiered store), so the limit re-caps the retention ring
-     * itself: shrinking evicts the oldest lines immediately, growing extends retention
-     * lazily (no eager allocation). Targets the primary-content grid — reaching the
-     * saved primary through an alt screen; the alt buffer keeps its spec'd zero
-     * scrollback — and re-clamps the scroll position. Without this the engine keeps
-     * its construction default (a 10k-line ring) on every pane.
+     * viewport). `lines == 0` means unlimited (bounded only by the byte budgets). The
+     * limit is ONE TOTAL retention count (audit E1) across the hot ring, staged
+     * lines, and the tiered store together — the store takes the remainder after the
+     * ring's fixed share, so "retain N lines" retains N, not N + ring. Targets the
+     * primary-content grid — reaching the saved primary through an alt screen; the
+     * alt buffer keeps its spec'd zero scrollback — and re-clamps the scroll
+     * position. Without this the engine keeps its construction default
+     * (`DEFAULT_LINE_LIMIT`, 100k total).
      * @param {number} lines
      */
     set_scrollback_limit(lines) {
@@ -2016,6 +2128,24 @@ export class AtermTerminal {
             wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         }
         return v1;
+    }
+    /**
+     * BUILD-truth tier capabilities of this wasm module as one JSON object:
+     * `{"coldCodec":"lz4"|"zstd","diskSpill":bool}`. Constant per build —
+     * the host brands budget math/telemetry with it instead of assuming.
+     * @returns {string}
+     */
+    static tier_capabilities_json() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.atermterminal_tier_capabilities_json();
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * The window title (OSC 0/2), or `None` when unset — replaces the separate

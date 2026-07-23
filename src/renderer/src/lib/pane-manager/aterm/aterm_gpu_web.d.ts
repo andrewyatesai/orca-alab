@@ -77,6 +77,12 @@ export class AtermGpuTerminal {
      */
     drain_bell(): boolean;
     /**
+     * Promote up to `max_lines` staged lines into the compressed store
+     * (`0` = the render-frame batch size). Returns the lines STILL staged.
+     * For hosts draining a pane whose render is throttled.
+     */
+    drain_scrollback_backlog(max_lines: number): number;
+    /**
      * Milliseconds until the next rain engine tick, or `undefined` when
      * active frame-rate motion needs rAF (and when every effect is idle).
      */
@@ -399,6 +405,31 @@ export class AtermGpuTerminal {
      */
     scroll_to_top(): void;
     /**
+     * Lines currently staged for promotion (the compress backlog).
+     */
+    scrollback_backlog_lines(): number;
+    /**
+     * This pane's EFFECTIVE scrollback budget in bytes (per-pane budget
+     * after the module-global equal-share cap).
+     */
+    scrollback_budget_effective(): number;
+    /**
+     * Bytes currently held by the tiered scrollback store (hot + warm + cold,
+     * including caches/overhead).
+     */
+    scrollback_memory_used(): number;
+    /**
+     * Current scrollback memory-pressure watermark: 0 green / 1 yellow /
+     * 2 red (audit E10a co-land — pressure observable before loss begins).
+     */
+    scrollback_pressure(): number;
+    /**
+     * Monotonic count of history lines LOST to non-user-requested truncation
+     * (audit E10a, out-of-band — no sentinel content). See the aterm-wasm
+     * twin for the full contract.
+     */
+    scrollback_truncated_lines(): number;
+    /**
      * Search the full retained buffer for `query`, returning matches as a flat
      * `[abs_line, start_col, len]` triplet array. Empty query / regex error →
      * empty array. `is_regex` compiles `query` as a regex (parity with aterm-wasm;
@@ -709,14 +740,26 @@ export class AtermGpuTerminal {
      */
     set_px(px: number): void;
     /**
+     * Set this pane's scrollback byte budget (the tiered store evicts oldest
+     * history to stay inside it). The module-global budget can only lower
+     * the effective value, never raise it past this.
+     */
+    set_scrollback_budget(bytes: number): void;
+    /**
+     * Set the MODULE-GLOBAL scrollback budget shared by every pane of this
+     * wasm module/worker (`0` = unlimited, the default).
+     */
+    static set_scrollback_global_budget(bytes: number): void;
+    /**
      * Set the engine's scrollback line limit (history lines retained behind the live
-     * viewport). `lines == 0` means unlimited (bounded only by host memory). This
-     * engine is ring-only (no tiered store), so the limit re-caps the retention ring
-     * itself: shrinking evicts the oldest lines immediately, growing extends retention
-     * lazily (no eager allocation). Targets the primary-content grid — reaching the
-     * saved primary through an alt screen; the alt buffer keeps its spec'd zero
-     * scrollback — and re-clamps the scroll position. Without this the engine keeps
-     * its construction default (a 10k-line ring) on every pane.
+     * viewport). `lines == 0` means unlimited (bounded only by the byte budgets). The
+     * limit is ONE TOTAL retention count (audit E1) across the hot ring, staged
+     * lines, and the tiered store together — the store takes the remainder after the
+     * ring's fixed share, so "retain N lines" retains N, not N + ring. Targets the
+     * primary-content grid — reaching the saved primary through an alt screen; the
+     * alt buffer keeps its spec'd zero scrollback — and re-clamps the scroll
+     * position. Without this the engine keeps its construction default
+     * (`DEFAULT_LINE_LIMIT`, 100k total).
      */
     set_scrollback_limit(lines: number): void;
     /**
@@ -926,6 +969,11 @@ export class AtermGpuTerminal {
      * authoritative responder. Call after each `process`.
      */
     take_response(): Uint8Array | undefined;
+    /**
+     * BUILD-truth tier capabilities of this wasm module as one JSON object:
+     * `{"coldCodec":"lz4"|"zstd","diskSpill":bool}`.
+     */
+    static tier_capabilities_json(): string;
     /**
      * The window title (OSC 0/2), or `None` when unset (mirrors the CPU binding).
      */
@@ -1291,6 +1339,7 @@ export interface InitOutput {
     readonly atermgputerminal_display_offset: (a: number) => number;
     readonly atermgputerminal_display_origin_absolute: (a: number) => number;
     readonly atermgputerminal_drain_bell: (a: number) => number;
+    readonly atermgputerminal_drain_scrollback_backlog: (a: number, b: number) => number;
     readonly atermgputerminal_effects_next_deadline_ms: (a: number) => [number, number];
     readonly atermgputerminal_encode_key: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly atermgputerminal_encode_mouse_motion: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -1348,6 +1397,11 @@ export interface InitOutput {
     readonly atermgputerminal_scroll_search_line_into_view: (a: number, b: number) => void;
     readonly atermgputerminal_scroll_to_bottom: (a: number) => void;
     readonly atermgputerminal_scroll_to_top: (a: number) => void;
+    readonly atermgputerminal_scrollback_backlog_lines: (a: number) => number;
+    readonly atermgputerminal_scrollback_budget_effective: (a: number) => number;
+    readonly atermgputerminal_scrollback_memory_used: (a: number) => number;
+    readonly atermgputerminal_scrollback_pressure: (a: number) => number;
+    readonly atermgputerminal_scrollback_truncated_lines: (a: number) => number;
     readonly atermgputerminal_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermgputerminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => number;
     readonly atermgputerminal_search_budgeted_cancel: (a: number) => void;
@@ -1396,6 +1450,8 @@ export interface InitOutput {
     readonly atermgputerminal_set_predictive_echo: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_set_primary_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_px: (a: number, b: number) => void;
+    readonly atermgputerminal_set_scrollback_budget: (a: number, b: number) => void;
+    readonly atermgputerminal_set_scrollback_global_budget: (a: number) => void;
     readonly atermgputerminal_set_scrollback_limit: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_fg: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_inactive: (a: number, b: number) => void;
@@ -1427,6 +1483,7 @@ export interface InitOutput {
     readonly atermgputerminal_take_notifications: (a: number) => [number, number];
     readonly atermgputerminal_take_osc_events: (a: number) => [number, number];
     readonly atermgputerminal_take_response: (a: number) => [number, number];
+    readonly atermgputerminal_tier_capabilities_json: () => [number, number];
     readonly atermgputerminal_title: (a: number) => [number, number];
     readonly atermgputerminal_width: (a: number) => number;
     readonly budgetedsearchresult_complete: (a: number) => number;
@@ -1450,9 +1507,9 @@ export interface InitOutput {
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly wasm_bindgen_2766a53e392c0a38___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__wasm_bindgen_2766a53e392c0a38___JsValue____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue__wasm_bindgen_2766a53e392c0a38___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

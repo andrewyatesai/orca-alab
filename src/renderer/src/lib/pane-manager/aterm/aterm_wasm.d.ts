@@ -77,6 +77,14 @@ export class AtermTerminal {
      */
     drain_bell(): boolean;
     /**
+     * Promote up to `max_lines` staged lines into the compressed store
+     * (`0` = the render-frame batch size) and apply any pending global-share
+     * change. Returns the lines STILL staged. For hosts draining a pane
+     * whose `render()` is throttled — see the glue contract in the module
+     * docs.
+     */
+    drain_scrollback_backlog(max_lines: number): number;
+    /**
      * Milliseconds until the next rain engine tick, or `undefined` when
      * active frame-rate motion needs rAF (and when every effect is idle).
      */
@@ -259,6 +267,24 @@ export class AtermTerminal {
      */
     predict_session_reset(): void;
     /**
+     * Number of dirty present bands from the LAST `render()`. `0` = the
+     * frame is byte-identical to the previous one — skip RGBA reads and
+     * `putImageData` entirely. Read together with
+     * [`present_bands_ptr`](Self::present_bands_ptr).
+     */
+    present_band_count(): number;
+    /**
+     * Byte offset (in wasm linear memory) of the packed dirty-band array:
+     * `present_band_count()` bands of 4 `i32`s — `x, y, w, h`,
+     * FRAME-ABSOLUTE device px, non-overlapping, top-to-bottom. Same read
+     * discipline as `rgba_ptr`: consume synchronously after `render()`,
+     * never cache the JS view across engine calls. The host presents each
+     * band with `putImageData(imageData, 0, 0, x, y, w, h)` over the SAME
+     * full-frame ImageData `rgba_ptr` backs. See the module docs for the
+     * overlay/second-canvas contract.
+     */
+    present_bands_ptr(): number;
+    /**
      * Feed raw PTY output bytes into the engine.
      */
     process(bytes: Uint8Array): void;
@@ -402,6 +428,38 @@ export class AtermTerminal {
      * Snap the viewport to the oldest retained scrollback line.
      */
     scroll_to_top(): void;
+    /**
+     * Lines currently staged for promotion (the compress backlog).
+     */
+    scrollback_backlog_lines(): number;
+    /**
+     * This pane's EFFECTIVE scrollback budget in bytes (per-pane budget
+     * after the module-global equal-share cap).
+     */
+    scrollback_budget_effective(): number;
+    /**
+     * Bytes currently held by the tiered scrollback store (hot + warm + cold,
+     * including caches/overhead). Staged-but-unpromoted lines are not yet
+     * counted; `drain_scrollback_backlog` settles them.
+     */
+    scrollback_memory_used(): number;
+    /**
+     * Current scrollback memory-pressure watermark: 0 = green, 1 = yellow
+     * (eager compression active), 2 = red (throttle recommended) — the
+     * store's budget watermark, co-landed with the truncation counter
+     * (audit E10a) so budget pressure is observable before loss begins.
+     */
+    scrollback_pressure(): number;
+    /**
+     * Monotonic count of history lines LOST to non-user-requested truncation
+     * (audit E10a): flood-backpressure staged-line drops, reflow-window cap
+     * drops, and memory-pressure store evictions. The OUT-OF-BAND truncation
+     * signal — the engine never injects a sentinel line into content; the
+     * host polls this (e.g. per frame settle) and surfaces the loss in its
+     * own chrome. `f64` because a sustained flood can outgrow `u32` (exact
+     * to 2^53).
+     */
+    scrollback_truncated_lines(): number;
     /**
      * Search the full retained buffer (scrollback + visible) for `query`,
      * returning matches as a flat `[abs_line, start_col, len]` triplet array so
@@ -751,14 +809,29 @@ export class AtermTerminal {
      */
     set_px(px: number): void;
     /**
+     * Set this pane's scrollback byte budget (the tiered store evicts oldest
+     * history to stay inside it). The module-global budget can only lower
+     * the effective value, never raise it past this. `0` clamps to the
+     * engine's 1-byte floor (retain ~nothing) — pass the real budget.
+     */
+    set_scrollback_budget(bytes: number): void;
+    /**
+     * Set the MODULE-GLOBAL scrollback budget shared by every pane of this
+     * wasm module/worker (`0` = unlimited, the default): each pane's
+     * effective budget becomes `min(its own budget, global / live panes)`,
+     * applied as each pane is next rendered/drained.
+     */
+    static set_scrollback_global_budget(bytes: number): void;
+    /**
      * Set the engine's scrollback line limit (history lines retained behind the live
-     * viewport). `lines == 0` means unlimited (bounded only by host memory). This
-     * engine is ring-only (no tiered store), so the limit re-caps the retention ring
-     * itself: shrinking evicts the oldest lines immediately, growing extends retention
-     * lazily (no eager allocation). Targets the primary-content grid — reaching the
-     * saved primary through an alt screen; the alt buffer keeps its spec'd zero
-     * scrollback — and re-clamps the scroll position. Without this the engine keeps
-     * its construction default (a 10k-line ring) on every pane.
+     * viewport). `lines == 0` means unlimited (bounded only by the byte budgets). The
+     * limit is ONE TOTAL retention count (audit E1) across the hot ring, staged
+     * lines, and the tiered store together — the store takes the remainder after the
+     * ring's fixed share, so "retain N lines" retains N, not N + ring. Targets the
+     * primary-content grid — reaching the saved primary through an alt screen; the
+     * alt buffer keeps its spec'd zero scrollback — and re-clamps the scroll
+     * position. Without this the engine keeps its construction default
+     * (`DEFAULT_LINE_LIMIT`, 100k total).
      */
     set_scrollback_limit(lines: number): void;
     /**
@@ -975,6 +1048,12 @@ export class AtermTerminal {
      * `process`; returns `None` when nothing is pending.
      */
     take_response(): Uint8Array | undefined;
+    /**
+     * BUILD-truth tier capabilities of this wasm module as one JSON object:
+     * `{"coldCodec":"lz4"|"zstd","diskSpill":bool}`. Constant per build —
+     * the host brands budget math/telemetry with it instead of assuming.
+     */
+    static tier_capabilities_json(): string;
     /**
      * The window title (OSC 0/2), or `None` when unset — replaces the separate
      * title channel that fed off the shadow xterm so snapshots keep window titles.
@@ -1338,6 +1417,7 @@ export interface InitOutput {
     readonly atermterminal_display_offset: (a: number) => number;
     readonly atermterminal_display_origin_absolute: (a: number) => number;
     readonly atermterminal_drain_bell: (a: number) => number;
+    readonly atermterminal_drain_scrollback_backlog: (a: number, b: number) => number;
     readonly atermterminal_effects_next_deadline_ms: (a: number) => [number, number];
     readonly atermterminal_encode_key: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly atermterminal_encode_mouse_motion: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -1372,6 +1452,8 @@ export interface InitOutput {
     readonly atermterminal_predict_reconcile: (a: number) => void;
     readonly atermterminal_predict_reset: (a: number) => void;
     readonly atermterminal_predict_session_reset: (a: number) => void;
+    readonly atermterminal_present_band_count: (a: number) => number;
+    readonly atermterminal_present_bands_ptr: (a: number) => number;
     readonly atermterminal_process: (a: number, b: number, c: number) => void;
     readonly atermterminal_process_str: (a: number, b: number, c: number) => void;
     readonly atermterminal_pump_reflow: (a: number) => number;
@@ -1394,6 +1476,11 @@ export interface InitOutput {
     readonly atermterminal_scroll_search_line_into_view: (a: number, b: number) => void;
     readonly atermterminal_scroll_to_bottom: (a: number) => void;
     readonly atermterminal_scroll_to_top: (a: number) => void;
+    readonly atermterminal_scrollback_backlog_lines: (a: number) => number;
+    readonly atermterminal_scrollback_budget_effective: (a: number) => number;
+    readonly atermterminal_scrollback_memory_used: (a: number) => number;
+    readonly atermterminal_scrollback_pressure: (a: number) => number;
+    readonly atermterminal_scrollback_truncated_lines: (a: number) => number;
     readonly atermterminal_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermterminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => number;
     readonly atermterminal_search_budgeted_cancel: (a: number) => void;
@@ -1442,6 +1529,8 @@ export interface InitOutput {
     readonly atermterminal_set_predictive_echo: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_primary_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_px: (a: number, b: number) => void;
+    readonly atermterminal_set_scrollback_budget: (a: number, b: number) => void;
+    readonly atermterminal_set_scrollback_global_budget: (a: number) => void;
     readonly atermterminal_set_scrollback_limit: (a: number, b: number) => void;
     readonly atermterminal_set_selection_fg: (a: number, b: number) => void;
     readonly atermterminal_set_selection_inactive: (a: number, b: number) => void;
@@ -1473,6 +1562,7 @@ export interface InitOutput {
     readonly atermterminal_take_notifications: (a: number) => [number, number];
     readonly atermterminal_take_osc_events: (a: number) => [number, number];
     readonly atermterminal_take_response: (a: number) => [number, number];
+    readonly atermterminal_tier_capabilities_json: () => [number, number];
     readonly atermterminal_title: (a: number) => [number, number];
     readonly atermterminal_width: (a: number) => number;
     readonly budgetedsearchresult_complete: (a: number) => number;

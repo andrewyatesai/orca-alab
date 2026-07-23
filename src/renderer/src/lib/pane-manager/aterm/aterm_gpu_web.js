@@ -267,6 +267,17 @@ export class AtermGpuTerminal {
         return ret !== 0;
     }
     /**
+     * Promote up to `max_lines` staged lines into the compressed store
+     * (`0` = the render-frame batch size). Returns the lines STILL staged.
+     * For hosts draining a pane whose render is throttled.
+     * @param {number} max_lines
+     * @returns {number}
+     */
+    drain_scrollback_backlog(max_lines) {
+        const ret = wasm.atermgputerminal_drain_scrollback_backlog(this.__wbg_ptr, max_lines);
+        return ret >>> 0;
+    }
+    /**
      * Milliseconds until the next rain engine tick, or `undefined` when
      * active frame-rate motion needs rAF (and when every effect is idle).
      * @returns {number | undefined}
@@ -974,6 +985,51 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_scroll_to_top(this.__wbg_ptr);
     }
     /**
+     * Lines currently staged for promotion (the compress backlog).
+     * @returns {number}
+     */
+    scrollback_backlog_lines() {
+        const ret = wasm.atermgputerminal_scrollback_backlog_lines(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * This pane's EFFECTIVE scrollback budget in bytes (per-pane budget
+     * after the module-global equal-share cap).
+     * @returns {number}
+     */
+    scrollback_budget_effective() {
+        const ret = wasm.atermgputerminal_scrollback_budget_effective(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Bytes currently held by the tiered scrollback store (hot + warm + cold,
+     * including caches/overhead).
+     * @returns {number}
+     */
+    scrollback_memory_used() {
+        const ret = wasm.atermgputerminal_scrollback_memory_used(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Current scrollback memory-pressure watermark: 0 green / 1 yellow /
+     * 2 red (audit E10a co-land — pressure observable before loss begins).
+     * @returns {number}
+     */
+    scrollback_pressure() {
+        const ret = wasm.atermgputerminal_scrollback_pressure(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Monotonic count of history lines LOST to non-user-requested truncation
+     * (audit E10a, out-of-band — no sentinel content). See the aterm-wasm
+     * twin for the full contract.
+     * @returns {number}
+     */
+    scrollback_truncated_lines() {
+        const ret = wasm.atermgputerminal_scrollback_truncated_lines(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * Search the full retained buffer for `query`, returning matches as a flat
      * `[abs_line, start_col, len]` triplet array. Empty query / regex error →
      * empty array. `is_regex` compiles `query` as a regex (parity with aterm-wasm;
@@ -1582,14 +1638,32 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_set_px(this.__wbg_ptr, px);
     }
     /**
+     * Set this pane's scrollback byte budget (the tiered store evicts oldest
+     * history to stay inside it). The module-global budget can only lower
+     * the effective value, never raise it past this.
+     * @param {number} bytes
+     */
+    set_scrollback_budget(bytes) {
+        wasm.atermgputerminal_set_scrollback_budget(this.__wbg_ptr, bytes);
+    }
+    /**
+     * Set the MODULE-GLOBAL scrollback budget shared by every pane of this
+     * wasm module/worker (`0` = unlimited, the default).
+     * @param {number} bytes
+     */
+    static set_scrollback_global_budget(bytes) {
+        wasm.atermgputerminal_set_scrollback_global_budget(bytes);
+    }
+    /**
      * Set the engine's scrollback line limit (history lines retained behind the live
-     * viewport). `lines == 0` means unlimited (bounded only by host memory). This
-     * engine is ring-only (no tiered store), so the limit re-caps the retention ring
-     * itself: shrinking evicts the oldest lines immediately, growing extends retention
-     * lazily (no eager allocation). Targets the primary-content grid — reaching the
-     * saved primary through an alt screen; the alt buffer keeps its spec'd zero
-     * scrollback — and re-clamps the scroll position. Without this the engine keeps
-     * its construction default (a 10k-line ring) on every pane.
+     * viewport). `lines == 0` means unlimited (bounded only by the byte budgets). The
+     * limit is ONE TOTAL retention count (audit E1) across the hot ring, staged
+     * lines, and the tiered store together — the store takes the remainder after the
+     * ring's fixed share, so "retain N lines" retains N, not N + ring. Targets the
+     * primary-content grid — reaching the saved primary through an alt screen; the
+     * alt buffer keeps its spec'd zero scrollback — and re-clamps the scroll
+     * position. Without this the engine keeps its construction default
+     * (`DEFAULT_LINE_LIMIT`, 100k total).
      * @param {number} lines
      */
     set_scrollback_limit(lines) {
@@ -1983,6 +2057,23 @@ export class AtermGpuTerminal {
             wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         }
         return v1;
+    }
+    /**
+     * BUILD-truth tier capabilities of this wasm module as one JSON object:
+     * `{"coldCodec":"lz4"|"zstd","diskSpill":bool}`.
+     * @returns {string}
+     */
+    static tier_capabilities_json() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.atermgputerminal_tier_capabilities_json();
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * The window title (OSC 0/2), or `None` when unset (mirrors the CPU binding).
@@ -2977,7 +3068,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue__wasm_bindgen_2766a53e392c0a38___JsValue_____(a, state0.b, arg0, arg1);
+                        return wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -3353,8 +3444,8 @@ function __wbg_get_imports() {
             arg0.viewport(arg1, arg2, arg3, arg4);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 36, function: Function { arguments: [Externref], shim_idx: 37, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_2766a53e392c0a38___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__wasm_bindgen_2766a53e392c0a38___JsValue____Output_______, wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue_____);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 37, function: Function { arguments: [Externref], shim_idx: 38, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______, wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0) {
@@ -3418,12 +3509,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue_____(arg0, arg1, arg2) {
-    wasm.wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue_____(arg0, arg1, arg2);
+function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2) {
+    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2);
 }
 
-function wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue__wasm_bindgen_2766a53e392c0a38___JsValue_____(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen_2766a53e392c0a38___convert__closures_____invoke___wasm_bindgen_2766a53e392c0a38___JsValue__wasm_bindgen_2766a53e392c0a38___JsValue_____(arg0, arg1, arg2, arg3);
+function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3) {
+    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3);
 }
 
 const AtermGpuTerminalFinalization = (typeof FinalizationRegistry === 'undefined')

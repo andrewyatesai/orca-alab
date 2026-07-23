@@ -1191,6 +1191,39 @@ describe('RateLimitService', () => {
     expect(service.getState().claudeTarget).toEqual({ runtime: 'wsl', wslDistro: 'Ubuntu' })
   })
 
+  it('refreshClaudeForCurrentTarget preserves a WSL target and does not wipe usage (#9324)', async () => {
+    const service = new RateLimitService()
+    service.setClaudeAuthPreparationResolver(async () => ({
+      configDir: '\\\\wsl.localhost\\Ubuntu\\home\\jin\\.claude',
+      runtime: 'wsl',
+      wslDistro: 'Ubuntu',
+      wslLinuxConfigDir: '/home/jin/.claude',
+      envPatch: {},
+      stripAuthEnv: true,
+      provenance: 'managed:wsl-account:wsl:Ubuntu'
+    }))
+    service.setClaudeFetchTarget({ runtime: 'wsl', wslDistro: 'Ubuntu' })
+
+    vi.mocked(fetchClaudeRateLimits).mockResolvedValue(okProvider('claude', 42, Date.now()))
+    vi.mocked(fetchCodexRateLimits).mockResolvedValue(okProvider('codex', 20, Date.now()))
+
+    await service.refresh()
+    const seededClaude = service.getState().claude
+    expect(seededClaude?.status).toBe('ok')
+
+    // The last live Claude PTY exiting drains via refreshClaudeForCurrentTarget().
+    await service.refreshClaudeForCurrentTarget()
+
+    // Target must NOT be reset to host, and the displayed WSL usage must not be wiped.
+    expect(service.getState().claudeTarget).toEqual({ runtime: 'wsl', wslDistro: 'Ubuntu' })
+    expect(service.getState().claude?.status).toBe('ok')
+    expect(fetchClaudeRateLimits).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        authPreparation: expect.objectContaining({ runtime: 'wsl', wslDistro: 'Ubuntu' })
+      })
+    )
+  })
+
   it('does not use Claude PTY fallback for system-default usage refreshes', async () => {
     const service = new RateLimitService()
     service.setClaudeAuthPreparationResolver(async () => ({

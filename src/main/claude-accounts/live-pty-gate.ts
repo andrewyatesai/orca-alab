@@ -17,6 +17,25 @@ export function attachClaudeLivePtyPersistence(target: ClaudeLivePtyPersistence 
   persistence = target
 }
 
+// Why: managed OAuth refresh is deferred while a Claude PTY is live (runtime-auth-service).
+// When the last live Claude tab closes, the deferred refresh would otherwise wait for the
+// next window-focus-gated poll (issue #9324). This drain listener fires on the true 1→0
+// transition so the rate-limits service can run the deferred refresh immediately.
+let drainListener: (() => void) | null = null
+
+export function attachClaudeLivePtyDrainListener(listener: (() => void) | null): void {
+  drainListener = listener
+}
+
+// Run `mutate`, then fire the drain listener only when the live set went from non-empty to empty.
+function withLastPtyDrainNotification(mutate: () => void): void {
+  const hadLivePtys = liveClaudePtyIds.size > 0
+  mutate()
+  if (hadLivePtys && liveClaudePtyIds.size === 0) {
+    drainListener?.()
+  }
+}
+
 export function seedLiveClaudePtysFromPersistence(sessionIds: readonly string[]): void {
   for (const sessionId of sessionIds) {
     liveClaudePtyIds.add(sessionId)
@@ -35,14 +54,16 @@ export function hasSeededUnconfirmedClaudePtys(): boolean {
  * their pane never reattaches: that daemon process still owns the credentials.
  */
 export function confirmSeededClaudeLivePtys(aliveSessionIds: readonly string[]): void {
-  const alive = new Set(aliveSessionIds)
-  for (const sessionId of seededUnconfirmedPtyIds) {
-    if (!alive.has(sessionId)) {
-      liveClaudePtyIds.delete(sessionId)
-      persistence?.removeClaudeLivePtySessionId(sessionId)
+  withLastPtyDrainNotification(() => {
+    const alive = new Set(aliveSessionIds)
+    for (const sessionId of seededUnconfirmedPtyIds) {
+      if (!alive.has(sessionId)) {
+        liveClaudePtyIds.delete(sessionId)
+        persistence?.removeClaudeLivePtySessionId(sessionId)
+      }
     }
-  }
-  seededUnconfirmedPtyIds.clear()
+    seededUnconfirmedPtyIds.clear()
+  })
 }
 
 export function markClaudePtySpawned(ptyId: string): void {
@@ -52,9 +73,11 @@ export function markClaudePtySpawned(ptyId: string): void {
 }
 
 export function markClaudePtyExited(ptyId: string): void {
-  liveClaudePtyIds.delete(ptyId)
-  seededUnconfirmedPtyIds.delete(ptyId)
-  persistence?.removeClaudeLivePtySessionId(ptyId)
+  withLastPtyDrainNotification(() => {
+    liveClaudePtyIds.delete(ptyId)
+    seededUnconfirmedPtyIds.delete(ptyId)
+    persistence?.removeClaudeLivePtySessionId(ptyId)
+  })
 }
 
 export function hasLiveClaudePtys(): boolean {

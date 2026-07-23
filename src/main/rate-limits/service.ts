@@ -469,6 +469,13 @@ export class RateLimitService {
     return this.getState()
   }
 
+  // Why: re-run the Claude fetch (drains any deferred managed refresh) against the
+  // CURRENT target. Passing undefined to refreshClaudeForTarget would reset the target to
+  // host, wiping a WSL/SSH account's displayed usage and fetching the wrong account (#9324).
+  async refreshClaudeForCurrentTarget(): Promise<RateLimitState> {
+    return this.refreshClaudeForTarget(this.claudeFetchTarget)
+  }
+
   async fetchInactiveClaudeAccountsOnOpen(): Promise<void> {
     if (Date.now() - this.lastInactiveClaudeFetchAt < INACTIVE_FETCH_DEBOUNCE_MS) {
       return

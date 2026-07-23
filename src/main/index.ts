@@ -24,6 +24,7 @@ import { ClaudeUsageStore, initClaudeUsagePath } from './claude-usage/store'
 import { CodexUsageStore, initCodexUsagePath } from './codex-usage/store'
 import { OpenCodeUsageStore, initOpenCodeUsagePath } from './opencode-usage/store'
 import { killAllPty } from './ipc/pty'
+import { killAllNotebookProcesses } from './ipc/notebook'
 import { initDaemonPtyProvider, disconnectDaemon, shutdownDaemon } from './daemon/daemon-init'
 import { closeAllWatchers } from './ipc/filesystem-watcher'
 import { disposeWorktreeBaseDirectoryWatchers } from './ipc/worktree-base-directory-watcher'
@@ -151,6 +152,7 @@ import { getDefaultWslDistro } from './wsl'
 import { ClaudeAccountService } from './claude-accounts/service'
 import { ClaudeRuntimeAuthService } from './claude-accounts/runtime-auth-service'
 import {
+  attachClaudeLivePtyDrainListener,
   attachClaudeLivePtyPersistence,
   seedLiveClaudePtysFromPersistence
 } from './claude-accounts/live-pty-gate'
@@ -1883,6 +1885,16 @@ app.whenReady().then(async () => {
   )
   rateLimits.setCodexFetchTarget(getInitialCodexRateLimitTarget(store.getSettings()))
   rateLimits.setClaudeFetchTarget(getInitialClaudeRateLimitTarget(store.getSettings()))
+  {
+    // Why: the last live Claude PTY exiting drains the deferred managed OAuth refresh
+    // immediately instead of waiting for the next window-focus-gated poll (issue #9324).
+    const drainRateLimits = rateLimits
+    attachClaudeLivePtyDrainListener(() => {
+      void drainRateLimits.refreshClaudeForCurrentTarget().catch(() => {
+        // Best-effort recovery drain; the focus-gated poll remains the safety net.
+      })
+    })
+  }
   rateLimits.setClaudeAuthPreparationResolver((target) =>
     claudeRuntimeAuth!.prepareForRateLimitFetch(target)
   )
@@ -2420,6 +2432,9 @@ app.on('will-quit', (e) => {
   browserManager.setBrowserGuestStateChangedListener(null)
   const emulatorShutdown = runtime?.getEmulatorBridge()?.destroyAllSessions() ?? Promise.resolve()
   killAllPty()
+  // Why: notebook cells run detached (own process group) so they survive the main group's
+  // quit signal; terminate them explicitly or a runaway cell keeps consuming CPU forever.
+  killAllNotebookProcesses()
   const watcherShutdown = shutdownWatchersOnce()
   store?.flush()
 

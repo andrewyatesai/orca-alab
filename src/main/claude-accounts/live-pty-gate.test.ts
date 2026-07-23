@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  attachClaudeLivePtyDrainListener,
   attachClaudeLivePtyPersistence,
   beginClaudeAuthSwitch,
   confirmSeededClaudeLivePtys,
@@ -18,6 +19,7 @@ describe('Claude live PTY gate', () => {
     markClaudePtyExited('seeded-pty-2')
     confirmSeededClaudeLivePtys([])
     attachClaudeLivePtyPersistence(null)
+    attachClaudeLivePtyDrainListener(null)
     endClaudeAuthSwitch()
   })
 
@@ -90,5 +92,44 @@ describe('Claude live PTY gate', () => {
 
     markClaudePtyExited('live-claude-pty')
     expect(removeClaudeLivePtySessionId).toHaveBeenCalledWith('live-claude-pty')
+  })
+
+  it('drains once when the last live Claude PTY exits, not on a non-last exit', () => {
+    const onDrain = vi.fn()
+    attachClaudeLivePtyDrainListener(onDrain)
+
+    markClaudePtySpawned('live-claude-pty')
+    markClaudePtySpawned('seeded-pty-1')
+
+    // A non-last exit still leaves one live PTY — no drain.
+    markClaudePtyExited('live-claude-pty')
+    expect(hasLiveClaudePtys()).toBe(true)
+    expect(onDrain).not.toHaveBeenCalled()
+
+    // The last exit crosses the 1→0 transition — drain exactly once.
+    markClaudePtyExited('seeded-pty-1')
+    expect(hasLiveClaudePtys()).toBe(false)
+    expect(onDrain).toHaveBeenCalledTimes(1)
+
+    // Exiting an already-empty gate does not re-fire the drain.
+    markClaudePtyExited('seeded-pty-1')
+    expect(onDrain).toHaveBeenCalledTimes(1)
+  })
+
+  it('drains when confirming seeded ids empties the live gate', () => {
+    const onDrain = vi.fn()
+    attachClaudeLivePtyDrainListener(onDrain)
+
+    seedLiveClaudePtysFromPersistence(['seeded-pty-1', 'seeded-pty-2'])
+
+    // Pruning one dead seeded id still leaves one live — no drain.
+    confirmSeededClaudeLivePtys(['seeded-pty-1'])
+    expect(hasLiveClaudePtys()).toBe(true)
+    expect(onDrain).not.toHaveBeenCalled()
+
+    // Marking the surviving seeded id dead crosses 1→0 — drain once.
+    markClaudePtyExited('seeded-pty-1')
+    expect(hasLiveClaudePtys()).toBe(false)
+    expect(onDrain).toHaveBeenCalledTimes(1)
   })
 })

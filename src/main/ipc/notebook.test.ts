@@ -25,7 +25,7 @@ vi.mock('./filesystem-auth', () => ({
   resolveAuthorizedPath: resolveAuthorizedPathMock
 }))
 
-import { registerNotebookHandlers } from './notebook'
+import { killAllNotebookProcesses, registerNotebookHandlers } from './notebook'
 
 function createMockProcess(pid = 1234): ChildProcessWithoutNullStreams {
   const proc = new EventEmitter() as ChildProcessWithoutNullStreams
@@ -88,5 +88,34 @@ describe('notebook IPC', () => {
       await vi.advanceTimersByTimeAsync(2000)
       expect(processKillSpy).toHaveBeenCalledWith(-4321, 'SIGKILL')
     }
+  })
+
+  it('terminates still-running detached children on app quit (killAllNotebookProcesses)', async () => {
+    const proc = createMockProcess(9001)
+    spawnMock.mockReturnValue(proc)
+    registerNotebookHandlers({} as never)
+
+    const handler = handlers.get('notebook:runPythonCell')
+    // Kick off a cell that never resolves (child stays alive; no close/timeout fired).
+    void handler?.(null, { filePath: '/repo/notebook.ipynb', code: 'while True: pass' })
+    await Promise.resolve()
+
+    // Simulate quitting Orca mid-run: the per-run 60s timer never fired.
+    killAllNotebookProcesses()
+
+    if (process.platform === 'win32') {
+      expect(spawnMock).toHaveBeenCalledWith(
+        'taskkill',
+        ['/pid', '9001', '/t', '/f'],
+        expect.any(Object)
+      )
+    } else {
+      expect(processKillSpy).toHaveBeenCalledWith(-9001, 'SIGTERM')
+    }
+
+    // Idempotent: a second quit pass must not re-signal a cleared child.
+    processKillSpy.mockClear()
+    killAllNotebookProcesses()
+    expect(processKillSpy).not.toHaveBeenCalled()
   })
 })

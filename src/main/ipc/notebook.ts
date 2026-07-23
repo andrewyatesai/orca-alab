@@ -15,6 +15,19 @@ export type NotebookRunResult = {
 const PYTHON_RUN_TIMEOUT_MS = 60_000
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024
 
+// Why: children are spawned detached (own process group) so they don't receive the
+// main group's quit signal; track them here so will-quit can terminate runaway cells
+// that would otherwise outlive Orca (the per-run 60s timer dies with the main process).
+const liveNotebookChildren = new Set<ChildProcessWithoutNullStreams>()
+
+/** Terminate every still-running notebook child. Call on app quit. */
+export function killAllNotebookProcesses(): void {
+  for (const child of liveNotebookChildren) {
+    terminateNotebookProcessTree(child)
+  }
+  liveNotebookChildren.clear()
+}
+
 type BoundedCapture = {
   text: string
   bytes: number
@@ -132,6 +145,7 @@ async function runPythonCandidate(
         env: process.env
       }
     )
+    liveNotebookChildren.add(child)
     const cleanup = (options: { clearForceKillTimer: boolean }): void => {
       if (timeout) {
         clearTimeout(timeout)
@@ -154,6 +168,7 @@ async function runPythonCandidate(
         return
       }
       settled = true
+      liveNotebookChildren.delete(child)
       cleanup(options)
       resolve(result)
     }

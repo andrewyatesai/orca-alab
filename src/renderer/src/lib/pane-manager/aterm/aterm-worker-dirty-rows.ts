@@ -1,5 +1,10 @@
 import type { WorkerEngine } from './aterm-worker-engine-build'
 import type { AtermWorkerGridRow } from './aterm-render-worker-protocol'
+import {
+  createAtermRowRangeReader,
+  type AtermRowRangeExportEngine,
+  type AtermRowRangeRecord
+} from './aterm-worker-row-range-export'
 
 // Per-visible-row change detection for the worker's buildState: emit only the rows whose
 // text / wrap / len changed since the last frame, so a streaming pane clones just the 1-2
@@ -14,10 +19,17 @@ import type { AtermWorkerGridRow } from './aterm-render-worker-protocol'
 // churn is rate-limited to one full export per ATERM_GRID_MIRROR_CHURN_SYNC_INTERVAL_MS;
 // stale() tells the frame scheduler a render-free settle sync is owed. ONLY this mirror
 // is throttled — offset/cursor/selection/search scalars stay live in every STATE.
-// A single batched row-range export would also drop the per-row wasm-boundary cost, but
-// the engine has no such export yet (E9 dependency) — until then this is JS-side only.
+//
+// E9 batch export (feature-detected): when the pinned artifact exposes row_range_json,
+// each un-throttled build costs ONE wasm-boundary crossing instead of 3 calls/row +
+// cols calls per non-ASCII changed row; artifacts without it keep the per-row path.
 
-type DirtyRowEngine = Pick<WorkerEngine, 'row_text' | 'row_is_wrapped' | 'row_len' | 'cell_is_wide'>
+// The optional E9 batch export intersects in so capable engines type-check without casts.
+type DirtyRowEngine = Pick<
+  WorkerEngine,
+  'row_text' | 'row_is_wrapped' | 'row_len' | 'cell_is_wide'
+> &
+  AtermRowRangeExportEngine
 
 /** Cap the full row export to one sync per this window while the offset churns (~20Hz). */
 export const ATERM_GRID_MIRROR_CHURN_SYNC_INTERVAL_MS = 50
@@ -41,11 +53,20 @@ export function createAtermDirtyRowTracker(
   let lastFullScanMs = -Infinity
   let churnFrames = 0
   let stale = false
-  // Cached all-'1' width string for ASCII rows, rebuilt only on a cols change,
+  // Cached all-'1' width string for all-narrow rows, rebuilt only on a cols change,
   // so the fast path allocates nothing per frame. Per-tracker (per pane) to
   // avoid thrash when the worker hosts panes of different widths.
   let asciiWidthsCols = -1
   let asciiWidths = ''
+  const narrowWidths = (cols: number): string => {
+    if (asciiWidthsCols !== cols) {
+      asciiWidthsCols = cols
+      asciiWidths = '1'.repeat(cols)
+    }
+    return asciiWidths
+  }
+  // E9 batch row-range reader: null reads fall back to the per-row exports below.
+  const rowRange = createAtermRowRangeReader(e)
 
   return {
     stale: () => stale,
@@ -72,10 +93,14 @@ export function createAtermDirtyRowTracker(
         // -1 = no real row len, so every row reads as changed on the first frame.
         lastLen = Array.from({ length: rows }, () => -1)
       }
+      // ONE wasm-boundary crossing for the whole visible grid when the pinned
+      // artifact has the E9 export; null (absent/unavailable/skew) → per-row path.
+      const batch: AtermRowRangeRecord[] | null = rowRange.read(0, rows, cols)
       for (let y = 0; y < rows; y++) {
-        const text = e.row_text(y) ?? ''
-        const wrapped = e.row_is_wrapped(y) === true
-        const len = e.row_len(y) ?? cols
+        const rec = batch?.[y]
+        const text = rec ? rec.text : (e.row_text(y) ?? '')
+        const wrapped = rec ? rec.wrapped : e.row_is_wrapped(y) === true
+        const len = rec ? rec.len : (e.row_len(y) ?? cols)
         if (text === lastText[y] && wrapped === lastWrapped[y] && len === lastLen[y]) {
           continue
         }
@@ -83,31 +108,33 @@ export function createAtermDirtyRowTracker(
         lastWrapped[y] = wrapped
         lastLen[y] = len
         // Per-column width digit ('2' wide lead, '1' normal); only for changed rows.
-        // ASCII fast-path: an all-ASCII row can hold no wide cells, so skip the
-        // per-cell cell_is_wide walk (cols wasm-boundary calls/row — the dominant
+        // Batch path: widths come from the export (omitted = all-narrow → cached
+        // all-'1' string), so the per-cell walk never runs.
+        // Per-row ASCII fast-path: an all-ASCII row can hold no wide cells, so skip
+        // the per-cell cell_is_wide walk (cols wasm-boundary calls/row — the dominant
         // per-frame cost while scrolling varied content) and reuse the cached
         // all-'1' string. Mirrors aterm-facade-buffer's proven fast path; output
         // is byte-identical (all width-1 ⇒ 1:1 column mapping).
         let widths: string
-        let allAscii = true
-        for (let i = 0; i < text.length; i++) {
-          if (text.charCodeAt(i) > 0x7f) {
-            allAscii = false
-            break
-          }
-        }
-        if (allAscii) {
-          if (asciiWidthsCols !== cols) {
-            asciiWidthsCols = cols
-            asciiWidths = '1'.repeat(cols)
-          }
-          widths = asciiWidths
+        if (rec) {
+          widths = rec.widths ?? narrowWidths(cols)
         } else {
-          let w = ''
-          for (let x = 0; x < cols; x++) {
-            w += e.cell_is_wide(y, x) === true ? '2' : '1'
+          let allAscii = true
+          for (let i = 0; i < text.length; i++) {
+            if (text.charCodeAt(i) > 0x7f) {
+              allAscii = false
+              break
+            }
           }
-          widths = w
+          if (allAscii) {
+            widths = narrowWidths(cols)
+          } else {
+            let w = ''
+            for (let x = 0; x < cols; x++) {
+              w += e.cell_is_wide(y, x) === true ? '2' : '1'
+            }
+            widths = w
+          }
         }
         dirty.push({ y, text, wrapped, len, widths })
       }

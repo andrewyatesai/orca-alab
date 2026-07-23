@@ -2760,7 +2760,7 @@ export class Store {
   // Why: exact ciphertext strings that failed to decrypt at load (encryption available but wrong key). buildStateToSave
   // re-emits them verbatim so a save never double-encrypts genuine ciphertext into unrecoverable garbage.
   private undecryptableSecretCiphertexts = new Set<string>()
-  // Plaintext hash at last write, to skip no-op writes; not the payload, since encrypt() uses a random IV per call.
+  // Content hash at last write, to skip no-op writes; derived from the payload with encrypted blobs normalized back to plaintext (see buildStateToSave), since encrypt() uses a random IV per call.
   private lastWrittenStateHash: string | null = null
   private firstPendingSaveAt: number | null = null
   private githubCacheDirty = false
@@ -3274,6 +3274,18 @@ export class Store {
         ) {
           this.loadNeedsSave = true
         }
+        // Why (#9537): migrate the indistinguishable legacy host default once so WSL-default users follow their runtime.
+        const localAccountRuntimeAlreadyMigrated =
+          parsed.settings?.localAccountRuntimeDefaultedToAutoForAllUsers === true
+        const migratedLocalAccountRuntime: GlobalSettings['localAccountRuntime'] =
+          localAccountRuntimeAlreadyMigrated
+            ? (parsed.settings?.localAccountRuntime ?? defaults.settings.localAccountRuntime)
+            : parsed.settings?.localAccountRuntime === 'wsl'
+              ? 'wsl'
+              : 'auto'
+        if (!localAccountRuntimeAlreadyMigrated) {
+          this.loadNeedsSave = true
+        }
         if (!autoRenameBranchFromWorkDefaultedOn) {
           this.loadNeedsSave = true
         }
@@ -3357,6 +3369,8 @@ export class Store {
             terminalFontFamily: migratedFontFamily,
             terminalFontMenloMigrated: true,
             localWindowsRuntimeDefault: migratedWindowsRuntimeDefault,
+            localAccountRuntime: migratedLocalAccountRuntime,
+            localAccountRuntimeDefaultedToAutoForAllUsers: true,
             floatingTerminalEnabled: migratedFloatingTerminalEnabled,
             floatingTerminalDefaultedForAllUsers: true,
             floatingTerminalCwd: migratedFloatingTerminalCwd,
@@ -3824,10 +3838,6 @@ export class Store {
     return durable
   }
 
-  private computeStateHash(): string {
-    return createHash('sha1').update(JSON.stringify(this.getDurableState())).digest('hex')
-  }
-
   // Why: a value that failed to decrypt at load is still the ORIGINAL ciphertext; encrypting it again would
   // double-encrypt and permanently destroy the secret (unrecoverable even after a keychain restore). Re-emit it
   // verbatim. A user-changed value won't match the tracked ciphertext and encrypts normally.
@@ -3838,25 +3848,62 @@ export class Store {
     return encrypt(value)
   }
 
-  // Why: build payload synchronously so hash and serialized bytes reflect the same state tick (no await interleave).
-  private buildStateToSave(): string {
+  // Why (#9381): build payload synchronously so hash and serialized bytes reflect the same state tick (no await interleave). One full-state stringify serves both the on-disk payload and the no-op-write guard hash: each secret slot is serialized as a fresh unguessable sentinel, then sentinels are substituted to ciphertext for the payload and to plaintext for the hash. The hash is thus a pure function of plaintext state (skips a byte-identical rewrite) without a second stringify.
+  private buildStateToSave(): { payload: string; stateHash: string } {
+    // Why sentinels (not a blob/key string match): the substitution must be
+    // position-exact. A plain search for the ciphertext — or even for a
+    // `"key":"blob"` token — can be mimicked by user-controlled state (e.g. an
+    // agentDefaultEnv var named after a secret field, or a value equal to a
+    // ciphertext), which would substitute the wrong site and let two DISTINCT
+    // states normalize equal → a silently dropped write (data loss), reachable
+    // on deterministic-IV platforms (macOS/legacy-Linux OSCrypt). A per-slot
+    // random UUID can't occur anywhere else in the serialized state (the user
+    // sets their data before it is minted), so it appears exactly once.
+    const secretSubs: { sentinel: string; blob: string; plaintext: string }[] = []
+    const encryptToSentinel = (plaintext: string): string => {
+      const blob = this.encryptSecretForSave(plaintext)
+      // Deterministic already (empty secret / safeStorage unavailable / encrypt
+      // failure / re-emitted undecryptable ciphertext): blob === plaintext, so
+      // no normalization — and no sentinel, which also avoids substituting an
+      // empty or plaintext-shaped slot.
+      if (blob === plaintext) {
+        return blob
+      }
+      const sentinel = `orca-secret-slot-${randomUUID()}`
+      secretSubs.push({ sentinel, blob, plaintext })
+      return sentinel
+    }
     // Why: clone before encrypting secrets so in-memory this.state stays plaintext.
     const stateToSave = {
       ...this.getDurableState(),
       settings: {
         ...this.state.settings,
-        opencodeSessionCookie: this.encryptSecretForSave(this.state.settings.opencodeSessionCookie),
-        httpProxyUrl: this.encryptSecretForSave(this.state.settings.httpProxyUrl ?? '')
+        opencodeSessionCookie: encryptToSentinel(this.state.settings.opencodeSessionCookie),
+        httpProxyUrl: encryptToSentinel(this.state.settings.httpProxyUrl ?? '')
       },
       ui: {
         ...this.state.ui,
         browserKagiSessionLink: this.state.ui.browserKagiSessionLink
-          ? this.encryptSecretForSave(this.state.ui.browserKagiSessionLink)
+          ? encryptToSentinel(this.state.ui.browserKagiSessionLink)
           : null
       }
     }
     // Why compact: ~20% fewer bytes and less serialize time; all readers JSON.parse so formatting is irrelevant.
-    return JSON.stringify(stateToSave)
+    // One full-state stringify; secret slots currently hold sentinels.
+    const serialized = JSON.stringify(stateToSave)
+    // Substitute each unique sentinel exactly once: ciphertext for the on-disk
+    // payload, plaintext for the guard hash. Function-form replacement keeps
+    // `$` in blob/plaintext inert; both sides read the sentinel as JSON-escaped
+    // in `serialized`, so each replace is byte-for-byte position-exact.
+    let payload = serialized
+    let hashInput = serialized
+    for (const { sentinel, blob, plaintext } of secretSubs) {
+      const escapedSentinel = JSON.stringify(sentinel).slice(1, -1)
+      payload = payload.replace(escapedSentinel, () => blob)
+      hashInput = hashInput.replace(escapedSentinel, () => JSON.stringify(plaintext).slice(1, -1))
+    }
+    const stateHash = createHash('sha1').update(hashInput).digest('hex')
+    return { payload, stateHash }
   }
 
   // Why: async writes avoid blocking the main Electron thread on every debounced save.
@@ -3865,12 +3912,11 @@ export class Store {
       return
     }
     const gen = this.writeGeneration
-    const stateHash = this.computeStateHash()
+    const { payload, stateHash } = this.buildStateToSave()
     // Why: don't rewrite a byte-identical multi-MB file when state nets out to already-persisted.
     if (stateHash === this.lastWrittenStateHash) {
       return
     }
-    const payload = this.buildStateToSave()
     const dataFile = this.dataFile
     const dir = dirname(dataFile)
     await mkdir(dir, { recursive: true }).catch(() => {})
@@ -3918,7 +3964,7 @@ export class Store {
     if (this.writesFrozen) {
       return
     }
-    const stateHash = this.computeStateHash()
+    const { payload, stateHash } = this.buildStateToSave()
     // Why: matching hash means the file already holds this state; force overrides when an async rename may be racing past the gen check.
     if (!opts.force && stateHash === this.lastWrittenStateHash) {
       return
@@ -3929,8 +3975,6 @@ export class Store {
       mkdirSync(dir, { recursive: true })
     }
     const tmpFile = `${dataFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
-
-    const payload = this.buildStateToSave()
 
     // Why: on any write/rename failure, remove the tmp file so shutdown crashes don't leak orphans.
     let renamed = false

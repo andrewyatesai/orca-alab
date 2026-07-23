@@ -38,7 +38,8 @@ describe('searchStoredScrollback', () => {
 
   it('treats an invalid regex as zero matches (find-bar parity)', () => {
     const outcome = searchStoredScrollback(content, { query: '(unclosed', regex: true })
-    expect(outcome).toEqual({ matches: [], total: 0, incomplete: false })
+    // toMatchObject: the Wave-5 addon adds the stable-row `originRow` field.
+    expect(outcome).toMatchObject({ matches: [], total: 0, incomplete: false })
   })
 })
 

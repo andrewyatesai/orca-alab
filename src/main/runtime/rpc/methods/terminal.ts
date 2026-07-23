@@ -37,6 +37,12 @@ import {
   MOBILE_SNAPSHOT_BYTE_BUDGET,
   MOBILE_SUBSCRIBE_SCROLLBACK_ROWS
 } from '../../scrollback-limits'
+import { terminalHostRowAnchorLedger } from '../../terminal-host-row-anchor'
+import {
+  TERMINAL_REMOTE_SEARCH_SCHEMA_VERSION,
+  type RemoteTerminalSearchContextResult,
+  type RemoteTerminalSearchResult
+} from '../../../../shared/terminal-remote-search-protocol'
 import { assertTerminalAgentSendable } from '../terminal-agent-send-guard'
 
 const REQUESTED_SNAPSHOT_BYTE_BUDGET = 2 * 1024 * 1024
@@ -74,6 +80,10 @@ type SnapshotFrameOptions = {
   alternateScreen?: boolean
   // Why: UTF-16 length of the history prefix inside `data`; lets an alt-screen restorer split history from the alt frame (#6106).
   scrollbackChars?: number
+  // Fed §2.4: stable host row of the FIRST serialized row + the ledger gen
+  // tying it to THIS snapshot, so remote-search remaps land on the right row.
+  hostRowAnchor?: number
+  anchorGen?: number
 }
 
 type SerializedSnapshot = {
@@ -90,6 +100,8 @@ type SerializedSnapshot = {
   pendingEscapeTailAnsi?: string
   alternateScreen?: boolean
   scrollbackChars?: number
+  hostRowAnchor?: number
+  anchorGen?: number
 } | null
 
 type TerminalViewportClient = {
@@ -659,6 +671,43 @@ function boundScrollbackAnsi(
   return { scrollbackAnsi: scrollbackAnsi.slice(tailStart), rows, truncatedByByteBudget }
 }
 
+// Fed §2.4: mint the snapshot's row anchor — the STABLE host row of the first
+// serialized row (origin + full history − history rows actually kept in the
+// wire payload). Headless-source, main-screen snapshots only: renderer/provider
+// snapshots carry no stable coordinates, and an alt-screen serialization mixes
+// preserved visible rows into the history payload, so both omit the anchor and
+// the client degrades to inline context expansion instead of a wrong-row jump.
+function mintSnapshotHostRowAnchor(
+  ptyId: string,
+  serialized: NonNullable<SerializedSnapshot>,
+  raw: {
+    source?: 'headless' | 'renderer'
+    alternateScreen?: boolean
+    scrollbackLines?: number
+    retainedOriginRow?: number
+    headlessIncarnation?: number
+    cols: number
+  }
+): { hostRowAnchor: number; anchorGen: number } | Record<string, never> {
+  if (
+    raw.source !== 'headless' ||
+    raw.alternateScreen === true ||
+    typeof raw.retainedOriginRow !== 'number' ||
+    typeof raw.scrollbackLines !== 'number' ||
+    typeof raw.headlessIncarnation !== 'number'
+  ) {
+    return {}
+  }
+  const hostRowAnchor =
+    raw.retainedOriginRow + Math.max(0, raw.scrollbackLines - serialized.scrollbackRows)
+  const anchorGen = terminalHostRowAnchorLedger().mint(ptyId, {
+    hostRowAnchor,
+    incarnation: raw.headlessIncarnation,
+    hostCols: raw.cols
+  })
+  return { hostRowAnchor, anchorGen }
+}
+
 async function serializeBudgetedRequestedSnapshot(
   runtime: OrcaRuntimeService,
   ptyId: string,
@@ -678,13 +727,14 @@ async function serializeBudgetedRequestedSnapshot(
     maxRows: scrollbackRows && scrollbackRows > 0 ? scrollbackRows : undefined,
     maxBytes: REQUESTED_SNAPSHOT_BYTE_BUDGET - snapshotBytes
   })
-  return {
+  const combined = {
     ...serialized,
     data: bounded.scrollbackAnsi + serialized.data,
     scrollbackRows: bounded.rows,
     scrollbackChars: bounded.scrollbackAnsi.length,
     truncatedByByteBudget: bounded.truncatedByByteBudget
   }
+  return { ...combined, ...mintSnapshotHostRowAnchor(ptyId, combined, serialized) }
 }
 
 function sendSnapshotFrames(
@@ -708,7 +758,9 @@ function sendSnapshotFrames(
       truncated: options.truncated === true,
       truncatedByByteBudget: options.truncatedByByteBudget === true,
       alternateScreen: options.alternateScreen,
-      scrollbackChars: options.scrollbackChars
+      scrollbackChars: options.scrollbackChars,
+      hostRowAnchor: options.hostRowAnchor,
+      anchorGen: options.anchorGen
     })
   )
   let chunks = 0
@@ -743,13 +795,14 @@ async function serializeBudgetedSubscribeSnapshot(
     maxBytes:
       (isMobile ? MOBILE_SNAPSHOT_BYTE_BUDGET : REQUESTED_SNAPSHOT_BYTE_BUDGET) - snapshotBytes
   })
-  return {
+  const combined = {
     ...serialized,
     data: bounded.scrollbackAnsi + serialized.data,
     scrollbackRows: bounded.rows,
     scrollbackChars: bounded.scrollbackAnsi.length,
     truncatedByByteBudget: bounded.truncatedByByteBudget
   }
+  return { ...combined, ...mintSnapshotHostRowAnchor(ptyId, combined, serialized) }
 }
 
 async function serializeStableMobileRendererSnapshot(
@@ -1109,7 +1162,81 @@ const TerminalSetAutoRestoreFit = z.object({
   ms: z.number().nullable()
 })
 
+// Fed §2.4: provider-generic remote search wire (no GitHub/GitLab specifics).
+const TerminalSearch = TerminalHandle.extend({
+  query: requiredString('Missing search query'),
+  caseSensitive: z.boolean().optional(),
+  regex: z.boolean().optional(),
+  maxMatches: OptionalFiniteNumber,
+  // Query generation, echoed for the client's cancellation bookkeeping.
+  gen: OptionalFiniteNumber,
+  // The anchorGen of the snapshot the CLIENT replayed; the response echoes
+  // that anchor only when this host minted it in the live emulator lifetime.
+  clientAnchorGen: OptionalFiniteNumber
+})
+
+const TerminalSearchContext = TerminalHandle.extend({
+  hostRow: z.number().int().nonnegative(),
+  before: OptionalFiniteNumber,
+  after: OptionalFiniteNumber
+})
+
 export const TERMINAL_METHODS: RpcAnyMethod[] = [
+  defineMethod({
+    name: 'terminal.search',
+    params: TerminalSearch,
+    handler: async (params, { runtime, signal }): Promise<RemoteTerminalSearchResult> => {
+      // Why: a relay/mux abort (client keystroke bumped the generation and
+      // cancelled) must not still run the scan it no longer wants.
+      if (signal?.aborted) {
+        throw new Error('terminal_search_aborted')
+      }
+      const result = await runtime.searchTerminalScrollback(params.terminal, {
+        query: params.query,
+        caseSensitive: params.caseSensitive,
+        regex: params.regex,
+        maxMatches: params.maxMatches
+      })
+      const response: RemoteTerminalSearchResult = {
+        searchSchema: TERMINAL_REMOTE_SEARCH_SCHEMA_VERSION,
+        available: result.available,
+        matches: result.matches,
+        total: result.total,
+        incomplete: result.incomplete,
+        hostCols: result.hostCols,
+        ...(typeof params.gen === 'number' ? { gen: params.gen } : {})
+      }
+      if (result.available && typeof params.clientAnchorGen === 'number') {
+        const ptyId = runtime.resolveLeafForHandle(params.terminal)?.ptyId
+        const record = ptyId
+          ? terminalHostRowAnchorLedger().lookup(ptyId, params.clientAnchorGen, result.incarnation)
+          : null
+        if (record) {
+          response.hostRowAnchor = record.hostRowAnchor
+          response.anchorGen = record.anchorGen
+          response.anchorHostCols = record.hostCols
+        }
+      }
+      return response
+    }
+  }),
+  defineMethod({
+    name: 'terminal.searchContext',
+    params: TerminalSearchContext,
+    handler: async (params, { runtime }): Promise<RemoteTerminalSearchContextResult> => {
+      const window = await runtime.terminalSearchContext(params.terminal, {
+        hostRow: params.hostRow,
+        before: params.before ?? 20,
+        after: params.after ?? 20
+      })
+      return {
+        searchSchema: TERMINAL_REMOTE_SEARCH_SCHEMA_VERSION,
+        available: window.available,
+        lines: window.lines,
+        firstHostRow: window.firstHostRow
+      }
+    }
+  }),
   defineMethod({
     name: 'terminal.list',
     params: TerminalListParams,
@@ -1688,6 +1815,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             truncatedByByteBudget: serialized?.truncatedByByteBudget,
             alternateScreen: serialized?.alternateScreen,
             scrollbackChars: serialized?.scrollbackChars,
+            hostRowAnchor: serialized?.hostRowAnchor,
+            anchorGen: serialized?.anchorGen,
             data: serialized?.data ?? ''
           })
           if (serialized && typeof serialized.seq === 'number') {
@@ -2022,6 +2151,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             truncatedByByteBudget: serialized?.truncatedByByteBudget,
             alternateScreen: serialized?.alternateScreen,
             scrollbackChars: serialized?.scrollbackChars,
+            hostRowAnchor: serialized?.hostRowAnchor,
+            anchorGen: serialized?.anchorGen,
             data: serialized?.data ?? ''
           })
         } catch (error) {
@@ -2297,6 +2428,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             source: serialized?.source,
             oscLinks: serialized?.oscLinks,
             pendingEscapeTailAnsi: serialized?.pendingEscapeTailAnsi,
+            hostRowAnchor: serialized?.hostRowAnchor,
+            anchorGen: serialized?.anchorGen,
             data: serialized?.data ?? (read.tail.length > 0 ? `${read.tail.join('\r\n')}\r\n` : '')
           })
           // Why: baseline for resize re-stream gating; the client already rewrapped to these cols via the initial snapshot replay.
@@ -3086,6 +3219,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             (serialized ? read.truncated : isTerminalReadPayloadIncomplete(read)),
           truncatedByByteBudget: serialized?.truncatedByByteBudget,
           oscLinks: serialized?.oscLinks,
+          hostRowAnchor: serialized?.hostRowAnchor,
+          anchorGen: serialized?.anchorGen,
           data: serialized?.data ?? ''
         })
         console.log('[mobile-terminal-stream] snapshot', {

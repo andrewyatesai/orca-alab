@@ -34,19 +34,24 @@ pub struct JsSearchMatch {
 }
 
 /// Newest-first summaries plus the true total and the fed-design truncation
-/// honesty flag.
+/// honesty flag. `originRow` (fed §2.4 remote wire) is the stable absolute row
+/// of retained index 0 AT SEARCH TIME, read in the same settled state as the
+/// matches so `originRow + absRow` is an eviction-stable host row.
 #[napi(object)]
 pub struct JsSearchOutcome {
     pub matches: Vec<JsSearchMatch>,
     pub total: u32,
     pub incomplete: bool,
+    pub origin_row: f64,
 }
 
 /// Context window around an absolute row (`searchContext` contract).
+/// `originRow`: same stable-row origin contract as [`JsSearchOutcome`].
 #[napi(object)]
 pub struct JsSearchContextWindow {
     pub lines: Vec<String>,
     pub first_abs_row: u32,
+    pub origin_row: f64,
 }
 
 #[napi(js_name = "HeadlessTerminal")]
@@ -225,7 +230,7 @@ impl JsHeadlessTerminal {
         cutoff_row: Option<u32>,
     ) -> JsSearchOutcome {
         let Some(inner) = self.inner.as_mut() else {
-            return JsSearchOutcome { matches: Vec::new(), total: 0, incomplete: false };
+            return JsSearchOutcome { matches: Vec::new(), total: 0, incomplete: false, origin_row: 0.0 };
         };
         let opts = orca_terminal::SearchOptions {
             case_sensitive: case_sensitive.unwrap_or(false),
@@ -237,6 +242,8 @@ impl JsHeadlessTerminal {
             max_matches.unwrap_or(50) as usize,
             cutoff_row.map(|c| c as usize),
         );
+        // After the search settled retention: same coordinate state as the matches.
+        let origin_row = inner.retained_origin_row() as f64;
         JsSearchOutcome {
             matches: outcome
                 .matches
@@ -250,6 +257,7 @@ impl JsHeadlessTerminal {
                 .collect(),
             total: outcome.total as u32,
             incomplete: outcome.incomplete,
+            origin_row,
         }
     }
 
@@ -257,11 +265,20 @@ impl JsHeadlessTerminal {
     #[napi(catch_unwind)]
     pub fn search_context(&mut self, abs_row: u32, before: u32, after: u32) -> JsSearchContextWindow {
         let Some(inner) = self.inner.as_mut() else {
-            return JsSearchContextWindow { lines: Vec::new(), first_abs_row: 0 };
+            return JsSearchContextWindow { lines: Vec::new(), first_abs_row: 0, origin_row: 0.0 };
         };
         let (lines, first) =
             inner.search_context(abs_row as usize, before as usize, after as usize);
-        JsSearchContextWindow { lines, first_abs_row: first as u32 }
+        let origin_row = inner.retained_origin_row() as f64;
+        JsSearchContextWindow { lines, first_abs_row: first as u32, origin_row }
+    }
+
+    /// Stable absolute row of retained history index 0 (fed §2.4): monotonic
+    /// across eviction/clear, never reused, settled before read — the host-row
+    /// coordinate the remote-search snapshot anchor is expressed in.
+    #[napi(catch_unwind)]
+    pub fn retained_origin_row(&mut self) -> f64 {
+        self.inner.as_mut().map_or(0.0, |t| t.retained_origin_row() as f64)
     }
 
     /// Drop the engine now. The daemon churns through many sessions, so freeing

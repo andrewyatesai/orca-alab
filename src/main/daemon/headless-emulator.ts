@@ -6,13 +6,23 @@ import {
 import { createPrivateModeScanner } from './private-mode-scan'
 import { TerminalKittyKeyboardModeTracker } from '../../shared/terminal-kitty-keyboard-mode-tracker'
 import { advancePartialEscapeTail } from '../../shared/terminal-partial-escape-tail'
-import { buildRehydrateSequences } from './terminal-mode-rehydrate-sequences'
-import { mergeRestoredOscLinks } from './terminal-osc-link-merge'
 import { TerminalOscCwdTitleScanner } from './terminal-osc-cwd-title-scanner'
 import {
   createTerminalModelQueryResponder,
   type TerminalModelQueryResponder
 } from './terminal-model-query-responder'
+import {
+  emulatorSearchContext,
+  searchEmulatorScrollback,
+  type EmulatorScrollbackSearchOutcome,
+  type EmulatorScrollbackSearchQuery,
+  type EmulatorSearchContextWindow
+} from './headless-emulator-scrollback-search'
+import {
+  clearEngineScrollbackKeepingCursorLine,
+  isEngineCursorOnEmptyPromptLine
+} from './headless-emulator-cursor-line'
+import { buildEmulatorSnapshotReport } from './headless-emulator-snapshot-report'
 import type { TerminalSnapshot, TerminalModes } from './types'
 import type { TerminalViewAttributes } from '../../shared/terminal-view-attributes'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
@@ -286,49 +296,20 @@ export class HeadlessEmulator {
   }
 
   getSnapshot(opts: { scrollbackRows?: number } = {}): TerminalSnapshot {
-    const modes = this.getModes()
-    const scrollbackRows = opts.scrollbackRows
-    // Why: written LAST by the restorer (after any reset) so the next live chunk
-    // completes this dangling sequence instead of rendering it literally
-    // (Bug E / #7329). Its bytes are already counted by the snapshot seq.
-    const pendingEscapeTail =
-      this.partialEscapeTail.length > 0 ? { pendingEscapeTailAnsi: this.partialEscapeTail } : {}
-    return this.engineCall(
-      'serialize',
-      () => ({
-        snapshotAnsi: this.term.serializeAnsi(scrollbackRows),
-        // SPLIT shape: the visible viewport lives in snapshotAnsi, history in
-        // scrollbackAnsi (independent of scrollbackRows). The alt-screen
-        // cold-restore path needs this — the alt buffer has no scrollback, so its
-        // pre-TUI history is only recoverable here.
-        scrollbackAnsi: this.term.serializeScrollbackAnsi(),
-        oscLinks: this.collectOscLinks(scrollbackRows),
-        rehydrateSequences: buildRehydrateSequences(modes),
-        cwd: this.oscText.cwd,
-        modes,
-        cols: this.cols,
-        rows: this.rows,
-        scrollbackLines: this.term.scrollbackLen(),
-        lastTitle: this.oscText.lastTitle ?? undefined,
-        ...pendingEscapeTail
-      }),
-      // Poisoned engine: no replayable buffer to offer, but the scanned state
-      // (cwd/modes/title/partial-tail) is still honest, so reconnect/rehydrate
-      // keep working.
-      () => ({
-        snapshotAnsi: '',
-        scrollbackAnsi: '',
-        oscLinks: this.restoredOscLinks.slice(),
-        rehydrateSequences: buildRehydrateSequences(modes),
-        cwd: this.oscText.cwd,
-        modes,
-        cols: this.cols,
-        rows: this.rows,
-        scrollbackLines: 0,
-        lastTitle: this.oscText.lastTitle ?? undefined,
-        ...pendingEscapeTail
-      })
-    )
+    // Assembly (split snapshot/scrollback shape + poisoned fallback) lives in
+    // headless-emulator-snapshot-report.ts.
+    return buildEmulatorSnapshotReport({
+      run: (op, call, fallback) => this.engineCall(op, call, fallback),
+      term: this.term,
+      modes: this.getModes(),
+      scrollbackRows: opts.scrollbackRows,
+      cols: this.cols,
+      rows: this.rows,
+      cwd: this.oscText.cwd,
+      lastTitle: this.oscText.lastTitle ?? undefined,
+      partialEscapeTail: this.partialEscapeTail,
+      restoredOscLinks: this.restoredOscLinks
+    })
   }
 
   get isAlternateScreen(): boolean {
@@ -348,24 +329,12 @@ export class HeadlessEmulator {
     return this.partialEscapeTail
   }
 
-  /** Why: PSReadLine's Ctrl+L repaint is only safe at an empty prompt — with
-   *  pending input it re-renders at a cached buffer row that ConPTY's fixed
-   *  viewport doesn't track, painting the input well below the prompt. The
-   *  cursor line counts as an empty prompt when everything before the cursor
-   *  ends with a single '>' and nothing follows it ('>>' is PowerShell's
-   *  continuation prompt, i.e. a multiline edit in flight). */
+  /** PSReadLine Ctrl+L safety read; heuristic documented in
+   *  headless-emulator-cursor-line.ts. */
   isCursorOnEmptyPromptLine(): boolean {
-    // aterm owns the grid: read the cursor row via the facade (cursor()/snapshot())
-    // rather than the removed xterm buffer API. Same '>' vs '>>' heuristic as upstream.
     return this.engineCall(
       'isCursorOnEmptyPromptLine',
-      () => {
-        const [row, col] = this.term.cursor()
-        const line = this.term.snapshot()[row] ?? ''
-        const upToCursor = line.slice(0, col).trimEnd()
-        const fullLine = line.trimEnd()
-        return fullLine === upToCursor && upToCursor.endsWith('>') && !upToCursor.endsWith('>>')
-      },
+      () => isEngineCursorOnEmptyPromptLine(this.term),
       () => false
     )
   }
@@ -376,6 +345,37 @@ export class HeadlessEmulator {
       () => this.term.snapshot(),
       () => []
     )
+  }
+
+  /** Fed §2.4 host-side search, stable rows — contract documented in
+   *  headless-emulator-scrollback-search.ts. Null = degrade to unavailable. */
+  searchScrollback(opts: EmulatorScrollbackSearchQuery): EmulatorScrollbackSearchOutcome | null {
+    return this.disposed
+      ? null
+      : this.engineCall(
+          'searchScrollback',
+          () => searchEmulatorScrollback(this.term, opts),
+          () => null
+        )
+  }
+
+  /** Context window around a STABLE host row (same module for the contract). */
+  searchContext(hostRow: number, before: number, after: number): EmulatorSearchContextWindow | null {
+    return this.disposed
+      ? null
+      : this.engineCall(
+          'searchContext',
+          () => emulatorSearchContext(this.term, hostRow, before, after),
+          () => null
+        )
+  }
+
+  /** Stable origin row; null when the addon predates it or the engine is poisoned. */
+  retainedOriginRow(): number | null {
+    const readOrigin = this.term.retainedOriginRow?.bind(this.term)
+    return this.disposed || !readOrigin
+      ? null
+      : this.engineCall('retainedOriginRow', readOrigin, () => null)
   }
 
   getCwd(): string | null {
@@ -396,22 +396,11 @@ export class HeadlessEmulator {
 
   clearScrollback(): void {
     this.restoredOscLinks = []
-    // Match the former headless xterm clear(): keep the cursor's current line
-    // as the new first row, discarding everything above/below it and all
-    // scrollback. Orca's "clear" action and cold-restore 'clear' records relied
-    // on this semantic, not a bare history drop.
+    // Semantic (cursor line survives as the new first row) documented in
+    // headless-emulator-cursor-line.ts.
     this.engineCall(
       'clearScrollback',
-      () => {
-        const [cursorRow, cursorCol] = this.term.cursor()
-        const line = this.term.snapshot()[cursorRow] ?? ''
-        this.term.clearScrollback()
-        this.term.write(Buffer.from('\x1b[H\x1b[2J', 'utf8'))
-        if (line) {
-          this.term.write(Buffer.from(line, 'utf8'))
-        }
-        this.term.write(Buffer.from(`\x1b[1;${cursorCol + 1}H`, 'utf8'))
-      },
+      () => clearEngineScrollbackKeepingCursorLine(this.term),
       () => undefined
     )
   }
@@ -425,17 +414,6 @@ export class HeadlessEmulator {
     } catch {
       // A poisoned engine may throw even here; GC still reclaims the handle.
     }
-  }
-
-  private collectOscLinks(scrollbackRows?: number): TerminalOscLinkRange[] {
-    // Live links come from aterm — both the visible grid and scrollback history
-    // (aterm retains hyperlink spans on scroll) — merged with checkpoint-
-    // restored links so a restored buffer keeps clickable links.
-    return mergeRestoredOscLinks(
-      this.term.oscLinkRanges(scrollbackRows),
-      this.restoredOscLinks,
-      this.cols
-    )
   }
 
   private getModes(): TerminalModes {

@@ -40,7 +40,10 @@ type TerminalMultiplexEvent =
 
 export type RemoteRuntimeMultiplexedTerminalCallbacks = {
   onData: (data: string, meta?: { seq?: number; rawLength?: number; transformed?: boolean }) => void
-  onSnapshot: (data: string, meta?: { pendingEscapeTailAnsi?: string }) => void
+  onSnapshot: (
+    data: string,
+    meta?: { pendingEscapeTailAnsi?: string; replayedHostAnchor?: RemoteRuntimeReplayedHostAnchor }
+  ) => void
   onSubscribed?: () => void
   onEnd?: () => void
   onError?: (message: string) => void
@@ -81,6 +84,9 @@ export type RemoteRuntimeMultiplexedTerminal = {
   serializeBuffer: (opts?: {
     scrollbackRows?: number
   }) => Promise<RemoteRuntimeSerializedBufferSnapshot | null>
+  /** Anchor of the snapshot this stream last replayed into the local engine
+   *  (fed §2.4); null until an anchored initial/recovery snapshot applied. */
+  getReplayedHostAnchor: () => RemoteRuntimeReplayedHostAnchor | null
   close: () => void
 }
 
@@ -104,6 +110,9 @@ type RemoteRuntimeMultiplexedTerminalState = {
   expectedSeq: number | undefined
   resyncInFlight: boolean
   resyncPendingSend: boolean
+  // Why: only ENGINE-REPLAYED snapshots (initial/recovery) set this — a search
+  // remap against a merely-requested snapshot would be the wrong-row hole.
+  replayedHostAnchor: RemoteRuntimeReplayedHostAnchor | null
 }
 
 type RemoteRuntimeSnapshotInfo = {
@@ -119,6 +128,17 @@ type RemoteRuntimeSnapshotInfo = {
   pendingEscapeTailAnsi?: string
   alternateScreen?: boolean
   scrollbackChars?: number
+  // Fed §2.4: stable host row of the snapshot's first serialized row + the
+  // generation tying it to THIS snapshot (in-window search-jump remap).
+  hostRowAnchor?: number
+  anchorGen?: number
+}
+
+/** The anchor of the snapshot this client last REPLAYED into its engine —
+ *  what `terminal.search` responses are remapped against (fed §2.4). */
+export type RemoteRuntimeReplayedHostAnchor = {
+  hostRowAnchor: number
+  anchorGen: number
 }
 
 type RemoteRuntimeSnapshotRequest = {
@@ -243,7 +263,8 @@ class RemoteRuntimeTerminalMultiplexer {
       pendingSnapshotRequest: null,
       expectedSeq: undefined,
       resyncInFlight: false,
-      resyncPendingSend: false
+      resyncPendingSend: false,
+      replayedHostAnchor: null
     }
     this.streams.set(streamId, state)
 
@@ -274,6 +295,7 @@ class RemoteRuntimeTerminalMultiplexer {
         return claimed && resized
       },
       serializeBuffer: (opts) => this.requestSnapshot(state, opts),
+      getReplayedHostAnchor: () => state.replayedHostAnchor,
       close: () => {
         if (this.streams.get(streamId) === state) {
           this.sendFrame(streamId, TerminalStreamOpcode.Unsubscribe)
@@ -575,16 +597,28 @@ class RemoteRuntimeTerminalMultiplexer {
           })
           clearPendingSnapshotRequest(stream)
         } else if (target === 'initial') {
+          // Why record BEFORE the callback: the transport replays synchronously,
+          // and a search fired from inside its replay path must already see the
+          // anchor of the snapshot being applied (fed §2.4). A replay without an
+          // anchor also RESETS it — the engine no longer holds the old window.
+          stream.replayedHostAnchor = replayedHostAnchorFromInfo(info)
           stream.callbacks.onSnapshot(data ?? '', {
-            pendingEscapeTailAnsi: info?.pendingEscapeTailAnsi
+            pendingEscapeTailAnsi: info?.pendingEscapeTailAnsi,
+            ...(stream.replayedHostAnchor
+              ? { replayedHostAnchor: stream.replayedHostAnchor }
+              : {})
           })
         } else if (target === 'recovery') {
           // Why: a server-pushed recovery snapshot replaces terminal state
           // mid-session; clear the screen and scrollback before applying it.
           // An empty snapshot is still applied so stale dropped output does
           // not linger on a terminal the model says is blank.
+          stream.replayedHostAnchor = replayedHostAnchorFromInfo(info)
           stream.callbacks.onSnapshot(`\x1b[2J\x1b[3J\x1b[H${data ?? ''}`, {
-            pendingEscapeTailAnsi: info?.pendingEscapeTailAnsi
+            pendingEscapeTailAnsi: info?.pendingEscapeTailAnsi,
+            ...(stream.replayedHostAnchor
+              ? { replayedHostAnchor: stream.replayedHostAnchor }
+              : {})
           })
         }
       } else if (matchesPendingRequest) {
@@ -908,6 +942,8 @@ function decodeSnapshotInfo(
     pendingEscapeTailAnsi?: unknown
     alternateScreen?: unknown
     scrollbackChars?: unknown
+    hostRowAnchor?: unknown
+    anchorGen?: unknown
   }>(payload)
   if (!raw) {
     return null
@@ -927,8 +963,24 @@ function decodeSnapshotInfo(
       Number.isSafeInteger(raw.scrollbackChars) &&
       raw.scrollbackChars >= 0
         ? raw.scrollbackChars
-        : undefined
+        : undefined,
+    // Fed §2.4: both must arrive together or the anchor is unusable.
+    ...(typeof raw.hostRowAnchor === 'number' &&
+    Number.isSafeInteger(raw.hostRowAnchor) &&
+    raw.hostRowAnchor >= 0 &&
+    typeof raw.anchorGen === 'number' &&
+    Number.isSafeInteger(raw.anchorGen)
+      ? { hostRowAnchor: raw.hostRowAnchor, anchorGen: raw.anchorGen }
+      : {})
   }
+}
+
+function replayedHostAnchorFromInfo(
+  info: RemoteRuntimeSnapshotInfo | null
+): RemoteRuntimeReplayedHostAnchor | null {
+  return typeof info?.hostRowAnchor === 'number' && typeof info?.anchorGen === 'number'
+    ? { hostRowAnchor: info.hostRowAnchor, anchorGen: info.anchorGen }
+    : null
 }
 
 function isTerminalDriverState(

@@ -24,7 +24,7 @@ platform-specific native wrappers**. All third-party dependencies are
   cross-platform requirement is satisfied by the Rust core; the wrapper is
   platform-specific and need not be Rust. macOS → **SwiftUI** for a true native
   feel; Linux/Windows → their own thin native shells over the same core.
-- **Terminal = `aterm`** (`~/aterm`, `github.com/andrewyatesai/aterm`), the
+- **Terminal = `aterm`** (`~/aterm`, `github.com/alabsystems/aterm`), the
   owner's terminal project — we embed its headless engine. ✅ `aterm` is now a
   full ~45-crate engine (parser, grid, tiered scrollback, SGR/colour model,
   OSC-7, mouse modes, search/selection, shell integration), differential-tested

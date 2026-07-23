@@ -1,43 +1,35 @@
 #!/usr/bin/env node
 
 import { pathToFileURL } from 'node:url'
+import { parseDesktopReleaseTag } from './desktop-release-tag.mjs'
+import { resolveReleaseNotesRepository, resolveReleaseRepository } from './release-repository.mjs'
 
 const API_VERSION = '2022-11-28'
 const MAX_RELEASE_BODY_LENGTH = 120_000
 const TRUNCATION_NOTICE =
   '\n\n---\nRelease notes were truncated because GitHub release bodies are limited to 125,000 characters.'
-// Why: major 0 is the constellation snapshot namespace, never an app release.
-const DESKTOP_RELEASE_TAG_PATTERN = /^v([1-9]\d*)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/
-
-export function parseDesktopReleaseTag(tag) {
-  const match = DESKTOP_RELEASE_TAG_PATTERN.exec(tag)
-  if (!match) {
-    return null
-  }
-  return {
-    tag,
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
-    rc: match[4] === undefined ? null : Number(match[4])
-  }
-}
+export { parseDesktopReleaseTag } from './desktop-release-tag.mjs'
 
 function compareDesktopReleaseTags(a, b) {
   const versionDiff = a.major - b.major || a.minor - b.minor || a.patch - b.patch
   if (versionDiff !== 0) {
     return versionDiff
   }
-  if (a.rc === b.rc) {
+  const aPrerelease = a.rc ?? a.fork
+  const bPrerelease = b.rc ?? b.fork
+  if (aPrerelease === bPrerelease && a.rc === b.rc && a.fork === b.fork) {
     return 0
   }
-  if (a.rc === null) {
+  if (aPrerelease === null) {
     return 1
   }
-  if (b.rc === null) {
+  if (bPrerelease === null) {
     return -1
   }
-  return a.rc - b.rc
+  if ((a.fork === null) !== (b.fork === null)) {
+    return a.fork === null ? 1 : -1
+  }
+  return aPrerelease - bPrerelease
 }
 
 export function latestPreviousPublishedDesktopReleaseTag(releases, tag) {
@@ -50,9 +42,14 @@ export function latestPreviousPublishedDesktopReleaseTag(releases, tag) {
     .map((release) => parseDesktopReleaseTag(release.tag_name))
     .filter((candidate) => candidate && candidate.tag !== current.tag)
     .filter((candidate) => compareDesktopReleaseTags(candidate, current) < 0)
-    // Why: public changelogs should be bounded by releases users could see;
-    // stable releases summarize since the prior stable, not the latest RC.
-    .filter((candidate) => current.rc !== null || candidate.rc === null)
+    // Why: ALab fork notes follow the fork train; legacy stable/RC notes retain their existing channel.
+    .filter((candidate) =>
+      current.fork !== null
+        ? candidate.fork !== null
+        : current.rc !== null
+          ? candidate.fork === null
+          : candidate.rc === null && candidate.fork === null
+    )
     .sort(compareDesktopReleaseTags)
   return previousReleases.at(-1)?.tag ?? ''
 }
@@ -99,6 +96,17 @@ async function fetchRepoReleases(repo, token, fetchImpl) {
   return releases
 }
 
+async function assertExactTagRef(repo, tag, token, fetchImpl) {
+  const ref = await githubJson(
+    fetchImpl,
+    `https://api.github.com/repos/${repo}/git/ref/tags/${encodeURIComponent(tag)}`,
+    token
+  )
+  if (ref?.ref !== `refs/tags/${tag}`) {
+    throw new Error(`Repository ${repo} did not return the exact tag ref refs/tags/${tag}`)
+  }
+}
+
 export function truncateReleaseBody(body, maxLength = MAX_RELEASE_BODY_LENGTH) {
   if (body.length <= maxLength) {
     return body
@@ -114,6 +122,7 @@ export function truncateReleaseBody(body, maxLength = MAX_RELEASE_BODY_LENGTH) {
 
 export async function createDraftRelease({
   repo,
+  notesRepo,
   tag,
   token,
   fetchImpl = fetch,
@@ -122,12 +131,24 @@ export async function createDraftRelease({
   if (!repo) {
     throw new Error('repo is required')
   }
+  if (!notesRepo) {
+    throw new Error('notesRepo is required')
+  }
   if (!tag) {
     throw new Error('tag is required')
   }
   if (!token) {
     throw new Error('token is required')
   }
+  if (!parseDesktopReleaseTag(tag)) {
+    throw new Error(`Invalid desktop release tag: ${tag}`)
+  }
+
+  // Why: creating a release for a missing tag makes GitHub synthesize it at the default branch.
+  await Promise.all([
+    assertExactTagRef(notesRepo, tag, token, fetchImpl),
+    assertExactTagRef(repo, tag, token, fetchImpl)
+  ])
 
   const previousTag = latestPreviousPublishedDesktopReleaseTag(
     await fetchRepoReleases(repo, token, fetchImpl),
@@ -143,7 +164,7 @@ export async function createDraftRelease({
   // previous public changelog boundary explicitly.
   const releaseNotes = await githubJson(
     fetchImpl,
-    `https://api.github.com/repos/${repo}/releases/generate-notes`,
+    `https://api.github.com/repos/${notesRepo}/releases/generate-notes`,
     token,
     {
       method: 'POST',
@@ -155,7 +176,8 @@ export async function createDraftRelease({
   const body = truncateReleaseBody(generatedBody)
   const name =
     typeof releaseNotes.name === 'string' && releaseNotes.name.length > 0 ? releaseNotes.name : tag
-  const prerelease = tag.includes('-rc.')
+  const parsedTag = parseDesktopReleaseTag(tag)
+  const prerelease = parsedTag.rc !== null
 
   // Why: GitHub's generated release notes can exceed the release body API
   // limit, so create with a bounded body. Omit target_commitish because the
@@ -181,8 +203,9 @@ export async function createDraftRelease({
 async function main() {
   const tag = process.argv[2]
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-  const repo = process.env.GITHUB_REPOSITORY || 'alabsystems/orca-alab'
-  await createDraftRelease({ repo, tag, token })
+  const repo = resolveReleaseRepository(process.env)
+  const notesRepo = resolveReleaseNotesRepository(process.env)
+  await createDraftRelease({ repo, notesRepo, tag, token })
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

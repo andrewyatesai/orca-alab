@@ -12,6 +12,7 @@ vi.mock('@/i18n/localized-catalog', () => ({
 }))
 
 import { getLocalizedFeatureWallWorkflows } from './feature-wall-localized-workflows'
+import { FEATURE_WALL_WORKFLOWS } from '../../../../shared/feature-wall-workflows'
 
 describe('localized feature wall workflows', () => {
   it('localizes every displayed workflow and step field while preserving navigation data', () => {
@@ -20,11 +21,11 @@ describe('localized feature wall workflows', () => {
 
     expect(workflows).toHaveLength(6)
     expect(steps).toHaveLength(14)
-    for (const workflow of workflows) {
+    for (const [index, workflow] of workflows.entries()) {
       expect(workflow.title).toMatch(/^localized:/)
       expect(workflow.meta).toMatch(/^localized:/)
       expect(workflow.lede).toMatch(/^localized:/)
-      expect(workflow.docsUrl).toMatch(/^https:\/\/www\.onorca\.dev\/docs\//)
+      expect(workflow.docsUrl).toBe(FEATURE_WALL_WORKFLOWS[index]?.docsUrl)
     }
     for (const step of steps) {
       expect(step.name).toMatch(/^localized:/)

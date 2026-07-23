@@ -3,6 +3,9 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { UPDATE_FEED_REPO_SLUG } from '../../src/main/updater-feed-endpoints'
+import { ORCA_ALAB_PUBLIC_REPOSITORY_SLUG } from '../../src/shared/repository-endpoints'
+import { DEFAULT_RELEASE_REPOSITORY } from './release-repository.mjs'
 
 const require = createRequire(import.meta.url)
 const electronBuilderConfig = require('../electron-builder.config.cjs')
@@ -71,6 +74,26 @@ describe('electron-builder config', () => {
     })
   })
 
+  it('keeps ALab macOS artifacts deterministically ad-hoc signed', () => {
+    expect(electronBuilderConfig.mac.identity).toBe('-')
+    expect(electronBuilderConfig.mac.hardenedRuntime).toBe(false)
+    expect(electronBuilderConfig.mac.notarize).toBe(false)
+    expect(electronBuilderConfig.forceCodeSigning).toBe(false)
+    reloadConfigWithEnv(
+      {
+        ORCA_MAC_RELEASE: '1',
+        CSC_LINK: '/tmp/production-signing-certificate.p12',
+        CSC_NAME: 'Developer ID Application: Must Not Be Used'
+      },
+      (config) => {
+        expect(config.mac.identity).toBe('-')
+        expect(config.mac.hardenedRuntime).toBe(false)
+        expect(config.mac.notarize).toBe(false)
+        expect(config.forceCodeSigning).toBe(false)
+      }
+    )
+  })
+
   it('restores the upstream identity only under ORCA_PUBLIC_IDENTITY=1', () => {
     reloadConfigWithEnv({ ORCA_PUBLIC_IDENTITY: '1' }, (config) => {
       expect(config.appId).toBe('com.stablyai.orca')
@@ -81,12 +104,8 @@ describe('electron-builder config', () => {
     })
   })
 
-  // Why: audit F13 — electron-updater only invokes verifyUpdateCodeSignature
-  // when app-update.yml carries win.signtoolOptions.publisherName. Losing it
-  // would silently skip the fail-closed override in src/main/updater.ts and
-  // install unsigned updates.
-  it('keeps the Windows publisherName so update signature verification stays armed', () => {
-    expect(electronBuilderConfig.win.signtoolOptions.publisherName).toBe('SignPath Foundation')
+  it('does not claim an upstream Windows publisher for ALab artifacts', () => {
+    expect(electronBuilderConfig.win.signtoolOptions).toBeUndefined()
     reloadConfigWithEnv({ ORCA_PUBLIC_IDENTITY: '1' }, (config) => {
       expect(config.win.signtoolOptions.publisherName).toBe('SignPath Foundation')
     })
@@ -103,6 +122,10 @@ describe('electron-builder config', () => {
     reloadConfigWithEnv({ ORCA_PUBLIC_IDENTITY: '1' }, (config) => {
       expect(config.publish).toMatchObject({ owner: 'alabsystems', repo: 'orca-alab' })
     })
+    const builderRepository = `${electronBuilderConfig.publish.owner}/${electronBuilderConfig.publish.repo}`
+    expect(builderRepository).toBe(UPDATE_FEED_REPO_SLUG)
+    expect(builderRepository).toBe(DEFAULT_RELEASE_REPOSITORY)
+    expect(builderRepository).toBe(ORCA_ALAB_PUBLIC_REPOSITORY_SLUG)
   })
 
   // Why: audit F2 — afterPack must fail on foreign-arch cargo binaries instead

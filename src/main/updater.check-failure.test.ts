@@ -72,6 +72,7 @@ vi.mock('electron', () => ({
   BrowserWindow: browserWindowMock,
   autoUpdater: nativeUpdaterMock,
   powerMonitor: { on: vi.fn() },
+  shell: { openExternal: vi.fn() },
   net: { fetch: vi.fn() }
 }))
 
@@ -81,6 +82,10 @@ vi.mock('electron-updater', () => ({
 
 vi.mock('./electron-updater-loader', () => ({
   loadElectronAutoUpdater: () => autoUpdaterMock
+}))
+
+vi.mock('./updater-install-policy', () => ({
+  getUpdateInstallMode: () => 'automatic'
 }))
 
 vi.mock('@electron-toolkit/utils', () => ({

@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  assertReleasedHistoryPreserved,
   classifyFile,
   collectPackageFiles,
   describeFile,
@@ -14,6 +13,10 @@ import {
   packageDigest,
   sortManifestFiles
 } from './generate-skill-bundle-manifest.mjs'
+import {
+  assertReleasedHistoryPreserved,
+  stabilizeReleasedHistory
+} from './skill-release-history-stability.mjs'
 
 const temporaryDirectories = []
 
@@ -80,8 +83,14 @@ describe('skill bundle manifest generator', () => {
 
   it('rejects rewrites of released snapshots and allows floating-tail replacement', () => {
     const snapshot = (releaseRevision, packageDigest) => ({ releaseRevision, packageDigest })
+    const committedMapping = {
+      schemaVersion: 1,
+      releases: [
+        { appVersion: '1.0.0', skills: { 'orca-cli': 1 } },
+        { appVersion: '2.0.0', skills: { 'orca-cli': 2 } }
+      ]
+    }
     const artifacts = {
-      releasedSnapshotCounts: { 'orca-cli': 2 },
       snapshotRegistry: {
         schemaVersion: 1,
         skills: { 'orca-cli': [snapshot(1, 'aaa'), snapshot(2, 'bbb'), snapshot(3, 'ccc')] }
@@ -91,6 +100,7 @@ describe('skill bundle manifest generator', () => {
     expect(() =>
       assertReleasedHistoryPreserved(
         { schemaVersion: 1, skills: { 'orca-cli': [snapshot(1, 'aaa'), snapshot(2, 'bbb')] } },
+        committedMapping,
         artifacts
       )
     ).not.toThrow()
@@ -100,6 +110,7 @@ describe('skill bundle manifest generator', () => {
           schemaVersion: 1,
           skills: { 'orca-cli': [snapshot(1, 'aaa'), snapshot(2, 'bbb'), snapshot(3, 'stale')] }
         },
+        committedMapping,
         artifacts
       )
     ).not.toThrow()
@@ -109,6 +120,7 @@ describe('skill bundle manifest generator', () => {
           schemaVersion: 1,
           skills: { 'orca-cli': [snapshot(1, 'aaa'), snapshot(2, 'rewritten')] }
         },
+        committedMapping,
         artifacts
       )
     ).toThrow('Released snapshot history changed for orca-cli at revision 2')
@@ -120,21 +132,99 @@ describe('skill bundle manifest generator', () => {
             'orca-cli': [snapshot(1, 'aaa'), { ...snapshot(2, 'bbb'), gitTreeSha: 'rewritten' }]
           }
         },
+        committedMapping,
         artifacts
       )
     ).toThrow('Released snapshot history changed for orca-cli at revision 2')
+
+    const onlyRevisionOneReleased = {
+      schemaVersion: 1,
+      releases: [{ appVersion: '1.0.0', skills: { 'orca-cli': 1 } }]
+    }
     expect(() =>
       assertReleasedHistoryPreserved(
         {
           schemaVersion: 1,
-          skills: {
-            'orca-cli': [snapshot(1, 'aaa'), snapshot(2, 'bbb'), snapshot(3, 'stale')]
-          }
+          skills: { 'orca-cli': [snapshot(1, 'aaa'), snapshot(2, 'unreleased')] }
         },
-        { ...artifacts, releasedSnapshotCounts: { 'orca-cli': 1 } }
+        onlyRevisionOneReleased,
+        artifacts
       )
-    ).toThrow('Released snapshot history is incomplete for orca-cli')
-    expect(() => assertReleasedHistoryPreserved(null, artifacts)).not.toThrow()
+    ).not.toThrow()
+    expect(() => assertReleasedHistoryPreserved(null, null, artifacts)).not.toThrow()
+  })
+
+  it('keeps mapped revisions stable when late tags replace a floating snapshot', () => {
+    const snapshot = (releaseRevision, packageDigest) => ({ releaseRevision, packageDigest })
+    const committedRegistry = {
+      schemaVersion: 1,
+      skills: {
+        'orca-cli': [snapshot(1, 'released-a'), snapshot(2, 'released-b'), snapshot(3, 'floating')]
+      }
+    }
+    const committedMapping = {
+      schemaVersion: 1,
+      releases: [
+        { appVersion: '1.0.0', skills: { 'orca-cli': 1 } },
+        { appVersion: '2.0.0', skills: { 'orca-cli': 2 } }
+      ]
+    }
+    const derived = {
+      registry: {
+        schemaVersion: 1,
+        skills: {
+          'orca-cli': [
+            snapshot(1, 'released-a'),
+            snapshot(2, 'late-history'),
+            snapshot(3, 'released-b'),
+            snapshot(4, 'fork-release')
+          ]
+        }
+      },
+      mapping: {
+        schemaVersion: 1,
+        releases: [
+          { appVersion: '1.0.0', skills: { 'orca-cli': 1 } },
+          { appVersion: '1.5.0', skills: { 'orca-cli': 2 } },
+          { appVersion: '2.0.0', skills: { 'orca-cli': 3 } },
+          { appVersion: '2.1.0-fork.1', skills: { 'orca-cli': 4 } }
+        ]
+      }
+    }
+
+    const stable = stabilizeReleasedHistory(derived, committedRegistry, committedMapping)
+
+    expect(stable.registry.skills['orca-cli']).toEqual([
+      snapshot(1, 'released-a'),
+      snapshot(2, 'released-b'),
+      snapshot(3, 'late-history'),
+      snapshot(4, 'fork-release')
+    ])
+    expect(stable.mapping.releases).toEqual([
+      { appVersion: '1.0.0', skills: { 'orca-cli': 1 } },
+      { appVersion: '1.5.0', skills: { 'orca-cli': 3 } },
+      { appVersion: '2.0.0', skills: { 'orca-cli': 2 } },
+      { appVersion: '2.1.0-fork.1', skills: { 'orca-cli': 4 } }
+    ])
+    expect(() =>
+      assertReleasedHistoryPreserved(committedRegistry, committedMapping, {
+        snapshotRegistry: stable.registry
+      })
+    ).not.toThrow()
+
+    const rewritten = structuredClone(derived)
+    rewritten.registry.skills['orca-cli'][2].packageDigest = 'rewritten-release'
+    expect(() => stabilizeReleasedHistory(rewritten, committedRegistry, committedMapping)).toThrow(
+      'Released snapshot history changed for orca-cli at 2.0.0'
+    )
+
+    const incomplete = structuredClone(derived)
+    incomplete.mapping.releases = incomplete.mapping.releases.filter(
+      (release) => release.appVersion !== '2.0.0'
+    )
+    expect(() => stabilizeReleasedHistory(incomplete, committedRegistry, committedMapping)).toThrow(
+      'Released snapshot history is incomplete at 2.0.0'
+    )
   })
 
   it('tolerates only redundant trailing release-mapping rows', () => {

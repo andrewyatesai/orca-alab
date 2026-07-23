@@ -6,7 +6,7 @@
 
 Orca: ALab Edition은 [Stably의 Orca](https://github.com/stablyai/orca)를
 기반으로 하는 실험적인 다운스트림 포크로, 성능과 정확성에 초점을 맞추고
-있습니다. [github.com/andrewyatesai/orc](https://github.com/andrewyatesai/orc)에서
+있습니다. [github.com/andrewyatesai/orca-alab](https://github.com/andrewyatesai/orca-alab)에서
 관리되며 터미널 스택, 네이티브 핫 패스, 장애 복구에 주력합니다.
 
 > **안내:** 업스트림 다운로드를 통해 설치되는 것은 업스트림 Orca입니다.

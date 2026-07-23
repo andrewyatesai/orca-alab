@@ -1,8 +1,13 @@
 # Fork Versioning, Update Feed, and Build Identity
 
-This fork ships as **Orca Staging**, versioned on a fork-owned scheme and
-updated from a fork-owned release feed. This document defines the scheme and
-the ship-vehicle guarantees around it (staging-launch audit F1, F13, F14, F2).
+This development repository builds **Orca: ALab Edition**, versioned on an
+ALab-owned scheme and updated from the public ALab release feed. Development
+source lives at `andrewyatesai/orca-alab`; release artifacts and update
+manifests live separately at `alabsystems/orca-alab`. Neither location is the
+production Orca vendor repository (`stablyai/orca`).
+
+This document defines the scheme and the ship-vehicle guarantees around it
+(staging-launch audit F1, F13, F14, F2).
 
 ## The `-fork.N` version scheme
 
@@ -26,41 +31,75 @@ Ordering (semver prerelease rules, as implemented by `compareVersions` in
   and default update checks include every fork tag from the atom feed (there
   is no separate stable channel for staging).
 - Semver-wise `1.4.122-fork.N < 1.4.122` (a prerelease precedes its base).
-  That is **safe by construction**: the updater never consults any feed that
-  contains public tags (see below), so public stable can never win a version
-  comparison against a fork build.
+  That is **safe by construction**: the updater consults the ALab release
+  feed, not the production vendor feed, so an upstream production tag can
+  never win a version comparison against an ALab build.
 
-Release tags on the fork repo are `v<version>`, e.g. `v1.4.122-fork.1`.
+Release tags on `alabsystems/orca-alab` are `v<version>`, e.g.
+`v1.4.122-fork.1`. Although `-fork.N` is a SemVer prerelease suffix, ALab
+publishes those tags as full GitHub releases so GitHub's `latest` endpoint and
+the updater fallback advance with the fork train. Only `-rc.N` tags carry
+GitHub's prerelease flag.
 
-## Update feed: fork-owned, dormant-if-unconfigured (F1)
+### Release gate and artifact profiles
+
+Release notes are generated from `andrewyatesai/orca-alab`, while draft
+releases and assets live in `alabsystems/orca-alab`. Draft creation fails closed
+unless the exact tag already exists in both repositories; GitHub is never
+allowed to synthesize a missing public tag from its default branch.
+
+The publication gate defaults to
+`ORCA_RELEASE_ASSET_PROFILE=alab-macos`, matching the current nine-asset,
+dual-architecture macOS release. A maintainer can explicitly select
+`alab-full` only after current macOS, Linux, and Windows outputs are uploaded.
+`legacy-full` is reserved for old upstream-style artifacts and is the only
+profile that requires RPMs. Each update manifest must name same-release assets,
+match the tag version, and carry SHA-512 values that match the uploaded bytes.
+That integrity check intentionally streams every manifest-referenced archive
+and installer before publication.
+
+## Update feed: ALab-owned, dormant-if-unconfigured (F1)
 
 All updater endpoints derive from one constant —
-`UPDATE_FEED_REPO_SLUG = 'andrewyatesai/orca-alab'` in
+`UPDATE_FEED_REPO_SLUG = 'alabsystems/orca-alab'` in
 `src/main/updater-feed-endpoints.ts` — which must match the `publish` block in
 `config/electron-builder.config.cjs`. There are no other feed URLs in the
 updater; the atom feed, the pinned `releases/download/<tag>` feeds, and the
 `releases/latest/download` fallback are all built from that slug.
 
-**Dormant posture:** if the slug is blank (or set to the public
-`stablyai/orca` repo, which `isUpdateFeedConfigured()` rejects), the updater
-wires nothing at startup — no feed, no handlers, no timers — and both manual
-and background checks answer "not available" without touching the network.
-The updater never falls back to any public URL. If the fork repo simply has
-no releases yet, checks fail benignly (electron-updater's missing-manifest
-errors are classified as benign) and stay quiet.
+**Dormant posture:** if the slug is blank, the updater wires nothing at
+startup — no feed, no handlers, no timers — and both manual and background
+checks answer "not available" without touching the network. The checked-in
+slug is the ALab release repository, and the updater never falls back to the
+production vendor feed. If that release repository has no releases yet,
+checks fail benignly (electron-updater's missing-manifest errors are
+classified as benign) and stay quiet.
 
 The upstream vendor endpoints on `onorca.dev` (update **nudge** campaigns and
 the rich **changelog** card) have no fork equivalent; their URLs are `null` in
 `updater-feed-endpoints.ts` and both features are dormant. Point them at
 fork-owned services before enabling.
 
-## Windows update signatures: fail-closed (F13)
+### Platform install modes
 
-The fork has no Windows code-signing identity. Upstream's
-`verifyUpdateCodeSignature` bypass (accept everything) has been replaced with
-a fail-closed override in `src/main/updater.ts`: every downloaded Windows
-update is **rejected** at signature-verification time and the install is
-skipped, with the reason logged.
+- **macOS:** Orca checks the public ALab release feed itself and shows newer
+  versions with a link to the exact GitHub release. Installation is manual.
+  The app never initializes `electron-updater`'s `MacUpdater`: Squirrel.Mac
+  requires a stable signing identity to authenticate updates across releases,
+  while ALab builds have only an ad-hoc launch seal and are not Developer
+  ID-signed or notarized. macOS may ask users to approve privacy permissions
+  again after installing a rebuilt or newer ALab bundle because its ad-hoc code
+  identity is not stable across builds.
+- **Windows:** installation is also manual until ALab has a code-signing
+  publisher, as detailed below.
+- **Linux:** the existing `electron-updater` flow remains enabled.
+
+## Windows updates: manual until signed (F13)
+
+The fork has no Windows code-signing identity. Orca therefore uses the same
+manual-release discovery flow as macOS and never initializes the native
+Windows updater. This avoids downloading an installer that cannot be
+authenticated against an ALab publisher.
 
 Consequences for the staging cohort:
 
@@ -69,7 +108,7 @@ Consequences for the staging cohort:
 - Installers are unsigned, so **SmartScreen will warn** ("Windows protected
   your PC") on first run; users must choose "More info → Run anyway".
 
-Remove the override only when fork-signed builds exist and
+Enable native installation only when fork-signed builds exist and
 `win.signtoolOptions.publisherName` in `config/electron-builder.config.cjs`
 names the fork's certificate — electron-updater's default verification then
 checks against that publisher.
@@ -79,12 +118,12 @@ checks against that publisher.
 Fork builds default to a distinct identity so they install and run
 side-by-side with public Orca instead of impersonating it:
 
-| | Fork default | `ORCA_PUBLIC_IDENTITY=1` |
-|---|---|---|
-| appId / bundle id | `com.stablyai.orca.staging` | `com.stablyai.orca` |
-| productName | `Orca Staging` | `Orca` |
-| Windows AUMID | `com.stablyai.orca.staging` | `com.stablyai.orca` |
-| userData | `…/Orca Staging` | public Orca's |
+|                   | Fork default                | `ORCA_PUBLIC_IDENTITY=1` |
+| ----------------- | --------------------------- | ------------------------ |
+| appId / bundle id | `com.stablyai.orca.staging` | `com.stablyai.orca`      |
+| productName       | `Orca ALab Edition`         | `Orca`                   |
+| Windows AUMID     | `com.stablyai.orca.staging` | `com.stablyai.orca`      |
+| userData          | `…/Orca ALab Edition`       | public Orca's            |
 
 `ORCA_PUBLIC_IDENTITY=1` exists **only** for producing upstream-identity diff
 builds; never ship it to the staging cohort. The runtime side lives in
@@ -98,7 +137,7 @@ Known limitation: Linux packages keep the upstream `orca-ide` deb/rpm package
 name and executable name, so a staging deb **replaces** an installed public
 deb (userData still stays isolated). See remaining-work notes before shipping
 Linux staging artifacts. The `after-install.sh` CLI symlink also does not yet
-probe the `/opt/Orca Staging` install dir.
+probe the `/opt/Orca ALab Edition` install dir.
 
 ## macOS multi-arch builds (F2)
 

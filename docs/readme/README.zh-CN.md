@@ -6,7 +6,7 @@
 
 Orca: ALab Edition 是 [Stably 的 Orca](https://github.com/stablyai/orca)
 的一个实验性下游分支，专注于性能与正确性，维护于
-[github.com/andrewyatesai/orc](https://github.com/andrewyatesai/orc)，
+[github.com/andrewyatesai/orca-alab](https://github.com/andrewyatesai/orca-alab)，
 重点改进终端栈、原生热路径和故障恢复。
 
 > **注意：** 上游提供的下载安装的是上游版 Orca。Orca: ALab Edition

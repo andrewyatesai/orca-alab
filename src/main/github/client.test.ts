@@ -106,6 +106,7 @@ vi.mock('./rate-limit', () => ({
 
 import {
   checkOrcaStarred,
+  starOrca,
   getPRComments,
   getPRForBranch,
   getPRForBranchOutcome,
@@ -142,7 +143,19 @@ describe('checkOrcaStarred', () => {
 
     expect(execFileAsyncMock).toHaveBeenCalledWith(
       'gh',
-      ['api', '--include', 'user/starred/stablyai/orca'],
+      ['api', '--include', 'user/starred/alabsystems/orca-alab'],
+      { encoding: 'utf-8' }
+    )
+  })
+
+  it('stars the public ALab repository', async () => {
+    execFileAsyncMock.mockResolvedValueOnce({ stdout: '', stderr: '' })
+
+    await expect(starOrca()).resolves.toBe(true)
+
+    expect(execFileAsyncMock).toHaveBeenCalledWith(
+      'gh',
+      ['api', '-X', 'PUT', 'user/starred/alabsystems/orca-alab'],
       { encoding: 'utf-8' }
     )
   })

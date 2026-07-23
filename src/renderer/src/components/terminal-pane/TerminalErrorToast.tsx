@@ -1,4 +1,6 @@
 import { translate } from '@/i18n/i18n'
+import { ORCA_ALAB_DEVELOPMENT_ISSUES_URL } from '../../../../shared/repository-endpoints'
+
 const SSH_PREFIX = 'SSH connection is not active'
 const STALE_NODE_PTY_DAEMON_MARKERS = [
   "Daemon's node-pty install is gone",
@@ -69,7 +71,7 @@ export function TerminalErrorToast({
                 'If this persists, please'
               )}{' '}
               <a
-                href="https://github.com/stablyai/orca/issues"
+                href={ORCA_ALAB_DEVELOPMENT_ISSUES_URL}
                 style={{ color: '#fca5a5', textDecoration: 'underline' }}
               >
                 {translate(

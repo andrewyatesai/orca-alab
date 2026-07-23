@@ -5,7 +5,12 @@ import {
   FEATURE_WALL_STEP_IDS,
   FEATURE_WALL_WORKFLOWS
 } from './feature-wall-workflows'
+import { FEATURE_WALL_TILES } from './feature-wall-tiles'
 import { FEATURE_WALL_TOUR_DEPTH_STEPS } from './feature-wall-tour-depth'
+import {
+  ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS,
+  ORCA_ALAB_FEATURE_WALKTHROUGH_URL
+} from './repository-endpoints'
 
 describe('ALab feature wall catalog', () => {
   it('starts with the terminal and covers six lifecycle chapters', () => {
@@ -96,16 +101,32 @@ describe('ALab feature wall catalog', () => {
     expect(remoteMobile?.description).toContain('desktop/runtime coordinates the session')
     expect(remoteMobile?.description).toContain('selected local or SSH host retains execution')
     expect(remoteMobile?.availabilityLabel).toBe('Mobile beta')
-    expect(remoteMobile?.docsUrl).toBe('https://www.onorca.dev/docs/mobile')
+    expect(remoteMobile?.docsUrl).toBe(ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.remoteMobile)
     expect(mobileEmulators?.description).toContain('workspace-scoped iOS Simulator pane')
     expect(mobileEmulators?.description).toContain('macOS, Linux, or Windows')
     expect(mobileEmulators?.description).toContain("Orca's workspace Emulator pane")
     expect(mobileEmulators?.description).toContain('physical ADB device')
     expect(mobileEmulators?.description).toContain('iOS control is local to the Mac')
     expect(computerUse?.description).toContain('invoking advertised actions')
-    expect(computerUse?.docsUrl).toBe('https://www.onorca.dev/docs/cli/computer-use')
-    expect(steps.every((step) => step.docsUrl?.startsWith('https://www.onorca.dev/docs/'))).toBe(
-      true
+    expect(computerUse?.docsUrl).toBe(ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.computerUse)
+    expect(
+      steps.every((step) => step.docsUrl?.startsWith(`${ORCA_ALAB_FEATURE_WALKTHROUGH_URL}#`))
+    ).toBe(true)
+  })
+
+  it('deep-links feature help to its matching walkthrough section', () => {
+    const steps = new Map(
+      FEATURE_WALL_WORKFLOWS.flatMap((workflow) =>
+        workflow.steps.map((step) => [step.id, step.docsUrl])
+      )
     )
+    const tiles = new Map(FEATURE_WALL_TILES.map((tile) => [tile.id, tile.docsUrl]))
+
+    expect(steps.get('terminal')).toBe(ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.terminal)
+    expect(steps.get('review-ship')).toBe(ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.review)
+    expect(steps.get('remote-mobile')).toBe(ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.remoteMobile)
+    expect(tiles.get('tile-02')).toBe(ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.terminal)
+    expect(tiles.get('tile-05')).toBe(ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.browser)
+    expect(tiles.get('tile-08')).toBe(ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.review)
   })
 })

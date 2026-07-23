@@ -8,8 +8,7 @@ import { Separator } from '../ui/separator'
 import { SearchableSetting } from './SearchableSetting'
 import { SettingsSubsectionHeader } from './SettingsFormControls'
 import { translate } from '@/i18n/i18n'
-
-const ORCA_STARGAZERS_URL = 'https://github.com/alabsystems/orca-alab/stargazers'
+import { ORCA_ALAB_PUBLIC_STARGAZERS_URL } from '../../../../shared/repository-endpoints'
 
 type SupportState =
   | 'loading'
@@ -58,7 +57,7 @@ export function GeneralSupportSection({
   const handleStarClick = async (): Promise<void> => {
     if (starState === 'web-fallback') {
       setStarState('opening-github')
-      await window.api.shell.openUrl(ORCA_STARGAZERS_URL)
+      await window.api.shell.openUrl(ORCA_ALAB_PUBLIC_STARGAZERS_URL)
       if (mountedRef.current) {
         setStarState('web-fallback')
       }

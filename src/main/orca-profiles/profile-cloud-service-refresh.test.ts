@@ -91,6 +91,7 @@ function futureExpiresAt(): number {
 function configureCloudEnv(): void {
   vi.stubEnv('ORCA_CLOUD_API_URL', 'https://orca-cloud.example')
   vi.stubEnv('ORCA_CLOUD_CLIENT_ID', 'desktop-client')
+  vi.stubEnv('ORCA_RELAY_URL', 'https://relay.orca-cloud.example')
 }
 
 function mockSuccessfulConnect(expiresAt = futureExpiresAt()): void {
@@ -128,6 +129,7 @@ describe('Orca cloud profile service session refresh', () => {
     vi.unstubAllEnvs()
     vi.stubEnv('ORCA_CLOUD_API_URL', '')
     vi.stubEnv('ORCA_CLOUD_CLIENT_ID', '')
+    vi.stubEnv('ORCA_RELAY_URL', '')
   })
 
   afterEach(() => {

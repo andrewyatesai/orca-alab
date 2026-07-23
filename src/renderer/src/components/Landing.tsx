@@ -21,14 +21,13 @@ import {
   type PreflightIssue,
   type LandingPreflightStatus
 } from './landing-preflight-issues'
+import { ORCA_ALAB_PUBLIC_STARGAZERS_URL } from '../../../shared/repository-endpoints'
 
 type ShortcutItem = {
   id: string
   shortcut: ShortcutKeyComboDetails
   action: string
 }
-
-const ORCA_STARGAZERS_URL = 'https://github.com/stablyai/orca/stargazers'
 
 async function checkLandingPreflight(force = false): Promise<LandingPreflightStatus | null> {
   try {
@@ -84,7 +83,7 @@ function GitHubStarButton({ hasRepos }: { hasRepos: boolean }): React.JSX.Elemen
       return
     }
     if (state === 'web-fallback') {
-      await window.api.shell.openUrl(ORCA_STARGAZERS_URL)
+      await window.api.shell.openUrl(ORCA_ALAB_PUBLIC_STARGAZERS_URL)
       return
     }
     if (state !== 'not-starred') {

@@ -13,8 +13,10 @@ FN="${1:-build_agent_notification_id}"
 BUDGET="${2:-20000}"
 ALARM_S="${3:-180}"
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 TRUST="${TRUST_HOME:-$HOME/trust}"
-export WS="${ORC_RUST:-$HOME/orc/rust}"
+export WS="${ORC_RUST:-$REPO_ROOT/rust}"
 
 TCARGO=""
 for cand in \

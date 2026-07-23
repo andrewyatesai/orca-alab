@@ -14,7 +14,7 @@ describe('feature wall reduced-motion visuals', () => {
     expect(html).toContain('data-feature-wall-task-provider="github"')
     expect(html).toContain('GitHub')
     expect(html).toContain('connected for tasks')
-    expect(html).toContain('stablyai/orca')
+    expect(html).toContain('andrewyatesai/orca-alab')
     expect(html).toContain('Linked issue #1842')
     expect(html).toContain('Reading issue #')
     expect(html).toContain('Open workspace')

@@ -7,10 +7,23 @@
 import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 const require = createRequire(import.meta.url)
-const {
-  Terminal
-} = require('/Users/ayates/orc/tools/terminal-bench/node_modules/@xterm/headless/lib-headless/xterm-headless.js')
+const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const { Terminal } = require(
+  join(
+    repoRoot,
+    'tools',
+    'terminal-bench',
+    'node_modules',
+    '@xterm',
+    'headless',
+    'lib-headless',
+    'xterm-headless.js'
+  )
+)
 
 const ROWS = 40,
   COLS = 120,

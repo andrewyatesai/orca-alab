@@ -6,7 +6,7 @@
 
 Orca: ALab Edition は、[Stably の Orca](https://github.com/stablyai/orca)
 を基にした実験的な下流フォークで、パフォーマンスと正確性を重視しています。
-[github.com/andrewyatesai/orc](https://github.com/andrewyatesai/orc)
+[github.com/andrewyatesai/orca-alab](https://github.com/andrewyatesai/orca-alab)
 でメンテナンスされており、ターミナルスタック、ネイティブのホットパス、
 障害からの復旧に注力しています。
 

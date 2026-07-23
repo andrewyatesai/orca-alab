@@ -3,23 +3,36 @@
 import { execFileSync } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { verifyRequiredReleaseAssets } from './verify-release-required-assets.mjs'
+import { isDesktopReleasePrerelease, parseDesktopReleaseTag } from './desktop-release-tag.mjs'
+import { resolveReleaseRepository } from './release-repository.mjs'
+import {
+  assertReleaseAssetProfile,
+  DEFAULT_RELEASE_ASSET_PROFILE,
+  verifyRequiredReleaseAssets
+} from './verify-release-required-assets.mjs'
 
 const API_VERSION = '2022-11-28'
-const RELEASE_CUT_AUTHOR = 'github-actions[bot]'
-const DESKTOP_RC_TAG_PATTERN = /^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$/
+const DEFAULT_RELEASE_CUT_AUTHORS = ['github-actions[bot]', 'alabsystems']
 
-export function isReleaseCutDraft(release) {
+export function resolveReleaseDraftAuthors(env = process.env) {
+  const configured = env.ORCA_RELEASE_DRAFT_AUTHORS?.split(',')
+    .map((author) => author.trim())
+    .filter(Boolean)
+  return configured?.length ? configured : DEFAULT_RELEASE_CUT_AUTHORS
+}
+
+export function isReleaseCutDraft(release, { allowedAuthors = DEFAULT_RELEASE_CUT_AUTHORS } = {}) {
+  const tag = release?.tag_name
   return (
     release?.draft === true &&
-    release?.author?.login === RELEASE_CUT_AUTHOR &&
-    typeof release?.tag_name === 'string' &&
-    DESKTOP_RC_TAG_PATTERN.test(release.tag_name)
+    allowedAuthors.includes(release?.author?.login) &&
+    typeof tag === 'string' &&
+    parseDesktopReleaseTag(tag) !== null
   )
 }
 
-function isRcTag(tag) {
-  return tag.includes('-rc.')
+function isPrereleaseTag(tag) {
+  return isDesktopReleasePrerelease(tag)
 }
 
 function gitOutput(args, cwd) {
@@ -31,6 +44,9 @@ function gitOutput(args, cwd) {
 }
 
 export function isTagBuiltFromCurrentRef(tag, { cwd = process.cwd() } = {}) {
+  if (!parseDesktopReleaseTag(tag)) {
+    return false
+  }
   try {
     const tagCommit = gitOutput(['rev-parse', `${tag}^{}`], cwd)
     const currentCommit = gitOutput(['rev-parse', 'HEAD'], cwd)
@@ -62,13 +78,20 @@ async function githubJson(fetchImpl, url, token, options = {}) {
 }
 
 async function fetchReleases(repo, token, fetchImpl) {
-  const releases = await githubJson(
-    fetchImpl,
-    `https://api.github.com/repos/${repo}/releases?per_page=100`,
-    token
-  )
-  if (!Array.isArray(releases)) {
-    throw new Error(`GitHub releases response for ${repo} was not an array`)
+  const releases = []
+  for (let page = 1; ; page += 1) {
+    const pageReleases = await githubJson(
+      fetchImpl,
+      `https://api.github.com/repos/${repo}/releases?per_page=100&page=${page}`,
+      token
+    )
+    if (!Array.isArray(pageReleases)) {
+      throw new Error(`GitHub releases response page ${page} for ${repo} was not an array`)
+    }
+    releases.push(...pageReleases)
+    if (pageReleases.length < 100) {
+      break
+    }
   }
   return releases
 }
@@ -79,6 +102,8 @@ export async function publishCompleteDraftReleases({
   fetchImpl = fetch,
   verifyReleaseAssets = verifyRequiredReleaseAssets,
   isDraftBuiltFromCurrentRef = ({ tag }) => isTagBuiltFromCurrentRef(tag),
+  assetProfile = DEFAULT_RELEASE_ASSET_PROFILE,
+  allowedAuthors = DEFAULT_RELEASE_CUT_AUTHORS,
   log = console.log
 }) {
   if (!repo) {
@@ -87,10 +112,11 @@ export async function publishCompleteDraftReleases({
   if (!token) {
     throw new Error('token is required')
   }
+  assertReleaseAssetProfile(assetProfile)
 
   const releases = await fetchReleases(repo, token, fetchImpl)
   const candidates = releases
-    .filter(isReleaseCutDraft)
+    .filter((release) => isReleaseCutDraft(release, { allowedAuthors }))
     .sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime())
 
   const published = []
@@ -101,20 +127,20 @@ export async function publishCompleteDraftReleases({
     if (!(await isDraftBuiltFromCurrentRef({ tag, release }))) {
       const reason = 'tag is not built from the current release ref'
       skipped.push({ tag, reason })
-      log(`Skipping stale RC draft release ${tag}: ${reason}`)
+      log(`Skipping stale ALab desktop draft ${tag}: ${reason}`)
       continue
     }
 
     try {
-      await verifyReleaseAssets({ repo, tag, token })
+      await verifyReleaseAssets({ repo, tag, token, profile: assetProfile })
     } catch (error) {
       const reason = error instanceof Error ? error.message.split('\n')[0] : String(error)
       skipped.push({ tag, reason })
-      log(`Skipping incomplete RC draft release ${tag}: ${reason}`)
+      log(`Skipping incomplete ALab desktop draft ${tag}: ${reason}`)
       continue
     }
 
-    // Why: only release-cut-authored RC drafts with a complete asset set are
+    // Why: only trusted release-cut drafts with a complete asset set are
     // resumed here; incomplete drafts stay private for the normal rebuild path.
     await githubJson(
       fetchImpl,
@@ -124,16 +150,16 @@ export async function publishCompleteDraftReleases({
         method: 'PATCH',
         body: JSON.stringify({
           draft: false,
-          prerelease: isRcTag(tag)
+          prerelease: isPrereleaseTag(tag)
         })
       }
     )
     published.push(tag)
-    log(`Published complete RC draft release ${tag}`)
+    log(`Published complete ALab desktop draft ${tag}`)
   }
 
   if (published.length === 0 && skipped.length === 0) {
-    log('No complete release-cut RC drafts to publish.')
+    log('No complete trusted ALab desktop drafts to publish.')
   }
 
   return { published, skipped }
@@ -157,8 +183,17 @@ export function writeGithubOutputs({ published, skipped }, outputPath = process.
 
 async function main() {
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-  const repo = process.env.GITHUB_REPOSITORY || 'alabsystems/orca-alab'
-  const result = await publishCompleteDraftReleases({ repo, token })
+  const repo = resolveReleaseRepository(process.env)
+  const allowedAuthors = resolveReleaseDraftAuthors(process.env)
+  const assetProfile = process.env.ORCA_RELEASE_ASSET_PROFILE || DEFAULT_RELEASE_ASSET_PROFILE
+  if (assetProfile === DEFAULT_RELEASE_ASSET_PROFILE) {
+    console.log(
+      'Release asset gate: alab-macos (Mac-only); set ORCA_RELEASE_ASSET_PROFILE=alab-full for a multi-platform cut.'
+    )
+  } else {
+    console.log(`Release asset gate: ${assetProfile}`)
+  }
+  const result = await publishCompleteDraftReleases({ repo, token, allowedAuthors, assetProfile })
   writeGithubOutputs(result)
 }
 

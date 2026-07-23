@@ -30,6 +30,10 @@ import {
   subscribePendingHostCredentialCleanup
 } from '../src/transport/host-credential-cleanup'
 import { retryPendingHostCredentialCleanup } from '../src/transport/host-store'
+import {
+  ORCA_ALAB_DEVELOPMENT_ISSUES_URL,
+  ORCA_ALAB_PRIVACY_URL
+} from '../../src/shared/repository-endpoints'
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -212,7 +216,7 @@ export default function SettingsScreen() {
         <View style={[styles.section, styles.sectionSpacer]}>
           <Pressable
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-            onPress={() => void Linking.openURL('https://www.onorca.dev/privacy')}
+            onPress={() => void Linking.openURL(ORCA_ALAB_PRIVACY_URL)}
           >
             <Shield size={16} color={colors.textSecondary} />
             <Text style={styles.rowLabel}>Privacy Policy</Text>
@@ -220,7 +224,7 @@ export default function SettingsScreen() {
           <View style={styles.separator} />
           <Pressable
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-            onPress={() => void Linking.openURL('https://github.com/stablyai/orca/issues')}
+            onPress={() => void Linking.openURL(ORCA_ALAB_DEVELOPMENT_ISSUES_URL)}
           >
             <LifeBuoy size={16} color={colors.textSecondary} />
             <Text style={styles.rowLabel}>Support</Text>

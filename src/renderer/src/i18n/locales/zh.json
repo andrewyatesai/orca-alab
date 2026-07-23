@@ -3539,7 +3539,7 @@
         "share": {
           "card": {
             "utils": {
-              "19f4b4dc75": "github.com/stablyai/orca",
+              "19f4b4dc75": "github.com/alabsystems/orca-alab",
               "d864fc5f98": "输出",
               "5d66fdd7c2": "输入",
               "7080aeaebb": "推理",
@@ -4029,8 +4029,8 @@
           "5b120b9634": "匿名提交",
           "c9e5ea0791": "GitHub：",
           "d46ddd66fc": "我们可以改进什么？",
-          "3460258a54": "关注 X",
-          "26108d3699": "加入 Discord",
+          "3460258a54": "在 X 上关注上游项目",
+          "26108d3699": "加入上游 Discord",
           "d245c4ef6c": "GitHub 议题",
           "9b33530b3d": "其他联系我们的方式",
           "a828fa4aee": "分享什么是有效的、什么是有问题的，或者 Orca 接下来应该做什么。",
@@ -4092,7 +4092,7 @@
         "SidebarSettingsHelpMenu": {
           "ad3d3ed7f1": "重启 Orca",
           "29c56f30ee": "检查更新",
-          "eb9884e55b": "Discord",
+          "eb9884e55b": "上游 Discord",
           "5687ab246a": "GitHub",
           "5f83d86d92": "变更日志",
           "cdc87f897e": "文档",
@@ -4105,7 +4105,7 @@
           "d396773ef0": "检查中",
           "f8a2c91d4e": "里程碑",
           "b7e4d2a19c": "入门引导",
-          "c4f8e1b72a": "X"
+          "c4f8e1b72a": "上游 X"
         },
         "SidebarToolbar": {
           "19e32d0e5f": "打开文件夹选择器以添加项目",
@@ -5614,7 +5614,8 @@
           "31fd7150cf": "正在检查更新...",
           "3394d1f663": "检查中",
           "d69a09b672": "启动时会自动检查更新。",
-          "7173352632": "空闲"
+          "7173352632": "空闲",
+          "manualInstallAvailable": "可供手动安装。"
         },
         "GeneralWorkspaceSettingsSection": {
           "3d538a98f7": "从工作区的“打开方式”菜单中选择可用的应用程序。",
@@ -5948,7 +5949,7 @@
         "MobileSettingsPane": {
           "9a3c280e49": "GitHub 发布",
           "b0088412a1": "或 Android APK 来自",
-          "b5a2ed83ff": "应用商店",
+          "b5a2ed83ff": "上游 iOS App Store",
           "c8491c17ef": "通过扫描二维码从手机控制 Orca。 Beta/早期预览 - 预计会出现错误和重大更改。从以下位置获取 iOS 应用程序",
           "e7a3ae8c4e": "移动端",
           "174f4a3c6d": "通过手机控制终端和智能体。",
@@ -5957,7 +5958,7 @@
           "d4f2b65f30": "在边栏中显示 Orca 手机端 快捷入口。",
           "installIntro": "从以下应用商店安装 Orca Mobile",
           "installOutro": "，然后在下方配对。",
-          "androidApkLabel": "Android APK"
+          "androidApkLabel": "上游 Android APK"
         },
         "NotificationsPane": {
           "906b4afebf": "发送测试通知",
@@ -11318,10 +11319,10 @@
               "2a532d6fd7": "使用 Android 相机扫描以从 GitHub Releases 下载最新的 APK。",
               "432db52b73": "使用 iPhone 相机扫描以打开 App Store。",
               "preview": {
-                "tagline": "最新功能，每日更新。"
+                "tagline": "兼容的上游预览版，每日更新。"
               },
               "stable": {
-                "tagline": "公开发布版，每周更新。"
+                "tagline": "兼容的上游发行版，每周更新。"
               }
             }
           }
@@ -14589,7 +14590,7 @@
       "tasks": {
         "provider": {
           "github": "GitHub",
-          "repository": "stablyai/orca"
+          "repository": "andrewyatesai/orca-alab"
         }
       }
     }

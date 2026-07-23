@@ -81,6 +81,20 @@ describe('applyTerminalAttributionEnv', () => {
     )
   })
 
+  it('attributes generated GitHub content to the public ALab repository', () => {
+    const attributionEnv: Record<string, string> = {}
+
+    applyTerminalAttributionEnv(attributionEnv, {
+      enabled: true,
+      userDataPath: makeTmpRoot()
+    })
+
+    expect(attributionEnv.ORCA_GH_PR_FOOTER).toBe(
+      'Made with [Orca](https://github.com/alabsystems/orca-alab) 🐋'
+    )
+    expect(attributionEnv.ORCA_GH_ISSUE_FOOTER).toBe(attributionEnv.ORCA_GH_PR_FOOTER)
+  })
+
   posixSubprocessIt('does not amend HEAD when git commit --dry-run exits successfully', () => {
     const root = makeTmpRoot()
     const repo = join(root, 'repo')
@@ -111,7 +125,7 @@ describe('applyTerminalAttributionEnv', () => {
     runGit(repo, ['commit', '-m', 'second'], attributionEnv)
     expect(runGit(repo, ['rev-parse', 'HEAD']).trim()).not.toBe(beforeHead)
     expect(runGit(repo, ['log', '-1', '--format=%B'])).toContain(
-      'Co-authored-by: Orca <help@stably.ai>'
+      'Co-authored-by: Orca ALab <andrewyates.m2@pm.me>'
     )
   })
 
@@ -134,7 +148,7 @@ describe('applyTerminalAttributionEnv', () => {
     runGit(repo, ['commit', '-n', '-m', 'initial'], attributionEnv)
 
     expect(runGit(repo, ['log', '-1', '--format=%B'])).toContain(
-      'Co-authored-by: Orca <help@stably.ai>'
+      'Co-authored-by: Orca ALab <andrewyates.m2@pm.me>'
     )
   })
 
@@ -159,7 +173,7 @@ describe('applyTerminalAttributionEnv', () => {
     runGit(repo, ['commit', '-am', 'combined message'], attributionEnv)
 
     expect(runGit(repo, ['log', '-1', '--format=%B'])).toContain(
-      'Co-authored-by: Orca <help@stably.ai>'
+      'Co-authored-by: Orca ALab <andrewyates.m2@pm.me>'
     )
   })
 
@@ -182,7 +196,7 @@ describe('applyTerminalAttributionEnv', () => {
     runGit(repo, ['-c', 'core.quotePath=false', 'commit', '-m', 'initial'], attributionEnv)
 
     expect(runGit(repo, ['log', '-1', '--format=%B'])).toContain(
-      'Co-authored-by: Orca <help@stably.ai>'
+      'Co-authored-by: Orca ALab <andrewyates.m2@pm.me>'
     )
   })
 
@@ -207,7 +221,7 @@ describe('applyTerminalAttributionEnv', () => {
     runGit(repo, ['commit', '-F', messagePath], attributionEnv)
 
     expect(runGit(repo, ['log', '-1', '--format=%B'])).toContain(
-      'Co-authored-by: Orca <help@stably.ai>'
+      'Co-authored-by: Orca ALab <andrewyates.m2@pm.me>'
     )
     expect(readFileSync(messagePath, 'utf8')).toBe('initial from file\n')
   })
@@ -318,7 +332,7 @@ if [[ -f "${hookCounterPath}" ]]; then
   count="$(cat "${hookCounterPath}")"
 fi
 printf '%s\\n' "$((count + 1))" >"${hookCounterPath}"
-grep -Fq 'Co-authored-by: Orca <help@stably.ai>' "$1"
+grep -Fq 'Co-authored-by: Orca ALab <andrewyates.m2@pm.me>' "$1"
 `,
       'utf8'
     )
@@ -336,7 +350,7 @@ grep -Fq 'Co-authored-by: Orca <help@stably.ai>' "$1"
 
     expect(readFileSync(hookCounterPath, 'utf8').trim()).toBe('1')
     expect(runGit(repo, ['log', '-1', '--format=%B'])).toContain(
-      'Co-authored-by: Orca <help@stably.ai>'
+      'Co-authored-by: Orca ALab <andrewyates.m2@pm.me>'
     )
   })
 
@@ -385,7 +399,9 @@ exit 1
 
     expect(existsSync(commitPath)).toBe(true)
     expect(existsSync(amendPath)).toBe(false)
-    expect(readFileSync(argsPath, 'utf8')).toContain('Co-authored-by: Orca <help@stably.ai>')
+    expect(readFileSync(argsPath, 'utf8')).toContain(
+      'Co-authored-by: Orca ALab <andrewyates.m2@pm.me>'
+    )
   })
 
   posixSubprocessIt('passes editor-based commits through without attribution', () => {

@@ -21,16 +21,10 @@ import {
   isWindowsSignatureCheckUnavailableFailure,
   isWindowsSignatureMismatchFailure
 } from '../../../shared/updater-windows-signature-check'
+import { getOrcaAlabPublicReleaseUrl } from '../../../shared/repository-endpoints'
 import { translate } from '@/i18n/i18n'
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-function releaseUrlForVersion(version: string | null): string {
-  // Why: fall back to the plain releases listing (not /releases/latest) — /latest also breaks when GitHub's API is degraded.
-  return version
-    ? `https://github.com/stablyai/orca/releases/tag/v${version}`
-    : 'https://github.com/stablyai/orca/releases'
-}
 
 function isAnimatedGif(url: string | undefined): boolean {
   return typeof url === 'string' && url.toLowerCase().endsWith('.gif')
@@ -285,13 +279,13 @@ export function UpdateCard() {
   // ── Shared helpers ────────────────────────────────────────────────
 
   const isRichMode = changelog?.release != null
-
   const handleUpdate = () => {
-    hasStartedDownload.current = true
     // Why: clicking Update implies the user isn't worried about interruption, so retire the reassurance tip.
     if (!reassuranceSeen) {
       markReassuranceSeen()
     }
+    // Why: main owns manual-update URL validation and reports shell failures through updater status.
+    hasStartedDownload.current = true
     void window.api.updater.download()
   }
 
@@ -348,7 +342,7 @@ export function UpdateCard() {
               'This turns on a process-wide Electron networking switch after restart. Use it for corporate VPNs or proxies that reject HTTP/2 update downloads.'
             ),
             detail: compatibilitySetupError ?? status.message,
-            releaseUrl: releaseUrlForVersion(cachedVersion),
+            releaseUrl: getOrcaAlabPublicReleaseUrl(cachedVersion),
             primaryAction: {
               label: translate('auto.components.UpdateCard.933c6fdf5b', 'Enable & Restart'),
               pendingLabel: 'Restarting...',
@@ -367,7 +361,7 @@ export function UpdateCard() {
               ),
               detail: status.message,
               // Why: linking the rejected version would let users bypass the publisher check by re-running it.
-              releaseUrl: releaseUrlForVersion(null),
+              releaseUrl: getOrcaAlabPublicReleaseUrl(null),
               manualLabel: translate(
                 'auto.components.UpdateCard.c9ff9b9ec2',
                 'Check official releases'
@@ -384,7 +378,7 @@ export function UpdateCard() {
                   "The signature check couldn't run — usually because antivirus software blocked it. Retry the download, or get the installer from our official releases."
                 ),
                 detail: status.message,
-                releaseUrl: releaseUrlForVersion(cachedVersion),
+                releaseUrl: getOrcaAlabPublicReleaseUrl(cachedVersion),
                 primaryAction: {
                   label: translate('auto.components.UpdateCard.48565a32bc', 'Retry Download'),
                   onClick: handleUpdate
@@ -399,7 +393,7 @@ export function UpdateCard() {
                     ? 'Could not complete the update.'
                     : 'Could not check for updates.',
                 detail: status.message,
-                releaseUrl: releaseUrlForVersion(cachedVersion),
+                releaseUrl: getOrcaAlabPublicReleaseUrl(cachedVersion),
                 // Why: check-time failures are often transient, so offer a Re-check instead of forcing manual download.
                 primaryAction:
                   errorRetryTarget === 'install'
@@ -427,7 +421,7 @@ export function UpdateCard() {
             title: translate('auto.components.UpdateCard.4cf109845a', 'Update Error'),
             summary: 'Could not restart to install the update.',
             detail: installError,
-            releaseUrl: releaseUrlForVersion(cachedVersion),
+            releaseUrl: getOrcaAlabPublicReleaseUrl(cachedVersion),
             primaryAction: {
               label: translate('auto.components.UpdateCard.2c2d3e03ca', 'Try Again'),
               onClick: handleInstallRetry
@@ -595,7 +589,11 @@ export function UpdateCard() {
 
     const releaseUrl =
       ('releaseUrl' in status ? status.releaseUrl : undefined) ??
-      releaseUrlForVersion(status.version)
+      getOrcaAlabPublicReleaseUrl(status.version)
+    const actionLabel =
+      status.installMode === 'manual'
+        ? translate('auto.components.UpdateCard.47126bcf57', 'Download Manually')
+        : translate('auto.components.UpdateCard.ec8fe71cfc', 'Update')
 
     if (isRichMode && changelog) {
       return (
@@ -608,6 +606,7 @@ export function UpdateCard() {
           onMediaError={() => setMediaFailed(true)}
           onMediaLoad={() => setMediaLoaded(true)}
           onUpdate={handleUpdate}
+          actionLabel={actionLabel}
           onClose={handleDismissWithAnimation}
         />
       )
@@ -618,6 +617,7 @@ export function UpdateCard() {
         version={status.version}
         releaseUrl={releaseUrl}
         onUpdate={handleUpdate}
+        actionLabel={actionLabel}
         onClose={handleDismissWithAnimation}
       />
     )
@@ -681,6 +681,7 @@ function RichCardContent({
   onMediaError,
   onMediaLoad,
   onUpdate,
+  actionLabel,
   onClose
 }: {
   release: NonNullable<ChangelogData['release']>
@@ -691,6 +692,7 @@ function RichCardContent({
   onMediaError: () => void
   onMediaLoad: () => void
   onUpdate: () => void
+  actionLabel: string
   onClose: () => void
 }) {
   const showMedia =
@@ -760,7 +762,7 @@ function RichCardContent({
       </button>
 
       <Button variant="default" size="sm" onClick={onUpdate} className="w-full cursor-pointer">
-        {translate('auto.components.UpdateCard.ec8fe71cfc', 'Update')}
+        {actionLabel}
       </Button>
     </div>
   )
@@ -772,11 +774,13 @@ function SimpleCardContent({
   version,
   releaseUrl,
   onUpdate,
+  actionLabel,
   onClose
 }: {
   version: string
   releaseUrl: string
   onUpdate: () => void
+  actionLabel: string
   onClose: () => void
 }) {
   return (
@@ -819,7 +823,7 @@ function SimpleCardContent({
         onClick={onUpdate}
         className="mt-0.5 w-full cursor-pointer"
       >
-        {translate('auto.components.UpdateCard.ec8fe71cfc', 'Update')}
+        {actionLabel}
       </Button>
     </div>
   )
@@ -906,7 +910,7 @@ function DownloadingContent({
         className="text-xs text-muted-foreground underline hover:text-foreground self-start"
         onClick={() =>
           void window.api.shell.openUrl(
-            release ? release.releaseNotesUrl : releaseUrlForVersion(version)
+            release ? release.releaseNotesUrl : getOrcaAlabPublicReleaseUrl(version)
           )
         }
       >

@@ -43,8 +43,9 @@ it lands.
 Desktop builds live on this repository's
 [Releases page](https://github.com/alabsystems/orca-alab/releases).
 
-> macOS builds are currently **unsigned**: Gatekeeper requires right-click →
-> Open on first launch. Upstream's own downloads at
+> macOS builds are ad-hoc signed for launch, not Developer ID-signed or
+> notarized: Gatekeeper requires right-click → Open on first launch. Updates
+> are installed manually from this Releases page. Upstream's own downloads at
 > [onorca.dev](https://www.onorca.dev) install upstream Orca, not this
 > edition.
 
@@ -70,8 +71,9 @@ built for you:
   support with the terminal, so agent workflows that build and verify code
   work out of the box.
 
-The terminal engine is **aterm**, a Rust terminal built for AI workloads; its
-public source publication is being prepared separately.
+The terminal engine is
+[**aterm**](https://github.com/alabsystems/aterm), a public Rust terminal built
+for AI workloads.
 
 ## What is Orca?
 

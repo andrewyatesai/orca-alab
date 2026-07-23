@@ -61,12 +61,11 @@ import {
 } from './project-visible-table-cache'
 import { translate } from '@/i18n/i18n'
 import { buildTaskSourceContextFromRepo } from '../../../../shared/task-source-context'
+import { ORCA_ALAB_DEVELOPMENT_NEW_ISSUE_URL } from '../../../../shared/repository-endpoints'
 
 type Props = {
   selectedRepoIds: ReadonlySet<string>
 }
-
-const ORCA_FEATURE_REQUEST_URL = 'https://github.com/stablyai/orca/issues/new'
 
 function listProjectViewsForRuntime(
   settings: Parameters<typeof getActiveRuntimeTarget>[0],
@@ -1170,7 +1169,11 @@ function ViewTabStrip({
                 : translate(
                     'auto.components.github.project.ProjectViewWrapper.2edf5e7e77',
                     "{{value0}} — Orca doesn't support {{value1}} project views yet. File a feature request at {{value2}}.",
-                    { value0: v.name, value1: layoutLabel, value2: ORCA_FEATURE_REQUEST_URL }
+                    {
+                      value0: v.name,
+                      value1: layoutLabel,
+                      value2: ORCA_ALAB_DEVELOPMENT_NEW_ISSUE_URL
+                    }
                   )
             }
             className={cn(
@@ -1198,7 +1201,11 @@ function ViewTabStrip({
                 aria-label={translate(
                   'auto.components.github.project.ProjectViewWrapper.55de4fb57a',
                   '{{value0}}. {{value1}} File a feature request at {{value2}}.',
-                  { value0: v.name, value1: unsupportedMessage, value2: ORCA_FEATURE_REQUEST_URL }
+                  {
+                    value0: v.name,
+                    value1: unsupportedMessage,
+                    value2: ORCA_ALAB_DEVELOPMENT_NEW_ISSUE_URL
+                  }
                 )}
                 className="inline-flex shrink-0 cursor-not-allowed rounded-t-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
               >
@@ -1218,7 +1225,7 @@ function ViewTabStrip({
                   type="button"
                   size="xs"
                   variant="outline"
-                  onClick={() => void window.api.shell.openUrl(ORCA_FEATURE_REQUEST_URL)}
+                  onClick={() => void window.api.shell.openUrl(ORCA_ALAB_DEVELOPMENT_NEW_ISSUE_URL)}
                 >
                   {translate(
                     'auto.components.github.project.ProjectViewWrapper.4d2a77a119',

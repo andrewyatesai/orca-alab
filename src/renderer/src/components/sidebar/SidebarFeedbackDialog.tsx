@@ -15,8 +15,8 @@ import { useMountedRef } from '@/hooks/useMountedRef'
 import { cn } from '@/lib/utils'
 import type { GitHubViewer } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
+import { ORCA_ALAB_DEVELOPMENT_ISSUES_URL } from '../../../../shared/repository-endpoints'
 
-const GITHUB_ISSUES_URL = 'https://github.com/stablyai/orca/issues/'
 const DISCORD_URL = 'https://discord.gg/fzjDKHxv8Q'
 const X_URL = 'https://x.com/orca_build'
 
@@ -184,7 +184,7 @@ export function SidebarFeedbackDialog({
               variant="outline"
               size="sm"
               className="h-8 text-xs"
-              onClick={() => openExternalUrl(GITHUB_ISSUES_URL)}
+              onClick={() => openExternalUrl(ORCA_ALAB_DEVELOPMENT_ISSUES_URL)}
             >
               <Github className="size-3.5" />
               {translate(
@@ -205,7 +205,7 @@ export function SidebarFeedbackDialog({
               </svg>
               {translate(
                 'auto.components.sidebar.SidebarFeedbackDialog.26108d3699',
-                'Join Discord'
+                'Join upstream Discord'
               )}
               <ExternalLink className="size-3.5" />
             </Button>
@@ -219,7 +219,10 @@ export function SidebarFeedbackDialog({
               <svg viewBox="0 0 24 24" aria-hidden="true" className="size-3.5 fill-current">
                 <path d="M18.901 1.153h3.68l-8.041 9.19L24 22.847h-7.406l-5.8-7.584-6.64 7.584H.474l8.6-9.83L0 1.153h7.594l5.243 6.932 6.064-6.932Zm-1.29 19.493h2.04L6.486 3.24H4.298l13.313 17.406Z" />
               </svg>
-              {translate('auto.components.sidebar.SidebarFeedbackDialog.3460258a54', 'Follow on X')}
+              {translate(
+                'auto.components.sidebar.SidebarFeedbackDialog.3460258a54',
+                'Follow upstream on X'
+              )}
               <ExternalLink className="size-3.5" />
             </Button>
           </div>

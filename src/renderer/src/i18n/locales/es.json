@@ -3539,7 +3539,7 @@
         "share": {
           "card": {
             "utils": {
-              "19f4b4dc75": "github.com/stablyai/orca",
+              "19f4b4dc75": "github.com/alabsystems/orca-alab",
               "d864fc5f98": "salida",
               "5d66fdd7c2": "entrada",
               "7080aeaebb": "Razonamiento",
@@ -4048,8 +4048,8 @@
           "5b120b9634": "Enviar de forma anónima",
           "c9e5ea0791": "GitHub:",
           "d46ddd66fc": "¿Qué podríamos mejorar?",
-          "3460258a54": "Sigue en X",
-          "26108d3699": "Únete a Discord",
+          "3460258a54": "Sigue al proyecto original en X",
+          "26108d3699": "Únete al Discord del proyecto original",
           "d245c4ef6c": "Issues de GitHub",
           "9b33530b3d": "Otras formas de contactarnos",
           "a828fa4aee": "Comparte qué funciona, qué está roto o qué debería hacer Orca después.",
@@ -4111,7 +4111,7 @@
         "SidebarSettingsHelpMenu": {
           "ad3d3ed7f1": "Reiniciar Orca",
           "29c56f30ee": "Buscar actualizaciones",
-          "eb9884e55b": "Discord",
+          "eb9884e55b": "Discord del proyecto original",
           "5687ab246a": "GitHub",
           "5f83d86d92": "Changelog",
           "cdc87f897e": "Documentación",
@@ -4124,7 +4124,7 @@
           "d396773ef0": "comprobando",
           "f8a2c91d4e": "Milestones",
           "b7e4d2a19c": "Onboarding",
-          "c4f8e1b72a": "X"
+          "c4f8e1b72a": "X del proyecto original"
         },
         "SidebarToolbar": {
           "19e32d0e5f": "Abrir el selector de carpetas para agregar un proyecto",
@@ -5629,7 +5629,8 @@
           "31fd7150cf": "Buscando actualizaciones...",
           "3394d1f663": "de cheques",
           "d69a09b672": "Las actualizaciones se verifican automáticamente al iniciarse.",
-          "7173352632": "idle"
+          "7173352632": "idle",
+          "manualInstallAvailable": "está disponible para su instalación manual."
         },
         "GeneralWorkspaceSettingsSection": {
           "3d538a98f7": "Elige las apps disponibles en el menú Abrir en de un espacio de trabajo.",
@@ -5963,7 +5964,7 @@
         "MobileSettingsPane": {
           "9a3c280e49": "GitHub Releases",
           "b0088412a1": "o el APK de Android desde",
-          "b5a2ed83ff": "App Store",
+          "b5a2ed83ff": "App Store de iOS del proyecto original",
           "c8491c17ef": "Controla Orca desde tu teléfono escaneando un código QR. Beta/vista previa temprana: espera errores y cambios importantes. Obtén la app para iOS en",
           "e7a3ae8c4e": "Móvil",
           "174f4a3c6d": "Controla terminales y agentes desde tu teléfono.",
@@ -5972,7 +5973,7 @@
           "d4f2b65f30": "Mostrar el acceso directo de Orca Mobile en la barra lateral.",
           "installIntro": "Instala Orca Mobile desde la",
           "installOutro": ", luego empareja a continuación.",
-          "androidApkLabel": "Android APK"
+          "androidApkLabel": "APK de Android upstream"
         },
         "NotificationsPane": {
           "906b4afebf": "Enviar notificación de prueba",
@@ -11318,10 +11319,10 @@
               "2a532d6fd7": "Escanea con la cámara de tu Android para descargar el APK más reciente desde GitHub Releases.",
               "432db52b73": "Escanea con la cámara de tu iPhone para abrir la App Store.",
               "preview": {
-                "tagline": "Las funciones más recientes, actualizadas a diario."
+                "tagline": "Vista previa compatible del proyecto original, actualizada a diario."
               },
               "stable": {
-                "tagline": "La versión pública, actualizada semanalmente."
+                "tagline": "Versión compatible del proyecto original, actualizada semanalmente."
               }
             }
           }
@@ -14589,7 +14590,7 @@
       "tasks": {
         "provider": {
           "github": "GitHub",
-          "repository": "stablyai/orca"
+          "repository": "andrewyatesai/orca-alab"
         }
       }
     }

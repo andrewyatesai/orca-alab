@@ -7,7 +7,7 @@
 Orca: ALab Edition es un fork derivado y experimental del
 [Orca de Stably](https://github.com/stablyai/orca), centrado en el rendimiento y
 la corrección. Se mantiene en
-[github.com/andrewyatesai/orc](https://github.com/andrewyatesai/orc) y se
+[github.com/andrewyatesai/orca-alab](https://github.com/andrewyatesai/orca-alab) y se
 concentra en la pila del terminal, las rutas críticas nativas y la recuperación
 ante fallos.
 

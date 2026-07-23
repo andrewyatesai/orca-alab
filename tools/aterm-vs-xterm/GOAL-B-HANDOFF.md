@@ -2,7 +2,7 @@
 
 ## Objective
 Completely replace **xterm.js** with **aterm** (a hand-written Rust terminal engine)
-in **Orca** (`~/orc`), and make aterm so superior that a skeptical **HackerNews**
+in **Orca** (`/path/to/orca-alab`), and make aterm so superior that a skeptical **HackerNews**
 audience would agree — making any necessary improvements to aterm to get there.
 
 This is a PRODUCT goal about an EXISTING artifact (aterm). It is **separate** from
@@ -13,14 +13,14 @@ and a correctness baseline, not ground truth aterm must clone (where aterm is mo
 correct than xterm per the VT spec, that is a WIN, not a bug).
 
 ## Assets (all real, on disk)
-- `~/orc` — the Orca Electron terminal app; shipped `@xterm/headless` (xterm.js)
+- `/path/to/orca-alab` — the Orca Electron terminal app; shipped `@xterm/headless` (xterm.js)
   when this handoff was written — aterm has since replaced it as the sole engine.
   On `main` (kept synced to `origin/main`).
-- `~/orc/rust/aterm` — the real aterm Rust workspace: `aterm-core` (Terminal, grid,
+- `/path/to/orca-alab/rust/aterm` — the real aterm Rust workspace: `aterm-core` (Terminal, grid,
   VT handlers), `aterm-buffer`, `aterm-search`, `aterm-gpu`, plus `aterm-spec` /
   `aterm-spec-macros` and `kani_proofs.rs` (it is built to be formally verifiable).
   Builds on **stable** (`rust-toolchain.toml` pins stable; edition 2024) in ~12s.
-- `~/orc/node_modules/@xterm/{headless,addon-serialize,...}` — real xterm.js, the
+- `/path/to/orca-alab/node_modules/@xterm/{headless,addon-serialize,...}` — real xterm.js, the
   incumbent. Loadable in Node v26.
 - `~/trust` — the Trust toolchain: `trustc`/`tcargo` compile Rust AND prove safety
   (overflow / panic / UB-freedom, refinement). `tcargo` at
@@ -28,7 +28,7 @@ correct than xterm per the VT spec, that is a WIN, not a bug).
 
 ## "Vastly superior" = three measurable axes HN respects
 1. **Performance** — aterm (Rust) vs xterm.js (JS) throughput (MB/s of ANSI).
-   Tool exists: `~/orc/tools/aterm-vs-xterm/race.mjs` (best-of-5 each, same thermal
+   Tool exists: `/path/to/orca-alab/tools/aterm-vs-xterm/race.mjs` (best-of-5 each, same thermal
    state). Quantify the real ratio; profile and optimize aterm's slow paths.
 2. **Correctness** — aterm must render terminal STATE at least as correctly as xterm
    on real input, per the VT/ECMA-48 spec. Where it diverges: if aterm is *wrong*,
@@ -37,11 +37,11 @@ correct than xterm per the VT spec, that is a WIN, not a bug).
    hot path. xterm.js can offer no such guarantee. Quantify proven obligations.
 
 ## What is already built (this session) — the conformance differential
-A real, execution-grounded differential in `~/orc/tools/aterm-vs-xterm/`:
+A real, execution-grounded differential in `/path/to/orca-alab/tools/aterm-vs-xterm/`:
 - `snapshot.rs` (committed at `aterm-core/examples/snapshot.rs`): reads stdin bytes,
   `Terminal::new(24,80)` (rows,cols), `term.process(&bytes)`, prints 24 rstripped
   grid rows via `term.grid().row_text(row)`. Built binary:
-  `~/orc/rust/aterm/target/release/examples/snapshot`.
+  `/path/to/orca-alab/rust/aterm/target/release/examples/snapshot`.
 - `snapshot.mjs`: same 24-line grid format from real `@xterm/headless`
   (`getLine(r).translateToString(true)`).
 - `corpus.json`: 25 real ANSI cases (CUP/CUU/.., SGR incl 256/RGB, EL/ED, ICH/DCH/
@@ -51,7 +51,7 @@ A real, execution-grounded differential in `~/orc/tools/aterm-vs-xterm/`:
 - VERIFIED: on `printf 'hi\x1b[2;5HX\x1b[31mY'` both engines produce byte-identical
   grids (`hi` / `    XY`). So the oracle works.
 - Build caveat: aterm is a nested workspace; an agent created
-  `~/orc/rust/aterm/.aterm-vendor` + `.cargo/config.toml` to make offline vendoring
+  `/path/to/orca-alab/rust/aterm/.aterm-vendor` + `.cargo/config.toml` to make offline vendoring
   resolve (the parent `rust/vendor` lacks aterm's crates). These are local build
   artifacts (consider gitignoring `.aterm-vendor`).
 

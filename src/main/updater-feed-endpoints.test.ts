@@ -3,6 +3,7 @@ import {
   getReleasesAtomFeedUrl,
   getReleasesDownloadBaseUrl,
   getReleasesLatestDownloadUrl,
+  getReleasePageUrl,
   getReleaseTagHrefPattern,
   getUpdateChangelogPageUrl,
   isUpdateFeedConfigured,
@@ -24,6 +25,9 @@ describe('updater-feed-endpoints', () => {
       `https://github.com/${UPDATE_FEED_REPO_SLUG}/releases/latest/download`
     )
     expect(getUpdateChangelogPageUrl()).toBe(`https://github.com/${UPDATE_FEED_REPO_SLUG}/releases`)
+    expect(getReleasePageUrl('v1.2.3-fork.4')).toBe(
+      `https://github.com/${UPDATE_FEED_REPO_SLUG}/releases/tag/v1.2.3-fork.4`
+    )
   })
 
   // Why: audit F1 — one accepted public update replaces the fork build. No

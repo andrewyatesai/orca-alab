@@ -2,8 +2,8 @@ import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-nati
 import { router } from 'expo-router'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 import type { CompatVerdict } from '../transport/protocol-compat'
+import { ORCA_ALAB_PUBLIC_RELEASES_URL } from '../../../src/shared/repository-endpoints'
 
-const RELEASES_URL = 'https://github.com/stablyai/orca/releases'
 const IOS_APP_STORE_URL = 'itms-apps://apps.apple.com/app/orca-ide/id6766130217'
 
 type Props = {
@@ -14,13 +14,17 @@ export function ProtocolBlockScreen({ verdict }: Props) {
   const isMobileTooOld = verdict.reason === 'mobile-too-old'
   const mobileUpdateTarget =
     Platform.OS === 'ios'
-      ? { label: 'Open App Store', url: IOS_APP_STORE_URL, storeName: 'the App Store' }
+      ? {
+          label: 'Open upstream App Store',
+          url: IOS_APP_STORE_URL,
+          storeName: 'the compatible upstream App Store listing'
+        }
       : { label: null, url: null, storeName: 'your mobile app store' }
   const primaryAction = isMobileTooOld
     ? mobileUpdateTarget.url && mobileUpdateTarget.label
       ? { label: mobileUpdateTarget.label, url: mobileUpdateTarget.url }
       : null
-    : { label: 'Open GitHub Releases', url: RELEASES_URL }
+    : { label: 'Open GitHub Releases', url: ORCA_ALAB_PUBLIC_RELEASES_URL }
 
   const title = isMobileTooOld ? 'Update Orca Mobile' : 'Update Orca on your computer'
   const body = isMobileTooOld

@@ -69,7 +69,7 @@ describe('UpdateCard Windows signature failures', () => {
     expect(screen.queryByText(message)).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Check official releases' }))
-    expect(openUrl).toHaveBeenCalledWith('https://github.com/stablyai/orca/releases')
+    expect(openUrl).toHaveBeenCalledWith('https://github.com/alabsystems/orca-alab/releases')
     expect(openUrl).not.toHaveBeenCalledWith(expect.stringContaining('/tag/'))
   })
 
@@ -92,5 +92,29 @@ describe('UpdateCard Windows signature failures', () => {
     expect(screen.getByRole('button', { name: 'Hide details' }).getAttribute('aria-expanded')).toBe(
       'true'
     )
+  })
+})
+
+describe('UpdateCard manual installation', () => {
+  it('delegates manual installation to the updater without bypassing its error handling', () => {
+    useAppStore.setState({
+      updateStatus: {
+        state: 'available',
+        version: '1.4.201',
+        releaseUrl: 'https://github.com/alabsystems/orca-alab/releases/tag/v1.4.201',
+        installMode: 'manual',
+        changelog: null
+      },
+      updateChangelog: null,
+      dismissedUpdateVersion: null,
+      updateCardCollapsed: false,
+      updateReassuranceSeen: true
+    })
+    render(<UpdateCard />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download Manually' }))
+
+    expect(download).toHaveBeenCalledTimes(1)
+    expect(openUrl).not.toHaveBeenCalled()
   })
 })

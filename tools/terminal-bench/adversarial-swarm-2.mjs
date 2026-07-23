@@ -1,3 +1,10 @@
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const benchDir = join(repoRoot, 'tools', 'terminal-bench')
+const headlessSource = join(repoRoot, 'rust', 'crates', 'orca-terminal', 'src', 'headless.rs')
+
 export const meta = {
   name: 'terminal-adversarial-swarm-2',
   description:
@@ -6,7 +13,7 @@ export const meta = {
 }
 
 const RECIPE = `
-Working dir: /Users/ayates/orc/tools/terminal-bench
+Working dir: ${benchDir}
 Prefix shell commands with: export PATH=/opt/homebrew/bin:$PATH &&
 To test a byte stream:
   python3 -c "import sys; sys.stdout.buffer.write(b'...ANSI...')" > /tmp/orca-bench/<uniq>.bin
@@ -72,7 +79,7 @@ const triaged = await parallel(
     (f) => () =>
       agent(
         `A Rust terminal emulator diverges from xterm on: ${f.feature}\nFailing bytes: ${f.failingBytes}\nDivergence: ${f.divergence}\n\n${RECIPE}\n\n` +
-          `Minimize the failing stream, then read /Users/ayates/orc/rust/crates/orca-terminal/src/headless.rs and pin the exact mishandled VT op + concrete fix.`,
+          `Minimize the failing stream, then read ${headlessSource} and pin the exact mishandled VT op + concrete fix.`,
         { label: `triage2:${f.feature.slice(0, 20)}`, phase: 'Triage2', schema: TRIAGE_SCHEMA }
       )
   )

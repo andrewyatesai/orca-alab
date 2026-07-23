@@ -1,3 +1,10 @@
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const benchDir = join(repoRoot, 'tools', 'terminal-bench')
+const headlessSource = join(repoRoot, 'rust', 'crates', 'orca-terminal', 'src', 'headless.rs')
+
 export const meta = {
   name: 'terminal-adversarial-swarm',
   description:
@@ -9,7 +16,7 @@ export const meta = {
 // runs it through the REAL daemon Session under both engines, and checks the
 // Rust snapshot renders identically to xterm parsing the same bytes.
 const RECIPE = `
-Working dir: /Users/ayates/orc/tools/terminal-bench
+Working dir: ${benchDir}
 Always prefix shell commands with: export PATH=/opt/homebrew/bin:$PATH &&
 To test a byte stream:
   1. Write the raw bytes to a file with python3 (use a UNIQUE filename in /tmp/orca-bench/):
@@ -101,7 +108,7 @@ const triaged = await parallel(
         `A Rust terminal emulator diverges from xterm on this feature: ${f.feature}\n` +
           `Reported failing bytes: ${f.failingBytes}\nDivergence: ${f.divergence}\n\n${RECIPE}\n\n` +
           `Confirm and MINIMIZE the failing byte stream (fewest bytes that still makes rust=FAIL). ` +
-          `Then read /Users/ayates/orc/rust/crates/orca-terminal/src/headless.rs and identify the exact ` +
+          `Then read ${headlessSource} and identify the exact ` +
           `VT operation being mishandled and a concrete fix. Return the structured triage.`,
         { label: `triage:${f.feature.slice(0, 24)}`, phase: 'Triage', schema: TRIAGE_SCHEMA }
       )

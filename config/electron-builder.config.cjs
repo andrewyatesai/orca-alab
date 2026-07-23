@@ -15,9 +15,10 @@ const {
 const { assertBundledBinaryArchitectures } = require('./scripts/assert-bundled-binary-arch.cjs')
 
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
-// Why: releases ship unsigned by design — no Apple Developer ID or notarization.
-// Signing requires a real identity; we never have one, so this stays false.
+// Why: releases have only an ad-hoc launch seal — no Developer ID or notarization.
+// Distribution signing requires a real identity, so this stays false.
 const isSignedMacRelease = false
+const macAdHocSigningIdentity = '-'
 const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
 // Why: fork builds must not wear public Orca's identity — the same
 // appId/productName would share userData, the single-instance lock, and the
@@ -262,25 +263,23 @@ module.exports = {
       chmodSync(join(resourcesDir, filename), 0o755)
     }
     if (context.electronPlatformName === 'darwin') {
-      await signMacComputerUseHelper(join(resourcesDir, 'Orca Computer Use.app'), context.packager)
+      await signMacComputerUseHelper(join(resourcesDir, 'Orca Computer Use.app'))
       await signMacNotificationStatusHelper(
-        join(resourcesDir, '..', 'MacOS', 'orca-notification-status'),
-        context.packager
+        join(resourcesDir, '..', 'MacOS', 'orca-notification-status')
       )
     }
   },
   win: {
     executableName: 'Orca',
-    // Why: Windows installers are signed after electron-builder packaging by
-    // SignPath, so the packager cannot infer the updater publisherName.
-    // Do NOT remove publisherName: app-builder-lib stamps it into
-    // app-update.yml, and electron-updater only calls
-    // verifyUpdateCodeSignature when that field is present — dropping it
-    // would silently skip the F13 fail-closed override in src/main/updater.ts
-    // and let unsigned updates install.
-    signtoolOptions: {
-      publisherName: 'SignPath Foundation'
-    },
+    // Why: ALab has no Windows publisher identity and uses manual updates;
+    // retain upstream metadata only for explicit public-identity comparisons.
+    ...(isPublicIdentity
+      ? {
+          signtoolOptions: {
+            publisherName: 'SignPath Foundation'
+          }
+        }
+      : {}),
     extraResources: [
       ...commonExtraResources,
       ...createPackagedRuntimeNodeModuleResources('win32'),
@@ -316,7 +315,10 @@ module.exports = {
     include: resolve(__dirname, 'nsis', 'daemon-host-uninstall.nsh')
   },
   mac: {
-    // Why: the default mac zip name embeds productName, and 'Orca Staging'
+    // Why: a mutated arm64 bundle still needs an ad-hoc seal; this value also
+    // prevents electron-builder from discovering a developer's local identity.
+    identity: macAdHocSigningIdentity,
+    // Why: the default mac zip name embeds productName, and 'Orca ALab Edition'
     // contains a space — GitHub rewrites spaces in release asset names, so
     // latest-mac.yml would reference a filename that 404s on download. Pin a
     // space-free name for fork builds; public-identity diff builds keep the
@@ -346,10 +348,8 @@ module.exports = {
       NSDownloadsFolderUsageDescription:
         "Application requests access to the user's Downloads folder."
     },
-    // Why: local macOS validation builds should launch without Apple release
-    // credentials. Hardened runtime + notarization stay enabled only on the
-    // explicit release path so production artifacts remain strict while dev
-    // artifacts do not fail with broken ad-hoc launch behavior.
+    // Why: ad-hoc ALab artifacts cannot use distribution hardened-runtime
+    // signing or notarization; both stay off until a real policy lands.
     hardenedRuntime: isSignedMacRelease,
     notarize: isSignedMacRelease,
     extraResources: [
@@ -397,8 +397,8 @@ module.exports = {
       }
     ]
   },
-  // Why: release builds should fail if signing is unavailable instead of
-  // silently downgrading to ad-hoc artifacts that look shippable in CI logs.
+  // Why: ALab releases are only ad-hoc signed, so packaging must not require
+  // an unavailable distribution identity.
   forceCodeSigning: isSignedMacRelease,
   dmg: {
     artifactName: 'orca-macos-${arch}.${ext}'
@@ -437,7 +437,7 @@ module.exports = {
       featureWallResources
     ],
     target: ['AppImage', 'deb'],
-    maintainer: 'stablyai',
+    maintainer: 'ALab Systems <andrewyates.m2@pm.me>',
     category: 'Utility'
   },
   appImage: {
@@ -532,51 +532,32 @@ function chmodMacServeSimHelpers(resourcesDir, electronPlatformName) {
   }
 }
 
-async function signMacComputerUseHelper(helperAppPath, packager) {
+async function signMacComputerUseHelper(helperAppPath) {
   if (!existsSync(helperAppPath)) {
     if (isMacRelease) {
       throw new Error(`Missing Orca Computer Use helper app at ${helperAppPath}`)
     }
     return
   }
-  const codeSigningInfo =
-    isMacRelease && process.env.CSC_LINK && packager?.codeSigningInfo?.value
-      ? await packager.codeSigningInfo.value
-      : null
-  const identity =
-    process.env.ORCA_COMPUTER_MACOS_SIGN_IDENTITY ??
-    process.env.CSC_NAME ??
-    findInstalledMacSigningIdentity(codeSigningInfo?.keychainFile) ??
-    (isSignedMacRelease ? null : '-')
-  if (!identity) {
-    throw new Error('Missing signing identity for Orca Computer Use helper app')
-  }
-  // Why: TCC grants attach to this nested app's code identity. Sign it before
-  // the outer Orca.app is sealed so production builds preserve that identity.
+  // Why: nested helpers must share the outer app's explicit ad-hoc posture;
+  // environment or keychain discovery must not turn a dev build into a signed one.
+  const identity = macAdHocSigningIdentity
   execFileSync('codesign', codesignArgs(identity, helperAppPath), { stdio: 'inherit' })
   execFileSync('codesign', ['--verify', '--deep', '--strict', helperAppPath], {
     stdio: 'inherit'
   })
 }
 
-async function signMacNotificationStatusHelper(helperPath, packager) {
+async function signMacNotificationStatusHelper(helperPath) {
   if (!existsSync(helperPath)) {
     if (isMacRelease) {
       throw new Error(`Missing orca-notification-status helper at ${helperPath}`)
     }
     return
   }
-  const codeSigningInfo =
-    isMacRelease && process.env.CSC_LINK && packager?.codeSigningInfo?.value
-      ? await packager.codeSigningInfo.value
-      : null
-  const identity =
-    process.env.CSC_NAME ??
-    findInstalledMacSigningIdentity(codeSigningInfo?.keychainFile) ??
-    (isSignedMacRelease ? null : '-')
-  if (!identity) {
-    throw new Error('Missing signing identity for orca-notification-status helper')
-  }
+  // Why: keep the nested executable aligned with the ad-hoc outer bundle
+  // even when the developer's keychain contains Apple signing identities.
+  const identity = macAdHocSigningIdentity
   // Why: macOS keys notification records to the code-signing identifier; the
   // binary embeds the app's CFBundleIdentifier in __TEXT,__info_plist so this
   // (and any later) `codesign --force` derives the correct identifier. Sign
@@ -603,26 +584,4 @@ function codesignArgs(identity, targetPath) {
   }
   args.push(targetPath)
   return args
-}
-
-function findInstalledMacSigningIdentity(keychainFile) {
-  try {
-    const output = execFileSync(
-      'security',
-      ['find-identity', '-v', '-p', 'codesigning', ...(keychainFile ? [keychainFile] : [])],
-      {
-        encoding: 'utf8'
-      }
-    )
-    const releaseMatch =
-      output.match(/"([^"]*Developer ID Application:[^"]+)"/) ??
-      output.match(/"([^"]*Apple Distribution:[^"]+)"/)
-    if (releaseMatch?.[1]) {
-      return releaseMatch[1]
-    }
-    if (!isMacRelease) {
-      return output.match(/"([^"]*Apple Development:[^"]+)"/)?.[1] ?? null
-    }
-  } catch {}
-  return null
 }

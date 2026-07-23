@@ -3539,7 +3539,7 @@
         "share": {
           "card": {
             "utils": {
-              "19f4b4dc75": "github.com/stablyai/orca",
+              "19f4b4dc75": "github.com/alabsystems/orca-alab",
               "d864fc5f98": "出力",
               "5d66fdd7c2": "入力",
               "7080aeaebb": "推論",
@@ -4029,8 +4029,8 @@
           "5b120b9634": "匿名で送信",
           "c9e5ea0791": "GitHub:",
           "d46ddd66fc": "何を改善できるでしょうか?",
-          "3460258a54": "Xをフォロー",
-          "26108d3699": "Discord に参加",
+          "3460258a54": "アップストリームをXでフォロー",
+          "26108d3699": "アップストリームのDiscordに参加",
           "d245c4ef6c": "GitHub Issue",
           "9b33530b3d": "その他の連絡方法",
           "a828fa4aee": "何が機能しているのか、何が壊れているのか、Orca が次に何をすべきかを共有します。",
@@ -4092,7 +4092,7 @@
         "SidebarSettingsHelpMenu": {
           "ad3d3ed7f1": "Orca を再起動",
           "29c56f30ee": "アップデートをチェックする",
-          "eb9884e55b": "Discord",
+          "eb9884e55b": "アップストリームのDiscord",
           "5687ab246a": "GitHub",
           "5f83d86d92": "変更履歴",
           "cdc87f897e": "ドキュメント",
@@ -4105,7 +4105,7 @@
           "d396773ef0": "チェック中",
           "f8a2c91d4e": "マイルストーン",
           "b7e4d2a19c": "オンボーディング",
-          "c4f8e1b72a": "X"
+          "c4f8e1b72a": "アップストリームのX"
         },
         "SidebarToolbar": {
           "19e32d0e5f": "フォルダーピッカーを開いてプロジェクトを追加します",
@@ -5614,7 +5614,8 @@
           "31fd7150cf": "アップデートをチェックしています...",
           "3394d1f663": "チェック中",
           "d69a09b672": "アップデートは起動時に自動的にチェックされます。",
-          "7173352632": "idle"
+          "7173352632": "idle",
+          "manualInstallAvailable": "を手動でインストールできます。"
         },
         "GeneralWorkspaceSettingsSection": {
           "3d538a98f7": "ワークスペースの「開く」メニューから利用可能なアプリを選択します。",
@@ -5985,7 +5986,7 @@
         "MobileSettingsPane": {
           "9a3c280e49": "GitHub リリース",
           "b0088412a1": "または Android APK から",
-          "b5a2ed83ff": "アプリストア",
+          "b5a2ed83ff": "アップストリームのiOS App Store",
           "c8491c17ef": "QR コードをスキャンしてスマートフォンから Orca を制御します。ベータ/早期プレビュー - バグや重大な変更が予想されます。 iOS アプリを次の場所から入手します。",
           "e7a3ae8c4e": "モバイル",
           "174f4a3c6d": "スマートフォンから terminals と agents を操作",
@@ -5994,7 +5995,7 @@
           "d4f2b65f30": "サイドバーに Orca Mobile ショートカットを表示します。",
           "installIntro": "Orca Mobile は",
           "installOutro": "からインストールし、以下でペアリングしてください。",
-          "androidApkLabel": "Android APK"
+          "androidApkLabel": "アップストリーム Android APK"
         },
         "NotificationsPane": {
           "906b4afebf": "テスト通知を送信する",
@@ -11318,10 +11319,10 @@
               "2a532d6fd7": "Android カメラでスキャンして、GitHub リリースから最新の APK をダウンロードします。",
               "432db52b73": "iPhone のカメラでスキャンして App Store を開きます。",
               "preview": {
-                "tagline": "最新機能を毎日更新。"
+                "tagline": "互換性のあるアップストリーム版プレビュー。毎日更新。"
               },
               "stable": {
-                "tagline": "一般公開版、毎週更新。"
+                "tagline": "互換性のあるアップストリーム版。毎週更新。"
               }
             }
           }
@@ -14589,7 +14590,7 @@
       "tasks": {
         "provider": {
           "github": "GitHub",
-          "repository": "stablyai/orca"
+          "repository": "andrewyatesai/orca-alab"
         }
       }
     }

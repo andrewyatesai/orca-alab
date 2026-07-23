@@ -5,8 +5,8 @@ import { Button } from './ui/button'
 import { useAppStore } from '../store'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { translate } from '@/i18n/i18n'
+import { ORCA_ALAB_PUBLIC_REPOSITORY_URL } from '../../../shared/repository-endpoints'
 
-const ORCA_REPO_URL = 'https://github.com/stablyai/orca'
 type StarNagMode = 'gh' | 'web'
 
 /**
@@ -97,7 +97,7 @@ export function StarNagCard(): React.JSX.Element | null {
     }
     const openGithubFallback = async (): Promise<boolean> => {
       try {
-        await window.api.shell.openUrl(ORCA_REPO_URL)
+        await window.api.shell.openUrl(ORCA_ALAB_PUBLIC_REPOSITORY_URL)
         await window.api.starNag.openWeb()
         if (mountedRef.current) {
           setVisible(false)

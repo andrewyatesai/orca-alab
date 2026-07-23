@@ -242,7 +242,28 @@ describe('openComputerUsePermissions', () => {
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
     )
   })
+
+  it.each([
+    ['missing', () => vi.mocked(execFileSync).mockImplementationOnce(() => throwMissingPlist())],
+    ['empty', () => vi.mocked(execFileSync).mockReturnValueOnce(' \n')]
+  ])('fails closed when the helper bundle id is %s', async (_case, arrangeBundleId) => {
+    resolveHelperAppPathMock.mockReturnValue('/Applications/Orca Computer Use.app')
+    arrangeBundleId()
+
+    await expect(resetComputerUsePermissions()).rejects.toThrow(
+      'Could not read the Orca Computer Use bundle identifier'
+    )
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      '/usr/bin/tccutil',
+      expect.any(Array),
+      expect.any(Object)
+    )
+  })
 })
+
+function throwMissingPlist(): never {
+  throw new Error('missing plist')
+}
 
 function mockPermissionStatus(json: string): void {
   vi.mocked(spawnSync).mockReturnValue({ status: 0 } as ReturnType<typeof spawnSync>)

@@ -6,9 +6,8 @@ import { parse } from 'yaml'
 import { existsSync } from 'node:fs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
-// The release-pipeline contract asserts upstream's release-cut.yml. The fork
-// ships its own lean workflows (pr.yml, release-mac.yml) WITHOUT that pipeline,
-// so gate on the pipeline file itself, not on the workflows directory.
+// The historical release-pipeline contract applies only when release-cut.yml
+// is present; this development repository intentionally tracks no workflows.
 const HAS_CI_WORKFLOWS = existsSync(join(projectDir, '.github/workflows/release-cut.yml'))
 const require = createRequire(import.meta.url)
 const { createPackagedRuntimeNodeModuleResources } = require('../packaged-runtime-node-modules.cjs')
@@ -16,6 +15,17 @@ const readProjectFile = (relativePath) => readFileSync(join(projectDir, relative
 const packageJson = JSON.parse(readProjectFile('package.json'))
 
 describe('Electron runtime package contract', () => {
+  it('publishes package metadata for the renamed development repository', () => {
+    expect(packageJson.homepage).toBe('https://github.com/andrewyatesai/orca-alab')
+    expect(packageJson.repository).toEqual({
+      type: 'git',
+      url: 'git+https://github.com/andrewyatesai/orca-alab.git'
+    })
+    expect(packageJson.bugs).toEqual({
+      url: 'https://github.com/andrewyatesai/orca-alab/issues'
+    })
+  })
+
   it('keeps root postinstall as the single Electron binary install owner', () => {
     expect(packageJson.scripts.postinstall).toBe('node config/scripts/rebuild-native-deps.mjs')
     expect(packageJson.pnpm.onlyBuiltDependencies).not.toContain('electron')
@@ -94,6 +104,15 @@ describe('Electron runtime package contract', () => {
   it('runs the web build through the heap-sized Vite wrapper', () => {
     expect(packageJson.scripts['build:web']).toContain('node config/scripts/run-vite-web-build.mjs')
     expect(packageJson.scripts['build:web']).toContain('node config/scripts/verify-web-build.mjs')
+  })
+
+  it('builds the CLI after electron-vite cleans the main output directory', () => {
+    for (const scriptName of ['build:desktop', 'build:release']) {
+      const script = packageJson.scripts[scriptName]
+      expect(script.indexOf('pnpm run build:electron-vite')).toBeLessThan(
+        script.indexOf('pnpm run build:cli')
+      )
+    }
   })
 
   it.skipIf(!HAS_CI_WORKFLOWS)('guards release publishing before electron-builder runs', () => {

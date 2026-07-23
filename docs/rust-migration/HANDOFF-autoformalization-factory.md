@@ -47,7 +47,7 @@ and the memory `orc-goals-and-gauntlet.md` for the full frame; this doc is the o
   Methodological refinement the agents converged on (adopt it): a **discrimination control** — run a
   deliberate no-op port against the seed corpus and require divergences — proves W2 non-hollowness.
 - Ratchet: `tools/terminal-bench/autoformalize-ratchet.json` (`minTrusted`). It is the regression gate.
-- Reproduce: `cd ~/orc && pnpm gauntlet:autoformalize`. NOTE: a full census is now **~1 hour** (serial
+- Reproduce: `cd /path/to/orca-alab && pnpm gauntlet:autoformalize`. NOTE: a full census is now **~1 hour** (serial
   over ~299 kernels; the CSI/seed-heavy kernels are slow), not ~10 min. **Cadence:** an ADDITIVE
   grow-corpus wave changes no existing kernel and no toolchain file, so the controls + existing kernels
   cannot regress — ratchet on the wave's per-kernel TRUSTED verdicts + a spot-verify, and run the full
@@ -161,7 +161,7 @@ claim TRUSTED on a hollow W2.
   seed files via a `node -e` script with JSON escapes, using plain ASCII in the command itself.
 - **macOS has no `timeout`**; heavy kernels blow past a 2-min bash cap → run the driver detached (nohup)
   and poll for completion. The driver itself caps W1 at ~180s (a timeout → NOT-TRUSTED).
-- **Shared-tree push**: both `~/orc` and `~/trust` have parallel-session writers. Always
+- **Shared-tree push**: both `/path/to/orca-alab` and `~/trust` have parallel-session writers. Always
   `git fetch` then `git rebase --autostash origin/main` on a non-fast-forward, then push.
 - **`build-terminal-addon` skips Rust changes** unless `--force`; always prove the field flows end-to-end.
 - Commit corpus changes with explicit paths (`git add tools/ts2rust/orca/ tools/ts2rust/verify.mjs`) to

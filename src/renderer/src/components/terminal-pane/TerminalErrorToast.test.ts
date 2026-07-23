@@ -1,5 +1,6 @@
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { shouldOfferDaemonRestart } from './TerminalErrorToast'
+import { shouldOfferDaemonRestart, TerminalErrorToast } from './TerminalErrorToast'
 
 describe('shouldOfferDaemonRestart', () => {
   it('matches stale daemon node-pty install failures', () => {
@@ -21,5 +22,18 @@ describe('shouldOfferDaemonRestart', () => {
   it('does not match unrelated terminal spawn errors', () => {
     expect(shouldOfferDaemonRestart('SSH connection is not active.')).toBe(false)
     expect(shouldOfferDaemonRestart('node-pty: open_slave failed: EMFILE (errno 24)')).toBe(false)
+  })
+})
+
+describe('TerminalErrorToast issue link', () => {
+  it('routes local terminal failures to the ALab development issue tracker', () => {
+    const html = renderToStaticMarkup(
+      TerminalErrorToast({
+        error: 'Terminal failed to start.',
+        onDismiss: () => undefined
+      })
+    )
+
+    expect(html).toContain('href="https://github.com/andrewyatesai/orca-alab/issues"')
   })
 })

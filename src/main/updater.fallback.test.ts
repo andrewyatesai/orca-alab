@@ -17,6 +17,18 @@ describe('statusesEqual', () => {
       statusesEqual({ ...error, retryAction: 'install' }, { ...error, retryAction: 'install' })
     ).toBe(true)
   })
+
+  it('treats a manual install action as distinct from an automatic update', () => {
+    const available = { state: 'available', version: '1.2.3', changelog: null } as const
+
+    expect(statusesEqual(available, { ...available, installMode: 'manual' })).toBe(false)
+    expect(
+      statusesEqual(
+        { ...available, installMode: 'manual' },
+        { ...available, installMode: 'manual' }
+      )
+    ).toBe(true)
+  })
 })
 
 describe('compareVersions', () => {

@@ -13,6 +13,7 @@ import type { AtermLinkContext } from './aterm-url-link-routing'
 import { buildAtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import { mountAtermPaneCanvasAdjuncts } from './aterm-pane-canvas-adjuncts'
 import { buildAtermEngineReads } from './aterm-engine-reads'
+import { buildAtermEngineAuthorizationGates } from './aterm-engine-authorization-gates'
 import { wireWorkerStrategyHooks } from './aterm-worker-strategy-hookup'
 import { buildAtermSerializeMembers } from './aterm-serialize-members'
 import { createAtermTitleChannel } from './aterm-title-channel'
@@ -412,20 +413,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     title: titleChannel.title,
     onTitleChange: titleChannel.onTitleChange,
     gridSize: () => gridSizing.grid(),
-    // Toggle the engine's fail-closed OSC 52 write gate so it queues OSC 52 set
-    // events for the facade to drain; the host still enforces the user setting.
-    setClipboardWriteAuthorized: (allowed: boolean) =>
-      allowed ? term.authorize_clipboard_write() : term.revoke_clipboard_write(),
-    // Engine-side fail-closed OSC 9/99/777 gate, synced from the user's notification
-    // settings by the lifecycle layer (mirrors the OSC 52 clipboard gate above).
-    setNotificationsAuthorized: (allowed: boolean) => term.authorize_notifications(allowed),
-    // Host-minted extra OSC-8 scheme (deep-links #4384). Feature-detected so a
-    // pre-capability wasm blob degrades to unlinkified orca:// text, not a crash.
-    setHyperlinkSchemeAuthorized: (scheme: string) => {
-      const authorize = (term as { authorize_hyperlink_scheme?: (scheme: string) => boolean })
-        .authorize_hyperlink_scheme
-      authorize?.call(term, scheme)
-    },
+    // The engine's fail-closed authorization gates (OSC 52 clipboard / OSC 9
+    // notifications / host-minted OSC-8 scheme); extracted to keep this file focused.
+    ...buildAtermEngineAuthorizationGates(term),
     element,
     textarea,
     // Live re-theme + selection-focus mutators (re-style the engine in place, no

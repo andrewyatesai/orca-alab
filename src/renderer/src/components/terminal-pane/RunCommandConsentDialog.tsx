@@ -80,7 +80,7 @@ export default function RunCommandConsentDialog(): React.JSX.Element {
           </DialogDescription>
         </DialogHeader>
         {/* Why: the executed text is shown in full — what is shown is exactly what runs (§6.1). */}
-        <pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap break-all select-text">
+        <pre className="max-h-48 overflow-auto scrollbar-sleek rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap break-all select-text">
           {request?.link.command ?? ''}
         </pre>
         <div className="space-y-1 text-xs text-muted-foreground">

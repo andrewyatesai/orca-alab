@@ -215,6 +215,34 @@ describe('syncSystemCodexSessionsIntoManagedHome', () => {
     ).toBe(false)
   })
 
+  it('bridges compressed .jsonl.zst rollouts so resume can reach them (#9696)', () => {
+    // Why: current Codex compresses rollouts to `.jsonl.zst`; a bridge that only
+    // matched `.jsonl` dropped them, so account-switch resume lost the session.
+    const compressedSessionPath = join(
+      getSystemCodexHomePath(),
+      'sessions',
+      '2026',
+      '05',
+      '26',
+      'rollout-compressed.jsonl.zst'
+    )
+    mkdirSync(dirname(compressedSessionPath), { recursive: true })
+    writeFileSync(compressedSessionPath, 'compressed-rollout-bytes', 'utf-8')
+
+    syncSystemCodexSessionsIntoManagedHome()
+
+    const runtimeSessionPath = join(
+      getRuntimeCodexHomePath(),
+      'sessions',
+      '2026',
+      '05',
+      '26',
+      'rollout-compressed.jsonl.zst'
+    )
+    expect(existsSync(runtimeSessionPath)).toBe(true)
+    expectResourceLinked(runtimeSessionPath, compressedSessionPath)
+  })
+
   it('bridges from a custom source home override instead of ~/.codex', () => {
     // Why: users with a custom CODEX_HOME point history discovery at that
     // folder; the default ~/.codex must be ignored when an override is given.
@@ -408,5 +436,31 @@ describe('syncSystemCodexSessionsIntoManagedHome', () => {
       )
       expectResourceLinked(runtimeSessionPath, systemSessionPath)
     }
+  })
+
+  it('incrementally bridges compressed .jsonl.zst rollouts (#9696)', async () => {
+    const systemSessionRoot = join(getSystemCodexHomePath(), 'sessions', '2026', '06', '18')
+    mkdirSync(systemSessionRoot, { recursive: true })
+    const compressedSessionPath = join(
+      systemSessionRoot,
+      'rollout-incremental-compressed.jsonl.zst'
+    )
+    writeFileSync(compressedSessionPath, 'compressed-rollout-bytes', 'utf-8')
+
+    const summary = await syncSystemCodexSessionsIntoManagedHomeIncrementally({
+      batchSize: 2,
+      yieldMs: 0
+    })
+
+    expect(summary).toEqual({ scannedFiles: 1, linkedFiles: 1 })
+    const runtimeSessionPath = join(
+      getRuntimeCodexHomePath(),
+      'sessions',
+      '2026',
+      '06',
+      '18',
+      'rollout-incremental-compressed.jsonl.zst'
+    )
+    expectResourceLinked(runtimeSessionPath, compressedSessionPath)
   })
 })

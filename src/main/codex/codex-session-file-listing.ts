@@ -12,6 +12,13 @@ export type CodexSessionBridgeIncrementalOptions = {
 const INCREMENTAL_BRIDGE_BATCH_SIZE = 64
 const INCREMENTAL_BRIDGE_YIELD_MS = 10
 
+const isJsonlSessionFile = (fileName: string): boolean => fileName.endsWith('.jsonl')
+
+// Why: current Codex compresses rollouts to `.jsonl.zst` but still resumes from
+// either physical representation (#9696); bridge both or compressed sessions drop.
+const isRolloutSessionFile = (fileName: string): boolean =>
+  fileName.endsWith('.jsonl') || fileName.endsWith('.jsonl.zst')
+
 /**
  * Recursively lists session JSONL files below a root directory.
  *
@@ -19,15 +26,27 @@ const INCREMENTAL_BRIDGE_YIELD_MS = 10
  * that run outside the CLI launch path.
  */
 export function listCodexSessionJsonlFiles(rootPath: string): string[] {
+  return listCodexSessionFiles(rootPath, isJsonlSessionFile)
+}
+
+/** Synchronous variant that also lists compressed rollout representations. */
+export function listCodexSessionRolloutFiles(rootPath: string): string[] {
+  return listCodexSessionFiles(rootPath, isRolloutSessionFile)
+}
+
+function listCodexSessionFiles(
+  rootPath: string,
+  isSessionFile: (fileName: string) => boolean
+): string[] {
   const files: string[] = []
   try {
     for (const entry of readdirSync(rootPath, { withFileTypes: true })) {
       const childPath = join(rootPath, entry.name)
       if (entry.isDirectory()) {
-        appendSessionFilePaths(files, listCodexSessionJsonlFiles(childPath))
+        appendSessionFilePaths(files, listCodexSessionFiles(childPath, isSessionFile))
         continue
       }
-      if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+      if (entry.isFile() && isSessionFile(entry.name)) {
         files.push(childPath)
       }
     }
@@ -58,6 +77,22 @@ export async function* listCodexSessionJsonlFilesIncrementally(
   rootPath: string,
   options: CodexSessionBridgeIncrementalOptions
 ): AsyncGenerator<string> {
+  yield* listCodexSessionFilesIncrementally(rootPath, options, isJsonlSessionFile)
+}
+
+/** Yields both physical representations that current Codex can resume. */
+export async function* listCodexSessionRolloutFilesIncrementally(
+  rootPath: string,
+  options: CodexSessionBridgeIncrementalOptions
+): AsyncGenerator<string> {
+  yield* listCodexSessionFilesIncrementally(rootPath, options, isRolloutSessionFile)
+}
+
+async function* listCodexSessionFilesIncrementally(
+  rootPath: string,
+  options: CodexSessionBridgeIncrementalOptions,
+  isSessionFile: (fileName: string) => boolean
+): AsyncGenerator<string> {
   const batchSize = Math.max(1, options.batchSize ?? INCREMENTAL_BRIDGE_BATCH_SIZE)
   const yieldMs = Math.max(0, options.yieldMs ?? INCREMENTAL_BRIDGE_YIELD_MS)
   const pendingDirectories = [rootPath]
@@ -74,7 +109,7 @@ export async function* listCodexSessionJsonlFilesIncrementally(
         const childPath = join(currentDirectory, entry.name)
         if (entry.isDirectory()) {
           pendingDirectories.push(childPath)
-        } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        } else if (entry.isFile() && isSessionFile(entry.name)) {
           yield childPath
         }
         entriesSinceYield += 1

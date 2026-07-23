@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isCodexAuthError } from '../../../../shared/codex-auth-errors'
+import { isCodexApiKeyRateLimitError, isCodexAuthError } from '../../../../shared/codex-auth-errors'
 import type { ProviderRateLimits } from '../../../../shared/rate-limit-types'
 import {
   codexRateLimitTargetMatchesAccountRuntime,
@@ -70,6 +70,25 @@ describe('codex account auth warning', () => {
       getCodexAccountAuthWarning({
         limits,
         target: { runtime: 'wsl', wslDistro: 'Ubuntu' },
+        runtime: { runtime: 'host' },
+        activeAccountId: 'account-1',
+        accountId: 'account-1'
+      })
+    ).toBeNull()
+  })
+
+  it('does not surface a re-auth warning for an API-key-only provider (#9313)', () => {
+    const apiKeyError = 'ChatGPT authentication required to read rate limits'
+    // Still classified as an auth error (so the fetcher skips the 15s PTY probe)...
+    expect(isCodexAuthError(apiKeyError)).toBe(true)
+    // ...but distinguished as the API-key rate-limit rejection.
+    expect(isCodexApiKeyRateLimitError(apiKeyError)).toBe(true)
+    expect(isCodexApiKeyRateLimitError('Your access token could not be refreshed.')).toBe(false)
+
+    expect(
+      getCodexAccountAuthWarning({
+        limits: codexLimits(apiKeyError),
+        target: { runtime: 'host', wslDistro: null },
         runtime: { runtime: 'host' },
         activeAccountId: 'account-1',
         accountId: 'account-1'

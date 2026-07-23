@@ -2,7 +2,7 @@ import type {
   ProviderRateLimits,
   RateLimitRuntimeTarget
 } from '../../../../shared/rate-limit-types'
-import { isCodexAuthError } from '../../../../shared/codex-auth-errors'
+import { isCodexApiKeyRateLimitError, isCodexAuthError } from '../../../../shared/codex-auth-errors'
 
 type AccountRuntime = {
   runtime: 'host' | 'wsl'
@@ -36,6 +36,11 @@ export function getCodexAccountAuthWarning(args: {
     return null
   }
   if (args.limits?.status !== 'error' || !isCodexAuthError(args.limits.error)) {
+    return null
+  }
+  // Why: an API-key-only provider fails the ChatGPT-specific rateLimits/read (#9313);
+  // that's a valid sign-in, so don't prompt a re-authentication that can't fix it.
+  if (isCodexApiKeyRateLimitError(args.limits.error)) {
     return null
   }
   return args.limits.error?.trim() || 'Codex reported that this sign-in needs re-authentication.'

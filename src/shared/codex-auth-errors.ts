@@ -1,3 +1,9 @@
+// Why: an API-key-only auth.json is a *valid* Codex sign-in, but app-server rejects
+// the ChatGPT-specific account/rateLimits/read with this message (#9313). We still
+// classify it as an auth error to skip the 15s PTY probe, yet it must NOT drive a
+// re-authentication prompt — re-auth can't fix an API-key provider.
+const CODEX_API_KEY_RATE_LIMIT_ERROR_RE = /chatgpt authentication required/i
+
 const CODEX_AUTH_ERROR_PATTERNS = [
   /access token could not be refreshed/i,
   /authentication session could not be refreshed/i,
@@ -11,7 +17,7 @@ const CODEX_AUTH_ERROR_PATTERNS = [
   // Why: app-server rejects account/rateLimits/read with this when auth.json
   // holds only an API key; without classification the fetcher falls through to
   // a hidden PTY probe that can only time out (15s) on every refresh.
-  /chatgpt authentication required/i
+  CODEX_API_KEY_RATE_LIMIT_ERROR_RE
 ]
 const ANSI_ESCAPE_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[a-zA-Z]`, 'g')
 
@@ -21,6 +27,16 @@ export function isCodexAuthError(error: string | null | undefined): boolean {
     return false
   }
   return CODEX_AUTH_ERROR_PATTERNS.some((pattern) => pattern.test(message))
+}
+
+// Why: distinguishes the API-key rate-limit rejection (#9313) from a genuine
+// re-auth failure so the renderer can suppress a false "needs re-authentication".
+export function isCodexApiKeyRateLimitError(error: string | null | undefined): boolean {
+  const message = error?.trim()
+  if (!message) {
+    return false
+  }
+  return CODEX_API_KEY_RATE_LIMIT_ERROR_RE.test(message)
 }
 
 export function extractCodexAuthError(output: string | null | undefined): string | null {

@@ -132,7 +132,15 @@ async function writeKeychainPassword(
   if (process.platform !== 'darwin') {
     return
   }
-  await execSecurity(['add-generic-password', '-U', '-s', service, '-a', account, '-w', contents])
+  // Why: never pass the credential on argv — it is world-readable via `ps` for
+  // the lifetime of the process (CWE-214). `security add-generic-password -w`
+  // with no value reads the password from stdin, prompting once for the value
+  // and once for a confirmation retype, so feed the (single-line) credential
+  // twice. Failures still reject via execSecurityCommand.
+  await execSecurityCommand(
+    ['add-generic-password', '-U', '-s', service, '-a', account, '-w'],
+    `${contents}\n${contents}\n`
+  )
 }
 
 async function deleteKeychainPassword(
@@ -177,7 +185,7 @@ function isKeychainNotFoundError(error: unknown): boolean {
   return code === 44 || message.includes('could not be found') || message.includes('not be found')
 }
 
-function execSecurityCommand(args: string[]): Promise<SecurityCommandResult> {
+function execSecurityCommand(args: string[], input?: string): Promise<SecurityCommandResult> {
   return new Promise((resolve, reject) => {
     let settled = false
     let child: ReturnType<typeof execFile> | undefined
@@ -226,6 +234,11 @@ function execSecurityCommand(args: string[]): Promise<SecurityCommandResult> {
           settle(() => resolve({ stdout: String(stdout), stderr: String(stderr) }))
         }
       )
+      if (input !== undefined && child?.stdin) {
+        // Swallow EPIPE if `security` closes stdin after reading its prompts.
+        child.stdin.on('error', () => {})
+        child.stdin.end(input)
+      }
     } catch (error) {
       settle(() => reject(error))
     }

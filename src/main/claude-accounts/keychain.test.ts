@@ -38,6 +38,23 @@ function invokeExecFileCallback(
   execCallback(error, stdout, stderr)
 }
 
+type StdinCapture = { written: string; end: ReturnType<typeof vi.fn> }
+
+// Returns a fake ChildProcess whose stdin records what the caller writes, so
+// tests can assert secrets travel over stdin rather than argv.
+function fakeChildWithStdin(capture: StdinCapture): { stdin: unknown } {
+  return {
+    stdin: {
+      on: vi.fn(),
+      end: capture.end.mockImplementation((chunk?: string) => {
+        if (typeof chunk === 'string') {
+          capture.written += chunk
+        }
+      })
+    }
+  }
+}
+
 describe('Claude Keychain credentials', () => {
   beforeEach(() => {
     setPlatform('darwin')
@@ -99,38 +116,48 @@ describe('Claude Keychain credentials', () => {
     ])
   })
 
-  it('writes active credentials to the config-scoped Claude Code service', async () => {
+  it('writes active credentials via stdin, never placing the secret on argv', async () => {
     const configDir = '/tmp/orca-claude-login-test'
     const scopedService = serviceForConfigDir(configDir)
+    const capture: StdinCapture = { written: '', end: vi.fn() }
     execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
       invokeExecFileCallback(callback, null, '', '')
-      return null as never
+      return fakeChildWithStdin(capture) as never
     })
 
     await writeActiveClaudeKeychainCredentials('credentials-json', configDir)
 
-    expect(execFileMock.mock.calls[0][1]).toEqual([
+    // The secret must not appear anywhere in argv (CWE-214 process-list leak).
+    const argv = execFileMock.mock.calls[0][1] as string[]
+    expect(argv).toEqual([
       'add-generic-password',
       '-U',
       '-s',
       scopedService,
       '-a',
       process.env.USER || process.env.USERNAME || 'user',
-      '-w',
-      'credentials-json'
+      '-w'
     ])
+    expect(argv).not.toContain('credentials-json')
+    // `security -w` prompts for the value plus a retype confirmation.
+    expect(capture.written).toBe('credentials-json\ncredentials-json\n')
   })
 
   it('writes runtime credentials to scoped and legacy services for old Claude Code compatibility', async () => {
     const configDir = '/tmp/orca-claude-login-test'
     const scopedService = serviceForConfigDir(configDir)
+    const captures: StdinCapture[] = []
     execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      const capture: StdinCapture = { written: '', end: vi.fn() }
+      captures.push(capture)
       invokeExecFileCallback(callback, null, '', '')
-      return null as never
+      return fakeChildWithStdin(capture) as never
     })
 
     await writeActiveClaudeKeychainCredentialsForRuntime('credentials-json', configDir)
 
+    // Both services use the -w prompt (no argv secret) and receive the value
+    // twice via stdin (value + retype confirmation).
     expect(execFileMock.mock.calls.map((call) => call[1])).toEqual([
       [
         'add-generic-password',
@@ -139,8 +166,7 @@ describe('Claude Keychain credentials', () => {
         scopedService,
         '-a',
         process.env.USER || process.env.USERNAME || 'user',
-        '-w',
-        'credentials-json'
+        '-w'
       ],
       [
         'add-generic-password',
@@ -149,9 +175,12 @@ describe('Claude Keychain credentials', () => {
         'Claude Code-credentials',
         '-a',
         process.env.USER || process.env.USERNAME || 'user',
-        '-w',
-        'credentials-json'
+        '-w'
       ]
+    ])
+    expect(captures.map((capture) => capture.written)).toEqual([
+      'credentials-json\ncredentials-json\n',
+      'credentials-json\ncredentials-json\n'
     ])
   })
 

@@ -560,12 +560,16 @@ export class AtermTerminal {
      * federated matches carry). Empty query or invalid regex ⇒
      * `{matches:[],total:0,incomplete:false}` (mirroring `search`'s silence).
      *
-     * A bounded READ over the O(1)-reused full-content index
-     * ([`Terminal::indexed_search`]) — not a from-scratch rebuild on the hot
-     * path: on unchanged content the index the budgeted scan just built is
-     * reused, and only the `≤max_matches` capped rows pay a snippet read.
-     * Keeps the E9a [`AtermTerminal::search_meta`] `{incomplete,match_count}`
-     * shape as a compat alias — this export supersedes it with snippets.
+     * A bounded READ over an already-built full-content index — not a
+     * from-scratch rebuild on the hot path
+     * ([`Terminal::search_summary_results`]): after a
+     * [`AtermTerminal::search_budgeted`] scan completes over the same query +
+     * content snapshot, THAT retained index answers directly (zero rebuild);
+     * otherwise the O(1)-reused one-shot index ([`Terminal::indexed_search`])
+     * serves it, rebuilding only on a content-key miss. Either way only the
+     * `≤max_matches` capped rows pay a snippet read. Keeps the E9a
+     * [`AtermTerminal::search_meta`] `{incomplete,match_count}` shape as a
+     * compat alias — this export supersedes it with snippets.
      */
     search_summary(query: string, case_sensitive: boolean, is_regex: boolean, max_matches: number): string | undefined;
     /**

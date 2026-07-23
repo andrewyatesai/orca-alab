@@ -333,10 +333,13 @@ export function createAgentCompletionCoordinator(
       processExitAgent?: RecognizedAgentProcess
     } = {}
   ): void {
-    const repairedAgentStatus = repairCompletionStatus(source, title, optionsOverride)
+    // Why: defer to a pending hook-done quiet window BEFORE repair — repairCompletionStatus commits a
+    // synthetic 'done' + drops the main hook cache, which would pre-empt the quiet window and flip-flop
+    // the store working->done->working if the agent resumes (title path had no pre-repair guard; #9333).
     if (source !== 'hook' && pendingHookDoneTimer !== null) {
       return
     }
+    const repairedAgentStatus = repairCompletionStatus(source, title, optionsOverride)
     if (requiresFreshWorking || lastCompletedTurn === currentTurn) {
       return
     }

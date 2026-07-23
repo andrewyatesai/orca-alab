@@ -515,6 +515,49 @@ describe('agent completion coordinator', () => {
     })
   })
 
+  it('does not run title repair while a hook-done quiet window is pending', () => {
+    const dispatchCompletion = vi.fn()
+    const onCompletionStatusRepair = vi.fn(() => ({
+      state: 'done' as const,
+      prompt: 'run the goal',
+      agentType: 'codex' as const
+    }))
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(),
+      dispatchCompletion,
+      onCompletionStatusRepair,
+      isLive: () => true
+    })
+
+    // Title working establishes the run + workingStatusObserved, so the hook 'done' arms the quiet window.
+    coordinator.observeTitle('Codex working')
+    coordinator.observeHookStatus({
+      state: 'done',
+      prompt: 'run the goal',
+      agentType: 'codex'
+    })
+    expect(coordinator.hasPendingHookDoneCompletion()).toBe(true)
+
+    // A racing working->done title transition must defer to the pending quiet window and NOT commit a
+    // synthetic 'done'/drop the main cache via repair; the deference guard runs before repairCompletionStatus.
+    coordinator.observeTitle('Codex done')
+
+    expect(onCompletionStatusRepair).not.toHaveBeenCalled()
+    expect(dispatchCompletion).not.toHaveBeenCalled()
+    expect(coordinator.hasPendingHookDoneCompletion()).toBe(true)
+
+    // The hook-done still owns the turn once the quiet window elapses.
+    vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
+    expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    expect(dispatchCompletion).toHaveBeenCalledWith(
+      'codex',
+      expect.objectContaining({ source: 'hook', quietedHookDone: true })
+    )
+  })
+
   it('repairs process-exit status even when title completion already deduped notification', async () => {
     let foregroundProcess: string | null = 'codex'
     const dispatchCompletion = vi.fn()

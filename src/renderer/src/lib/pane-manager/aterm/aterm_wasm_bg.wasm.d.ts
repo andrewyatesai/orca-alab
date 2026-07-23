@@ -77,6 +77,7 @@ export const atermterminal_rgba: (a: number) => [number, number];
 export const atermterminal_rgba_ptr: (a: number) => number;
 export const atermterminal_row_is_wrapped: (a: number, b: number) => number;
 export const atermterminal_row_len: (a: number, b: number) => number;
+export const atermterminal_row_range_json: (a: number, b: number, c: number) => [number, number];
 export const atermterminal_row_text: (a: number, b: number) => [number, number];
 export const atermterminal_scroll_frac_px: (a: number) => number;
 export const atermterminal_scroll_frac_rows: (a: number) => number;
@@ -95,7 +96,9 @@ export const atermterminal_search: (a: number, b: number, c: number, d: number, 
 export const atermterminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => number;
 export const atermterminal_search_budgeted_cancel: (a: number) => void;
 export const atermterminal_search_display_origin: (a: number) => number;
+export const atermterminal_search_index_release: (a: number) => void;
 export const atermterminal_search_meta: (a: number, b: number, c: number, d: number, e: number) => number;
+export const atermterminal_search_summary: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
 export const atermterminal_selection_clear: (a: number) => void;
 export const atermterminal_selection_extend: (a: number, b: number, c: number) => void;
 export const atermterminal_selection_finish: (a: number) => void;

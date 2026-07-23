@@ -19,6 +19,8 @@ type TabPaneManager = Omit<RegisteredPaneManager, 'getPanes'> & {
     container?: HTMLElement
     atermController?: {
       noteMatrixRainPulse?: (pulse: AtermRainPulse) => void
+      /** Federated search reads each pane's engine-host seam through here. */
+      federatedSearchTarget?: () => unknown
     } | null
   }[]
 }

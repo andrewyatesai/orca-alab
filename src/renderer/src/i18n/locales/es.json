@@ -649,6 +649,10 @@
             }
           }
         }
+      },
+      "federatedSearch": {
+        "missingMatch": "The restored scrollback no longer contains this match.",
+        "paneUnavailable": "Pane no longer available."
       }
     },
     "hooks": {
@@ -1853,7 +1857,8 @@
         "42e466b9f1": "Expresión regular",
         "90c61387d9": "Distingue mayúsculas y minúsculas",
         "e07012f26e": "Buscar...",
-        "searchingPending": "searching…"
+        "searchingPending": "searching…",
+        "searchAllTerminals": "Search all terminals"
       },
       "UpdateCard": {
         "68b235d264": "Reiniciar para actualizar",
@@ -14443,6 +14448,27 @@
           "lastRan": "session restored · last ran: {{command}}",
           "typeItAgain": "Type it again"
         }
+      },
+      "FederatedSearchPalette": {
+        "badgeHidden": "hidden",
+        "badgeParked": "parked",
+        "badgeHistory": "history",
+        "badgeRemote": "remote",
+        "title": "Search all terminals",
+        "description": "Search every terminal pane",
+        "placeholder": "Search all terminals...",
+        "caseToggle": "Aa",
+        "regexToggle": ".*",
+        "emptyPrompt": "Type to search every terminal pane.",
+        "noMatches": "No matches.",
+        "exitedSession": "Exited session",
+        "paneFallback": "Terminal",
+        "depthBadge": "+history",
+        "overBudget": "Buffer too large to index — results unavailable for this pane.",
+        "rowOnly": "Row {{value0}}",
+        "moreMatches": "+{{value0}} more",
+        "searching": "Searching…",
+        "resultsAnnouncement": "{{value0}} matches shown"
       }
     },
     "i18n": {

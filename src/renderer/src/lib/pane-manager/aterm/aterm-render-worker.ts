@@ -39,6 +39,7 @@ import {
 } from './aterm-worker-command-scheduler'
 import { createAtermWorkerSpillCompositor } from './aterm-worker-spill-compositor'
 import { isAtermWorkerSpillCommand } from './aterm-worker-spill-protocol'
+import { createWorkerFederatedFindForPanes } from './aterm-worker-federated-pane-source'
 import type {
   AtermWorkerInit,
   AtermWorkerMessage,
@@ -106,6 +107,11 @@ const spillCompositor = createAtermWorkerSpillCompositor({
   requestRenderRetry: (paneId) => panes.get(paneId)?.frameScheduler.schedule(false)
 })
 
+// Worker-global federated fan-out (§2.1): one command scans every listed pane
+// serially through its engine handle's budgeted-search surface — never through a
+// pane's find-bar state machine, so no active find state is ever perturbed.
+const federatedFind = createWorkerFederatedFindForPanes(panes, (event) => ctx.postMessage(event))
+
 // ONE rAF loop for every pane's frame scheduler (see createSharedWorkerRafLoop);
 // the flush epilogue runs the coalesced spill pass for that frame's paints.
 const sharedRaf = createSharedWorkerRafLoop(
@@ -121,6 +127,7 @@ function createPane(paneId: number): PaneRuntime {
     engine: null,
     engineKind: null,
     engineMemory: null,
+    engineHandle: null,
     storedInit: null,
     canvas: null,
     fellBackToCpu: false,
@@ -166,6 +173,7 @@ function startTerminal(pane: PaneRuntime, handle: EngineHandle): void {
   pane.engine = handle.engine
   pane.engineKind = handle.kind
   pane.engineMemory = handle.memory
+  pane.engineHandle = handle
   // A rebuild (GPU→CPU fallback) constructs a fresh chrome-less engine; re-apply
   // the pane's stored chrome so the effect frame survives the swap.
   if (pane.chrome.pad !== 0 || pane.chrome.head !== 0) {
@@ -263,6 +271,7 @@ function handleDispose(paneId: number): void {
   pane.engine = null
   pane.engineKind = null
   pane.engineMemory = null
+  pane.engineHandle = null
   pane.storedInit = null
   pane.canvas = null
   panes.delete(paneId)
@@ -367,6 +376,11 @@ function dispatch(msg: AtermWorkerRequest): void {
   // drop a canvas transfer or a strip-clearing unregister.
   if (isAtermWorkerSpillCommand(msg)) {
     spillCompositor.dispatch(msg)
+    return
+  }
+  // Worker-scoped federated fan-out (no paneId; the run walks panes itself).
+  if (msg.type === 'federatedFind' || msg.type === 'federatedCancel') {
+    federatedFind.dispatch(msg)
     return
   }
   if (msg.type === 'init') {

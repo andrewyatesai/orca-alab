@@ -21,6 +21,11 @@ import {
 } from './aterm-worker-font-registry'
 import type { AtermThemeColors } from './aterm-theme-colors'
 import { copyBudgetedStep, type EngineBudgetedSearchStep } from './aterm-engine-budgeted-search'
+import {
+  detectEngineSearchIndexRelease,
+  detectEngineSearchSummary,
+  type EngineSearchSummaryFn
+} from './aterm-engine-search-summary'
 import { presentCpuFrameBands } from './aterm-worker-band-present'
 
 export type { WorkerResidentFonts } from './aterm-worker-font-registry'
@@ -184,6 +189,12 @@ export type EngineHandle = {
   ) => EngineBudgetedSearchStep
   /** Drop any in-flight budgeted search state (frees the partial index). */
   searchBudgetedCancel?: () => void
+  /** E-1 federated summary (snippets + total + incomplete); feature-detected —
+   *  absent on older pins, where federated batches carry bare triplets. */
+  searchSummary?: EngineSearchSummaryFn
+  /** Release the warm completed search index (W4A eviction binding);
+   *  feature-detected — absent on older pins. */
+  searchIndexRelease?: () => void
   dispose: () => void
 }
 
@@ -290,6 +301,8 @@ export async function buildCpuEngine(
     searchBudgeted: (q, cs, regex, cursor, rowBudget) =>
       copyBudgetedStep(t.search_budgeted(q, cs, regex, cursor, rowBudget)),
     searchBudgetedCancel: () => t.search_budgeted_cancel(),
+    searchSummary: detectEngineSearchSummary(t),
+    searchIndexRelease: detectEngineSearchIndexRelease(t),
     dispose: () => {
       try {
         t.free()
@@ -358,6 +371,8 @@ export async function buildGpuEngine(
     searchBudgeted: (q, cs, regex, cursor, rowBudget) =>
       copyBudgetedStep(t.search_budgeted(q, cs, regex, cursor, rowBudget)),
     searchBudgetedCancel: () => t.search_budgeted_cancel(),
+    searchSummary: detectEngineSearchSummary(t),
+    searchIndexRelease: detectEngineSearchIndexRelease(t),
     dispose: () => {
       try {
         t.free()

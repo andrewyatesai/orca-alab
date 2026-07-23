@@ -430,6 +430,8 @@ export async function loadAtermWorkerEngine(
     cellWidth: initial.cellWidth,
     cellHeight: initial.cellHeight,
     adapterInfo: null,
+    // Federated search names this pane by its shared-worker slot id (§2.1).
+    federatedWorkerPaneId: pane.paneId,
     bindPainter
   }
 }

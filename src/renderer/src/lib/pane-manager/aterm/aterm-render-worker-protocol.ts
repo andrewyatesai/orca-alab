@@ -25,13 +25,24 @@ import type {
   AtermWorkerFontClass,
   AtermWorkerFonts
 } from './aterm-worker-font-protocol'
+import type { AtermWorkerFederatedCommand } from './aterm-worker-federated-protocol'
 
 // ── Worker-scoped requests (main → worker, no paneId) ─────────────────────────────
 
 // The once-per-generation font delivery + lazy font-class types live in
 // aterm-worker-font-protocol; re-exported so this file stays the wire contract's
-// single entry point.
+// single entry point. The federated fan-out family (worker-scoped find/cancel +
+// streamed batches) lives in aterm-worker-federated-protocol.
 export type { AtermFontClass, AtermWorkerFontClass, AtermWorkerFonts }
+export type {
+  AtermFederatedMatch,
+  AtermWorkerFederatedBatch,
+  AtermWorkerFederatedCancel,
+  AtermWorkerFederatedCommand,
+  AtermWorkerFederatedDone,
+  AtermWorkerFederatedEvent,
+  AtermWorkerFederatedFind
+} from './aterm-worker-federated-protocol'
 
 // ── Pane-scoped commands (main → worker; wire form adds `paneId`) ─────────────────
 
@@ -335,6 +346,7 @@ export type AtermWorkerPaneRuntimeCommand = Exclude<
 export type AtermWorkerRequest =
   | AtermWorkerFonts
   | AtermWorkerFontClass
+  | AtermWorkerFederatedCommand
   | ((AtermWorkerPaneCommand | AtermWorkerSpillCommand) & { paneId: number })
 
 // ── Events (worker → main) ────────────────────────────────────────────────────────

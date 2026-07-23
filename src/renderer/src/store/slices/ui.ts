@@ -744,6 +744,7 @@ export type UISlice = {
     | 'confirm-remove-folder'
     | 'add-repo'
     | 'quick-open'
+    | 'federated-search'
     | 'worktree-palette'
     | 'workspace-cleanup'
     | 'project-added'

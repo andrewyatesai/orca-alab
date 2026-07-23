@@ -56,6 +56,8 @@ export function createStableAtermPaneController(
       current().contextFileLinkAbsolutePath?.(rawPathText) ?? null,
     lastCommandOutputAsync: () => current().lastCommandOutputAsync?.() ?? Promise.resolve(null),
     bindSpillPaneKey: (paneKey) => current().bindSpillPaneKey(paneKey),
+    // Optional like the context-menu seams: a rebuilt (older) wiring may lack it.
+    federatedSearchTarget: () => current().federatedSearchTarget?.() ?? null,
     onSelectionMutation: options.onSelectionMutation,
     updateTheme: (colors) => current().updateTheme(colors),
     setSelectionInactive: (inactive) => current().setSelectionInactive(inactive),

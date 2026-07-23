@@ -9,6 +9,7 @@
 
 import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
 import type { AtermFontClass } from './aterm-worker-font-protocol'
+import type { AtermWorkerFederatedEvent } from './aterm-worker-federated-protocol'
 
 // ── Pane-scoped events (worker → main; wire form adds `paneId`) ───────────────────
 
@@ -217,9 +218,12 @@ export type AtermWorkerMissingFontClasses = {
   classes: AtermFontClass[]
 }
 
-/** Everything the worker posts back to the main thread (the wire union). */
+/** Everything the worker posts back to the main thread (the wire union). The
+ *  federated batch/done events are worker-scoped like the font misses: one run
+ *  spans many panes, and each batch names its pane in the payload. */
 export type AtermWorkerMessage =
   | AtermWorkerBooted
   | AtermWorkerCrash
   | AtermWorkerMissingFontClasses
+  | AtermWorkerFederatedEvent
   | (AtermWorkerPaneEvent & { paneId: number })

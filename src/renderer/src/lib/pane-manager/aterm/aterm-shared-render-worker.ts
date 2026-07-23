@@ -27,6 +27,8 @@ import { loadAterm } from './load-aterm'
 import { e2eConfig } from '@/lib/e2e-config'
 import type {
   AtermFontClass,
+  AtermWorkerFederatedCommand,
+  AtermWorkerFederatedEvent,
   AtermWorkerMessage,
   AtermWorkerPaneCommand,
   AtermWorkerPaneEvent
@@ -102,6 +104,14 @@ type SharedWorkerHostDeps = {
 
 export type AtermSharedWorkerHost = {
   acquirePane: () => Promise<AtermSharedWorkerPane>
+  /** Post a worker-scoped federated find/cancel to the LIVE worker generation.
+   *  Returns false when no worker is alive (nothing to search — the caller's
+   *  worker-path panes cannot exist without one); never spawns a worker. */
+  postFederated: (cmd: AtermWorkerFederatedCommand) => boolean
+  /** Subscribe to worker-scoped federated batch/done events; returns a disposer.
+   *  Host-scoped (survives worker generations): stale-gen events are the
+   *  subscriber's to drop — every event carries its gen. */
+  onFederatedEvent: (handler: (event: AtermWorkerFederatedEvent) => void) => () => void
 }
 
 /** Factory (deps injected) so unit tests can drive the lifecycle with a fake Worker;
@@ -120,6 +130,9 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
   }
   let current: Generation | null = null
   let nextPaneId = 1
+  // Host-scoped federated subscribers: a worker retire mid-run simply stops the
+  // event stream (subscribers own their timeouts); a fresh generation reuses them.
+  const federatedListeners = new Set<(event: AtermWorkerFederatedEvent) => void>()
 
   // e2e-only worker-restart lever: drives the REAL retire path (same as a wasm
   // crash), so the spill respawn spec can prove every pane rebuilds and the
@@ -223,6 +236,12 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
         }
         return
       }
+      if (data.type === 'federatedBatch' || data.type === 'federatedDone') {
+        for (const listener of federatedListeners) {
+          listener(data)
+        }
+        return
+      }
       gen.panes.get(data.paneId)?.onEvent?.(data)
     })
     worker.addEventListener('error', (event) => {
@@ -239,6 +258,17 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
   }
 
   return {
+    postFederated: (cmd) => {
+      if (!current || current.retired) {
+        return false
+      }
+      current.worker.postMessage(cmd, [])
+      return true
+    },
+    onFederatedEvent: (handler) => {
+      federatedListeners.add(handler)
+      return () => federatedListeners.delete(handler)
+    },
     acquirePane: async () => {
       // Fetch fonts BEFORE touching the worker: a font/asset failure here throws with
       // the caller's canvas still intact, so it can fall back to the in-process path.
@@ -329,4 +359,17 @@ const productionHost = createAtermSharedWorkerHost({
  *  transfer — so the caller can still fall back in-process. */
 export function acquireAtermSharedWorkerPane(): Promise<AtermSharedWorkerPane> {
   return productionHost.acquirePane()
+}
+
+/** Post a federated find/cancel to THE shared render worker (false = no live
+ *  worker, so no worker-path panes exist to search). Never spawns a worker. */
+export function postAtermFederatedToSharedWorker(cmd: AtermWorkerFederatedCommand): boolean {
+  return productionHost.postFederated(cmd)
+}
+
+/** Subscribe to the shared worker's federated batch/done events (disposer back). */
+export function subscribeAtermSharedWorkerFederatedEvents(
+  handler: (event: AtermWorkerFederatedEvent) => void
+): () => void {
+  return productionHost.onFederatedEvent(handler)
 }

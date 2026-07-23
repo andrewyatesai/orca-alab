@@ -53,12 +53,20 @@ export function runtimeTerminalErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+export type RuntimeTerminalStreamEndReason = 'end' | 'transport-close'
+
 export async function subscribeToRuntimeTerminalData(
   settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   ptyId: string,
   clientId: string,
   watcher: (data: string) => void,
-  options?: { startAtLiveTail?: boolean }
+  options?: {
+    startAtLiveTail?: boolean
+    /** Fires once the established stream dies: 'end' is the host's end frame
+     *  (exit OR server-side cleanup — callers must classify, #9151), while
+     *  'transport-close' is routine transport churn. */
+    onStreamEnd?: (reason: RuntimeTerminalStreamEndReason) => void
+  }
 ): Promise<() => void> {
   const terminal = getRemoteRuntimeTerminalHandle(ptyId)
   const ownerEnvironmentId = getRemoteRuntimePtyEnvironmentId(ptyId)
@@ -98,10 +106,15 @@ export async function subscribeToRuntimeTerminalData(
         resolveLiveTail = null
         rejectLiveTail = null
       },
-      onEnd: () => rejectPendingLiveTail('Remote terminal ended before live output was ready.'),
+      onEnd: () => {
+        rejectPendingLiveTail('Remote terminal ended before live output was ready.')
+        options?.onStreamEnd?.('end')
+      },
       onError: (message) => rejectPendingLiveTail(message),
-      onTransportClose: () =>
+      onTransportClose: () => {
         rejectPendingLiveTail('Remote terminal closed before live output was ready.')
+        options?.onStreamEnd?.('transport-close')
+      }
     }
   })
 

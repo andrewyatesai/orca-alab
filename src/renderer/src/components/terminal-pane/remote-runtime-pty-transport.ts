@@ -573,7 +573,10 @@ export function createRemoteRuntimePtyTransport(
   function handleRemoteTerminalError(error: unknown): void {
     const message = runtimeTerminalErrorMessage(error)
     if (message === REMOTE_TERMINAL_SNAPSHOT_TOO_LARGE) {
-      // Why: an oversized initial snapshot is skipped but live output keeps flowing — informational, not fatal.
+      // Why: an oversized initial snapshot is skipped but live output keeps
+      // flowing — not fatal. Surface it so the pane can fall back to the
+      // server-bounded requested-snapshot restore (old-host skew, parking §3.3).
+      storedCallbacks.onSnapshotOverflow?.()
       return
     }
     if (isRemoteTerminalStaleMessage(message)) {

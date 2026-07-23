@@ -51,6 +51,45 @@ vi.mock('./pty-pre-handler-buffer', () => ({
   discardPreHandlerPtyState: (ptyId: string) => consumePreHandlerPtyState(ptyId)
 }))
 
+type RemoteByteSourceOptions = {
+  ptyId: string
+  settings: unknown
+  onExitConfirmed: () => void
+}
+type RemoteByteSourceInstance = {
+  options: RemoteByteSourceOptions
+  subscribeBytes: ReturnType<typeof vi.fn>
+  dispose: ReturnType<typeof vi.fn>
+}
+const remoteByteSources: RemoteByteSourceInstance[] = []
+const createParkedRemoteTerminalByteSource = vi.fn((options: RemoteByteSourceOptions) => {
+  const instance: RemoteByteSourceInstance = {
+    options,
+    subscribeBytes: vi.fn(() => vi.fn()),
+    dispose: vi.fn()
+  }
+  remoteByteSources.push(instance)
+  return {
+    subscribeBytes: instance.subscribeBytes,
+    // Mirror the real resolution: owner from the id, else park-time active env, else null.
+    runtimeEnvironmentId: options.ptyId.includes('@@')
+      ? 'env-1'
+      : ((options.settings as { activeRuntimeEnvironmentId?: string | null } | null | undefined)
+          ?.activeRuntimeEnvironmentId ?? null),
+    dispose: instance.dispose
+  }
+})
+vi.mock('./parked-remote-terminal-byte-source', () => ({
+  createParkedRemoteTerminalByteSource: (options: RemoteByteSourceOptions) =>
+    createParkedRemoteTerminalByteSource(options)
+}))
+
+const sendRuntimePtyInput = vi.fn()
+vi.mock('@/runtime/runtime-terminal-inspection', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  sendRuntimePtyInput: (...args: unknown[]) => sendRuntimePtyInput(...args)
+}))
+
 type CloseTerminalTabOptions = {
   captureRecentlyClosed?: boolean
   onClosed?: () => void
@@ -156,6 +195,7 @@ describe('terminal-parked-tab-watchers', () => {
     _resetSshParkedPaneRevealRestoreForTest()
     startedWatchers.length = 0
     exitSubscriptions.length = 0
+    remoteByteSources.length = 0
     vi.clearAllMocks()
     ;(globalThis as { window?: unknown }).window = originalWindow
   })
@@ -245,13 +285,74 @@ describe('terminal-parked-tab-watchers', () => {
     expect(ptyWrite).toHaveBeenCalledWith(sshPtyId, '\x1b[?2031;1$y')
   })
 
-  it('still refuses remote-wire PTYs when remote parking is enabled (phase 2)', () => {
-    capturePanes([
-      { ptyId: 'remote:env-1@@terminal-1', paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }
-    ])
-    syncParked({ tabs: [{ id: TAB_ID, ptyId: null }], remoteParkingEnabled: true })
+  it('starts a remote-wire watcher with injected byte source, runtime input, and owner environment', () => {
+    const remotePtyId = 'remote:env-1@@terminal-1'
+    capturePanes([{ ptyId: remotePtyId, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
+    syncParked({ tabs: [{ id: TAB_ID, ptyId: remotePtyId }], remoteParkingEnabled: true })
+
+    expect(startParkedTerminalByteWatcher).toHaveBeenCalledTimes(1)
+    expect(createParkedRemoteTerminalByteSource).toHaveBeenCalledTimes(1)
+    expect(remoteByteSources[0].options.ptyId).toBe(remotePtyId)
+    const options = startedWatchers[0].options
+    expect(options).toMatchObject({
+      ptyId: remotePtyId,
+      tabId: TAB_ID,
+      worktreeId: WORKTREE_ID,
+      leafId: LEAF_ID,
+      paneId: 1,
+      // Why non-null: forces byte-parser mode — remote side effects are renderer-parsed.
+      runtimeEnvironmentId: 'env-1'
+    })
+    expect(options.subscribeBytes).toBe(remoteByteSources[0].subscribeBytes)
+    // sendInput routes through the runtime RPC channel, never local pty.write.
+    options.sendInput('\x1b[?2031;1$y')
+    expect(sendRuntimePtyInput).toHaveBeenCalledWith(undefined, remotePtyId, '\x1b[?2031;1$y')
+    expect(ptyWrite).not.toHaveBeenCalled()
+    // Remote ids never emit pty:exit; the byte source owns exit classification.
+    expect(subscribeToPtyExit).not.toHaveBeenCalled()
+  })
+
+  it('runtime-confirmed remote exit while parked closes the tab like a pty exit', () => {
+    const remotePtyId = 'remote:env-1@@terminal-1'
+    capturePanes([{ ptyId: remotePtyId, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
+    syncParked({ tabs: [{ id: TAB_ID, ptyId: remotePtyId }], remoteParkingEnabled: true })
+
+    remoteByteSources[0].options.onExitConfirmed()
+
+    expect(mockStoreState.clearRuntimePaneTitle).toHaveBeenCalledWith(TAB_ID, 1)
+    expect(startedWatchers[0].dispose).toHaveBeenCalledTimes(1)
+    expect(remoteByteSources[0].dispose).toHaveBeenCalledTimes(1)
+    const closeOptions = closeTerminalTab.mock.calls[0]?.[1] as CloseTerminalTabOptions
+    expect(closeTerminalTab).toHaveBeenCalledWith(TAB_ID, expect.anything())
+    expect(closeOptions.captureRecentlyClosed).toBe(false)
+  })
+
+  it('idles uncovered instead of starting a fact-mode watcher when no owner environment resolves', () => {
+    // Legacy owner-less remote id + no active environment: a watcher would sit
+    // in fact-consumer mode (no facts ever arrive) and wrongly gate-claim.
+    const legacyRemotePtyId = 'remote:terminal-9'
+    capturePanes([{ ptyId: legacyRemotePtyId, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
+    syncParked({ tabs: [{ id: TAB_ID, ptyId: legacyRemotePtyId }], remoteParkingEnabled: true })
 
     expect(startParkedTerminalByteWatcher).not.toHaveBeenCalled()
+    expect(remoteByteSources[0].dispose).toHaveBeenCalledTimes(1)
+    expect(getParkedTerminalWatcherTabIds()).toEqual([TAB_ID])
+  })
+
+  it('disposes the remote byte source when the tab unparks', () => {
+    const remotePtyId = 'remote:env-1@@terminal-1'
+    capturePanes([{ ptyId: remotePtyId, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
+    syncParked({ tabs: [{ id: TAB_ID, ptyId: remotePtyId }], remoteParkingEnabled: true })
+    syncParked({
+      tabs: [{ id: TAB_ID, ptyId: remotePtyId }],
+      parkedTabIds: [],
+      remoteParkingEnabled: true
+    })
+
+    expect(startedWatchers[0].dispose).toHaveBeenCalledTimes(1)
+    expect(remoteByteSources[0].dispose).toHaveBeenCalledTimes(1)
+    // No ssh reveal-restore note for remote-wire: reveal is the ordinary mount path.
+    expect(consumeSshParkedPaneRevealRestore(remotePtyId)).toBe(false)
   })
 
   it('records a reveal-restore note for ssh panes when a parked tab unparks', () => {
@@ -726,7 +827,7 @@ describe('terminal-parked-tab-watchers', () => {
       )
     })
 
-    it('accepts an ssh capture when remote parking is enabled, never remote-wire', () => {
+    it('accepts ssh and remote-wire captures when remote parking is enabled, not without', () => {
       capturePanes([
         { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
         { ptyId: 'ssh:conn-1@@pty-1', paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
@@ -748,7 +849,8 @@ describe('terminal-parked-tab-watchers', () => {
           { id: TAB_ID, ptyId: null },
           { remoteParkingEnabled: true }
         )
-      ).toBe(false)
+      ).toBe(true)
+      expect(canWatcherCoverParkedTerminalTab(WORKTREE_ID, { id: TAB_ID, ptyId: null })).toBe(false)
     })
 
     it('rejects a capture containing a PTY without snapshot backing', () => {

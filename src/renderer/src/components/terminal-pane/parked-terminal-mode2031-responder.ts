@@ -27,16 +27,20 @@ export type ParkedTerminalMode2031ResponderOptions = {
   ptyId: string
   /** Out-of-band reply channel to the PTY (mode-2031 color-scheme answers). */
   sendInput: (data: string) => void
+  /** Remote-wire panes inject their shared stream source; default is the local pty:data sidecar. */
+  subscribeBytes?: (cb: (data: string) => void) => () => void
 }
 
 export function startParkedTerminalMode2031Responder(
   options: ParkedTerminalMode2031ResponderOptions
 ): () => void {
   const { ptyId, sendInput } = options
+  const subscribeBytes =
+    options.subscribeBytes ?? ((cb: (data: string) => void) => subscribeToPtyData(ptyId, cb))
   // Why: a DECSET 2031 subscribe can be split across PTY chunks; the scan
   // carries a bounded tail between chunks so split sequences still match.
   let scanTail = ''
-  return subscribeToPtyData(ptyId, (data) => {
+  return subscribeBytes((data) => {
     const scan = scanMode2031Sequences(scanTail, data)
     scanTail = scan.tail
     if (!scan.subscribe) {

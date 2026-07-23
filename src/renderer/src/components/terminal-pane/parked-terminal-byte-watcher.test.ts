@@ -887,4 +887,117 @@ describe('startParkedTerminalByteWatcher', () => {
       expect(factModeCalls).toEqual(byteModeCalls)
     })
   })
+
+  // ─── Injected remote byte source (ssh-pane-parking.md §3.3, phase 2) ────
+  //
+  // A parked remote: pane's bytes never transit local main, so the watcher
+  // receives a shared stream source and a non-null runtimeEnvironmentId that
+  // pins byte-parser mode regardless of the main-authority switch.
+  describe('with an injected remote byte source', () => {
+    const REMOTE_PTY_ID = 'remote:env-1@@terminal-1'
+
+    type InjectedSource = {
+      subscribeBytes: ((cb: (data: string) => void) => () => void) & ReturnType<typeof vi.fn>
+      emit: (data: string) => void
+      disposers: ReturnType<typeof vi.fn>[]
+    }
+
+    function createInjectedSource(): InjectedSource {
+      const callbacks = new Set<(data: string) => void>()
+      const disposers: ReturnType<typeof vi.fn>[] = []
+      const subscribeBytes = vi.fn((cb: (data: string) => void): (() => void) => {
+        callbacks.add(cb)
+        const dispose = vi.fn((): void => {
+          callbacks.delete(cb)
+        })
+        disposers.push(dispose)
+        return dispose
+      }) as InjectedSource['subscribeBytes']
+      return {
+        subscribeBytes,
+        emit: (data) => {
+          for (const cb of callbacks) {
+            cb(data)
+          }
+        },
+        disposers
+      }
+    }
+
+    it('remote bytes drive bell/title/completion parity in byte-parser mode despite main authority on', async () => {
+      mockStoreState.settings = {
+        ...mockStoreState.settings,
+        terminalMainSideEffectAuthority: true
+      }
+      const setHiddenRendererPty = vi.fn()
+      ;(
+        window as unknown as { api: { pty: Record<string, unknown> } }
+      ).api.pty.setHiddenRendererPty = setHiddenRendererPty
+      const source = createInjectedSource()
+      const { dispose } = await startWatcher({
+        ptyId: REMOTE_PTY_ID,
+        runtimeEnvironmentId: 'env-1',
+        subscribeBytes: source.subscribeBytes
+      })
+
+      source.emit(`${WORKING_TITLE_OSC}`)
+      source.emit(`ding\x07${IDLE_TITLE_OSC}`)
+      flushSideEffects()
+
+      expect(mockStoreState.setRuntimePaneTitle).toHaveBeenCalledWith(
+        TAB_ID,
+        PANE_ID,
+        '⠋ Build feature'
+      )
+      expect(mockStoreState.updateTabTitle).toHaveBeenCalledWith(TAB_ID, IDLE_TITLE)
+      expect(mockStoreState.markWorktreeUnread).toHaveBeenCalledWith(WORKTREE_ID)
+      expect(mockStoreState.markTerminalTabUnread).toHaveBeenCalledWith(TAB_ID)
+      vi.advanceTimersByTime(NOTIFICATION_GRACE_MS)
+      expect(dispatchTerminalNotification).toHaveBeenCalledWith(WORKTREE_ID, {
+        source: 'agent-task-complete',
+        terminalTitle: IDLE_TITLE,
+        paneKey: PANE_KEY
+      })
+      // The injected source replaces the pty:data sidecar entirely, and the
+      // hidden-delivery claim is skipped (main never gates what it never delivers).
+      expect(window.api.pty.onData).not.toHaveBeenCalled()
+      expect(setHiddenRendererPty).not.toHaveBeenCalled()
+      dispose()
+    })
+
+    it('answers a DECSET 2031 subscribe from the injected source via the runtime sendInput', async () => {
+      const source = createInjectedSource()
+      const { dispose, sendInput } = await startWatcher({
+        ptyId: REMOTE_PTY_ID,
+        runtimeEnvironmentId: 'env-1',
+        subscribeBytes: source.subscribeBytes
+      })
+      // Parser + 2031 responder share the one injected stream source.
+      expect(source.subscribeBytes).toHaveBeenCalledTimes(2)
+
+      source.emit('\x1b[?2031h')
+      expect(sendInput).toHaveBeenCalledTimes(1)
+      expect(sendInput).toHaveBeenCalledWith('\x1b[?997;1n')
+      dispose()
+    })
+
+    it('dispose releases every injected subscription', async () => {
+      const source = createInjectedSource()
+      const { dispose } = await startWatcher({
+        ptyId: REMOTE_PTY_ID,
+        runtimeEnvironmentId: 'env-1',
+        subscribeBytes: source.subscribeBytes
+      })
+
+      dispose()
+
+      expect(source.disposers.length).toBeGreaterThan(0)
+      for (const disposer of source.disposers) {
+        expect(disposer).toHaveBeenCalled()
+      }
+      source.emit('\x07')
+      flushSideEffects()
+      expect(mockStoreState.markWorktreeUnread).not.toHaveBeenCalled()
+    })
+  })
 })

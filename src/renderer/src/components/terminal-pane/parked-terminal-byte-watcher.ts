@@ -56,6 +56,10 @@ export type ParkedTerminalByteWatcherOptions = {
   restoreTitleOnRegister?: boolean
   /** Out-of-band reply channel to the PTY (mode-2031 color-scheme answers). */
   sendInput: (data: string) => void
+  /** Remote-wire panes inject their shared stream source; default is the local pty:data sidecar. */
+  subscribeBytes?: (cb: (data: string) => void) => () => void
+  /** Remote-runtime owner environment; null means bytes transit local main (side-effect authority contract). */
+  runtimeEnvironmentId?: string | null
 }
 
 const parkedWatcherDisposersByPtyId = new Map<string, () => void>()
@@ -66,6 +70,8 @@ export function startParkedTerminalByteWatcher(
   const { ptyId, tabId, worktreeId, paneId, sendInput } = options
   const drivesTabTitle = options.drivesTabTitle ?? true
   const paneKey = makePaneKey(tabId, options.leafId)
+  const subscribeBytes =
+    options.subscribeBytes ?? ((cb: (data: string) => void) => subscribeToPtyData(ptyId, cb))
 
   // Why: one watcher per PTY — a stale watcher from a previous park cycle would double-fire bell/completion for the same bytes.
   parkedWatcherDisposersByPtyId.get(ptyId)?.()
@@ -188,9 +194,10 @@ export function startParkedTerminalByteWatcher(
   }
 
   // Why: with the authority switch on, the fact consumer is the single policy consumer — registering byte parsers too would double-fire bells.
+  // Remote-wire panes pass a non-null environment, forcing byte-parser mode (remote side effects are renderer-parsed).
   const mainSideEffectAuthority = isMainTerminalSideEffectAuthorityForPty({
     settings: useAppStore.getState().settings,
-    runtimeEnvironmentId: null
+    runtimeEnvironmentId: options.runtimeEnvironmentId ?? null
   })
   // Why: decided once at watcher start — it picks which 2031 responder (byte sidecar vs fact reply) exists, so it must never flip per chunk.
   const hiddenDeliveryGateActive =
@@ -233,7 +240,7 @@ export function startParkedTerminalByteWatcher(
   // Why: no xterm answers DECSET 2031 while parked; with the gate ON, the responder's sidecar would force-feed bytes to the gated PTY, so skip it.
   const stopMode2031Responder = hiddenDeliveryGateActive
     ? null
-    : startParkedTerminalMode2031Responder({ ptyId, sendInput })
+    : startParkedTerminalMode2031Responder({ ptyId, sendInput, subscribeBytes })
 
   // Why: parked tabs are the canonical hidden view — mark the PTY gated so main stops renderer byte delivery.
   const releaseHiddenDeliveryClaim = hiddenDeliveryGateActive
@@ -244,7 +251,7 @@ export function startParkedTerminalByteWatcher(
   const unsubscribeByteParsers =
     processor === null
       ? null
-      : subscribeToPtyData(ptyId, (data) => {
+      : subscribeBytes((data) => {
           // Why: empty pane callbacks — no xterm to deliver bytes to, the watcher wants only the parser side effects.
           processor.processData(data, {})
           if (observeTerminalGitHubPRLink) {

@@ -722,35 +722,26 @@ function sendSnapshotFrames(
   return { bytes, chunks }
 }
 
-async function serializeBudgetedMobileSnapshot(
+async function serializeBudgetedSubscribeSnapshot(
   runtime: OrcaRuntimeService,
   ptyId: string,
   isMobile: boolean
 ): Promise<SerializedSnapshot> {
-  if (!isMobile) {
-    const serialized = await runtime.serializeTerminalBuffer(ptyId, { scrollbackRows: 0 })
-    return serialized
-      ? {
-          ...serialized,
-          data: (serialized.scrollbackAnsi ?? '') + serialized.data,
-          scrollbackRows: 0,
-          scrollbackChars: (serialized.scrollbackAnsi ?? '').length,
-          truncatedByByteBudget: false
-        }
-      : null
-  }
   // Why: request the VISIBLE grid only (scrollbackRows:0) so history is not also
   // prepended into snapshotAnsi — scrollbackAnsi is the sole history source, which
-  // stops the recent rows appearing twice. History is bounded to the mobile row
-  // cap and the mobile transport byte budget so a large scrollback stays small.
+  // stops the recent rows appearing twice. Mobile history is bounded to the mobile
+  // row cap and byte budget; desktop keeps full depth but must honor the transport
+  // byte budget — an unbudgeted snapshot gets hard-dropped at the client's 2 MiB
+  // replay limit and a parked output-heavy pane would reveal empty (parking §3.3).
   const serialized = await runtime.serializeTerminalBuffer(ptyId, { scrollbackRows: 0 })
   if (!serialized) {
     return null
   }
   const snapshotBytes = terminalStreamByteLength(serialized.data)
   const bounded = boundScrollbackAnsi(serialized.scrollbackAnsi ?? '', {
-    maxRows: MOBILE_SUBSCRIBE_SCROLLBACK_ROWS,
-    maxBytes: MOBILE_SNAPSHOT_BYTE_BUDGET - snapshotBytes
+    ...(isMobile ? { maxRows: MOBILE_SUBSCRIBE_SCROLLBACK_ROWS } : {}),
+    maxBytes:
+      (isMobile ? MOBILE_SNAPSHOT_BYTE_BUDGET : REQUESTED_SNAPSHOT_BYTE_BUDGET) - snapshotBytes
   })
   return {
     ...serialized,
@@ -810,7 +801,7 @@ async function sendMobileResizeRestream(
   if (event.reason !== 'apply-layout' || runtime.isTerminalAlternateScreen(ptyId)) {
     return false
   }
-  const serialized = await serializeBudgetedMobileSnapshot(runtime, ptyId, true)
+  const serialized = await serializeBudgetedSubscribeSnapshot(runtime, ptyId, true)
   if (!serialized) {
     return false
   }
@@ -2252,7 +2243,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
           }
 
           let read = await runtime.readTerminal(request.terminal)
-          let serialized = await serializeBudgetedMobileSnapshot(runtime, ptyId, isMobile)
+          let serialized = await serializeBudgetedSubscribeSnapshot(runtime, ptyId, isMobile)
           if (closed || streams.get(request.streamId) !== stream) {
             return
           }
@@ -2262,7 +2253,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             stream.pendingOutputBytes = 0
             stream.pendingOutputOverflowed = false
             read = await runtime.readTerminal(request.terminal)
-            serialized = await serializeBudgetedMobileSnapshot(runtime, ptyId, isMobile)
+            serialized = await serializeBudgetedSubscribeSnapshot(runtime, ptyId, isMobile)
             if (closed || streams.get(request.streamId) !== stream) {
               return
             }
@@ -2651,7 +2642,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             return
           }
           const read = await runtime.readTerminal(params.terminal)
-          const serialized = await serializeBudgetedMobileSnapshot(runtime, ptyId, false)
+          const serialized = await serializeBudgetedSubscribeSnapshot(runtime, ptyId, false)
           if (closed || signal?.aborted) {
             runtime.cleanupSubscription(subscriptionId)
             return
@@ -2971,7 +2962,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         }
 
         let read = await runtime.readTerminal(params.terminal)
-        let serialized = await serializeBudgetedMobileSnapshot(runtime, ptyId, isMobile)
+        let serialized = await serializeBudgetedSubscribeSnapshot(runtime, ptyId, isMobile)
         if (closed) {
           return
         }
@@ -3053,7 +3044,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
           pendingOutputBytes = 0
           pendingOutputOverflowed = false
           read = await runtime.readTerminal(params.terminal)
-          serialized = await serializeBudgetedMobileSnapshot(runtime, ptyId, isMobile)
+          serialized = await serializeBudgetedSubscribeSnapshot(runtime, ptyId, isMobile)
           if (closed) {
             return
           }
@@ -3113,7 +3104,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         while (pendingOutputOverflowed && recoveryAttempts < 2) {
           pendingOutputOverflowed = false
           recoveryAttempts += 1
-          const recovery = await serializeBudgetedMobileSnapshot(runtime, ptyId, isMobile)
+          const recovery = await serializeBudgetedSubscribeSnapshot(runtime, ptyId, isMobile)
           if (closed) {
             return
           }

@@ -62,12 +62,18 @@ describe('isSnapshotBackedTerminalPty', () => {
     ).toBe(false)
   })
 
-  // Why: remote-wire reveal needs the phase-2 watcher byte source and exit
-  // classification (Wave 4); the class stays excluded whatever the flag says.
-  it('remote runtime pty still refuses while remote-wire parking is phase 2', () => {
+  it('remote runtime pty parks when remote parking enabled', () => {
     expect(
       isSnapshotBackedTerminalPty('remote:env-1@@terminal-1', 'repo::/worktree', {
         remoteParkingEnabled: true
+      })
+    ).toBe(true)
+  })
+
+  it('terminalRemotePaneParking=false restores the remote-wire exclusion', () => {
+    expect(
+      isSnapshotBackedTerminalPty('remote:env-1@@terminal-1', 'repo::/worktree', {
+        remoteParkingEnabled: false
       })
     ).toBe(false)
   })
@@ -184,23 +190,21 @@ describe('canParkTerminalWorktreeRenderers', () => {
     ).toBe(false)
   })
 
-  it('parks a worktree with ssh tabs when remote parking is enabled, but not remote-wire tabs', () => {
-    const withSshTab = {
+  it('parks a worktree with ssh and remote-wire tabs when remote parking is enabled', () => {
+    const withRemoteTabs = {
       ...base,
       terminalTabs: [
         { id: 'tab-1', ptyId: 'repo::/worktree@@session-1' },
-        { id: 'tab-2', ptyId: 'ssh:ssh-1@@pty-1' }
+        { id: 'tab-2', ptyId: 'ssh:ssh-1@@pty-1' },
+        { id: 'tab-3', ptyId: 'remote:env-1@@term-1' }
       ]
     }
-    expect(canParkTerminalWorktreeRenderers({ ...withSshTab, remoteParkingEnabled: true })).toBe(
+    expect(canParkTerminalWorktreeRenderers({ ...withRemoteTabs, remoteParkingEnabled: true })).toBe(
       true
     )
+    // The scoped kill switch restores the exclusion for both remote classes.
     expect(
-      canParkTerminalWorktreeRenderers({
-        ...withSshTab,
-        remoteParkingEnabled: true,
-        terminalTabs: [...withSshTab.terminalTabs, { id: 'tab-3', ptyId: 'remote:env-1@@term-1' }]
-      })
+      canParkTerminalWorktreeRenderers({ ...withRemoteTabs, remoteParkingEnabled: false })
     ).toBe(false)
   })
 

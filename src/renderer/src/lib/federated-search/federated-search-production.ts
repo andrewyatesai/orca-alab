@@ -25,10 +25,7 @@ import {
 import { createLivePaneSearchAdapter } from './live-pane-search-adapter'
 import { createRemotePaneSearchAdapter } from './remote-pane-search-adapter'
 import { discoverLiveFederatedPanes } from './live-pane-discovery'
-import {
-  discoverRemoteFederatedPanes,
-  productionRemoteSearchCall
-} from './remote-pane-discovery'
+import { discoverRemoteFederatedPanes, productionRemoteSearchCall } from './remote-pane-discovery'
 import type { FederatedGroupOrderContext } from './federated-search-grouping'
 import type { FederatedPaneRef, FederatedQueryOpts } from './federated-search-model'
 import {
@@ -212,13 +209,17 @@ export function jumpToFederatedResultInApp(
   return jumpToFederatedResult(group, match, query, opts, productionJumpDeps())
 }
 
-function productionOrderContext(): FederatedGroupOrderContext {
+export function productionOrderContext(): FederatedGroupOrderContext {
   const panes = discoverLiveFederatedPanes()
   const focused = panes.find((p) => p.focused)
+  // Index recency once so the comparator does O(1) lookups; orderFederatedGroups
+  // calls outputRecency twice per comparison inside a sort, so a per-call
+  // panes.find() would rescan the whole array O(n²·log n) times per snapshot.
+  const recencyByPaneKey = new Map(panes.map((p) => [p.paneRef.paneKey, p.lastOutputAt]))
   return {
     focusedPaneKey: focused?.paneRef.paneKey ?? null,
     visiblePaneKeys: new Set(panes.filter((p) => p.visible).map((p) => p.paneRef.paneKey)),
-    outputRecency: (paneKey) => panes.find((p) => p.paneRef.paneKey === paneKey)?.lastOutputAt ?? 0
+    outputRecency: (paneKey) => recencyByPaneKey.get(paneKey) ?? 0
   }
 }
 

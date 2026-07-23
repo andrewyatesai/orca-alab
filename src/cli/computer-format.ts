@@ -1,16 +1,14 @@
-import {
-  chmodSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  writeFileSync
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { formatBase64PayloadByteCount } from './base64-payload-byte-count'
+import {
+  cleanupComputerScreenshots,
+  COMPUTER_SCREENSHOT_TTL_MS,
+  computerScreenshotTempDir,
+  safeCliFileStem
+} from './computer-screenshot-tempfile'
 import { quoteCliCommandArgument } from './shell-command-quote'
+import { sanitizeUntrustedTerminalText } from './terminal-safe-text'
 import type {
   ComputerActionMetadata,
   ComputerActionResult,
@@ -22,7 +20,7 @@ import type { RuntimeRpcSuccess } from './runtime-client'
 
 export function formatGetAppState(result: ComputerSnapshotResult): string {
   const app = result.snapshot.app
-  const bundle = app.bundleId ? `, ${app.bundleId}` : ''
+  const bundle = app.bundleId ? `, ${sanitizeUntrustedTerminalText(app.bundleId)}` : ''
   const focused =
     result.snapshot.focusedElementId === null ? 'none' : `#${result.snapshot.focusedElementId}`
   const windowId =
@@ -44,8 +42,8 @@ export function formatGetAppState(result: ComputerSnapshotResult): string {
     ? `  Truncated: yes (max nodes ${result.snapshot.truncation.maxNodes ?? 'unknown'}, max depth ${result.snapshot.truncation.maxDepth ?? 'unknown'})`
     : '  Truncated: no'
   return [
-    `${app.name} (pid ${app.pid}${bundle})`,
-    `  Window:${windowId}${windowIndex} "${result.snapshot.window.title}" (${result.snapshot.window.width}x${result.snapshot.window.height}${origin})`,
+    `${sanitizeUntrustedTerminalText(app.name)} (pid ${app.pid}${bundle})`,
+    `  Window:${windowId}${windowIndex} "${sanitizeUntrustedTerminalText(result.snapshot.window.title)}" (${result.snapshot.window.width}x${result.snapshot.window.height}${origin})`,
     `  Visible elements: ${result.snapshot.elementCount}  Focused: ${focused}  Coordinates: ${result.snapshot.coordinateSpace}`,
     truncation,
     `  ${formatComputerScreenshotStatus(result)}`,
@@ -97,78 +95,21 @@ export function prepareComputerCliJsonResult<TResult>(
   }
 }
 
-const COMPUTER_SCREENSHOT_TTL_MS = 24 * 60 * 60 * 1000
-const COMPUTER_SCREENSHOT_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
-const COMPUTER_SCREENSHOT_CLEANUP_MARKER = '.last-cleanup'
-
-function computerScreenshotTempDir(): string {
-  const outputDir =
-    process.env.ORCA_COMPUTER_SCREENSHOT_TMPDIR || join(tmpdir(), 'orca-computer-use')
-  mkdirSync(outputDir, { recursive: true, mode: 0o700 })
-  const stat = lstatSync(outputDir)
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new Error(`Unsafe computer screenshot temp path: ${outputDir}`)
-  }
-  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
-    throw new Error(`Computer screenshot temp path is not owned by the current user: ${outputDir}`)
-  }
-  chmodSync(outputDir, 0o700)
-  return outputDir
-}
-
-function cleanupComputerScreenshots(outputDir: string): void {
-  const now = Date.now()
-  const markerPath = join(outputDir, COMPUTER_SCREENSHOT_CLEANUP_MARKER)
-  try {
-    // Why: agents can call computer-use CLI commands in loops; a marker keeps
-    // temp cleanup from becoming a synchronous directory scan per screenshot.
-    if (statSync(markerPath).mtimeMs > now - COMPUTER_SCREENSHOT_CLEANUP_INTERVAL_MS) {
-      return
-    }
-  } catch {
-    // Missing or unreadable marker means this process should attempt cleanup.
-  }
-
-  const cutoff = now - COMPUTER_SCREENSHOT_TTL_MS
-  for (const entry of readdirSync(outputDir)) {
-    if (!entry.endsWith('-screenshot.png') && !entry.endsWith('-screenshot.img')) {
-      continue
-    }
-    const path = join(outputDir, entry)
-    try {
-      if (statSync(path).mtimeMs < cutoff) {
-        rmSync(path, { force: true })
-      }
-    } catch {
-      // Best-effort cleanup only; formatting should not fail because a temp file raced.
-    }
-  }
-  try {
-    writeFileSync(markerPath, `${now}\n`, { mode: 0o600 })
-  } catch {
-    // Best-effort marker only; stale cleanup state should not hide a screenshot.
-  }
-}
-
-function safeCliFileStem(value: string): string {
-  return value.replaceAll(/[^a-zA-Z0-9._-]/g, '_')
-}
-
 export function formatListApps(result: ComputerListAppsResult): string {
   if (result.apps.length === 0) {
     return 'No apps found.'
   }
   return result.apps
     .map((app) => {
-      const bundle = app.bundleId ? `  ${app.bundleId}` : ''
-      return `${app.name}  pid:${app.pid}${bundle}`
+      const bundle = app.bundleId ? `  ${sanitizeUntrustedTerminalText(app.bundleId)}` : ''
+      return `${sanitizeUntrustedTerminalText(app.name)}  pid:${app.pid}${bundle}`
     })
     .join('\n')
 }
 
 export function formatListWindows(result: ComputerListWindowsResult): string {
   if (result.windows.length === 0) {
-    return `No windows found for ${result.app.name}.`
+    return `No windows found for ${sanitizeUntrustedTerminalText(result.app.name)}.`
   }
   return result.windows
     .map((window) => {
@@ -186,7 +127,7 @@ export function formatListWindows(result: ComputerListWindowsResult): string {
         window.isOffscreen ? 'offscreen' : null
       ].filter(Boolean)
       const stateText = state.length > 0 ? ` ${state.join(',')}` : ''
-      return `[${window.index}] id:${id} "${window.title}" (${window.width}x${window.height}${origin})${screen}${stateText}`
+      return `[${window.index}] id:${id} "${sanitizeUntrustedTerminalText(window.title)}" (${window.width}x${window.height}${origin})${screen}${stateText}`
     })
     .join('\n')
 }
@@ -225,7 +166,9 @@ function formatComputerFollowUpCommand(
     'computer',
     'get-app-state',
     '--app',
-    quoteCliCommandArgument(result.snapshot.app.bundleId ?? result.snapshot.app.name)
+    quoteCliCommandArgument(
+      sanitizeUntrustedTerminalText(result.snapshot.app.bundleId ?? result.snapshot.app.name)
+    )
   ]
   if (target.session) {
     args.push('--session', quoteCliCommandArgument(target.session))

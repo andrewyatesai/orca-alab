@@ -1,4 +1,5 @@
 import { formatBase64PayloadByteCount } from './base64-payload-byte-count'
+import { sanitizeUntrustedTerminalText } from './terminal-safe-text'
 import type {
   BrowserProfileListResult,
   BrowserScreenshotResult,
@@ -11,7 +12,7 @@ import type {
 } from '../shared/runtime-types'
 
 export function formatSnapshot(result: BrowserSnapshotResult): string {
-  const header = `page: ${result.browserPageId}\n${result.title} — ${result.url}\n`
+  const header = `page: ${result.browserPageId}\n${sanitizeUntrustedTerminalText(result.title)} — ${sanitizeUntrustedTerminalText(result.url)}\n`
   return header + result.snapshot
 }
 
@@ -34,7 +35,7 @@ export function formatTabListWithProfiles(
     .map((t) => {
       const marker = t.active ? '* ' : '  '
       const profile = showProfile ? `  [${t.profileLabel ?? t.profileId ?? 'Unknown'}]` : ''
-      return `${marker}[${t.index}] ${t.browserPageId}  ${t.title} — ${t.url}${profile}`
+      return `${marker}[${t.index}] ${t.browserPageId}  ${sanitizeUntrustedTerminalText(t.title)} — ${sanitizeUntrustedTerminalText(t.url)}${profile}`
     })
     .join('\n')
 }
@@ -56,8 +57,8 @@ export function formatTabShow(result: BrowserTabShowResult | BrowserTabCurrentRe
   const tab = result.tab
   return [
     `page: ${tab.browserPageId}`,
-    `title: ${tab.title}`,
-    `url: ${tab.url}`,
+    `title: ${sanitizeUntrustedTerminalText(tab.title)}`,
+    `url: ${sanitizeUntrustedTerminalText(tab.url)}`,
     `active: ${tab.active}`,
     `worktree: ${tab.worktreeId ?? 'unknown'}`,
     `profile: ${tab.profileLabel ?? tab.profileId ?? 'unknown'}`

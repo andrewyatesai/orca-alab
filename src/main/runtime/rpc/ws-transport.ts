@@ -61,6 +61,8 @@ export class WebSocketTransport implements RpcTransport {
     | null = null
   // Why: maps each socket to its authenticated clientId so close can report which device disconnected.
   private wsClientIds = new Map<WebSocket, string>()
+  // Why: tracks accepted sockets so the heartbeat arms only while >=1 client is connected and stops when the last leaves — an idle server shouldn't spin a no-op sweep.
+  private heartbeatConnections = new Set<WebSocket>()
   private preAuthTimers = new WeakMap<WebSocket, ReturnType<typeof setTimeout>>()
 
   constructor({
@@ -115,10 +117,7 @@ export class WebSocketTransport implements RpcTransport {
   // Why: with port 0 the OS assigns a random port; callers read the real bound port here for metadata and the mobile QR.
   get resolvedPort(): number {
     const addr = this.httpServer?.address()
-    if (addr && typeof addr === 'object') {
-      return addr.port
-    }
-    return this.port
+    return addr && typeof addr === 'object' ? addr.port : this.port
   }
 
   async start(): Promise<void> {
@@ -194,7 +193,7 @@ export class WebSocketTransport implements RpcTransport {
 
     this.httpServer = httpServer
     this.wss = wss
-    this.startHeartbeat()
+    // Why: the heartbeat arms lazily on the first accepted connection (see handleConnection), so an idle server with no clients never starts an interval.
   }
 
   // Why: force-terminate soon after the 1013 close since a half-open phone may never ack and would hold the descriptor past the WS cap; the 'error' listener absorbs a reset while closing.
@@ -207,39 +206,40 @@ export class WebSocketTransport implements RpcTransport {
   }
 
   // Why: the only reliable reaper of half-open mobile sockets stranded by background suspension without a TCP FIN.
+  // Armed lazily on the first accepted connection (heartbeatTimer is null then, so no re-entrancy guard is needed).
   private startHeartbeat(): void {
-    if (this.heartbeatTimer) {
+    this.heartbeatTimer = setInterval(() => this.sweepHeartbeat(true), this.heartbeatIntervalMs)
+    this.heartbeatTimer.unref?.()
+    // Why: probe once now so the first liveness ping goes out at arm time, not a full interval later.
+    this.sweepHeartbeat(false)
+  }
+
+  // Why: shared sweep body for the interval tick and the arm pass. The arm pass runs with reapDead=false so a
+  // freshly-seeded first socket is pinged (first liveness probe at arm time, not a full interval later) but never
+  // reaped before it has had a tick to pong; the interval reaps sockets that missed their prior probe.
+  private sweepHeartbeat(reapDead: boolean): void {
+    const wss = this.wss
+    if (!wss) {
       return
     }
-    this.heartbeatTimer = setInterval(() => {
-      const wss = this.wss
-      if (!wss) {
-        return
+    let reaped = 0
+    for (const ws of wss.clients) {
+      if (reapDead && !this.wsAlive.has(ws)) {
+        // Why: terminate() frees the slot immediately; close() on a dead socket can hang for the OS-level TCP timeout.
+        ws.terminate()
+        reaped++
+        continue
       }
-      let reaped = 0
-      for (const ws of wss.clients) {
-        if (!this.wsAlive.has(ws)) {
-          // Why: terminate() frees the slot immediately; close() on a dead socket can hang for the OS-level TCP timeout.
-          ws.terminate()
-          reaped++
-          continue
-        }
-        this.wsAlive.delete(ws)
-        try {
-          ws.ping()
-        } catch {
-          // Why: ping() can throw on a mid-teardown socket; the close handler runs regardless, so swallow it.
-        }
+      this.wsAlive.delete(ws)
+      try {
+        ws.ping()
+      } catch {
+        // Why: ping() can throw on a mid-teardown socket; the close handler runs regardless, so swallow it.
       }
-      // Why: steady reaping or riding the cap are early overload signals; stay quiet on healthy ticks.
-      if (reaped > 0 || wss.clients.size >= MAX_WS_CONNECTIONS) {
-        console.warn(
-          `[ws-transport] heartbeat reaped ${reaped}; ${wss.clients.size} tracked sockets`
-        )
-      }
-    }, this.heartbeatIntervalMs)
-    if (typeof this.heartbeatTimer.unref === 'function') {
-      this.heartbeatTimer.unref()
+    }
+    // Why: steady reaping or riding the cap are early overload signals; stay quiet on healthy ticks.
+    if (reaped > 0 || wss.clients.size >= MAX_WS_CONNECTIONS) {
+      console.warn(`[ws-transport] heartbeat reaped ${reaped}; ${wss.clients.size} tracked sockets`)
     }
   }
 
@@ -256,6 +256,7 @@ export class WebSocketTransport implements RpcTransport {
     this.wss = null
     this.httpServer = null
     this.stopHeartbeat()
+    this.heartbeatConnections.clear()
 
     if (wss) {
       for (const client of wss.clients) {
@@ -319,6 +320,11 @@ export class WebSocketTransport implements RpcTransport {
       ws.off('close', finalizeConnection)
       ws.off('error', onError)
       this.clearPreAuthTimer(ws)
+      // Why: disarm the heartbeat once the last accepted socket leaves so an idle server stops sweeping.
+      this.heartbeatConnections.delete(ws)
+      if (this.heartbeatConnections.size === 0) {
+        this.stopHeartbeat()
+      }
       const clientId = this.wsClientIds.get(ws) ?? null
       this.wsClientIds.delete(ws)
       const hasOtherConnections =
@@ -332,13 +338,16 @@ export class WebSocketTransport implements RpcTransport {
         ws.terminate()
       }
     }, this.preAuthTimeoutMs)
-    if (typeof preAuthTimer.unref === 'function') {
-      preAuthTimer.unref()
-    }
+    preAuthTimer.unref?.()
     this.preAuthTimers.set(ws, preAuthTimer)
 
-    // Why: seed alive so the first heartbeat tick doesn't reap a fresh socket before its first pong.
+    // Why: seed alive before arming so a fresh first socket survives (is pinged, not reaped) on the immediate arm sweep.
     this.wsAlive.add(ws)
+    this.heartbeatConnections.add(ws)
+    // Why: arm the heartbeat only on the first client — an idle server shouldn't spin a no-op sweep.
+    if (this.heartbeatConnections.size === 1) {
+      this.startHeartbeat()
+    }
 
     ws.on('pong', onPong)
     ws.on('message', onMessage)

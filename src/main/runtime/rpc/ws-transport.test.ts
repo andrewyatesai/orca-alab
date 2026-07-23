@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -65,6 +66,85 @@ describe('WebSocketTransport', () => {
 
     await transport.start()
     await transport.stop()
+  })
+
+  it('does not arm the heartbeat until a client connects (#9885)', async () => {
+    // Why: an idle WS server with no clients must not spin a periodic no-op sweep.
+    const { transport } = await createTransport()
+    await transport.start()
+
+    const internals = transport as unknown as {
+      heartbeatTimer: ReturnType<typeof setInterval> | null
+      heartbeatConnections: Set<WebSocket>
+    }
+    expect(internals.heartbeatTimer).toBeNull()
+    expect(internals.heartbeatConnections.size).toBe(0)
+  })
+
+  it('arms on the first client and disarms after the last disconnects (#9885)', async () => {
+    const { transport } = await createTransport()
+    await transport.start()
+
+    const internals = transport as unknown as {
+      heartbeatTimer: ReturnType<typeof setInterval> | null
+      heartbeatConnections: Set<WebSocket>
+    }
+
+    const first = await connectWs(transport)
+    await vi.waitFor(() => {
+      expect(internals.heartbeatConnections.size).toBe(1)
+      expect(internals.heartbeatTimer).not.toBeNull()
+    })
+    const armedTimer = internals.heartbeatTimer
+
+    const second = await connectWs(transport)
+    await vi.waitFor(() => expect(internals.heartbeatConnections.size).toBe(2))
+    // Why: additional clients reuse the already-armed timer instead of restarting it.
+    expect(internals.heartbeatTimer).toBe(armedTimer)
+
+    first.close()
+    await vi.waitFor(() => expect(internals.heartbeatConnections.size).toBe(1))
+    // Why: the timer stays armed while any client remains.
+    expect(internals.heartbeatTimer).not.toBeNull()
+
+    second.close()
+    await vi.waitFor(() => {
+      expect(internals.heartbeatConnections.size).toBe(0)
+      expect(internals.heartbeatTimer).toBeNull()
+    })
+  })
+
+  it('probes immediately on arm without reaping the seeded first socket (#9885)', () => {
+    // Why: arming on the first connection must send the first liveness ping now, not a full
+    // interval later; the freshly-seeded socket is pinged, never reaped, on that arm sweep.
+    const transport = new WebSocketTransport({ host: '127.0.0.1', port: 0 })
+    transports.push(transport)
+    const internals = transport as unknown as {
+      wss: { clients: Set<WebSocket> } | null
+      heartbeatTimer: ReturnType<typeof setInterval> | null
+      handleConnection(ws: WebSocket): void
+    }
+    const socket = Object.assign(new EventEmitter(), {
+      OPEN: WebSocket.OPEN,
+      readyState: WebSocket.OPEN,
+      close: vi.fn(),
+      ping: vi.fn(),
+      terminate: vi.fn()
+    }) as unknown as WebSocket
+    internals.wss = { clients: new Set([socket]) }
+
+    internals.handleConnection(socket)
+
+    const mock = socket as unknown as {
+      ping: ReturnType<typeof vi.fn>
+      terminate: ReturnType<typeof vi.fn>
+    }
+    expect(mock.ping).toHaveBeenCalledTimes(1)
+    expect(mock.terminate).not.toHaveBeenCalled()
+    expect(internals.heartbeatTimer).not.toBeNull()
+
+    // Why: avoid stop() iterating this hand-rolled wss mock during teardown.
+    internals.wss = null
   })
 
   it('handles request/response round-trip', async () => {

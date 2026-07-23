@@ -55,6 +55,10 @@ export class DesktopMobileE2EEV2Session {
     if (!handshake) {
       return null
     }
+    // Non-goal: no forward secrecy. sharedSecret = DH(static desktop key, mobile public) and every
+    // other KDF input (nonces, transcript) is public, so a later desktop-key leak retro-decrypts
+    // recorded sessions. Real FS needs a per-session desktop ephemeral bound in the ready/transcript,
+    // a lockstep change with the mobile client (which pins the static key) behind a wire-version bump.
     const sharedSecret = deriveSharedKey(args.serverSecretKey, handshake.clientPublicKey)
     const schedule = deriveMobileE2EEV2KeySchedule({
       sharedSecret,

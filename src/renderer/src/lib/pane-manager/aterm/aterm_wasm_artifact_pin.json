@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "17fcd45f2af084f580fbd4c8c12b014949b44e07",
+  "sourceCommit": "8763cc5d5cbb79ed9ce4d77eacb6dda0fbe33633",
   "sourcePatch": {
     "path": "config/patches/aterm-gpu-wasm-clock.patch",
     "sha256": "af2e17dda30efbbf3666eeed1ac852aa8dff67d4456f2796bc814209be1bd757"

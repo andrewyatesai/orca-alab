@@ -3892,13 +3892,26 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
       ok = false
     }
     if (!ok && prev) {
-      // Revert optimistic update on failure
-      set((s) => ({
-        commentsCache: {
-          ...s.commentsCache,
-          [cacheKey]: { ...s.commentsCache[cacheKey], data: prev }
+      // Why: revert only this thread's isResolved against the CURRENT list, not the
+      // pre-await `prev` snapshot — restoring `prev` wholesale would clobber concurrent
+      // thread toggles or a fetchPRComments that landed during the RPC.
+      set((s) => {
+        const current = s.commentsCache[cacheKey]?.data
+        if (!current) {
+          return {}
         }
-      }))
+        return {
+          commentsCache: {
+            ...s.commentsCache,
+            [cacheKey]: {
+              ...s.commentsCache[cacheKey],
+              data: current.map((c) =>
+                c.threadId === threadId ? { ...c, isResolved: !resolve } : c
+              )
+            }
+          }
+        }
+      })
     }
     return ok
   },

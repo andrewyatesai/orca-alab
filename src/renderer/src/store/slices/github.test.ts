@@ -7370,3 +7370,70 @@ describe('shouldClearBranchMismatchedLinkedOpenPR', () => {
     )
   })
 })
+
+describe('createGitHubSlice.resolveReviewThread optimistic revert', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetRemoteRuntimeMocks()
+  })
+
+  function makeReviewComment(threadId: string, isResolved: boolean): PRComment {
+    return {
+      id: Number(threadId.replace(/\D/g, '')) || 1,
+      author: 'octocat',
+      authorAvatarUrl: '',
+      body: `comment ${threadId}`,
+      createdAt: '2026-03-28T00:00:00Z',
+      url: `https://example.com/${threadId}`,
+      threadId,
+      isResolved
+    }
+  }
+
+  it('reverts only the failed thread and preserves a concurrent toggle', async () => {
+    const store = createTestStore()
+    const repoPath = '/repo/one'
+    // No repo/settings/runtime scope -> plain `${repoPath}::pr-comments::${prNumber}` key.
+    const cacheKey = `${repoPath}::${prCommentsCacheSuffix(12)}`
+    store.setState({
+      commentsCache: {
+        [cacheKey]: {
+          data: [makeReviewComment('thread-A', false), makeReviewComment('thread-B', false)],
+          fetchedAt: 1
+        }
+      }
+    } as Partial<AppState>)
+
+    let failThreadA: (value: boolean) => void = () => {}
+    mockApi.gh.resolveReviewThread.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        failThreadA = resolve
+      })
+    )
+
+    const resolveAPromise = store.getState().resolveReviewThread(repoPath, 12, 'thread-A', true)
+
+    // Concurrent successful toggle of thread B lands while thread A's RPC is in flight.
+    store.setState((s) => ({
+      commentsCache: {
+        ...s.commentsCache,
+        [cacheKey]: {
+          ...s.commentsCache[cacheKey],
+          data: s.commentsCache[cacheKey].data.map((c) =>
+            c.threadId === 'thread-B' ? { ...c, isResolved: true } : c
+          )
+        }
+      }
+    }))
+
+    failThreadA(false)
+    await expect(resolveAPromise).resolves.toBe(false)
+
+    const data = store.getState().commentsCache[cacheKey].data
+    const threadA = data.find((c) => c.threadId === 'thread-A')
+    const threadB = data.find((c) => c.threadId === 'thread-B')
+    // Thread A reverts to unresolved; thread B's concurrent toggle survives the rollback.
+    expect(threadA?.isResolved).toBe(false)
+    expect(threadB?.isResolved).toBe(true)
+  })
+})

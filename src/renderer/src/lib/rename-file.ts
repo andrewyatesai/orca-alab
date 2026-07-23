@@ -6,6 +6,7 @@ import { requestEditorSaveQuiesce } from '@/components/editor/editor-autosave'
 import { commitFileExplorerOp } from '@/components/right-sidebar/fileExplorerUndoRedo'
 import { renameRuntimePath } from '@/runtime/runtime-file-client'
 import { remapOpenEditorTabsForPathChange } from '@/lib/remap-open-editor-tabs-for-path-change'
+import { recordSelfMoveForOpenTabs } from '@/components/editor/record-self-move-for-open-tabs'
 
 /**
  * Electron's ipcRenderer.invoke wraps errors as:
@@ -74,19 +75,34 @@ export async function renameFileOnDisk(args: RenameFileArgs): Promise<void> {
     connectionId
   }
 
+  // Why: stamp the move before the on-disk rename so the watcher's own
+  // delete(old)+create(new) echo isn't mistaken for an external write on the
+  // re-homed dirty tab (#9506); retract if the rename never happens.
+  const retractSelfMove = recordSelfMoveForOpenTabs({
+    fromPath: oldPath,
+    toPath: newPath,
+    connectionId
+  })
   try {
     await renameRuntimePath(fileContext, oldPath, newPath)
+    // Re-stamp after the rename resolves: a slow SSH/runtime rename can outlive
+    // the pre-rename TTL, so restart the window from when the file actually moved.
+    recordSelfMoveForOpenTabs({ fromPath: oldPath, toPath: newPath, connectionId })
     remapOpenEditorTabsForPathChange({ fromPath: oldPath, toPath: newPath, worktreePath })
     commitFileExplorerOp({
       undo: async () => {
+        recordSelfMoveForOpenTabs({ fromPath: newPath, toPath: oldPath, connectionId })
         await renameRuntimePath(fileContext, newPath, oldPath)
+        recordSelfMoveForOpenTabs({ fromPath: newPath, toPath: oldPath, connectionId })
         if (refreshDir) {
           await refreshDir(parentDir)
         }
         remapOpenEditorTabsForPathChange({ fromPath: newPath, toPath: oldPath, worktreePath })
       },
       redo: async () => {
+        recordSelfMoveForOpenTabs({ fromPath: oldPath, toPath: newPath, connectionId })
         await renameRuntimePath(fileContext, oldPath, newPath)
+        recordSelfMoveForOpenTabs({ fromPath: oldPath, toPath: newPath, connectionId })
         if (refreshDir) {
           await refreshDir(parentDir)
         }
@@ -94,6 +110,7 @@ export async function renameFileOnDisk(args: RenameFileArgs): Promise<void> {
       }
     })
   } catch (err) {
+    retractSelfMove()
     toast.error(extractIpcErrorMessage(err, `Failed to rename '${existingName}'.`))
   }
   if (refreshDir) {

@@ -16,6 +16,7 @@ import {
   getRecentSelfWrite,
   type RecentSelfWrite
 } from '@/components/editor/editor-self-write-registry'
+import { hasRecentSelfMove } from '@/components/editor/editor-path-move-inflight'
 import type { FsChangedPayload } from '../../../shared/types'
 import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import type { OpenFile } from '@/store/slices/editor'
@@ -455,6 +456,11 @@ export function createExternalWatchEventHandler(
           }
           const timer = setTimeout(() => {
             pendingDeletes.delete(key)
+            // Why: this delete is the source side of Orca's own in-app move — the
+            // file was relocated, not removed, so don't tombstone it (#9506).
+            if (hasRecentSelfMove('source', absolutePath, target.runtimeEnvironmentId)) {
+              return
+            }
             // Why: the debounce window lets the tab close or leave edit mode, so re-check before writing to avoid tombstoning a dropped or non-edit tab.
             const state = useAppStore.getState()
             const stillEditing = state.openFiles.some((f) => f.id === fileId && f.mode === 'edit')
@@ -632,6 +638,13 @@ function scheduleChangedOnDiskMark(
     return
   }
   const absolutePath = joinPath(notification.worktreePath, notification.relativePath)
+  // Why: this event is the watcher echo of Orca's own in-app move re-homing a
+  // dirty tab onto this path — not an external write (#9506). Bounded by the
+  // self-move TTL; a genuine write to the exact path in that short window is the
+  // documented trade-off (the draft is preserved regardless of the banner).
+  if (hasRecentSelfMove('target', absolutePath, target.runtimeEnvironmentId)) {
+    return
+  }
   const recentSelfWrite = getRecentSelfWrite(absolutePath, target.runtimeEnvironmentId)
   // Why: the fs event may be the echo of Orca's own save — verify disk really differs from our last write before showing a "changed on disk" banner.
   if (!recentSelfWrite || recentSelfWrite.content === null) {

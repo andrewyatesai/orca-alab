@@ -13,6 +13,7 @@ import {
   WORKSPACE_FILE_PATH_MIME
 } from '@/lib/workspace-file-drag'
 import { remapOpenEditorTabsForPathChange } from '@/lib/remap-open-editor-tabs-for-path-change'
+import { recordSelfMoveForOpenTabs } from '@/components/editor/record-self-move-for-open-tabs'
 import { requestEditorSaveQuiesce } from '@/components/editor/editor-autosave'
 import { commitFileExplorerOp } from './fileExplorerUndoRedo'
 import { renameRuntimePath } from '@/runtime/runtime-file-client'
@@ -235,8 +236,16 @@ export function useFileExplorerDragDrop({
         // id so explorer drag-and-drop does not silently drop unsaved edits.
         await Promise.all(filesToMove.map((file) => requestEditorSaveQuiesce({ fileId: file.id })))
 
+        const connectionId = getConnectionId(activeWorktreeId ?? null) ?? undefined
+        // Why: stamp the move before the on-disk relocation so the watcher's own
+        // delete(old)+create(new) echo isn't flagged as an external write on the
+        // re-homed dirty tab (#9506); retract if the move never happens.
+        const retractSelfMove = recordSelfMoveForOpenTabs({
+          fromPath: sourcePath,
+          toPath: newPath,
+          connectionId
+        })
         try {
-          const connectionId = getConnectionId(activeWorktreeId ?? null) ?? undefined
           const fileContext = {
             settings: getRightSidebarWorktreeRuntimeSettings(activeWorktreeId),
             worktreeId: activeWorktreeId,
@@ -244,20 +253,28 @@ export function useFileExplorerDragDrop({
             connectionId
           }
           await renameRuntimePath(fileContext, sourcePath, newPath)
+          // Re-stamp after the rename resolves: a slow SSH/runtime move can
+          // outlive the pre-move TTL, so restart the window from the actual move.
+          recordSelfMoveForOpenTabs({ fromPath: sourcePath, toPath: newPath, connectionId })
 
           commitFileExplorerOp({
             undo: async () => {
+              recordSelfMoveForOpenTabs({ fromPath: newPath, toPath: sourcePath, connectionId })
               await renameRuntimePath(fileContext, newPath, sourcePath)
+              recordSelfMoveForOpenTabs({ fromPath: newPath, toPath: sourcePath, connectionId })
               await Promise.all([refreshDir(destDir), refreshDir(sourceDir)])
               remapOpenTabsForMovedPath(newPath, sourcePath)
             },
             redo: async () => {
+              recordSelfMoveForOpenTabs({ fromPath: sourcePath, toPath: newPath, connectionId })
               await renameRuntimePath(fileContext, sourcePath, newPath)
+              recordSelfMoveForOpenTabs({ fromPath: sourcePath, toPath: newPath, connectionId })
               await Promise.all([refreshDir(sourceDir), refreshDir(destDir)])
               remapOpenTabsForMovedPath(sourcePath, newPath)
             }
           })
         } catch (err) {
+          retractSelfMove()
           toast.error(extractIpcErrorMessage(err, `Failed to move '${fileName}'.`))
           return
         }

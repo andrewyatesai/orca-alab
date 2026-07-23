@@ -7,7 +7,7 @@ import {
 } from '../../../shared/cross-platform-path'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 
-function isPathInsideOrEqual(rootPath: string, candidatePath: string): boolean {
+export function isPathInsideOrEqual(rootPath: string, candidatePath: string): boolean {
   if (candidatePath === rootPath) {
     return true
   }

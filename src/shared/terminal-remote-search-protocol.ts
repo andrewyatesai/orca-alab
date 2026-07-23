@@ -142,9 +142,18 @@ export function remapRemoteSearchRow(input: RemoteSearchRowRemapInput): RemoteSe
     // clamping into the window would jump to a WRONG row, so stay honest.
     return { kind: 'out-of-window' }
   }
+  // Nearest-row-boundary remap for width-mismatched anchors: the host is the
+  // row-count authority, so the client lands on the WHOLE nearest client row
+  // (the integer clientRow below — a host row falls mid-way through a rewrapped
+  // client line when widths differ, so an exact character position is not
+  // knowable). The jump is flagged approximate whenever the client knows its
+  // width and CANNOT positively confirm the host serialized the snapshot at the
+  // same width — widths known-and-differ, OR the host omitted its width (an old
+  // host: we must not claim an exact jump we cannot verify).
+  const clientCols = input.clientCols
+  const anchorHostCols = responseAnchor.anchorHostCols
   const approximate =
-    typeof input.clientCols === 'number' &&
-    typeof input.responseAnchor?.anchorHostCols === 'number' &&
-    input.clientCols !== input.responseAnchor.anchorHostCols
+    typeof clientCols === 'number' &&
+    (typeof anchorHostCols !== 'number' || clientCols !== anchorHostCols)
   return { kind: 'in-window', clientRow: input.replayOriginRow + offset, approximate }
 }

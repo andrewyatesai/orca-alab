@@ -10,6 +10,10 @@
 // budgeted cursor directly and publishes only worker-scoped batches.
 
 import { runFederatedPaneScan, type FederatedScanEngine } from './aterm-federated-budgeted-scan'
+import {
+  runFederatedLinearScan,
+  type LinearScanRowReader
+} from './aterm-federated-linear-scan'
 import type {
   AtermWorkerFederatedCommand,
   AtermWorkerFederatedEvent,
@@ -21,6 +25,10 @@ import type {
 // worker-resident budget past which a pane is skipped rather than indexed.
 export const FEDERATED_INDEX_BYTES_PER_LINE = 1283
 export const FEDERATED_WORKER_INDEX_BUDGET_BYTES = 256 * 1024 * 1024
+// Hard row bound on the admission-denial linear scan: the newest rows are
+// scanned first and the scan settles incomplete past this — an over-budget pane
+// is very deep, so the unindexed fallback must never itself run long.
+export const FEDERATED_LINEAR_SCAN_MAX_ROWS = 50_000
 
 /** What the runner needs from one pane: the scan surface + retained-depth reads
  *  for the admission estimate, plus the eviction hooks. */
@@ -34,6 +42,43 @@ export type FederatedFindPaneSource = {
   evictBudgetedState?: () => void
   /** Release the warm completed index (W4A binding; feature-detected). */
   evictWarmIndex?: () => void
+  /** §4 admission-denial fallback (feature-detected via row_range_json): a
+   *  newest-first row-text reader for the UNINDEXED linear scan. Absent on
+   *  pre-export pins — an over-budget pane then reports an honest empty batch
+   *  rather than a bounded partial one. */
+  linearScanReader?: () => LinearScanRowReader | null
+  /** E-1 `search_summary` snippet enrichment (feature-detected): a row → span-
+   *  marked text map for the query, bounded to the same match cap. Absent on
+   *  pre-E-1 pins — matches then keep null snippets (count-only degradation). */
+  readSnippets?: (
+    query: string,
+    caseSensitive: boolean,
+    isRegex: boolean,
+    maxMatches: number
+  ) => Map<number, string> | null
+}
+
+/** Attach snippet text to the capped result rows when the pane exposes the E-1
+ *  summary export; a no-op (snippets stay null) on pins without it. Enrichment
+ *  is over the ≤K already-found rows only — a bounded read, never a re-search. */
+function enrichSnippets(
+  pane: FederatedFindPaneSource,
+  cmd: AtermWorkerFederatedFind,
+  matches: { absRow: number; col: number; len: number; snippet: string | null }[]
+): void {
+  if (!pane.readSnippets || matches.length === 0) {
+    return
+  }
+  const byRow = pane.readSnippets(cmd.query, cmd.caseSensitive, cmd.isRegex, cmd.maxPerPane)
+  if (!byRow) {
+    return
+  }
+  for (const match of matches) {
+    const snippet = byRow.get(match.absRow)
+    if (snippet !== undefined) {
+      match.snippet = snippet
+    }
+  }
 }
 
 export type WorkerFederatedFind = {
@@ -84,19 +129,48 @@ export function createWorkerFederatedFind(deps: {
       }
       const estimateBytes = (pane.baseY() + pane.rows()) * FEDERATED_INDEX_BYTES_PER_LINE
       if (residentEstimateBytes + estimateBytes > FEDERATED_WORKER_INDEX_BUDGET_BYTES) {
-        // §4 hard budget: refuse to index. (The design's unindexed linear-scan
-        // degradation needs an engine binding this pin does not ship; until it
-        // lands the pane reports an honest empty-but-incomplete batch.)
-        deps.post({
-          type: 'federatedBatch',
-          gen: run.gen,
-          paneId: paneRef.paneId,
-          matches: [],
-          total: 0,
-          incomplete: true,
-          degraded: 'over-budget'
+        // §4 hard budget: refuse to index this pane. Degrade to the bounded
+        // UNINDEXED linear scan (never a silent no-results) when the pin ships
+        // the row-text reader; otherwise report an honest empty-but-incomplete
+        // batch. Never counts against the resident index budget (no index built).
+        const reader = pane.linearScanReader?.() ?? null
+        if (!reader) {
+          deps.post({
+            type: 'federatedBatch',
+            gen: run.gen,
+            paneId: paneRef.paneId,
+            matches: [],
+            total: 0,
+            incomplete: true,
+            degraded: 'over-budget'
+          })
+          done()
+          return
+        }
+        runFederatedLinearScan({
+          reader,
+          query: cmd.query,
+          caseSensitive: cmd.caseSensitive,
+          isRegex: cmd.isRegex,
+          maxMatches: cmd.maxPerPane,
+          maxRowsScanned: FEDERATED_LINEAR_SCAN_MAX_ROWS,
+          isCancelled: () => run.cancelled,
+          yieldSlice: (next) => void setTimeout(next, 0),
+          onDone: (result) => {
+            if (result && !run.cancelled) {
+              deps.post({
+                type: 'federatedBatch',
+                gen: run.gen,
+                paneId: paneRef.paneId,
+                matches: result.matches,
+                total: result.total,
+                incomplete: result.incomplete,
+                degraded: 'linear-scan'
+              })
+            }
+            done()
+          }
         })
-        done()
         return
       }
       runFederatedPaneScan({
@@ -121,6 +195,9 @@ export function createWorkerFederatedFind(deps: {
             pane.evictWarmIndex?.()
           }
           if (result && !run.cancelled) {
+            // E-1 consumption: enrich the capped rows with span-marked text when
+            // the pin ships search_summary; null-snippet triplets otherwise.
+            enrichSnippets(pane, cmd, result.matches)
             deps.post({
               type: 'federatedBatch',
               gen: run.gen,

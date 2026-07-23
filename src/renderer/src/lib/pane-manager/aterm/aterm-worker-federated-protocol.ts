@@ -54,9 +54,13 @@ export type AtermWorkerFederatedBatch = {
   total: number
   /** Index eviction / match cap / streaming-restart settle truncated the results. */
   incomplete: boolean
-  /** 'over-budget': the §4 admission rule refused to index this pane (estimated
-   *  index bytes would breach the worker budget) — total is 0 and honest. */
-  degraded: 'none' | 'over-budget'
+  /** §4 admission outcome:
+   *  - 'none': indexed scan.
+   *  - 'over-budget': admission refused to index AND no unindexed reader was
+   *    available (pre-export pin) — total is 0, incomplete true, honest empty.
+   *  - 'linear-scan': admission refused to index, so the pane degraded to the
+   *    bounded UNINDEXED linear scan (real matches, incomplete when bounded). */
+  degraded: 'none' | 'over-budget' | 'linear-scan'
 }
 
 /** The run finished (all panes scanned) or was cancelled part-way. */

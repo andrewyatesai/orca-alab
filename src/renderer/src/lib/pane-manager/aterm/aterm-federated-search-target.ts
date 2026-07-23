@@ -6,6 +6,7 @@
 // call there stalls the UI thread itself). Types-only.
 
 import type { FederatedScanEngine } from './aterm-federated-budgeted-scan'
+import type { LinearScanRowReader } from './aterm-federated-linear-scan'
 
 export type AtermFederatedSearchTarget =
   | { kind: 'worker'; workerPaneId: number }
@@ -15,4 +16,8 @@ export type AtermFederatedSearchTarget =
       /** Retained depth + viewport rows for the §4 admission estimate. */
       baseY: () => number
       rows: () => number
+      /** §4 admission-denial fallback (feature-detected via row_range_json): the
+       *  UNINDEXED linear-scan row reader. Absent on pre-export pins — an
+       *  over-budget in-process pane then reports an honest empty batch. */
+      linearScanReader?: () => LinearScanRowReader | null
     }

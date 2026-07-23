@@ -20,8 +20,15 @@ export type FederatedResultGroup = {
   source: FederatedResultSource
   /** Newest-first, capped at FEDERATED_TOP_K_MATCHES. */
   matches: FederatedMatch[]
-  /** Uncapped total across merged batches. */
+  /** Uncapped total = the latest PRIMARY total (a re-emit or a second primary
+   *  source for the same session REPLACES it, never adds — they describe the
+   *  same window) PLUS the additive depth-extension total (disjoint below the
+   *  cutoff). The (d) blocker: totals are NOT summed across same-session batches. */
   total: number
+  /** Latest reported total from a NON-depth (primary) batch for this group. */
+  primaryTotal: number
+  /** Additive count of DEPTH-EXTENSION matches merged in (disjoint below cutoff). */
+  depthTotal: number
   incomplete: boolean
   /** §4 stale-skip / cost-gate marker ("results stale — output streaming"). */
   stale: boolean
@@ -66,19 +73,28 @@ export function mergeFederatedBatch(
     : [...batch.matches]
   const existing = groups.get(key)
   if (!existing) {
-    groups.set(key, {
+    const group: FederatedResultGroup = {
       key,
       paneRef: batch.paneRef,
       sessionId: batch.sessionId,
       source: batch.source,
       matches: sortNewestFirst(incoming).slice(0, FEDERATED_TOP_K_MATCHES),
-      total: batch.depthExtension ? incoming.length : batch.total,
+      primaryTotal: 0,
+      depthTotal: 0,
+      total: 0,
       incomplete: batch.incomplete,
       stale: false,
       hasDepthExtension: batch.depthExtension === true,
       overBudget: batch.degraded === 'over-budget',
       approxTime: batch.approxTime
-    })
+    }
+    if (batch.depthExtension) {
+      group.depthTotal = incoming.length
+    } else {
+      group.primaryTotal = batch.total
+    }
+    group.total = group.primaryTotal + group.depthTotal
+    groups.set(key, group)
     return
   }
   // A live batch supplies the pane identity/source; a depth extension never
@@ -95,7 +111,16 @@ export function mergeFederatedBatch(
     0,
     FEDERATED_TOP_K_MATCHES
   )
-  existing.total += batch.depthExtension ? fresh.length : batch.total
+  if (batch.depthExtension) {
+    // Depth rows are disjoint (below cutoff, span-deduped) — additive.
+    existing.depthTotal += fresh.length
+  } else {
+    // A primary re-emit or a second primary source for the SAME session
+    // describes the SAME window: REPLACE, never sum. This is the (d) fix —
+    // totals are not summed across same-session batches.
+    existing.primaryTotal = batch.total
+  }
+  existing.total = existing.primaryTotal + existing.depthTotal
   existing.incomplete = existing.incomplete || batch.incomplete
   existing.hasDepthExtension = existing.hasDepthExtension || batch.depthExtension === true
   existing.overBudget = existing.overBudget || batch.degraded === 'over-budget'

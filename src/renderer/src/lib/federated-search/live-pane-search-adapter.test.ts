@@ -8,7 +8,10 @@ import type {
   AtermWorkerFederatedCommand,
   AtermWorkerFederatedEvent
 } from '../pane-manager/aterm/aterm-worker-federated-protocol'
-import { FEDERATED_INDEX_BYTES_PER_LINE } from '../pane-manager/aterm/aterm-worker-federated-find'
+import {
+  FEDERATED_INDEX_BYTES_PER_LINE,
+  FEDERATED_WORKER_INDEX_BUDGET_BYTES
+} from '../pane-manager/aterm/aterm-worker-federated-find'
 import type { FederatedPaneBatch } from './federated-search-model'
 
 function workerPane(
@@ -30,7 +33,10 @@ function workerPane(
 function inProcessPane(
   paneKey: string,
   matches: number[],
-  opts?: Partial<Pick<DiscoveredLivePane, 'visible' | 'focused'>> & { baseY?: number }
+  opts?: Partial<Pick<DiscoveredLivePane, 'visible' | 'focused'>> & {
+    baseY?: number
+    linearScanRows?: string[]
+  }
 ): DiscoveredLivePane {
   const [tabId, leafId] = paneKey.split(':')
   return {
@@ -54,7 +60,14 @@ function inProcessPane(
         })
       },
       baseY: () => opts?.baseY ?? 100,
-      rows: () => 24
+      rows: () => 24,
+      linearScanReader: opts?.linearScanRows
+        ? () => ({
+            oldestAbsRow: 0,
+            rowCount: opts.linearScanRows!.length,
+            read: (first, count) => opts.linearScanRows!.slice(first, first + count)
+          })
+        : undefined
     }
   }
 }
@@ -261,5 +274,27 @@ describe('createLivePaneSearchAdapter (in-process fallback)', () => {
     expect(batches[2].degraded).toBe('over-budget')
     expect(batches[2].matches).toEqual([])
     expect(batches[2].incomplete).toBe(true)
+  })
+
+  it('§4: an over-budget in-process pane WITH a reader degrades to the linear scan (never silent)', async () => {
+    const overBudget = Math.ceil(FEDERATED_WORKER_INDEX_BUDGET_BYTES / FEDERATED_INDEX_BYTES_PER_LINE) + 1
+    const pane = inProcessPane('t:huge', [], {
+      baseY: overBudget,
+      linearScanRows: ['alpha needle', 'beta', 'gamma needle']
+    })
+    const adapter = createLivePaneSearchAdapter({
+      discoverPanes: () => [pane],
+      postFederated: () => false,
+      subscribeFederated: () => () => undefined,
+      yieldIdle: (next) => next()
+    })
+    const batches: FederatedPaneBatch[] = []
+    await adapter.query('needle', { caseSensitive: false, isRegex: false }, 1, 50, (b) =>
+      batches.push(b)
+    )
+    expect(batches).toHaveLength(1)
+    expect(batches[0].degraded).toBe('linear-scan')
+    expect(batches[0].matches.map((m) => m.absRow)).toEqual([2, 0])
+    expect(batches[0].matches[0].snippet).toBe('gamma needle')
   })
 })

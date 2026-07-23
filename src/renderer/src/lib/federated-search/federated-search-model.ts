@@ -25,6 +25,10 @@ export type FederatedMatch = {
   /** Span-marked matched line text, produced SOURCE-SIDE — null on engine pins
    *  without the summary binding (count-only degradation). */
   snippet: string | null
+  /** Remote nearest-row-boundary jump (§2.4): true when host/client wrap widths
+   *  differ (or the host width was unverifiable), so the client row is the whole
+   *  nearest boundary rather than an exact position. Undefined = exact. */
+  approximate?: boolean
 }
 
 /** One source's results for one pane/session, streamed as it completes. */
@@ -42,8 +46,10 @@ export type FederatedPaneBatch = {
   /** Daemon rows older than the live window (§2.3): merges into the live group,
    *  badged as history depth, navigated via inline context expansion. */
   depthExtension?: boolean
-  /** '§4 over-budget': admission control refused to index the pane. */
-  degraded?: 'none' | 'over-budget'
+  /** §4 admission outcome: 'over-budget' = index refused, no unindexed reader
+   *  (honest empty); 'linear-scan' = degraded to the bounded unindexed scan
+   *  (real, possibly-incomplete matches — never a silent no-results). */
+  degraded?: 'none' | 'over-budget' | 'linear-scan'
 }
 
 export type FederatedQueryOpts = {

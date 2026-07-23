@@ -149,7 +149,7 @@ export const atermgputerminal_set_sparkle_alt_screen_suppression: (a: number, b:
 export const atermgputerminal_set_sparkle_classes: (a: number, b: number, c: number, d: number, e: number) => void;
 export const atermgputerminal_set_sparkle_custom_specs: (a: number, b: number, c: number) => void;
 export const atermgputerminal_set_sparkle_deny: (a: number, b: number, c: number) => void;
-export const atermgputerminal_set_sparkle_feline: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
+export const atermgputerminal_set_sparkle_feline: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
 export const atermgputerminal_set_sparkle_ink: (a: number, b: number, c: number, d: number, e: number) => void;
 export const atermgputerminal_set_sparkle_languages: (a: number, b: number, c: number) => void;
 export const atermgputerminal_set_sparkle_lexicon_override: (a: number, b: number, c: number) => void;

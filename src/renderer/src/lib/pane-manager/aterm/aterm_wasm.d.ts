@@ -882,15 +882,13 @@ export class AtermTerminal {
      */
     set_sparkle_deny(words_csv: string): void;
     /**
-     * Feline knobs (native `[sparkle_words.feline]`): `style` = "cat" (the
-     * v2 peeking cat, default) or "paw" (the exact v1 steady paw); `color`
-     * omitted = the native soft pink; `intensity` clamps 0..=1; `idle` =
-     * sparse blink/ear-twitch one-shots (focus-gated, ≤1/s); `gaze` = pupils
-     * track the cursor (present-driven, zero new wakes); `magic` = rare
-     * Fortune/Nebula cats; `allow_bare_cat` = decorate the literal 3-letter
-     * `cat`; `cjk_single_char` = match a lone cat ideograph (high-FP).
+     * Feline knobs (native `[sparkle_words.feline]`): `style = "cat"` emits
+     * the authored cat; legacy `"paw"` is ink-only and emits no paw graphic.
+     * `magic` enables rare Fortune/Nebula cats;
+     * `allow_bare_cat` decorates the literal 3-letter `cat`; and
+     * `cjk_single_char` matches a lone cat ideograph (high-FP).
      */
-    set_sparkle_feline(style: string, color: number | null | undefined, intensity: number, idle: boolean, gaze: boolean, magic: boolean, allow_bare_cat: boolean, cjk_single_char: boolean): void;
+    set_sparkle_feline(style: string, magic: boolean, allow_bare_cat: boolean, cjk_single_char: boolean): void;
     /**
      * Animated-ink knobs (native `[sparkle_words.ink]`): the glyph-ink
      * gradient + specular sweep on matched words. `strength` clamps 0..=1;
@@ -1539,7 +1537,7 @@ export interface InitOutput {
     readonly atermterminal_set_sparkle_classes: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_sparkle_custom_specs: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_sparkle_deny: (a: number, b: number, c: number) => void;
-    readonly atermterminal_set_sparkle_feline: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
+    readonly atermterminal_set_sparkle_feline: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly atermterminal_set_sparkle_ink: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_sparkle_languages: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_sparkle_lexicon_override: (a: number, b: number, c: number) => void;

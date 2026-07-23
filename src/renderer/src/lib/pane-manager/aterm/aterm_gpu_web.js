@@ -1744,26 +1744,20 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_set_sparkle_deny(this.__wbg_ptr, ptr0, len0);
     }
     /**
-     * Feline knobs (native `[sparkle_words.feline]`): `style` = "cat" (the
-     * v2 peeking cat, default) or "paw" (the exact v1 steady paw); `color`
-     * omitted = the native soft pink; `intensity` clamps 0..=1; `idle` =
-     * sparse blink/ear-twitch one-shots (focus-gated, ≤1/s); `gaze` = pupils
-     * track the cursor (present-driven, zero new wakes); `magic` = rare
-     * Fortune/Nebula cats; `allow_bare_cat` = decorate the literal 3-letter
-     * `cat`; `cjk_single_char` = match a lone cat ideograph (high-FP).
+     * Feline knobs (native `[sparkle_words.feline]`): `style = "cat"` emits
+     * the authored cat; legacy `"paw"` is ink-only and emits no paw graphic.
+     * `magic` enables rare Fortune/Nebula cats;
+     * `allow_bare_cat` decorates the literal 3-letter `cat`; and
+     * `cjk_single_char` matches a lone cat ideograph (high-FP).
      * @param {string} style
-     * @param {number | null | undefined} color
-     * @param {number} intensity
-     * @param {boolean} idle
-     * @param {boolean} gaze
      * @param {boolean} magic
      * @param {boolean} allow_bare_cat
      * @param {boolean} cjk_single_char
      */
-    set_sparkle_feline(style, color, intensity, idle, gaze, magic, allow_bare_cat, cjk_single_char) {
+    set_sparkle_feline(style, magic, allow_bare_cat, cjk_single_char) {
         const ptr0 = passStringToWasm0(style, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        wasm.atermgputerminal_set_sparkle_feline(this.__wbg_ptr, ptr0, len0, isLikeNone(color) ? 0x100000001 : (color) >>> 0, intensity, idle, gaze, magic, allow_bare_cat, cjk_single_char);
+        wasm.atermgputerminal_set_sparkle_feline(this.__wbg_ptr, ptr0, len0, magic, allow_bare_cat, cjk_single_char);
     }
     /**
      * Animated-ink knobs (native `[sparkle_words.ink]`): the glyph-ink

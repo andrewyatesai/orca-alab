@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { subscribeViaWatcherProcess } from './parcel-watcher-process'
@@ -260,5 +260,191 @@ describe('worktree git-common narrow watch (darwin)', () => {
       { type: 'create', path: join(commonDir, 'worktrees', 'late') }
     ])
     expect(received).toHaveLength(0)
+  })
+})
+
+describe('worktree git-common polling gate (non-darwin)', () => {
+  const cleanups: (() => Promise<void>)[] = []
+
+  afterEach(async () => {
+    await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
+  })
+
+  async function makePollingCommonDir(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), 'orca-git-common-polling-'))
+    cleanups.push(() => rm(root, { recursive: true, force: true }))
+    const commonDir = await realpath(root)
+    await mkdir(join(commonDir, 'worktrees'))
+    return commonDir
+  }
+
+  function makePollingTarget(path: string): WorktreeBaseWatchTarget {
+    return {
+      key: `git-common:local:${path}`,
+      kind: 'git-common',
+      path,
+      repos: new Map([['repo-1', { repoId: 'repo-1', repoName: 'project', nestWorkspaces: false }]])
+    }
+  }
+
+  async function startPollingWatch(
+    commonDir: string,
+    received: WorktreeBasePollEvent[][],
+    onFullScan?: () => void,
+    visibility: WorktreePollerWindowVisibility = alwaysVisible
+  ): Promise<void> {
+    const watch = await startGitCommonWatch(
+      makePollingTarget(commonDir),
+      (events) => received.push(events),
+      POLL_MS,
+      'linux',
+      visibility,
+      onFullScan
+    )
+    cleanups.push(() => watch.unsubscribe())
+  }
+
+  it('skips the ungated index-metadata backstop on idle ticks', async () => {
+    // Why: idle ticks still re-stat structural leaves and list the (small) worktrees dir cheaply, but the
+    // heavier ungated per-entry index fan-out (onFullScan) must NOT run until the backstop — and no
+    // spurious events are emitted while nothing changes.
+    const commonDir = await makePollingCommonDir()
+    const entry = join(commonDir, 'worktrees', 'idle')
+    await mkdir(join(entry, 'logs'), { recursive: true })
+    await writeFile(join(entry, 'HEAD'), 'ref: refs/heads/main')
+    await writeFile(join(entry, 'logs', 'HEAD'), 'baseline\n')
+    const received: WorktreeBasePollEvent[][] = []
+    const fullScans = vi.fn()
+
+    await startPollingWatch(commonDir, received, fullScans)
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 6))
+
+    expect(fullScans).not.toHaveBeenCalled()
+    expect(received.flat()).toHaveLength(0)
+  })
+
+  it('detects linked worktree add and remove from the every-tick readdir', async () => {
+    // Why: the worktrees-dir listing runs every tick (not gated on its stat signature), so an add/remove
+    // surfaces within one poll interval even on a coarse-mtime filesystem whose dir signature would not
+    // move — without waiting on the index backstop (onFullScan).
+    const commonDir = await makePollingCommonDir()
+    const received: WorktreeBasePollEvent[][] = []
+    const fullScans = vi.fn()
+    await startPollingWatch(commonDir, received, fullScans)
+
+    const entry = join(commonDir, 'worktrees', 'added')
+    await mkdir(entry)
+    await vi.waitFor(() => {
+      expect(received.flat()).toContainEqual({ type: 'create', path: entry })
+    })
+    // The add is caught by the every-tick listing, NOT the 15-tick index backstop: detection lands well
+    // before a backstop could fire, so onFullScan must not have run. (On the old gated impl a coarse-FS
+    // signature collision would have deferred this to the backstop.)
+    expect(fullScans).not.toHaveBeenCalled()
+
+    await rm(entry, { recursive: true })
+    await vi.waitFor(() => {
+      expect(received.flat()).toContainEqual({ type: 'delete', path: entry })
+    })
+  })
+
+  it('does not fabricate worktree deletions when the readdir fails non-ENOENT (transient)', async () => {
+    // Why: a transient readdir failure (EIO/ESTALE/EMFILE/ENOTDIR, network/SSH hiccup) must not be read
+    // as "every linked worktree removed". Simulate a non-ENOENT failure by replacing the worktrees dir
+    // with a file so readdir throws ENOTDIR; the known entry must NOT be reported deleted. On the old
+    // catch-all (entryPaths = []) this emitted a false delete for every entry.
+    const commonDir = await makePollingCommonDir()
+    const entry = join(commonDir, 'worktrees', 'keep')
+    await mkdir(entry)
+    await writeFile(join(entry, 'HEAD'), 'ref: refs/heads/main')
+    const received: WorktreeBasePollEvent[][] = []
+    await startPollingWatch(commonDir, received)
+
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 2))
+    const worktreesDir = join(commonDir, 'worktrees')
+    await rm(worktreesDir, { recursive: true, force: true })
+    await writeFile(worktreesDir, 'not-a-dir')
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 4))
+
+    expect(received.flat()).not.toContainEqual({ type: 'delete', path: entry })
+    await rm(worktreesDir, { force: true })
+  })
+
+  it('detects an in-place structural (HEAD) write on a known entry every tick, without the index backstop', async () => {
+    // Why: a raw HEAD/gitdir/config.worktree rewrite does not bump the entry-dir mtime, so the
+    // structural leaves are re-stat'd every tick (never gated) — the change surfaces within one tick
+    // and does NOT require the ungated index-metadata backstop (onFullScan).
+    const commonDir = await makePollingCommonDir()
+    const entry = join(commonDir, 'worktrees', 'structural')
+    await mkdir(entry)
+    await writeFile(join(entry, 'HEAD'), 'ref: refs/heads/main')
+    const received: WorktreeBasePollEvent[][] = []
+    const fullScans = vi.fn()
+    await startPollingWatch(commonDir, received, fullScans)
+
+    const headPath = join(entry, 'HEAD')
+    // In-place rewrite: same file, different contents — no entry-dir mtime change.
+    await writeFile(headPath, 'ref: refs/heads/feature')
+    await vi.waitFor(() => {
+      expect(received.flat()).toContainEqual({ type: 'update', path: headPath })
+    })
+    expect(fullScans).not.toHaveBeenCalled()
+  })
+
+  it('polls linked logs/HEAD on every idle tick', async () => {
+    const commonDir = await makePollingCommonDir()
+    const entry = join(commonDir, 'worktrees', 'reflog')
+    await mkdir(join(entry, 'logs'), { recursive: true })
+    const headLogPath = join(entry, 'logs', 'HEAD')
+    await writeFile(headLogPath, 'baseline\n')
+    const received: WorktreeBasePollEvent[][] = []
+    const fullScans = vi.fn()
+    await startPollingWatch(commonDir, received, fullScans)
+
+    await appendFile(headLogPath, 'next\n')
+    await vi.waitFor(() => {
+      expect(received.flat()).toContainEqual({ type: 'update', path: headLogPath })
+    })
+    expect(fullScans).not.toHaveBeenCalled()
+  })
+
+  it('forces a full scan on the 15-tick backstop', async () => {
+    const commonDir = await makePollingCommonDir()
+    const entry = join(commonDir, 'worktrees', 'backstop')
+    await mkdir(entry)
+    await writeFile(join(entry, 'index'), 'baseline')
+    const received: WorktreeBasePollEvent[][] = []
+    const fullScans = vi.fn()
+    await startPollingWatch(commonDir, received, fullScans)
+
+    await vi.waitFor(() => {
+      expect(fullScans).toHaveBeenCalledTimes(1)
+    })
+    expect(received.flat()).toHaveLength(0)
+  })
+
+  it('forces a full fan-out when resuming after hidden', async () => {
+    const commonDir = await makePollingCommonDir()
+    const entry = join(commonDir, 'worktrees', 'resume')
+    await mkdir(entry)
+    const indexPath = join(entry, 'index')
+    await writeFile(indexPath, 'before')
+    const received: WorktreeBasePollEvent[][] = []
+    const fullScans = vi.fn()
+    const visibility = createVisibilityHarness()
+    await startPollingWatch(commonDir, received, fullScans, visibility.source)
+
+    visibility.hide()
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 2))
+    await writeFile(indexPath, 'after-longer')
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 2))
+    expect(fullScans).not.toHaveBeenCalled()
+    expect(received.flat()).toHaveLength(0)
+
+    visibility.show()
+    await vi.waitFor(() => {
+      expect(received.flat()).toContainEqual({ type: 'update', path: indexPath })
+    })
+    expect(fullScans).toHaveBeenCalledTimes(1)
   })
 })

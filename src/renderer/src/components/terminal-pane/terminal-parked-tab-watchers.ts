@@ -107,16 +107,17 @@ function startParkedTabWatchers(
     const handleParkedPtyGone = (hadPrimary: boolean): void => {
       // Why: while parked this sidecar is the only exit observer, so teardown must run here or dead leaves resurrect on reveal.
       useAppStore.getState().clearRuntimePaneTitle(tab.id, pane.paneId)
-      if (hadPrimary) {
-        // Why: primary exit owner already closes the tab/leaf; just retire parked observation so one exit can't double-confirm.
+      if (disposersByPtyId.size > 1) {
+        // Why: a parked PaneManager is gone, so its retained primary cannot remove a
+        // dead split leaf from persisted layout — collapse it here first or it resurrects on reveal (#9625).
+        discardPreHandlerPtyState(ptyId)
+        collapseParkedExitedLeaf(tab.id, ptyId)
         disposersByPtyId.get(ptyId)?.()
         disposersByPtyId.delete(ptyId)
         return
       }
-      if (disposersByPtyId.size > 1) {
-        // Why: dead split leaf never remounts; consume its buffered frame and tombstone duplicate exits.
-        discardPreHandlerPtyState(ptyId)
-        collapseParkedExitedLeaf(tab.id, ptyId)
+      if (hadPrimary) {
+        // Why: the sole pane's primary owner closes its tab; retire the sidecar to avoid duplicate confirmation.
         disposersByPtyId.get(ptyId)?.()
         disposersByPtyId.delete(ptyId)
         return

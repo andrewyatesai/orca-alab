@@ -375,6 +375,63 @@ describe('killAllProcessesForWorktree', () => {
     expect(localProvider.shutdown).toHaveBeenCalledTimes(1)
   })
 
+  it('accepts a failed stop when a fresh inventory proves the PTY exited (#10106)', async () => {
+    // Why: a bounded stop RPC can report failure for a PTY that has already
+    // exited; a fresh inventory that omits it must let deletion proceed and
+    // drop the memory row rather than block on a phantom live PTY.
+    const ptyId = 'w1@@already-exited'
+    let inventoryCount = 0
+    const localProvider = createProviderStub(async () => {
+      inventoryCount += 1
+      // Provider sweep sees nothing; the post-stop recheck also omits the pty.
+      return []
+    })
+    ;(localProvider.shutdown as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error(`Session not found: ${ptyId}`)
+    )
+    listRegisteredPtysMock.mockReturnValue([
+      { ptyId, worktreeId: 'w1', sessionId: null, paneKey: null, pid: 100 }
+    ])
+    const onPtyStopped = vi.fn()
+
+    await expect(
+      killAllProcessesForWorktree('w1', {
+        localProvider,
+        onPtyStopped,
+        requirePhysicalStop: true
+      })
+    ).resolves.toEqual({ runtimeStopped: 0, providerStopped: 0, registryStopped: 0 })
+    // One sweep scan + one verification recheck.
+    expect(inventoryCount).toBe(2)
+    expect(onPtyStopped).toHaveBeenCalledWith(ptyId)
+  })
+
+  it('still blocks deletion when a failed stop leaves a genuinely live PTY (#10106)', async () => {
+    const ptyId = 'w1@@still-live'
+    let inventoryCount = 0
+    const localProvider = createProviderStub(async () => {
+      inventoryCount += 1
+      // Provider sweep omits it (numeric-id no-op); the recheck still lists it live.
+      return inventoryCount === 1 ? [] : [{ id: ptyId, cwd: '/w1', title: 'shell' }]
+    })
+    ;(localProvider.shutdown as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error(`Session not found: ${ptyId}`)
+    )
+    listRegisteredPtysMock.mockReturnValue([
+      { ptyId, worktreeId: 'w1', sessionId: null, paneKey: null, pid: 100 }
+    ])
+    const onPtyStopped = vi.fn()
+
+    await expect(
+      killAllProcessesForWorktree('w1', {
+        localProvider,
+        onPtyStopped,
+        requirePhysicalStop: true
+      })
+    ).rejects.toThrow('Failed to physically stop every PTY')
+    expect(onPtyStopped).not.toHaveBeenCalled()
+  })
+
   it('keeps duplicate sweeps behind the runtime physical-stop promise', async () => {
     let releasePhysicalStop: () => void = () => undefined
     const physicalStop = new Promise<boolean>((resolve) => {
@@ -563,6 +620,25 @@ describe('killAllProcessesForWorktree', () => {
     listRegisteredPtysMock.mockReturnValue([])
 
     const result = await killAllProcessesForWorktree('w1', { runtime, localProvider })
+
+    expect(result.runtimeStopped).toBe(0)
+  })
+
+  it('tolerates an unresolved runtime selector during destructive removal (#9625)', async () => {
+    // Why: a just-created/removed worktree can be absent from the runtime
+    // graph; that means zero runtime-owned PTYs, not a failed teardown.
+    const stopTerminalsForWorktree = vi.fn().mockRejectedValue(new Error('selector_not_found'))
+    const runtime = {
+      stopTerminalsForWorktree
+    } as unknown as Parameters<typeof killAllProcessesForWorktree>[1]['runtime']
+    const localProvider = createProviderStub(async () => [])
+    listRegisteredPtysMock.mockReturnValue([])
+
+    const result = await killAllProcessesForWorktree('w1', {
+      runtime,
+      localProvider,
+      requirePhysicalStop: true
+    })
 
     expect(result.runtimeStopped).toBe(0)
   })

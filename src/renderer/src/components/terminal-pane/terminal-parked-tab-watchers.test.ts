@@ -751,6 +751,26 @@ describe('terminal-parked-tab-watchers', () => {
       expect(consumePreHandlerPtyState).toHaveBeenCalledWith(PTY_ID)
     })
 
+    it('collapses a dead split leaf even when a stale primary handler observed the exit (#9625)', () => {
+      // Why (regression): a genuinely parked tab's PaneManager is destroyed, so
+      // hadPrimary must not short-circuit before the surviving-sibling collapse,
+      // or the dead leaf resurrects on reveal. discardPreHandlerPtyState runs
+      // only in the size>1 collapse branch — the pre-fix order (hadPrimary first)
+      // retired the sidecar without it.
+      capturePanes([
+        { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
+        { ptyId: SECOND_PTY_ID, paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
+      ])
+      syncParked()
+
+      exitSubscriptions
+        .find((entry) => entry.ptyId === SECOND_PTY_ID)
+        ?.callback(0, { hadPrimary: true })
+
+      expect(consumePreHandlerPtyState).toHaveBeenCalledWith(SECOND_PTY_ID)
+      expect(startedWatchers[1].dispose).toHaveBeenCalledTimes(1)
+    })
+
     it('does not touch the layout when the last parked watcher exits (tab-level close owns it)', () => {
       capturePanes([{ ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
       syncParked()

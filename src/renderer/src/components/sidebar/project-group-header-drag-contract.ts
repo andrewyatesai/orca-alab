@@ -57,7 +57,9 @@ export function isProjectGroupHeaderDragHandleTarget(
   target: EventTarget | null,
   currentTarget: HTMLElement
 ): boolean {
-  if (!(target instanceof HTMLElement)) {
+  // Why: the group grab-handle glyph is an <svg> (SVGElement); Element covers
+  // both so pointerdown over the icon still starts the drag (#8575).
+  if (!(target instanceof Element)) {
     return false
   }
   const dragHandle = target.closest(PROJECT_GROUP_HEADER_DRAG_HANDLE_SELECTOR)
@@ -68,7 +70,9 @@ export function isProjectGroupHeaderActionTarget(
   target: EventTarget | null,
   currentTarget: HTMLElement
 ): boolean {
-  if (!(target instanceof HTMLElement) || target === currentTarget) {
+  // Why: an <svg> icon inside an action button is an SVGElement; Element keeps
+  // it recognized as an action target (#8575).
+  if (!(target instanceof Element) || target === currentTarget) {
     return false
   }
   return (

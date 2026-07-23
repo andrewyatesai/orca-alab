@@ -13,7 +13,9 @@ export function isHostHeaderActionTarget(
   target: EventTarget | null,
   currentTarget: HTMLElement
 ): boolean {
-  if (!(target instanceof HTMLElement) || target === currentTarget) {
+  // Why: an <svg> icon inside a host action button is an SVGElement; Element
+  // keeps it recognized as an action target (#8575).
+  if (!(target instanceof Element) || target === currentTarget) {
     return false
   }
   return currentTarget.contains(target) && target.closest(HOST_HEADER_ACTION_SELECTOR) !== null

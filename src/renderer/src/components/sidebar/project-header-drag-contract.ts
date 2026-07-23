@@ -54,7 +54,9 @@ export function isProjectHeaderDragHandleTarget(
   target: EventTarget | null,
   currentTarget: HTMLElement
 ): boolean {
-  if (!(target instanceof HTMLElement)) {
+  // Why: the grab-handle glyph renders as <svg> (SVGElement), so an HTMLElement
+  // guard bails on a pointerdown over the icon (#8575). Element covers both.
+  if (!(target instanceof Element)) {
     return false
   }
   const dragHandle = target.closest(REPO_HEADER_DRAG_HANDLE_SELECTOR)
@@ -65,7 +67,9 @@ export function isRepoHeaderActionTarget(
   target: EventTarget | null,
   currentTarget: HTMLElement
 ): boolean {
-  if (!(target instanceof HTMLElement) || target === currentTarget) {
+  // Why: an <svg> icon inside an action button is an SVGElement; Element keeps
+  // it recognized as an action target (#8575).
+  if (!(target instanceof Element) || target === currentTarget) {
     return false
   }
   return currentTarget.contains(target) && target.closest(REPO_HEADER_ACTION_SELECTOR) !== null

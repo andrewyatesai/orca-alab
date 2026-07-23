@@ -204,11 +204,46 @@ loadavg 4.8–7.0, coarser than the quiet runs; post-P2 release binary, 500 MB,
 5 trials, medians): native ndjson 167.5 / binary 157.0 MB/s; ssh-localhost
 ndjson 108.1 / binary 112.2 MB/s (wider spread, min 75 — ssh+sshd share this
 box's CPU in localhost mode). So SSH transport costs ~33% end-to-end here, and
-the format gap collapses under SSH. The roadmap's actual question — the P2
-writer coalescing's before/after delta OVER SSH — remains open: run the
-harness ABBA with `--daemon-bin` at pre-/post-P2 binaries. WSL remains
+the format gap collapses under SSH. WSL remains
 unmeasured (macOS dev host); the harness runs unchanged inside a WSL distro
-(native mode measures that distro's daemon writer), which is the missing run.
+(native mode measures that distro's daemon writer), which is the missing run —
+tracked as the explicit residual, not claimed.
+
+**Committed-harness ABBA, native + SSH (2026-07-23, Wave-3 gate).** The
+before/after question re-measured with the committed `daemon-flood-timed`
+harness itself: 200 MB, 3 trials/run, ABBA (after, before, before, after) per
+cell, M5 Max at loadavg 7–9; ssh-localhost against a scratch sshd (high port +
+throwaway key, per Reproduce). Corpus-MB/s medians, run-pairs shown as a/b:
+
+| cell | pre-P2 (`8d00f83b2~1`) | current HEAD | delta |
+|---|---|---|---|
+| ndjson / native | 134.6 / 128.1 | 103.4 / 138.6 | ~parity (first run caught a load spike) |
+| binary / native | 148.6 / 147.5 | 122.8 / 127.5 | **−14%** |
+| ndjson / ssh | 99.9 / 103.1 | 81.0 / 96.1 | ≈−10% |
+| binary / ssh | 116.3 / 115.9 | 102.0 / 102.7 | −12% |
+
+Two isolation ABBAs attribute that delta precisely:
+
+- **The P2 writer is NOT the cost — over SSH it is exactly neutral.** Post-P2
+  pre-E1 (`897dc7789` + aterm f717f2f8) vs pre-P2, ssh-localhost, sub-±1%
+  spreads: ndjson 111.5/111.9 vs 111.6/112.2; binary 110.4/110.6 vs
+  110.6/110.9 MB/s. SSH transport is the bottleneck; writer coalescing
+  neither helps nor hurts there. Combined with the quiet-machine native rerun
+  above (+12% ndjson, ~0% binary), the P2 picture is complete on this host.
+- **The whole current-HEAD regression is the E1 tiered-store attach**
+  (audit E1, Wave-3: `HeadlessTerminal` now attaches hot/warm tiers + the
+  compress-offload drain worker). Binary/native ABBA of current vs
+  pre-E1-wiring at the SAME aterm pin: 128.0/127.4 vs 148.5/147.9 MB/s —
+  −14%, the exact pre-P2 level, i.e. P2's cost is zero and the attach's
+  ingest cost is the full delta. The cost is the scroll-off staging path
+  (DeferredLine snapshot per evicted row; compression itself stays off the
+  drain thread — the offload worker's flood gate held, no truncation events
+  fired at these depths). Accepted for Wave 3 as the price of E1's memory and
+  retention wins (raw ~640 B/line uncompressed history → LZ4 tiers; the ONE
+  total retention limit actually enforced); it is well inside the "no silent
+  2x" gate bar and recorded here so the Wave-4 lanes inherit the number. The
+  staging-path lever (batched DeferredLine capture) is the follow-up if a
+  floor ever lands on this class.
 
 ## Reproduce
 

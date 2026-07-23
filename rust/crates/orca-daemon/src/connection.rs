@@ -169,7 +169,7 @@ pub fn handle_connection<S: DaemonStream>(
     // Token gate (order matches the Node daemon: version → token → ok). Skipped
     // when no token is configured (standalone / parity harness).
     if let Some(expected) = expected_token.as_deref() {
-        if hello.token != expected {
+        if !crate::token::tokens_match(&hello.token, expected) {
             let _ = writer.write_all(encode_ndjson_line(&hello_err("Invalid token")).as_bytes());
             return;
         }

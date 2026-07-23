@@ -23,6 +23,25 @@ pub fn generate_token() -> io::Result<String> {
     Ok(hex)
 }
 
+/// Constant-time equality for the auth token gate. A plain `!=` short-circuits on
+/// the first differing byte, leaking a byte-by-byte timing oracle on the 64-char
+/// secret — the token gate is the last-line defense where the socket ACL is weaker
+/// than the token file's 0600 (the Windows named pipe). Fold every byte into one
+/// accumulator so match time depends only on length, never on how many leading
+/// bytes agree; `black_box` keeps the optimizer from restoring an early exit.
+/// Length is public (fixed 64-char hex), so the length check may return early.
+pub fn tokens_match(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    core::hint::black_box(diff) == 0
+}
+
 #[cfg(unix)]
 fn fill_entropy(bytes: &mut [u8]) -> io::Result<()> {
     use std::io::Read;
@@ -65,4 +84,42 @@ pub fn write_token_file(path: &str, token: &str) -> io::Result<()> {
 #[cfg(not(unix))]
 pub fn write_token_file(path: &str, token: &str) -> io::Result<()> {
     fs::write(path, token.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tokens_match;
+
+    #[test]
+    fn matches_identical_tokens() {
+        let t = "a".repeat(64);
+        assert!(tokens_match(&t, &t));
+    }
+
+    #[test]
+    fn rejects_first_byte_difference() {
+        let expected = "0".repeat(64);
+        let mut candidate = expected.clone();
+        candidate.replace_range(0..1, "1");
+        assert!(!tokens_match(&candidate, &expected));
+    }
+
+    #[test]
+    fn rejects_last_byte_difference() {
+        let expected = "0".repeat(64);
+        let mut candidate = expected.clone();
+        candidate.replace_range(63..64, "1");
+        assert!(!tokens_match(&candidate, &expected));
+    }
+
+    #[test]
+    fn rejects_length_mismatch() {
+        assert!(!tokens_match("0".repeat(64).as_str(), "0".repeat(63).as_str()));
+        assert!(!tokens_match("", "0"));
+    }
+
+    #[test]
+    fn empty_matches_empty() {
+        assert!(tokens_match("", ""));
+    }
 }

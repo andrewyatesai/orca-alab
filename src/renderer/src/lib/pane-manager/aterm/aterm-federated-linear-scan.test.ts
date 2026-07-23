@@ -11,8 +11,8 @@ function bufferReader(
   lines: string[],
   oldestAbsRow = 0,
   opts?: { unavailableAt?: number }
-): LinearScanRowReader & { reads: Array<[number, number]> } {
-  const reads: Array<[number, number]> = []
+): LinearScanRowReader & { reads: [number, number][] } {
+  const reads: [number, number][] = []
   return {
     reads,
     oldestAbsRow,
@@ -29,7 +29,10 @@ function bufferReader(
 }
 
 function runSync(
-  opts: Omit<Parameters<typeof runFederatedLinearScan>[0], 'isCancelled' | 'yieldSlice' | 'onDone'> &
+  opts: Omit<
+    Parameters<typeof runFederatedLinearScan>[0],
+    'isCancelled' | 'yieldSlice' | 'onDone'
+  > &
     Partial<Pick<Parameters<typeof runFederatedLinearScan>[0], 'isCancelled'>>
 ): FederatedLinearScanResult | null {
   let out: FederatedLinearScanResult | null = null
@@ -169,7 +172,11 @@ describe('runFederatedLinearScan', () => {
 
   it('a reader gap (resize skew) settles the partial result flagged incomplete', () => {
     const result = runSync({
-      reader: bufferReader(Array.from({ length: 30 }, (_, i) => `row ${i}`), 0, { unavailableAt: 1 }),
+      reader: bufferReader(
+        Array.from({ length: 30 }, (_, i) => `row ${i}`),
+        0,
+        { unavailableAt: 1 }
+      ),
       query: 'row',
       caseSensitive: false,
       isRegex: false,

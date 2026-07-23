@@ -257,9 +257,7 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     const written = sftpCapture.contents[pkgPath as string]
     expect(written).toBeTruthy()
     const parsed = JSON.parse(written) as Record<string, unknown>
-    expect(parsed.name).toBe('orca-relay')
-    expect(parsed.version).toBe('1.0.0')
-    expect(parsed.private).toBe(true)
+    expect(parsed).toMatchObject({ name: 'orca-relay', version: '1.0.0', private: true })
     // Why: pin commonjs so a future Node default flip can't break require('node-pty').
     expect(parsed.type).toBe('commonjs')
     expect(parsed.dependencies).toEqual({ '@parcel/watcher': '2.5.6', 'node-pty': '1.1.0' })
@@ -637,11 +635,8 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     expect(npmScripts.every((script) => script.includes('--ignore-scripts=false'))).toBe(true)
     // Security: the Windows install path must also block whole-tree lifecycle scripts (not `--ignore-scripts=false`).
     expect(npmScripts.some((s) => /npm install --ignore-scripts(?!=false)/.test(s))).toBe(true)
-    expect(
-      npmScripts.every((script) =>
-        script.includes('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }')
-      )
-    ).toBe(true)
+    const exitGuard = 'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'
+    expect(npmScripts.every((script) => script.includes(exitGuard))).toBe(true)
     expect(
       vi
         .mocked(execCommand)

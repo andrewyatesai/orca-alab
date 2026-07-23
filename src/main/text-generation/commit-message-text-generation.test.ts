@@ -1187,6 +1187,61 @@ describe('generateCommitMessageFromContext', () => {
     )
   })
 
+  it('logs only a sanitized excerpt (not raw stdout/stderr) when a local generator fails', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const listeners = new Map<string, (value: unknown) => void>()
+      const child = {
+        pid: 123,
+        kill: vi.fn(),
+        stdout: { on: vi.fn((event, callback) => listeners.set(`stdout:${event}`, callback)) },
+        stderr: { on: vi.fn((event, callback) => listeners.set(`stderr:${event}`, callback)) },
+        stdin: { end: vi.fn() },
+        on: vi.fn((event, callback) => listeners.set(event, callback))
+      }
+      spawnMock.mockReturnValue(child as never)
+
+      const secretDiff = 'feat: leak SECRET_DIFF_TOKEN from staged patch'
+      const secretPath = 'fatal: failed at /home/brennan/secret/creds.ts'
+      const pending = generateCommitMessageFromContext(
+        {
+          branch: 'main',
+          stagedSummary: 'M\tREADME.md',
+          stagedPatch: '+hello'
+        },
+        {
+          agentId: 'custom',
+          model: '',
+          customAgentCommand: 'agent'
+        },
+        {
+          kind: 'local',
+          cwd: '/repo'
+        }
+      )
+
+      listeners.get('stdout:data')?.(Buffer.from(secretDiff))
+      listeners.get('stderr:data')?.(Buffer.from(secretPath))
+      listeners.get('close')?.(1)
+
+      await expect(pending).resolves.toMatchObject({ success: false })
+
+      const failureLog = errorSpy.mock.calls.find(
+        ([message]) => message === '[commit-message] Generator failed:'
+      )
+      expect(failureLog).toBeDefined()
+      const logged = failureLog?.[1] as Record<string, unknown>
+      // No raw stdout/stderr fields, and the diff-derived stdout token never appears.
+      expect(logged).not.toHaveProperty('stdout')
+      expect(logged).not.toHaveProperty('stderr')
+      expect(JSON.stringify(logged)).not.toContain('SECRET_DIFF_TOKEN')
+      // The path in stderr is redacted by the shared sanitizer before logging.
+      expect(logged.detail).toBe('fatal: failed at [path]')
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
   it('routes WSL local commit generation through the selected distro login shell', async () => {
     await withPlatform('win32', async () => {
       process.env.ORCA_HOST_ONLY_SECRET = 'do-not-leak'

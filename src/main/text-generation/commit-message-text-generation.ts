@@ -737,11 +737,14 @@ function finalizeFromAgentOutput(args: {
     includeStdoutDetail
   } = args
   if (code !== 0) {
+    // Why: raw stdout/stderr can echo the staged diff and prompt/path fragments;
+    // log only the sanitized, bounded excerpt so process logs cannot leak them.
     console.error('[commit-message] Generator failed:', {
       label,
       exitCode: code,
-      stdout,
-      stderr
+      detail: sanitizeAgentFailureDetail(
+        excerptAgentFailureOutput(includeStdoutDetail === false ? '' : stdout, stderr)
+      )
     })
     finalize({
       success: false,
@@ -760,11 +763,11 @@ function finalizeFromAgentOutput(args: {
     // rather than misreporting a command failure.
     const detail = sanitizeAgentFailureDetail(excerptAgentFailureOutput('', stderr))
     if (detail) {
+      // Why: log the sanitized excerpt, never raw stderr (may echo paths/prompt).
       console.error('[commit-message] Generator returned no stdout but wrote to stderr:', {
         label,
         exitCode: code,
-        stdout,
-        stderr
+        detail
       })
     }
     finalize({

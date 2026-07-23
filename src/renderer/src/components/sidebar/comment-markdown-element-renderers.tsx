@@ -262,6 +262,26 @@ export function createDocumentCommentMarkdownComponents(
         // back to a text link when the image itself can't render.
         return <GitHubUserAttachmentImage src={src} alt={alt} />
       }
+      // Why: an untrusted PR/issue/MR body can embed `![x](http://attacker/p.png)`;
+      // auto-loading it leaks viewer IP + a precise view timestamp (tracking pixel /
+      // read receipt). Only inline app-managed sources (blob:/data:); render any
+      // remote URL as a click-to-load link, mirroring the compact variant's gate.
+      if (!isTrustedCompactImageSrc(src)) {
+        if (!src) {
+          return alt ? <span>{alt}</span> : null
+        }
+        return (
+          <a
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            className="break-all text-primary underline underline-offset-2 hover:text-primary/80"
+            onClick={(e) => handleMarkdownAnchorClick(e, src, onLinkClick)}
+          >
+            {alt || src}
+          </a>
+        )
+      }
       const imageClassName = [
         'my-3 max-h-96 max-w-full rounded-md object-contain',
         'outline outline-1 outline-black/10 dark:outline-white/10',

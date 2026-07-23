@@ -5,7 +5,10 @@
 // must reset every pane's link hover cache so links recover without a scroll.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
-import { resumeTerminalVisibility } from './terminal-visibility-resume'
+import {
+  recoverVisibleTerminalWindowWake,
+  resumeTerminalVisibility
+} from './terminal-visibility-resume'
 
 vi.mock('@/lib/pane-manager/pane-manager-registry', () => ({
   resetAllTerminalWebglAtlases: vi.fn(),
@@ -68,6 +71,29 @@ describe('resumeTerminalVisibility link hover recovery', () => {
       const manager = createManager([{ terminal: first }, { terminal: second }])
 
       resumeTerminalVisibility(resumeArgs(manager, light))
+
+      expect(resetTerminalLinkifierHoverState).toHaveBeenCalledWith(first)
+      expect(resetTerminalLinkifierHoverState).toHaveBeenCalledWith(second)
+    }
+  )
+})
+
+describe('recoverVisibleTerminalWindowWake link hover recovery', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // Why: window blur's mouseleave clears the current link but not the hovered-cell
+  // cache, so on refocus/wake with a stationary pointer the link stays dead until a
+  // scroll unless the wake path resets it too (upstream #9659).
+  it.each([true, false])(
+    'resets each pane linkifier hover cache on window wake (clearGlyphAtlases=%s)',
+    (clearGlyphAtlases) => {
+      const first = { name: 'pane-a' }
+      const second = { name: 'pane-b' }
+      const manager = createManager([{ terminal: first }, { terminal: second }])
+
+      recoverVisibleTerminalWindowWake({ manager, isActive: true, clearGlyphAtlases })
 
       expect(resetTerminalLinkifierHoverState).toHaveBeenCalledWith(first)
       expect(resetTerminalLinkifierHoverState).toHaveBeenCalledWith(second)

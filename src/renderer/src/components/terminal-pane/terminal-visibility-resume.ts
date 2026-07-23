@@ -182,6 +182,11 @@ export function recoverVisibleTerminalWindowWake({
   // Why: macOS screensaver/display wake can leave xterm visible but with a
   // stale renderer/input surface; Orca's own hidden-state resume never runs.
   for (const pane of manager.getPanes()) {
+    // Why: window blur fires mouseleave which clears the current link but not
+    // the hovered-cell cache, so on refocus/wake with a stationary pointer the
+    // same-cell short-circuit leaves the link dead until a scroll. Reset here
+    // to match the reveal path (upstream #9659).
+    resetTerminalLinkifierHoverState(pane.terminal)
     requestTerminalBacklogRecovery(pane.terminal)
     flushTerminalOutput(pane.terminal, { maxChars: WINDOW_WAKE_FLUSH_CHARS })
   }

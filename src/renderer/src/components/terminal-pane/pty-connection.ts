@@ -3663,6 +3663,18 @@ export function connectPanePty(
     tabId: deps.tabId,
     leafId: pane.leafId,
     activate: deps.isActiveRef.current && deps.isVisibleRef.current,
+    // Fed §2.4 client side: lets the remote transport freeze this pane's replay
+    // geometry (base_y + grid) against each engine-replayed snapshot anchor, so
+    // federated remote search can remap host rows into this engine's row space.
+    // Read live from the pane's aterm controller; IPC transports ignore it.
+    readClientReplayGeometry: () => {
+      const controller = pane.atermController
+      if (!controller) {
+        return null
+      }
+      const grid = controller.gridSize()
+      return { baseY: controller.baseY(), rows: grid.rows, cols: grid.cols }
+    },
     ...(shellOverride ? { shellOverride } : {}),
     ...(projectRuntime ? { projectRuntime } : {}),
     ...(terminalColorQueryReplies ? { terminalColorQueryReplies } : {}),

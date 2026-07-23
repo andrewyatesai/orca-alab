@@ -2955,4 +2955,152 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(onConnect).toHaveBeenCalled()
     expect(onData).toHaveBeenCalledWith('live-after-overflow', expect.objectContaining({ seq: 1 }))
   })
+
+  describe('federated replay geometry (fed §2.4)', () => {
+    // A real terminal-leaf UUID so the transport self-registers in the remote
+    // federated-search registry (makePaneKey requires a UUID leaf).
+    const LEAF = '33333333-3333-4333-8333-333333333333'
+
+    function emitAnchoredSnapshot(
+      streamId: number,
+      data: string,
+      info: { cols: number; rows: number; hostRowAnchor?: number; anchorGen?: number }
+    ): void {
+      emitSnapshotFrame(
+        streamId,
+        TerminalStreamOpcode.SnapshotStart,
+        encodeTerminalStreamJson(info)
+      )
+      emitSnapshotFrame(streamId, TerminalStreamOpcode.SnapshotChunk, encodeTerminalStreamText(data))
+      emitSnapshotFrame(streamId, TerminalStreamOpcode.SnapshotEnd, new Uint8Array())
+    }
+
+    async function attachedTransport(readClientReplayGeometry: () => {
+      baseY: number
+      rows: number
+      cols: number
+    } | null) {
+      const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+      const transport = createRemoteRuntimePtyTransport('env-1', {
+        worktreeId: 'wt-1',
+        tabId: 'tab-geo',
+        leafId: LEAF,
+        readClientReplayGeometry
+      })
+      transport.attach({
+        existingPtyId: 'remote:terminal-1',
+        cols: 80,
+        rows: 24,
+        callbacks: { onReplayData: () => {} }
+      })
+      await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
+      return transport
+    }
+
+    it('freezes the client replay geometry against a replayed initial-snapshot anchor', async () => {
+      // Client engine: 40 scrollback rows + 24 viewport = 64 replayed rows, width 80.
+      const transport = await attachedTransport(() => ({ baseY: 40, rows: 24, cols: 80 }))
+      const { streamId } = latestSubscribePayload()
+
+      emitAnchoredSnapshot(streamId, 'restored history', {
+        cols: 80,
+        rows: 24,
+        hostRowAnchor: 100,
+        anchorGen: 7
+      })
+
+      expect(transport.getReplayedSearchGeometry?.()).toEqual({
+        replayedAnchor: { hostRowAnchor: 100, anchorGen: 7 },
+        replayOriginRow: 0,
+        replayedRowCount: 64,
+        clientCols: 80
+      })
+      transport.destroy?.()
+    })
+
+    it('has no in-window geometry before any anchored snapshot is replayed', async () => {
+      const transport = await attachedTransport(() => ({ baseY: 10, rows: 24, cols: 80 }))
+      // Subscribed, but no snapshot yet → the multiplexer holds no replayed anchor.
+      expect(transport.getReplayedSearchGeometry?.()).toBeNull()
+      transport.destroy?.()
+    })
+
+    it('an anchor-less recovery replay (skew) clears the in-window geometry', async () => {
+      const transport = await attachedTransport(() => ({ baseY: 40, rows: 24, cols: 80 }))
+      const { streamId } = latestSubscribePayload()
+      emitAnchoredSnapshot(streamId, 'history', {
+        cols: 80,
+        rows: 24,
+        hostRowAnchor: 100,
+        anchorGen: 7
+      })
+      expect(transport.getReplayedSearchGeometry?.()).not.toBeNull()
+
+      // A server-pushed recovery snapshot with NO anchor: the multiplexer replaces
+      // engine state and drops its replayed anchor (the window it described is
+      // gone), so the frozen geometry no longer reconciles → inline-only.
+      emitAnchoredSnapshot(streamId, 'recovered screen', { cols: 80, rows: 24 })
+      expect(transport.getReplayedSearchGeometry?.()).toBeNull()
+      transport.destroy?.()
+    })
+
+    it('re-freezes geometry when a new-generation snapshot is replayed', async () => {
+      let geometry = { baseY: 40, rows: 24, cols: 80 }
+      const transport = await attachedTransport(() => geometry)
+      const { streamId } = latestSubscribePayload()
+      emitAnchoredSnapshot(streamId, 'gen7', {
+        cols: 80,
+        rows: 24,
+        hostRowAnchor: 100,
+        anchorGen: 7
+      })
+      // The engine grew (more scrollback) before a gen-8 recovery snapshot lands.
+      geometry = { baseY: 200, rows: 24, cols: 80 }
+      emitAnchoredSnapshot(streamId, 'gen8', {
+        cols: 80,
+        rows: 24,
+        hostRowAnchor: 500,
+        anchorGen: 8
+      })
+      expect(transport.getReplayedSearchGeometry?.()).toEqual({
+        replayedAnchor: { hostRowAnchor: 500, anchorGen: 8 },
+        replayOriginRow: 0,
+        replayedRowCount: 224,
+        clientCols: 80
+      })
+      transport.destroy?.()
+    })
+
+    it('registers a live binding in the remote federated-pane registry and unregisters on destroy', async () => {
+      const transport = await attachedTransport(() => ({ baseY: 40, rows: 24, cols: 80 }))
+      const { streamId } = latestSubscribePayload()
+      emitAnchoredSnapshot(streamId, 'history', {
+        cols: 80,
+        rows: 24,
+        hostRowAnchor: 100,
+        anchorGen: 7
+      })
+      // Same post-reset module graph as the transport, so it sees the registration.
+      const { listRemoteFederatedPaneBindings } = await import(
+        '@/lib/federated-search/remote-federated-pane-registry'
+      )
+      const entries = listRemoteFederatedPaneBindings()
+      const entry = entries.find((e) => e.paneKey === `tab-geo:${LEAF}`)
+      expect(entry).toBeDefined()
+      expect(entry?.binding.environmentId()).toBe('env-1')
+      expect(entry?.binding.hostTerminalId()).toBe('terminal-1')
+      expect(entry?.binding.sessionId()).toBe('remote:env-1@@terminal-1')
+      expect(entry?.binding.replayGeometry()).toEqual({
+        replayedAnchor: { hostRowAnchor: 100, anchorGen: 7 },
+        replayOriginRow: 0,
+        replayedRowCount: 64,
+        clientCols: 80
+      })
+
+      transport.destroy?.()
+      expect(
+        listRemoteFederatedPaneBindings().some((e) => e.paneKey === `tab-geo:${LEAF}`)
+      ).toBe(false)
+    })
+  })
 })

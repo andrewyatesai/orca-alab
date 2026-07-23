@@ -37,6 +37,23 @@ export type LocalPtySessionMetadata = {
   shellOverride?: string
 }
 
+/** Client-side replay geometry a remote transport froze at the last ENGINE-
+ *  replayed snapshot, paired with the multiplexer anchor still in force (fed
+ *  §2.4). Feeds the remote federated-search row remap. Null when no anchored
+ *  snapshot is currently replayed (skew/reset) — the search degrades to
+ *  inline-only rather than remapping against a window the engine no longer holds. */
+export type ReplayedSearchGeometry = {
+  /** Anchor of the snapshot the client actually replayed (matches the live
+   *  multiplexer anchor; a mismatch collapses this whole value to null). */
+  replayedAnchor: { hostRowAnchor: number; anchorGen: number }
+  /** Client engine row where the replayed snapshot's first row landed. */
+  replayOriginRow: number
+  /** Rows the client replayed (history + viewport) from that snapshot. */
+  replayedRowCount: number
+  /** Client engine grid width — differing widths flag the jump approximate. */
+  clientCols: number
+}
+
 export type PtyConnectResult = {
   id: string
   /** The requested session exited while it had no primary pane handler. Its
@@ -141,6 +158,10 @@ export type PtyTransport = {
   /** The runtime captured by this transport; legacy remote PTY ids do not
    * encode their owner, and current worktree settings may have changed. */
   getRuntimeEnvironmentId?: () => string | null
+  /** Remote-runtime only: the client replay geometry for the federated remote
+   *  search row remap (fed §2.4), or null when no anchored snapshot is currently
+   *  replayed (skew/reset — the remap degrades to inline-only). */
+  getReplayedSearchGeometry?: () => ReplayedSearchGeometry | null
   /** This view's identity in the #9156 query-reply authority election: the
    *  remote subscribe clientId for remote-viewer transports, absent/null for
    *  host (IPC) transports. */
@@ -184,4 +205,9 @@ export type IpcPtyTransportOptions = {
   onAgentBecameWorking?: () => void
   onAgentExited?: () => void
   onAgentStatus?: (payload: ParsedAgentStatusPayload) => void
+  /** Remote-runtime only: reads the pane engine's live replay geometry (base_y,
+   *  grid rows/cols) so the transport can freeze it against each engine-replayed
+   *  snapshot anchor (fed §2.4 client side). Absent → remote federated search
+   *  for this pane has no in-window remap and stays inline-only. */
+  readClientReplayGeometry?: () => { baseY: number; rows: number; cols: number } | null
 }

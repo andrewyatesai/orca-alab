@@ -10,8 +10,15 @@ import {
   isTerminalInputTooLargeWithDeferredMeasurement,
   iterateTerminalInputChunks
 } from '../../../../shared/terminal-input'
-import type { IpcPtyTransportOptions, PtyConnectResult, PtyTransport } from './pty-transport-types'
+import type {
+  IpcPtyTransportOptions,
+  PtyConnectResult,
+  PtyTransport,
+  ReplayedSearchGeometry
+} from './pty-transport-types'
 import { createPtyOutputProcessor } from './pty-transport'
+import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-id'
+import { registerRemoteFederatedPane } from '@/lib/federated-search/remote-federated-pane-registry'
 import { unwrapRuntimeRpcResult } from '../../runtime/runtime-rpc-client'
 import {
   getRemoteRuntimePtyEnvironmentId,
@@ -22,7 +29,8 @@ import {
 import {
   getRemoteRuntimeTerminalMultiplexer,
   REMOTE_TERMINAL_SNAPSHOT_TOO_LARGE,
-  type RemoteRuntimeMultiplexedTerminal
+  type RemoteRuntimeMultiplexedTerminal,
+  type RemoteRuntimeReplayedHostAnchor
 } from '../../runtime/remote-runtime-terminal-multiplexer'
 import {
   toRuntimeTerminalWorktreeSelector,
@@ -94,7 +102,8 @@ export function createRemoteRuntimePtyTransport(
     onAgentBecameIdle,
     onAgentBecameWorking,
     onAgentExited,
-    onAgentStatus
+    onAgentStatus,
+    readClientReplayGeometry
   } = opts
   let connected = false
   let destroyed = false
@@ -103,6 +112,15 @@ export function createRemoteRuntimePtyTransport(
   let currentRuntimeEnvironmentId = runtimeEnvironmentId
   let multiplexedStream: RemoteRuntimeMultiplexedTerminal | null = null
   let multiplexedStreamHandle: string | null = null
+  // Fed §2.4 client side: geometry frozen at the last ENGINE-replayed anchored
+  // snapshot. Paired with (and gated by) the multiplexer's LIVE anchor in
+  // readReplayedSearchGeometry — a skew that clears/bumps the multiplexer anchor
+  // makes the two disagree, collapsing the remap to inline-only.
+  let frozenReplayGeometry:
+    | { anchor: RemoteRuntimeReplayedHostAnchor } & Omit<ReplayedSearchGeometry, 'replayedAnchor'>
+    | null = null
+  // Removes this pane from the remote federated-search registry on destroy.
+  let unregisterFederatedPane: (() => void) | null = null
   let desiredViewport: { cols: number; rows: number } | null = null
   // Why: a grid report can land while connect/attach is in flight (aterm's
   // controller attaches async); dropping it would leave the remote PTY at the
@@ -477,6 +495,29 @@ export function createRemoteRuntimePtyTransport(
     multiplexedStreamHandle = null
   }
 
+  // Fed §2.4: the frozen client geometry is only usable while the multiplexer
+  // still holds the SAME replayed anchor. Re-read the live anchor and reconcile:
+  // a null/gen-bumped/row-shifted anchor (skew, resync, recovery) means the
+  // engine no longer holds that window, so remote search must degrade to inline.
+  function readReplayedSearchGeometry(): ReplayedSearchGeometry | null {
+    const liveAnchor = handle ? getCurrentMultiplexedStream(handle)?.getReplayedHostAnchor() : null
+    const frozen = frozenReplayGeometry
+    if (
+      !liveAnchor ||
+      !frozen ||
+      frozen.anchor.anchorGen !== liveAnchor.anchorGen ||
+      frozen.anchor.hostRowAnchor !== liveAnchor.hostRowAnchor
+    ) {
+      return null
+    }
+    return {
+      replayedAnchor: { hostRowAnchor: liveAnchor.hostRowAnchor, anchorGen: liveAnchor.anchorGen },
+      replayOriginRow: frozen.replayOriginRow,
+      replayedRowCount: frozen.replayedRowCount,
+      clientCols: frozen.clientCols
+    }
+  }
+
   function clearPublishedHandleWait(): void {
     stopWaitingForPublishedHandle?.()
     stopWaitingForPublishedHandle = null
@@ -754,6 +795,22 @@ export function createRemoteRuntimePtyTransport(
                 : {})
             })
           }
+          // Fed §2.4: freeze the client replay geometry for THIS anchored
+          // snapshot right after the engine replay applied it. A clearing/initial
+          // replay lands the snapshot's first row at absolute row 0; later live
+          // output only EXTENDS the buffer past the replayed window (those rows
+          // remap out-of-window, never a wrong-row jump).
+          if (isCurrentSubscription() && meta?.replayedHostAnchor && readClientReplayGeometry) {
+            const clientGeometry = readClientReplayGeometry()
+            frozenReplayGeometry = clientGeometry
+              ? {
+                  anchor: meta.replayedHostAnchor,
+                  replayOriginRow: 0,
+                  replayedRowCount: clientGeometry.baseY + clientGeometry.rows,
+                  clientCols: clientGeometry.cols
+                }
+              : null
+          }
         },
         onSubscribed: () => {
           if (!isCurrentSubscription()) {
@@ -855,7 +912,7 @@ export function createRemoteRuntimePtyTransport(
     }
   }
 
-  return {
+  const transport: PtyTransport = {
     async connect(options) {
       storedCallbacks = options.callbacks
       if (destroyed || !worktreeId) {
@@ -1093,6 +1150,10 @@ export function createRemoteRuntimePtyTransport(
       return currentRuntimeEnvironmentId
     },
 
+    getReplayedSearchGeometry() {
+      return readReplayedSearchGeometry()
+    },
+
     getQueryReplyViewerClientId() {
       // Why: the #9156 election names remote viewers by their subscribe clientId; the reply gate matches against this identity.
       return clientId
@@ -1111,6 +1172,32 @@ export function createRemoteRuntimePtyTransport(
       this.disconnect()
       inputBatcher.clear()
       viewportBatcher.clear()
+      unregisterFederatedPane?.()
+      unregisterFederatedPane = null
     }
   }
+
+  // Fed §2.4: self-register in the remote federated-search registry so discovery
+  // enumerates ACTUAL connected remote panes (pane-manager panes hold no
+  // transport reference). Only when the pane is engine-backed (a geometry reader
+  // was supplied) and stably keyable. Getters read LIVE transport state so a
+  // reconnect / handle re-derivation needs no re-registration.
+  if (
+    readClientReplayGeometry &&
+    tabId &&
+    !tabId.includes(':') &&
+    leafId &&
+    isTerminalLeafId(leafId)
+  ) {
+    unregisterFederatedPane = registerRemoteFederatedPane(makePaneKey(tabId, leafId), {
+      tabId,
+      leafId,
+      environmentId: () => currentRuntimeEnvironmentId,
+      hostTerminalId: () => handle,
+      sessionId: () => remotePtyId,
+      replayGeometry: readReplayedSearchGeometry
+    })
+  }
+
+  return transport
 }

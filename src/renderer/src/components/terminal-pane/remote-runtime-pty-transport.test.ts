@@ -14,6 +14,8 @@ import {
   TERMINAL_INPUT_MAX_BYTES
 } from '../../../../shared/terminal-input'
 import { CLIPBOARD_TEXT_MEASURE_YIELD_CODE_UNITS } from '../../../../shared/clipboard-text'
+import { remapRemoteSearchRow } from '../../../../shared/terminal-remote-search-protocol'
+import type { PtyTransport } from './pty-transport-types'
 
 describe('createRemoteRuntimePtyTransport', () => {
   const runtimeCall = vi.fn()
@@ -2975,33 +2977,79 @@ describe('createRemoteRuntimePtyTransport', () => {
       emitSnapshotFrame(streamId, TerminalStreamOpcode.SnapshotEnd, new Uint8Array())
     }
 
-    async function attachedTransport(readClientReplayGeometry: () => {
-      baseY: number
-      rows: number
-      cols: number
-    } | null) {
+    // Drives the REAL asynchronous replay path (fed §2.4): onReplayData queues an
+    // async buffer mutation the way production's replay-write queue does, and
+    // awaitReplayApplied resolves only after it settles. readClientReplayGeometry
+    // reads the LIVE simulated buffer, so a synchronous freeze in onSnapshot would
+    // capture the PRE-replay depth — the exact bug these tests pin. Call
+    // setReplayedBaseY(depth) before each emit: that is the scrollback depth the
+    // engine buffer reaches once THAT snapshot's clear+replay drain applies.
+    async function attachedTransport(initialBaseY: number, cols = 80) {
+      const rows = 24
+      const buffer = { baseY: initialBaseY }
+      let nextReplayedBaseY = initialBaseY
+      let replayQueue = Promise.resolve()
+      const readClientReplayGeometry = (): { baseY: number; rows: number; cols: number } => ({
+        baseY: buffer.baseY,
+        rows,
+        cols
+      })
+      const awaitReplayApplied = (): Promise<void> => replayQueue
+      const onReplayData = (): void => {
+        const applied = nextReplayedBaseY
+        replayQueue = replayQueue.then(async () => {
+          // Two async turns so a synchronous freeze cannot observe the result.
+          await Promise.resolve()
+          await Promise.resolve()
+          buffer.baseY = applied
+        })
+      }
       const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
       const transport = createRemoteRuntimePtyTransport('env-1', {
         worktreeId: 'wt-1',
         tabId: 'tab-geo',
         leafId: LEAF,
-        readClientReplayGeometry
+        readClientReplayGeometry,
+        awaitReplayApplied
       })
       transport.attach({
         existingPtyId: 'remote:terminal-1',
-        cols: 80,
-        rows: 24,
-        callbacks: { onReplayData: () => {} }
+        cols,
+        rows,
+        callbacks: { onReplayData }
       })
       await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
-      return transport
+      return {
+        transport,
+        setReplayedBaseY: (value: number): void => {
+          nextReplayedBaseY = value
+        }
+      }
     }
 
-    it('freezes the client replay geometry against a replayed initial-snapshot anchor', async () => {
-      // Client engine: 40 scrollback rows + 24 viewport = 64 replayed rows, width 80.
-      const transport = await attachedTransport(() => ({ baseY: 40, rows: 24, cols: 80 }))
-      const { streamId } = latestSubscribePayload()
+    const STABLE_ANCHOR = { hostRowAnchor: 100, anchorGen: 7, anchorHostCols: 80 }
 
+    function remapAgainstFrozenGeometry(transport: PtyTransport, matchHostRow: number) {
+      const geometry = transport.getReplayedSearchGeometry?.()
+      if (!geometry) {
+        throw new Error('expected frozen replay geometry')
+      }
+      return remapRemoteSearchRow({
+        matchHostRow,
+        responseAnchor: STABLE_ANCHOR,
+        replayedAnchor: geometry.replayedAnchor,
+        replayOriginRow: geometry.replayOriginRow,
+        replayedRowCount: geometry.replayedRowCount,
+        clientCols: geometry.clientCols
+      })
+    }
+
+    it('fresh attach: an in-window replayed-history match is NOT demoted to inline-only', async () => {
+      // Fresh engine buffer (baseY 0). The replayed snapshot carries 40 history
+      // rows, so once its drain applies the buffer is 40 + 24 = 64 rows deep.
+      const { transport, setReplayedBaseY } = await attachedTransport(0)
+      setReplayedBaseY(40)
+      const { streamId } = latestSubscribePayload()
       emitAnchoredSnapshot(streamId, 'restored history', {
         cols: 80,
         rows: 24,
@@ -3009,24 +3057,73 @@ describe('createRemoteRuntimePtyTransport', () => {
         anchorGen: 7
       })
 
-      expect(transport.getReplayedSearchGeometry?.()).toEqual({
-        replayedAnchor: { hostRowAnchor: 100, anchorGen: 7 },
-        replayOriginRow: 0,
-        replayedRowCount: 64,
-        clientCols: 80
+      // Post-drain: geometry reflects the 64-row replayed window, not the empty
+      // pre-replay buffer (a synchronous read would have frozen replayedRowCount
+      // at 24 and demoted the match below).
+      await vi.waitFor(() => {
+        expect(transport.getReplayedSearchGeometry?.()).toEqual({
+          replayedAnchor: { hostRowAnchor: 100, anchorGen: 7 },
+          replayOriginRow: 0,
+          replayedRowCount: 64,
+          clientCols: 80
+        })
+      })
+
+      // Host row 150 = offset 50, INSIDE the 64-row replayed window: it must jump
+      // in-window, not fall out (the pre-fix under-count made offset 50 ≥ 24 and
+      // demoted this to deeper-history inline-only).
+      expect(remapAgainstFrozenGeometry(transport, 150)).toEqual({
+        kind: 'in-window',
+        clientRow: 50,
+        approximate: false
+      })
+      transport.destroy?.()
+    })
+
+    it('reconnect vs a deep prior buffer: a post-window host row is not accepted as in-window', async () => {
+      // Reconnect over a DEEP prior buffer (baseY 1000 from the previous session).
+      // The new snapshot replays a SHORTER window; its clear+replay resets the
+      // buffer to 40 + 24 = 64 rows.
+      const { transport, setReplayedBaseY } = await attachedTransport(1000)
+      setReplayedBaseY(40)
+      const { streamId } = latestSubscribePayload()
+      emitAnchoredSnapshot(streamId, 'reconnect window', {
+        cols: 80,
+        rows: 24,
+        hostRowAnchor: 100,
+        anchorGen: 7
+      })
+
+      // Post-drain: the window is 64 rows — NOT the 1024 a synchronous read of the
+      // deep prior buffer would have frozen.
+      await vi.waitFor(() => {
+        expect(transport.getReplayedSearchGeometry?.()?.replayedRowCount).toBe(64)
+      })
+
+      // Host row 600 = offset 500 is PAST the 64-row replayed window (post-snapshot
+      // live output). It must stay out-of-window; the pre-fix over-count (1024)
+      // accepted it and jumped to bogus client row 500.
+      expect(remapAgainstFrozenGeometry(transport, 600)).toEqual({ kind: 'out-of-window' })
+
+      // A row genuinely inside the window still lands on the CORRECT client row.
+      expect(remapAgainstFrozenGeometry(transport, 130)).toEqual({
+        kind: 'in-window',
+        clientRow: 30,
+        approximate: false
       })
       transport.destroy?.()
     })
 
     it('has no in-window geometry before any anchored snapshot is replayed', async () => {
-      const transport = await attachedTransport(() => ({ baseY: 10, rows: 24, cols: 80 }))
+      const { transport } = await attachedTransport(10)
       // Subscribed, but no snapshot yet → the multiplexer holds no replayed anchor.
       expect(transport.getReplayedSearchGeometry?.()).toBeNull()
       transport.destroy?.()
     })
 
     it('an anchor-less recovery replay (skew) clears the in-window geometry', async () => {
-      const transport = await attachedTransport(() => ({ baseY: 40, rows: 24, cols: 80 }))
+      const { transport, setReplayedBaseY } = await attachedTransport(0)
+      setReplayedBaseY(40)
       const { streamId } = latestSubscribePayload()
       emitAnchoredSnapshot(streamId, 'history', {
         cols: 80,
@@ -3034,7 +3131,7 @@ describe('createRemoteRuntimePtyTransport', () => {
         hostRowAnchor: 100,
         anchorGen: 7
       })
-      expect(transport.getReplayedSearchGeometry?.()).not.toBeNull()
+      await vi.waitFor(() => expect(transport.getReplayedSearchGeometry?.()).not.toBeNull())
 
       // A server-pushed recovery snapshot with NO anchor: the multiplexer replaces
       // engine state and drops its replayed anchor (the window it described is
@@ -3045,41 +3142,46 @@ describe('createRemoteRuntimePtyTransport', () => {
     })
 
     it('re-freezes geometry when a new-generation snapshot is replayed', async () => {
-      let geometry = { baseY: 40, rows: 24, cols: 80 }
-      const transport = await attachedTransport(() => geometry)
+      const { transport, setReplayedBaseY } = await attachedTransport(0)
       const { streamId } = latestSubscribePayload()
+      setReplayedBaseY(40)
       emitAnchoredSnapshot(streamId, 'gen7', {
         cols: 80,
         rows: 24,
         hostRowAnchor: 100,
         anchorGen: 7
       })
-      // The engine grew (more scrollback) before a gen-8 recovery snapshot lands.
-      geometry = { baseY: 200, rows: 24, cols: 80 }
+      // The gen-8 recovery snapshot replays a deeper window (200 scrollback rows).
+      setReplayedBaseY(200)
       emitAnchoredSnapshot(streamId, 'gen8', {
         cols: 80,
         rows: 24,
         hostRowAnchor: 500,
         anchorGen: 8
       })
-      expect(transport.getReplayedSearchGeometry?.()).toEqual({
-        replayedAnchor: { hostRowAnchor: 500, anchorGen: 8 },
-        replayOriginRow: 0,
-        replayedRowCount: 224,
-        clientCols: 80
+      // Only the LATEST snapshot's post-drain freeze wins (freeze-seq guard).
+      await vi.waitFor(() => {
+        expect(transport.getReplayedSearchGeometry?.()).toEqual({
+          replayedAnchor: { hostRowAnchor: 500, anchorGen: 8 },
+          replayOriginRow: 0,
+          replayedRowCount: 224,
+          clientCols: 80
+        })
       })
       transport.destroy?.()
     })
 
     it('registers a live binding in the remote federated-pane registry and unregisters on destroy', async () => {
-      const transport = await attachedTransport(() => ({ baseY: 40, rows: 24, cols: 80 }))
+      const { transport, setReplayedBaseY } = await attachedTransport(0)
       const { streamId } = latestSubscribePayload()
+      setReplayedBaseY(40)
       emitAnchoredSnapshot(streamId, 'history', {
         cols: 80,
         rows: 24,
         hostRowAnchor: 100,
         anchorGen: 7
       })
+      await vi.waitFor(() => expect(transport.getReplayedSearchGeometry?.()).not.toBeNull())
       // Same post-reset module graph as the transport, so it sees the registration.
       const { listRemoteFederatedPaneBindings } = await import(
         '@/lib/federated-search/remote-federated-pane-registry'

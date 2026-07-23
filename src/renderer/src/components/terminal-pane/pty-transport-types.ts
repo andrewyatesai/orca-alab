@@ -210,4 +210,11 @@ export type IpcPtyTransportOptions = {
    *  snapshot anchor (fed §2.4 client side). Absent → remote federated search
    *  for this pane has no in-window remap and stays inline-only. */
   readClientReplayGeometry?: () => { baseY: number; rows: number; cols: number } | null
+  /** Remote-runtime only: resolves once the pane's ASYNCHRONOUS snapshot-replay
+   *  drain has flushed into the engine buffer. Production applies a snapshot
+   *  replay off the replay-write queue, so readClientReplayGeometry must be read
+   *  AFTER this settles (fed §2.4) — a synchronous read sees the PRE-replay
+   *  buffer (under-counts on fresh attach, over-counts on reconnect). Absent →
+   *  the transport falls back to the synchronous read (no-op/legacy callers). */
+  awaitReplayApplied?: () => Promise<void>
 }

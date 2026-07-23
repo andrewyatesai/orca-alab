@@ -103,7 +103,8 @@ export function createRemoteRuntimePtyTransport(
     onAgentBecameWorking,
     onAgentExited,
     onAgentStatus,
-    readClientReplayGeometry
+    readClientReplayGeometry,
+    awaitReplayApplied
   } = opts
   let connected = false
   let destroyed = false
@@ -119,6 +120,10 @@ export function createRemoteRuntimePtyTransport(
   let frozenReplayGeometry:
     | { anchor: RemoteRuntimeReplayedHostAnchor } & Omit<ReplayedSearchGeometry, 'replayedAnchor'>
     | null = null
+  // Why: the geometry freeze is deferred to after the async replay drain; this
+  // monotonic token lets only the LATEST snapshot's post-drain freeze win when
+  // several drains settle (a stale one must not clobber a newer window).
+  let replayGeometryFreezeSeq = 0
   // Removes this pane from the remote federated-search registry on destroy.
   let unregisterFederatedPane: (() => void) | null = null
   let desiredViewport: { cols: number; rows: number } | null = null
@@ -796,20 +801,44 @@ export function createRemoteRuntimePtyTransport(
             })
           }
           // Fed §2.4: freeze the client replay geometry for THIS anchored
-          // snapshot right after the engine replay applied it. A clearing/initial
-          // replay lands the snapshot's first row at absolute row 0; later live
-          // output only EXTENDS the buffer past the replayed window (those rows
-          // remap out-of-window, never a wrong-row jump).
+          // snapshot once the engine replay has ACTUALLY applied it. The replay
+          // above drains ASYNCHRONOUSLY (processData → onReplayData → the pane's
+          // replay-write queue), so reading geometry synchronously here captures
+          // the PRE-replay buffer — under-counting on fresh attach (an in-window
+          // history match gets demoted to inline) and over-counting on reconnect
+          // against a deep prior buffer (a post-window host row is accepted and
+          // jumps to a WRONG row). Wait for the drain to settle, then read: a
+          // clearing/initial replay lands the snapshot's first row at absolute
+          // row 0; later live output only EXTENDS the buffer past the replayed
+          // window (those rows remap out-of-window, never a wrong-row jump).
           if (isCurrentSubscription() && meta?.replayedHostAnchor && readClientReplayGeometry) {
-            const clientGeometry = readClientReplayGeometry()
-            frozenReplayGeometry = clientGeometry
-              ? {
-                  anchor: meta.replayedHostAnchor,
-                  replayOriginRow: 0,
-                  replayedRowCount: clientGeometry.baseY + clientGeometry.rows,
-                  clientCols: clientGeometry.cols
-                }
-              : null
+            const anchor = meta.replayedHostAnchor
+            const freezeSeq = ++replayGeometryFreezeSeq
+            const applyFrozenGeometry = (): void => {
+              if (
+                !isCurrentSubscription() ||
+                freezeSeq !== replayGeometryFreezeSeq ||
+                !readClientReplayGeometry
+              ) {
+                return
+              }
+              const clientGeometry = readClientReplayGeometry()
+              frozenReplayGeometry = clientGeometry
+                ? {
+                    anchor,
+                    replayOriginRow: 0,
+                    replayedRowCount: clientGeometry.baseY + clientGeometry.rows,
+                    clientCols: clientGeometry.cols
+                  }
+                : null
+            }
+            if (awaitReplayApplied) {
+              // A failed drain leaves the prior frozen geometry, which the
+              // multiplexer's live-anchor gate collapses to inline on skew.
+              void awaitReplayApplied().then(applyFrozenGeometry, () => {})
+            } else {
+              applyFrozenGeometry()
+            }
           }
         },
         onSubscribed: () => {

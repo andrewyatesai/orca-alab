@@ -418,6 +418,28 @@ export const test = base.extend<OrcaTestFixtures, OrcaWorkerFixtures>({
       }
     }, seededRepoId)
 
+    // Why: a fresh isolated profile has no persisted active worktree, so the
+    // terminal-first walkthrough (startup-floating-workspace.ts) can open the
+    // scratch floating workspace before the activation above lands — leaving a
+    // SECOND visible TabBar that breaks strict-mode locators like
+    // getByRole('button', { name: 'New tab' }). Close it here; once the seeded
+    // worktree is active any later startup decision self-suppresses, and
+    // floating-workspace suites open the panel themselves.
+    const minimizeFloatingWorkspace = page
+      .getByRole('button', { name: 'Minimize floating workspace' })
+      .first()
+    const floatingWorkspaceOpened = await minimizeFloatingWorkspace
+      .waitFor({ state: 'visible', timeout: 1_000 })
+      .then(() => true)
+      .catch(() => false)
+    if (floatingWorkspaceOpened) {
+      await minimizeFloatingWorkspace.click()
+      await minimizeFloatingWorkspace.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {
+        // Tolerated: the toggle-button variant stays visible when the panel
+        // closes; the panel's own controls (and its TabBar) leave the a11y tree.
+      })
+    }
+
     // Best-effort seed of a baseline terminal tab when a fresh isolated
     // profile has none yet.
     // Why: terminal-focused suites call ensureTerminalVisible(), which does the

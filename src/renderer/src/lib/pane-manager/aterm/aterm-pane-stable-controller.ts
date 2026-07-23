@@ -47,6 +47,14 @@ export function createStableAtermPaneController(
     setUrlLinkContext: (context) => current().setUrlLinkContext(context),
     setLinkProviderSource: (source) => current().setLinkProviderSource(source),
     resetLinkHoverCache: () => current().resetLinkHoverCache(),
+    // Optional context-menu seams: a rebuilt (older) wiring may lack them — the
+    // delegates degrade to the same "no target / no output" the menu hides on.
+    contextLinkTargetAt: (clientX, clientY) =>
+      current().contextLinkTargetAt?.(clientX, clientY) ?? Promise.resolve(null),
+    openContextLinkTarget: (target, opts) => current().openContextLinkTarget?.(target, opts),
+    contextFileLinkAbsolutePath: (rawPathText) =>
+      current().contextFileLinkAbsolutePath?.(rawPathText) ?? null,
+    lastCommandOutputAsync: () => current().lastCommandOutputAsync?.() ?? Promise.resolve(null),
     bindSpillPaneKey: (paneKey) => current().bindSpillPaneKey(paneKey),
     onSelectionMutation: options.onSelectionMutation,
     updateTheme: (colors) => current().updateTheme(colors),

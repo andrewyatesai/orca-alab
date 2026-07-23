@@ -2632,7 +2632,18 @@
             "cff67afad1": "컨텍스트 복사",
             "openLinkDefaultBrowser": "기본 브라우저에서 열기",
             "projectQuickCommandProvenance": "Defined in orca.yaml",
-            "reviewOrcaYamlTrust": "Review orca.yaml trust…"
+            "reviewOrcaYamlTrust": "Review orca.yaml trust…",
+            "revealInFinder": "Finder에서 보기",
+            "revealInFileExplorer": "파일 탐색기에서 보기",
+            "revealInFileManager": "파일 관리자에서 보기",
+            "copyLastCommandOutput": "마지막 명령 출력 복사",
+            "searchForSelection": "“{{selection}}” 검색",
+            "openFileTarget": "파일 열기",
+            "openLinkTarget": "링크 열기",
+            "copyPathTarget": "경로 복사",
+            "copyLinkTarget": "링크 복사",
+            "clearScreenAndScrollback": "화면 및 스크롤백 지우기",
+            "terminalSettings": "터미널 설정…"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "데몬 재시작",
@@ -2710,6 +2721,19 @@
                 "failureTitle": "Copy failed — clipboard unchanged",
                 "failureDescription": "The clipboard write could not be verified. Try copying again.",
                 "openSetting": "Open Setting"
+              }
+            },
+            "context": {
+              "menu": {
+                "link": {
+                  "target": {
+                    "pathCopied": "경로가 복사됨",
+                    "linkCopied": "링크가 복사됨",
+                    "revealFailed": "파일을 표시할 수 없습니다. 이동되었거나 삭제되었을 수 있습니다",
+                    "outputEvicted": "명령 출력이 스크롤백 한도를 벗어났습니다",
+                    "outputCopied": "명령 출력이 복사됨"
+                  }
+                }
               }
             }
           },

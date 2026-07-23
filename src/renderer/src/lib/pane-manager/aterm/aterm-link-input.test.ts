@@ -269,6 +269,157 @@ describe('attachAtermLinkInput tooltip notifications', () => {
   })
 })
 
+describe('attachAtermLinkInput context-menu targets (#9279)', () => {
+  function mountForContext(overrides: {
+    term?: Partial<Record<string, unknown>>
+    getFileLinkOpener?: () => ((raw: string, sys: boolean) => void) | null
+    getLinkProviders?: () => ILinkProvider[]
+  }): {
+    input: AtermLinkInput
+    openUrl: ReturnType<typeof vi.fn>
+    openOscUrl: ReturnType<typeof vi.fn>
+  } {
+    const canvas = document.createElement('canvas')
+    document.body.appendChild(canvas)
+    const term = {
+      is_alt_screen: false,
+      is_mouse_tracking: false,
+      display_origin_absolute: 0,
+      link_at: () => undefined,
+      ...overrides.term
+    } as unknown as AtermTerminal
+    const openUrl = vi.fn()
+    const openOscUrl = vi.fn()
+    const input = attachAtermLinkInput({
+      canvas,
+      term,
+      metrics: { dpr: 1, cellWidth: CELL_W, cellHeight: CELL_H },
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      openUrl,
+      openOscUrl,
+      getFileLinkOpener: overrides.getFileLinkOpener ?? (() => null),
+      getLinkProviders: overrides.getLinkProviders
+    })
+    return { input, openUrl, openOscUrl }
+  }
+
+  it('contextLinkTargetAt returns the engine hit at the right-clicked cell', async () => {
+    const linkAt = vi.fn((row: number, col: number) =>
+      row === 1 && col === 3
+        ? { url: 'https://example.test/', kind: 1, start_col: 0, end_col: 6 }
+        : undefined
+    )
+    const { input } = mountForContext({ term: { link_at: linkAt } })
+    // Cell (col 3, row 1) center in client px.
+    const target = await input.contextLinkTargetAt(3 * CELL_W + 2, 1 * CELL_H + 2)
+    expect(target).toEqual({ kind: 'url', url: 'https://example.test/' })
+    // A miss at another cell resolves null, not a stale target.
+    expect(await input.contextLinkTargetAt(8 * CELL_W + 2, 0)).toBeNull()
+    input.dispose()
+  })
+
+  it('maps engine kinds: osc8 and file targets; kind-3 "other" yields no target', async () => {
+    const mk = (kind: number) =>
+      mountForContext({
+        term: { link_at: () => ({ url: 'raw-span', kind, start_col: 0, end_col: 6 }) }
+      })
+    const osc = mk(0)
+    expect(await osc.input.contextLinkTargetAt(2, 2)).toEqual({ kind: 'osc8', url: 'raw-span' })
+    const file = mk(2)
+    expect(await file.input.contextLinkTargetAt(2, 2)).toEqual({
+      kind: 'file',
+      rawPathText: 'raw-span'
+    })
+    const other = mk(3)
+    expect(await other.input.contextLinkTargetAt(2, 2)).toBeNull()
+    osc.input.dispose()
+    file.input.dispose()
+    other.input.dispose()
+  })
+
+  it('resolves a FRESH worker hit via linkAtAsync when the facade exposes it', async () => {
+    const { input } = mountForContext({
+      term: {
+        link_at: () => undefined, // lagging sync snapshot has no hit
+        linkAtAsync: () =>
+          Promise.resolve({ url: 'file:///srv/log.txt', kind: 0, start_col: 0, end_col: 6 })
+      }
+    })
+    expect(await input.contextLinkTargetAt(2, 2)).toEqual({
+      kind: 'osc8',
+      url: 'file:///srv/log.txt'
+    })
+    input.dispose()
+  })
+
+  it('falls back to provider links when the engine reports none', async () => {
+    const link = makeLink()
+    const { input } = mountForContext({ getLinkProviders: () => [providerWithLink(link)] })
+    const target = await input.contextLinkTargetAt(2 * CELL_W + 2, 2)
+    expect(target?.kind).toBe('provider')
+    if (target?.kind !== 'provider') {
+      return
+    }
+    expect(target.text).toBe('term_abc')
+    target.activate(new MouseEvent('click'))
+    expect(link.activate).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(link.activate).mock.calls[0][1]).toBe('term_abc')
+    input.dispose()
+  })
+
+  it('returns null on alt-screen and under mouse tracking', async () => {
+    const altScreen = mountForContext({
+      term: {
+        is_alt_screen: true,
+        link_at: () => ({ url: 'https://x/', kind: 1, start_col: 0, end_col: 3 })
+      }
+    })
+    expect(await altScreen.input.contextLinkTargetAt(2, 2)).toBeNull()
+    const tracking = mountForContext({
+      term: {
+        is_mouse_tracking: true,
+        link_at: () => ({ url: 'https://x/', kind: 1, start_col: 0, end_col: 3 })
+      }
+    })
+    expect(await tracking.input.contextLinkTargetAt(2, 2)).toBeNull()
+    altScreen.input.dispose()
+    tracking.input.dispose()
+  })
+
+  it('openContextTarget routes each kind through the click path openers', () => {
+    const fileOpener = vi.fn()
+    const { input, openUrl, openOscUrl } = mountForContext({
+      getFileLinkOpener: () => fileOpener
+    })
+
+    input.openContextTarget({ kind: 'url', url: 'https://a/' }, { openWithSystemDefault: false })
+    expect(openUrl).toHaveBeenCalledWith('https://a/', { forceSystemBrowser: false })
+
+    input.openContextTarget({ kind: 'osc8', url: 'file:///b' }, { openWithSystemDefault: true })
+    expect(openOscUrl).toHaveBeenCalledTimes(1)
+    expect(openOscUrl.mock.calls[0][0]).toBe('file:///b')
+    // The scheme router reads Shift as the system-default hatch off the event.
+    expect((openOscUrl.mock.calls[0][1] as MouseEvent).shiftKey).toBe(true)
+
+    input.openContextTarget(
+      { kind: 'file', rawPathText: 'src/app.ts:12' },
+      { openWithSystemDefault: false }
+    )
+    expect(fileOpener).toHaveBeenCalledWith('src/app.ts:12', false)
+
+    const activate = vi.fn()
+    input.openContextTarget({ kind: 'provider', text: 'term_x', activate }, {
+      openWithSystemDefault: false
+    })
+    expect(activate).toHaveBeenCalledTimes(1)
+    // Provider activates re-check the platform modifier; the synthesized event must carry it.
+    const event = activate.mock.calls[0][0] as MouseEvent
+    expect(event.metaKey || event.ctrlKey).toBe(true)
+    input.dispose()
+  })
+})
+
 describe('attachAtermLinkInput resetHoverCache', () => {
   it('re-evaluates the SAME cell after a reset (reveal recovery), and only then', async () => {
     const canvas = document.createElement('canvas')

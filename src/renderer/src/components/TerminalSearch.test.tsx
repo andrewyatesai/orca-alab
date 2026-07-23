@@ -70,7 +70,10 @@ function makeSurface(): {
 let root: Root | null = null
 let container: HTMLDivElement | null = null
 
-function renderSearch(surface: AtermSearchSurface): void {
+function renderSearch(
+  surface: AtermSearchSurface,
+  seedQueryRef?: React.RefObject<string | null>
+): void {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -84,6 +87,7 @@ function renderSearch(surface: AtermSearchSurface): void {
         onClose={() => undefined}
         atermSearch={surface}
         searchStateRef={searchStateRef}
+        seedQueryRef={seedQueryRef}
       />
     )
   })
@@ -211,6 +215,26 @@ describe('TerminalSearch find-as-you-type', () => {
     typeQuery('')
     expect(surface.clearSearch).toHaveBeenCalled() // no 75ms wait to clear highlights
     expect(container!.querySelector('[data-terminal-search-pending]')).toBeNull()
+  })
+
+  it('seeds the query from seedQueryRef on open and runs an immediate find (CM-A1)', () => {
+    const { surface, findCalls } = makeSurface()
+    const seedQueryRef = { current: 'npm ERR! code 1' as string | null }
+    renderSearch(surface, seedQueryRef)
+
+    // The seed bypasses the keystroke debounce — the user already committed to it.
+    expect(findCalls).toEqual([['npm ERR! code 1', false, false]])
+    expect(seedQueryRef.current).toBeNull() // one-shot: consumed on open
+    expect(container!.querySelector('input')!.value).toBe('npm ERR! code 1')
+
+    // Typing afterwards behaves exactly as today: debounced, not immediate.
+    typeQuery('npm')
+    expect(findCalls).toHaveLength(1)
+    advance(SEARCH_DEBOUNCE_MS)
+    expect(findCalls).toEqual([
+      ['npm ERR! code 1', false, false],
+      ['npm', false, false]
+    ])
   })
 
   it('renders the ~approximate indicator while streaming results are stale (P6)', async () => {

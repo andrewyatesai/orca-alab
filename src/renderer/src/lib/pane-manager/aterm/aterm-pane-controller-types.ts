@@ -1,4 +1,9 @@
-import type { AtermFileLinkOpener, AtermLinkProviderSource } from './aterm-link-input'
+import type {
+  AtermContextLinkTarget,
+  AtermFileLinkOpener,
+  AtermLinkProviderSource
+} from './aterm-link-input'
+import type { AtermLastCommandOutput } from './aterm-last-command-output'
 import type { AtermSearchMarkerModel } from './aterm-search-marker-model'
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import type { AtermRendererReplySurface } from './aterm-renderer-reply-surface'
@@ -38,6 +43,26 @@ export type AtermPaneController = AtermRendererReplySurface & {
   selectionText: () => string
   /** Detected link at a display cell (url + kind), or null — for hit-test/tests. */
   linkAt: (row: number, col: number) => { url: string; kind: number } | null
+  /** Link/path target under a client point at context-menu open (#9279): fresh
+   *  engine hit (worker query when available) with provider fallback; null on
+   *  alt-screen / mouse tracking. Optional — feature-detected by the menu so
+   *  older wirings/mocks keep compiling. */
+  contextLinkTargetAt?: (
+    clientX: number,
+    clientY: number
+  ) => Promise<AtermContextLinkTarget | null>
+  /** Open a resolved context target through the SAME routing as modifier-click
+   *  (in-app preference, scheme-aware OSC-8, late-bound file opener, provider). */
+  openContextLinkTarget?: (
+    target: AtermContextLinkTarget,
+    opts: { openWithSystemDefault: boolean }
+  ) => void
+  /** Absolute path for a file target's raw span (Reveal in Finder/File Manager),
+   *  resolved against the pane's live cwd/home link context; null until bound. */
+  contextFileLinkAbsolutePath?: (rawPathText: string) => string | null
+  /** Last completed OSC-133 block's output (CM-A3), the eviction marker, or null
+   *  when no block completed / the engine binding is absent (feature-detected). */
+  lastCommandOutputAsync?: () => Promise<AtermLastCommandOutput | null>
   /** Run an in-terminal search: highlights matches, scrolls to the nearest, and
    *  returns the match count. Empty query clears highlights. `isRegex` compiles the
    *  query as a regex (invalid pattern → 0 matches). */

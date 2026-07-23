@@ -229,6 +229,9 @@ export type AtermWorkerQuery = {
     | 'cellText'
     | 'cellWide'
     | 'linkAt'
+    // Last completed OSC-133 block's output JSON (CM-A3); null when the engine
+    // has no completed block or the loaded wasm lacks the binding (GPU module).
+    | 'lastCommandOutput'
     // Run a find NOW and answer with `{count, activeIndex}` JSON. Rides the query
     // channel (not a command) so the monotonic id doubles as the request GENERATION:
     // the main thread cancels a superseded find's promise instantly, and the worker

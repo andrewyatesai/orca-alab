@@ -147,6 +147,8 @@ export type WorkerEngine = Pick<
 > & {
   /** Optional while Orca and aterm generated artifacts roll independently. */
   note_matrix_rain_signal?: (code: number, weight: number) => void
+  /** CM-A3 block read; optional — the GPU module doesn't export it (yet). */
+  last_command_output?: () => string | undefined
 }
 
 /** The per-pane engine + the normalized hot-path ops the worker terminal drives. */

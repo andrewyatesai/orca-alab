@@ -26,6 +26,9 @@ export type AtermWorkerAsyncFacade = {
   /** Fresh link hit at a cell via a worker round-trip (sync link_at returns the lagging
    *  snapshot). */
   linkAtAsync: (row: number, col: number) => Promise<AtermWorkerLinkHit | null>
+  /** Last completed OSC-133 block's output JSON via a worker round-trip (CM-A3);
+   *  null when no block completed or the worker's wasm lacks the binding. */
+  lastCommandOutputAsync: () => Promise<string | null>
   /** Clear the worker's hover so its next STATE reports no hoverLink/hoverCursor (the
    *  loader drives the canvas cursor from that state on the worker path). */
   clearHover: () => void
@@ -75,6 +78,8 @@ export type AtermWorkerQueryChannel = {
   serializeScrollbackAsync: (maxRows?: number) => Promise<string>
   selectionTextAsync: () => Promise<string>
   linkAtAsync: (row: number, col: number) => Promise<AtermWorkerLinkHit | null>
+  /** Raw last-command-output JSON (CM-A3), or null (no block / no binding). */
+  lastCommandOutputAsync: () => Promise<string | null>
   /** Find via the query channel with request-generation semantics: issuing a new find
    *  settles the previous in-flight one to null IMMEDIATELY (superseded queries never
    *  block newer ones), and its stale result — if the worker still answers — is
@@ -228,6 +233,10 @@ export function createAtermWorkerQueryChannel(
       } catch {
         return null
       }
+    },
+    lastCommandOutputAsync: async () => {
+      const { value } = await send('lastCommandOutput')
+      return typeof value === 'string' ? value : null
     }
   }
 }

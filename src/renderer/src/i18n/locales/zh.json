@@ -2632,7 +2632,18 @@
             "cff67afad1": "复制上下文",
             "openLinkDefaultBrowser": "在默认浏览器中打开",
             "projectQuickCommandProvenance": "Defined in orca.yaml",
-            "reviewOrcaYamlTrust": "Review orca.yaml trust…"
+            "reviewOrcaYamlTrust": "Review orca.yaml trust…",
+            "revealInFinder": "在 Finder 中显示",
+            "revealInFileExplorer": "在文件资源管理器中显示",
+            "revealInFileManager": "在文件管理器中显示",
+            "copyLastCommandOutput": "复制上一条命令输出",
+            "searchForSelection": "搜索“{{selection}}”",
+            "openFileTarget": "打开文件",
+            "openLinkTarget": "打开链接",
+            "copyPathTarget": "复制路径",
+            "copyLinkTarget": "复制链接",
+            "clearScreenAndScrollback": "清除屏幕和回滚缓冲区",
+            "terminalSettings": "终端设置…"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "重新启动守护进程",
@@ -2710,6 +2721,19 @@
                 "failureTitle": "Copy failed — clipboard unchanged",
                 "failureDescription": "The clipboard write could not be verified. Try copying again.",
                 "openSetting": "Open Setting"
+              }
+            },
+            "context": {
+              "menu": {
+                "link": {
+                  "target": {
+                    "pathCopied": "已复制路径",
+                    "linkCopied": "已复制链接",
+                    "revealFailed": "无法显示文件 — 它可能已被移动或删除",
+                    "outputEvicted": "命令输出已超出回滚缓冲区上限",
+                    "outputCopied": "已复制命令输出"
+                  }
+                }
               }
             }
           },

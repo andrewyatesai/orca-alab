@@ -36,7 +36,14 @@ vi.mock('@/components/ui/dropdown-menu', async () => {
     }
   }
 })
-vi.mock('@/i18n/i18n', () => ({ translate: (_key: string, fallback: string) => fallback }))
+vi.mock('@/i18n/i18n', () => ({
+  // Interpolates like i18next so labels with {{placeholders}} are assertable.
+  translate: (_key: string, fallback: string, values?: Record<string, string>) =>
+    Object.entries(values ?? {}).reduce(
+      (text, [key, value]) => text.replace(`{{${key}}}`, value),
+      fallback
+    )
+}))
 vi.mock('@/lib/agent-catalog', () => ({ AgentIcon: () => null }))
 vi.mock('./terminal-context-menu-dismiss', () => ({
   shouldIgnoreTerminalMenuPointerDownOutside: () => false
@@ -74,6 +81,16 @@ function renderMenu(overrides: Record<string, unknown> = {}): string {
     menuPaneIsExpanded: false,
     onCopy: vi.fn(),
     onPaste: vi.fn(),
+    menuSelectionText: '',
+    onSearchSelection: vi.fn(),
+    linkTargetKind: null,
+    onOpenLinkTarget: vi.fn(),
+    onCopyLinkTarget: vi.fn(),
+    canRevealLinkTarget: false,
+    onRevealLinkTarget: vi.fn(),
+    canCopyLastCommandOutput: false,
+    onCopyLastCommandOutput: vi.fn(),
+    onOpenTerminalSettings: vi.fn(),
     canComposeBox: true,
     onComposeBox: vi.fn(),
     onSplitRight: vi.fn(),
@@ -202,6 +219,124 @@ describe('TerminalContextMenu', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(onReviewProjectQuickCommands).toHaveBeenCalledTimes(1)
     expect(onQuickCommand).not.toHaveBeenCalled()
+  })
+
+  it('shows Search Selection only while the pane has a selection (#9279 A1)', () => {
+    const onSearchSelection = vi.fn()
+    renderMenu({ menuSelectionText: 'npm ERR! code 1', onSearchSelection })
+    const searchItem = items.list.find((item) =>
+      deepChildrenText(item.children).includes('Search for')
+    )
+    expect(searchItem).toBeDefined()
+    expect(deepChildrenText(searchItem?.children)).toContain('npm ERR! code 1')
+    searchItem?.onSelect?.()
+    expect(onSearchSelection).toHaveBeenCalledTimes(1)
+
+    items.list = []
+    renderMenu({ menuSelectionText: '' })
+    expect(
+      items.list.find((item) => deepChildrenText(item.children).includes('Search for'))
+    ).toBeUndefined()
+  })
+
+  it('ellipsizes a long selection in the Search label but keeps the action', () => {
+    renderMenu({ menuSelectionText: 'x'.repeat(60) })
+    const searchItem = items.list.find((item) =>
+      deepChildrenText(item.children).includes('Search for')
+    )
+    expect(deepChildrenText(searchItem?.children)).toContain(`${'x'.repeat(24)}…`)
+  })
+
+  it('renders Open/Copy link items only when a link target resolved (#9279 A2)', () => {
+    renderMenu({})
+    expect(
+      items.list.find((item) => childrenText(item.children) === 'Open Link')
+    ).toBeUndefined()
+
+    items.list = []
+    const onOpenLinkTarget = vi.fn()
+    const onCopyLinkTarget = vi.fn()
+    renderMenu({ linkTargetKind: 'url', onOpenLinkTarget, onCopyLinkTarget })
+    const openItem = items.list.find((item) => childrenText(item.children) === 'Open Link')
+    const copyItem = items.list.find((item) => childrenText(item.children) === 'Copy Link')
+    expect(openItem).toBeDefined()
+    expect(copyItem).toBeDefined()
+    openItem?.onSelect?.()
+    copyItem?.onSelect?.()
+    expect(onOpenLinkTarget).toHaveBeenCalledTimes(1)
+    expect(onCopyLinkTarget).toHaveBeenCalledTimes(1)
+  })
+
+  it('labels file targets Open File / Copy Path', () => {
+    renderMenu({ linkTargetKind: 'file' })
+    expect(items.list.find((item) => childrenText(item.children) === 'Open File')).toBeDefined()
+    expect(items.list.find((item) => childrenText(item.children) === 'Copy Path')).toBeDefined()
+    expect(items.list.find((item) => childrenText(item.children) === 'Open Link')).toBeUndefined()
+  })
+
+  it('hides Reveal in File Manager for SSH and remote-runtime panes (canRevealLinkTarget=false)', () => {
+    renderMenu({ linkTargetKind: 'file', canRevealLinkTarget: false })
+    expect(
+      items.list.find((item) => childrenText(item.children).startsWith('Reveal in'))
+    ).toBeUndefined()
+
+    items.list = []
+    const onRevealLinkTarget = vi.fn()
+    renderMenu({ linkTargetKind: 'file', canRevealLinkTarget: true, onRevealLinkTarget })
+    const revealItem = items.list.find((item) =>
+      childrenText(item.children).startsWith('Reveal in')
+    )
+    expect(revealItem).toBeDefined()
+    // Linux userAgent (stubbed in beforeEach) → the generic file-manager label.
+    expect(childrenText(revealItem?.children)).toBe('Reveal in File Manager')
+    revealItem?.onSelect?.()
+    expect(onRevealLinkTarget).toHaveBeenCalledTimes(1)
+  })
+
+  it('Copy Last Command Output is hidden when the engine reports no completed block (CM-A3)', () => {
+    renderMenu({ canCopyLastCommandOutput: false })
+    expect(
+      items.list.find((item) => childrenText(item.children) === 'Copy Last Command Output')
+    ).toBeUndefined()
+
+    items.list = []
+    const onCopyLastCommandOutput = vi.fn()
+    renderMenu({ canCopyLastCommandOutput: true, onCopyLastCommandOutput })
+    const outputItem = items.list.find(
+      (item) => childrenText(item.children) === 'Copy Last Command Output'
+    )
+    expect(outputItem).toBeDefined()
+    outputItem?.onSelect?.()
+    expect(onCopyLastCommandOutput).toHaveBeenCalledTimes(1)
+  })
+
+  it('Clear Screen & Scrollback routes to onClearScreen (CM-A4 relabel)', () => {
+    const onClearScreen = vi.fn()
+    renderMenu({ onClearScreen })
+    expect(
+      items.list.find((item) => childrenText(item.children) === 'Clear Screen')
+    ).toBeUndefined()
+    const clearItem = items.list.find(
+      (item) => childrenText(item.children) === 'Clear Screen & Scrollback'
+    )
+    expect(clearItem).toBeDefined()
+    clearItem?.onSelect?.()
+    expect(onClearScreen).toHaveBeenCalledTimes(1)
+  })
+
+  it('Terminal Settings item closes the menu first, then routes to onOpenTerminalSettings (CM-A5)', () => {
+    const calls: string[] = []
+    renderMenu({
+      onOpenChange: vi.fn((open: boolean) => calls.push(`openChange:${open}`)),
+      onOpenTerminalSettings: vi.fn(() => calls.push('openSettings'))
+    })
+    const settingsItem = items.list.find(
+      (item) => childrenText(item.children) === 'Terminal Settings…'
+    )
+    expect(settingsItem).toBeDefined()
+    settingsItem?.onSelect?.()
+    // Why: settings navigation swaps the view; the menu must be force-closed FIRST.
+    expect(calls).toEqual(['openChange:false', 'openSettings'])
   })
 
   it('enables project quick commands once trusted and dispatches through onQuickCommand', () => {

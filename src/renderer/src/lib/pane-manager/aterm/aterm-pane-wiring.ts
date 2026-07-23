@@ -4,6 +4,8 @@ import { buildAtermThemeMutators } from './aterm-controller-theme-mutators'
 import { attachAtermPointerInputs } from './aterm-pointer-input-bundle'
 import { createAtermPaneGridSizing, type AtermPaneGridSizing } from './aterm-pane-grid-sizing'
 import type { AtermFileLinkOpener, AtermLinkProviderSource } from './aterm-link-input'
+import { resolveAtermFileLinkAbsolutePath } from './aterm-file-link-reveal'
+import { buildAtermLastCommandOutputMember } from './aterm-last-command-output'
 import { createAtermDrawScheduler } from './aterm-draw-scheduler'
 import { createAtermEffectsDrive, type AtermEffectsDriveEngine } from './aterm-effects-drive'
 import { createAtermPaneSearchState } from './aterm-pane-search-state'
@@ -385,6 +387,16 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     setUrlLinkContext: (context: AtermLinkContext) => void (shared.activeLinkContext = context),
     setLinkProviderSource: (src: AtermLinkProviderSource) => void (shared.linkProviderSource = src),
     resetLinkHoverCache: () => linkInput.resetHoverCache(),
+    // Context-menu link/path target seams (#9279): resolve at the right-click
+    // point, open through the click path's routing, resolve reveal paths against
+    // the late-bound cwd/home context.
+    contextLinkTargetAt: (clientX, clientY) => linkInput.contextLinkTargetAt(clientX, clientY),
+    openContextLinkTarget: (target, opts) => linkInput.openContextTarget(target, opts),
+    contextFileLinkAbsolutePath: (rawPathText) =>
+      resolveAtermFileLinkAbsolutePath(rawPathText, shared.activeLinkContext),
+    // CM-A3: worker facades answer via the query channel; in-process reads the
+    // feature-detected engine binding.
+    lastCommandOutputAsync: buildAtermLastCommandOutputMember(term),
     bindSpillPaneKey: spill.bindSpillPaneKey,
     onSelectionMutation: (handler: () => void) => void selectionMutationListeners.add(handler),
     resize: (nextCols: number, nextRows: number) => gridSizing.resize(nextCols, nextRows),

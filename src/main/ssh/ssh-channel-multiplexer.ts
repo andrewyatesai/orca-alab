@@ -509,25 +509,25 @@ export class SshChannelMultiplexer {
   private startConnectionHealthTimer(): void {
     let lastTickAt = Date.now()
     this.connectionHealthTimer = setInterval(() => {
-      this.sendKeepAlive()
-
-      if (this.disposed) {
-        return
-      }
-
       const now = Date.now()
       const sinceLastTick = now - lastTickAt
       lastTickAt = now
       // Why: after sleep/App Nap the pre-pause keepalive looks stale on the
       // first post-wake tick, killing a healthy link (#7773). Reset staleness
-      // tracking, probe with a fresh keepalive, and let the NEXT full window
-      // make an honest liveness determination.
-      if (sinceLastTick > WAKE_GAP_MS) {
+      // tracking BEFORE the probe so the single keepalive below doubles as the
+      // fresh probe, and the NEXT full window makes an honest liveness call.
+      const resumedAfterWake = sinceLastTick > WAKE_GAP_MS
+      if (resumedAfterWake) {
         this.lastReceivedAt = now
         for (const seq of this.unackedTimestamps.keys()) {
           this.unackedTimestamps.set(seq, now)
         }
-        this.sendKeepAlive()
+      }
+
+      this.sendKeepAlive()
+
+      // Nothing more to do once disposed, or on the wake tick (reset already ran).
+      if (this.disposed || resumedAfterWake) {
         return
       }
 

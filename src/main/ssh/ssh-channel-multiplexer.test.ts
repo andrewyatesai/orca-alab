@@ -368,6 +368,20 @@ describe('SshChannelMultiplexer', () => {
       expect(transport.written.at(-1)![0]).toBe(MessageType.KeepAlive)
     })
 
+    it('sends exactly one keepalive on the post-wake tick, not two (#9880)', () => {
+      const countKeepAlives = (): number =>
+        transport.written.filter((frame) => frame[0] === MessageType.KeepAlive).length
+
+      vi.advanceTimersByTime(5_000)
+      vi.setSystemTime(Date.now() + 60 * 60 * 1000)
+
+      const before = countKeepAlives()
+      // A single post-wake tick must fold the staleness-reset probe into the
+      // normal keepalive send: one frame, not the pre-fix two.
+      vi.advanceTimersByTime(5_000)
+      expect(countKeepAlives() - before).toBe(1)
+    })
+
     it('keeps the link alive after wake when frames resume', () => {
       vi.advanceTimersByTime(5_000)
       vi.setSystemTime(Date.now() + 60 * 60 * 1000)

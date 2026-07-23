@@ -21,8 +21,13 @@ import type {
   AtermWorkerFederatedFindPane
 } from './aterm-worker-federated-protocol'
 
-// §4 admission constants: the audit-measured standing index cost and the hard
-// worker-resident budget past which a pane is skipped rather than indexed.
+// §4 admission constants: a CONSERVATIVE upper-bound on the standing index cost
+// and the hard worker-resident budget past which a pane is skipped rather than
+// indexed. 1283 is the unreproducible external-audit figure (see
+// CODEX-ROADMAP-REVIEW.md — corpus/allocator/query-mode dependent, not in-tree
+// reproducible); the honest post-sortedvec measured cost is ~522/339/394 B/line
+// (rust/aterm/docs/measured/search-posting-containers.md), with the ≤250 target
+// still OPEN. The over-estimate is deliberate: admission skips sooner, never later.
 export const FEDERATED_INDEX_BYTES_PER_LINE = 1283
 export const FEDERATED_WORKER_INDEX_BUDGET_BYTES = 256 * 1024 * 1024
 // Hard row bound on the admission-denial linear scan: the newest rows are

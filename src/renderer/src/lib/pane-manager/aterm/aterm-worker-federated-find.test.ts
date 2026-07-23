@@ -269,6 +269,70 @@ describe('createWorkerFederatedFind', () => {
     expect(events.at(-1)).toMatchObject({ type: 'federatedDone', cancelled: false })
   })
 
+  it('enriches match snippets when the pane exposes search_summary (E-1 consumption)', async () => {
+    const readSnippets = vi.fn(
+      () =>
+        new Map([
+          [30, 'x[foo]y'],
+          [4, '[foo]']
+        ])
+    )
+    const pane: FederatedFindPaneSource = {
+      engine: { searchBudgeted: vi.fn(() => completeStep([30, 0, 3, 4, 0, 3])) },
+      baseY: () => 100,
+      rows: () => 24,
+      readSnippets
+    }
+    const events: AtermWorkerFederatedEvent[] = []
+    const runner = createWorkerFederatedFind({ resolvePane: () => pane, post: (e) => events.push(e) })
+    runner.dispatch({
+      type: 'federatedFind',
+      gen: 1,
+      query: 'foo',
+      caseSensitive: false,
+      isRegex: false,
+      maxPerPane: 50,
+      panes: [{ paneId: 1, visible: true }]
+    })
+    await settle()
+    expect(readSnippets).toHaveBeenCalledExactlyOnceWith('foo', false, false, 50)
+    const batch = events.find((e) => e.type === 'federatedBatch') as Extract<
+      AtermWorkerFederatedEvent,
+      { type: 'federatedBatch' }
+    >
+    // Newest-first, snippets attached by absRow.
+    expect(batch.matches).toEqual([
+      { absRow: 30, col: 0, len: 3, snippet: 'x[foo]y' },
+      { absRow: 4, col: 0, len: 3, snippet: '[foo]' }
+    ])
+  })
+
+  it('leaves snippets null on pins WITHOUT search_summary (count-only degradation)', async () => {
+    const pane: FederatedFindPaneSource = {
+      engine: { searchBudgeted: vi.fn(() => completeStep([7, 0, 3])) },
+      baseY: () => 100,
+      rows: () => 24
+      // no readSnippets — pre-E-1 pin
+    }
+    const events: AtermWorkerFederatedEvent[] = []
+    const runner = createWorkerFederatedFind({ resolvePane: () => pane, post: (e) => events.push(e) })
+    runner.dispatch({
+      type: 'federatedFind',
+      gen: 1,
+      query: 'foo',
+      caseSensitive: false,
+      isRegex: false,
+      maxPerPane: 50,
+      panes: [{ paneId: 1, visible: true }]
+    })
+    await settle()
+    const batch = events.find((e) => e.type === 'federatedBatch') as Extract<
+      AtermWorkerFederatedEvent,
+      { type: 'federatedBatch' }
+    >
+    expect(batch.matches).toEqual([{ absRow: 7, col: 0, len: 3, snippet: null }])
+  })
+
   it("never perturbs a pane's active find-bar state (count/activeIndex unchanged)", async () => {
     // A REAL WorkerSearch holding results on the same engine surface the
     // federated scan drives: the fan-out must leave its published state intact.

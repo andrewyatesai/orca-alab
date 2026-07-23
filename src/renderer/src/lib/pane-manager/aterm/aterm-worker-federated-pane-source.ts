@@ -9,6 +9,7 @@ import {
   type WorkerFederatedFind
 } from './aterm-worker-federated-find'
 import type { AtermWorkerFederatedEvent } from './aterm-worker-federated-protocol'
+import { createAtermSearchSummaryReader } from './aterm-worker-search-summary'
 
 /** The worker entry's one-liner: a federated runner over its pane registry. */
 export function createWorkerFederatedFindForPanes(
@@ -28,6 +29,10 @@ export function federatedPaneSourceFromRuntime(
   if (!pane || !handle) {
     return null
   }
+  // E-1 consumption (feature-detected): a summary reader over the pane's own wasm
+  // engine, used ONLY to enrich the ≤K already-found rows with span-marked text —
+  // absent on pre-E-1 pins, in which case snippets stay null (count-only shape).
+  const summaryReader = createAtermSearchSummaryReader(handle.engine)
   return {
     // E-6 (binding): only the budgeted cursor surface is exposed to the
     // federated scan — no one-shot, no unbudgeted summary.
@@ -38,6 +43,8 @@ export function federatedPaneSourceFromRuntime(
     baseY: () => handle.engine.base_y,
     rows: () => pane.term?.dimensions().rows ?? 0,
     evictBudgetedState: handle.searchBudgetedCancel,
-    evictWarmIndex: handle.searchIndexRelease
+    evictWarmIndex: handle.searchIndexRelease,
+    readSnippets: (query, caseSensitive, isRegex, maxMatches) =>
+      summaryReader.snippetsByRow(query, caseSensitive, isRegex, maxMatches)
   }
 }

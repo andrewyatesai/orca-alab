@@ -34,6 +34,38 @@ export type FederatedFindPaneSource = {
   evictBudgetedState?: () => void
   /** Release the warm completed index (W4A binding; feature-detected). */
   evictWarmIndex?: () => void
+  /** E-1 `search_summary` snippet enrichment (feature-detected): a row → span-
+   *  marked text map for the query, bounded to the same match cap. Absent on
+   *  pre-E-1 pins — matches then keep null snippets (count-only degradation). */
+  readSnippets?: (
+    query: string,
+    caseSensitive: boolean,
+    isRegex: boolean,
+    maxMatches: number
+  ) => Map<number, string> | null
+}
+
+/** Attach snippet text to the capped result rows when the pane exposes the E-1
+ *  summary export; a no-op (snippets stay null) on pins without it. Enrichment
+ *  is over the ≤K already-found rows only — a bounded read, never a re-search. */
+function enrichSnippets(
+  pane: FederatedFindPaneSource,
+  cmd: AtermWorkerFederatedFind,
+  matches: { absRow: number; col: number; len: number; snippet: string | null }[]
+): void {
+  if (!pane.readSnippets || matches.length === 0) {
+    return
+  }
+  const byRow = pane.readSnippets(cmd.query, cmd.caseSensitive, cmd.isRegex, cmd.maxPerPane)
+  if (!byRow) {
+    return
+  }
+  for (const match of matches) {
+    const snippet = byRow.get(match.absRow)
+    if (snippet !== undefined) {
+      match.snippet = snippet
+    }
+  }
 }
 
 export type WorkerFederatedFind = {
@@ -121,6 +153,9 @@ export function createWorkerFederatedFind(deps: {
             pane.evictWarmIndex?.()
           }
           if (result && !run.cancelled) {
+            // E-1 consumption: enrich the capped rows with span-marked text when
+            // the pin ships search_summary; null-snippet triplets otherwise.
+            enrichSnippets(pane, cmd, result.matches)
             deps.post({
               type: 'federatedBatch',
               gen: run.gen,

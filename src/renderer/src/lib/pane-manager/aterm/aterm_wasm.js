@@ -909,6 +909,31 @@ export class AtermTerminal {
         return ret === 0xFFFFFF ? undefined : ret;
     }
     /**
+     * Batch row-range export for the P7 grid mirror (E9): the text/wrap/len
+     * (+ per-column wide map) of `count` DISPLAY rows starting at `first_row`
+     * (display_offset-aware, same coords as [`AtermTerminal::row_text`]) in ONE
+     * wasm-boundary crossing, replacing the per-row `row_text` +
+     * `row_is_wrapped` + `row_len` + per-cell `cell_is_wide` walk. Returns a
+     * JSON array of exactly `count` records
+     * `{text, wrapped, len, widths?}` in row order; `widths` is a per-column
+     * digit string (`'2'` wide lead / `'1'` otherwise, length == cols) OMITTED
+     * for all-narrow rows so the host reuses its cached all-`'1'` string.
+     * `undefined` when the range is unavailable (a row is out of the live grid,
+     * e.g. resize skew) — the host falls back to the per-row path that frame.
+     * @param {number} first_row
+     * @param {number} count
+     * @returns {string | undefined}
+     */
+    row_range_json(first_row, count) {
+        const ret = wasm.atermterminal_row_range_json(this.__wbg_ptr, first_row, count);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
      * Scroll-correct text of a display `row` (display_offset-aware), for a TS
      * fallback that re-runs link matching in JS.
      * @param {number} row
@@ -1135,6 +1160,17 @@ export class AtermTerminal {
         return ret >>> 0;
     }
     /**
+     * Release the search index's heap (fed E-1 `search_index_release`): drops
+     * the cached full-content index AND any in-flight budgeted search so a
+     * dormant/closed pane's index footprint returns to the allocator, making
+     * federation idle-eviction REAL rather than a logical clear that retains
+     * peak capacity. The next search rebuilds from the live buffer — one
+     * rebuild paid, byte-identical results.
+     */
+    search_index_release() {
+        wasm.atermterminal_search_index_release(this.__wbg_ptr);
+    }
+    /**
      * Metadata for a [`AtermTerminal::search`]-contract query — most
      * importantly the engine's `incomplete` signal, which that legacy export
      * has always DROPPED (E9a, correctness-first): when index eviction or the
@@ -1158,6 +1194,41 @@ export class AtermTerminal {
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.atermterminal_search_meta(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex);
         return SearchMeta.__wrap(ret);
+    }
+    /**
+     * Federated search summary (fed E-1): the span-marked, snippet-enriched
+     * results for `query` in ONE call — superseding the bare-triplet
+     * [`AtermTerminal::search`] + per-match `row_text` round-trip. Returns JSON
+     * `{matches:[{absRow,col,len,snippet}], total, incomplete}` where `matches`
+     * is capped to `max_matches` (0 = uncapped), `total` is the full match
+     * count before the cap, `incomplete` is the engine's eviction/match-cap
+     * truncation signal (which [`AtermTerminal::search`] drops), and `snippet`
+     * is the match line's text (absolute-row coordinate, the same space
+     * federated matches carry). Empty query or invalid regex ⇒
+     * `{matches:[],total:0,incomplete:false}` (mirroring `search`'s silence).
+     *
+     * A bounded READ over the O(1)-reused full-content index
+     * ([`Terminal::indexed_search`]) — not a from-scratch rebuild on the hot
+     * path: on unchanged content the index the budgeted scan just built is
+     * reused, and only the `≤max_matches` capped rows pay a snippet read.
+     * Keeps the E9a [`AtermTerminal::search_meta`] `{incomplete,match_count}`
+     * shape as a compat alias — this export supersedes it with snippets.
+     * @param {string} query
+     * @param {boolean} case_sensitive
+     * @param {boolean} is_regex
+     * @param {number} max_matches
+     * @returns {string | undefined}
+     */
+    search_summary(query, case_sensitive, is_regex, max_matches) {
+        const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_search_summary(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex, max_matches);
+        let v2;
+        if (ret[0] !== 0) {
+            v2 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v2;
     }
     /**
      * Drop the current selection so the highlight clears on the next render.

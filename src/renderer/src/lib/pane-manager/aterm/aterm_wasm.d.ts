@@ -387,6 +387,20 @@ export class AtermTerminal {
      */
     row_len(row: number): number | undefined;
     /**
+     * Batch row-range export for the P7 grid mirror (E9): the text/wrap/len
+     * (+ per-column wide map) of `count` DISPLAY rows starting at `first_row`
+     * (display_offset-aware, same coords as [`AtermTerminal::row_text`]) in ONE
+     * wasm-boundary crossing, replacing the per-row `row_text` +
+     * `row_is_wrapped` + `row_len` + per-cell `cell_is_wide` walk. Returns a
+     * JSON array of exactly `count` records
+     * `{text, wrapped, len, widths?}` in row order; `widths` is a per-column
+     * digit string (`'2'` wide lead / `'1'` otherwise, length == cols) OMITTED
+     * for all-narrow rows so the host reuses its cached all-`'1'` string.
+     * `undefined` when the range is unavailable (a row is out of the live grid,
+     * e.g. resize skew) — the host falls back to the per-row path that frame.
+     */
+    row_range_json(first_row: number, count: number): string | undefined;
+    /**
      * Scroll-correct text of a display `row` (display_offset-aware), for a TS
      * fallback that re-runs link matching in JS.
      */
@@ -510,6 +524,15 @@ export class AtermTerminal {
      */
     search_budgeted_cancel(): void;
     /**
+     * Release the search index's heap (fed E-1 `search_index_release`): drops
+     * the cached full-content index AND any in-flight budgeted search so a
+     * dormant/closed pane's index footprint returns to the allocator, making
+     * federation idle-eviction REAL rather than a logical clear that retains
+     * peak capacity. The next search rebuilds from the live buffer — one
+     * rebuild paid, byte-identical results.
+     */
+    search_index_release(): void;
+    /**
      * Metadata for a [`AtermTerminal::search`]-contract query — most
      * importantly the engine's `incomplete` signal, which that legacy export
      * has always DROPPED (E9a, correctness-first): when index eviction or the
@@ -525,6 +548,26 @@ export class AtermTerminal {
      * the legacy export's empty array.
      */
     search_meta(query: string, case_sensitive: boolean, is_regex: boolean): SearchMeta;
+    /**
+     * Federated search summary (fed E-1): the span-marked, snippet-enriched
+     * results for `query` in ONE call — superseding the bare-triplet
+     * [`AtermTerminal::search`] + per-match `row_text` round-trip. Returns JSON
+     * `{matches:[{absRow,col,len,snippet}], total, incomplete}` where `matches`
+     * is capped to `max_matches` (0 = uncapped), `total` is the full match
+     * count before the cap, `incomplete` is the engine's eviction/match-cap
+     * truncation signal (which [`AtermTerminal::search`] drops), and `snippet`
+     * is the match line's text (absolute-row coordinate, the same space
+     * federated matches carry). Empty query or invalid regex ⇒
+     * `{matches:[],total:0,incomplete:false}` (mirroring `search`'s silence).
+     *
+     * A bounded READ over the O(1)-reused full-content index
+     * ([`Terminal::indexed_search`]) — not a from-scratch rebuild on the hot
+     * path: on unchanged content the index the budgeted scan just built is
+     * reused, and only the `≤max_matches` capped rows pay a snippet read.
+     * Keeps the E9a [`AtermTerminal::search_meta`] `{incomplete,match_count}`
+     * shape as a compat alias — this export supersedes it with snippets.
+     */
+    search_summary(query: string, case_sensitive: boolean, is_regex: boolean, max_matches: number): string | undefined;
     /**
      * Drop the current selection so the highlight clears on the next render.
      */
@@ -1465,6 +1508,7 @@ export interface InitOutput {
     readonly atermterminal_rgba_ptr: (a: number) => number;
     readonly atermterminal_row_is_wrapped: (a: number, b: number) => number;
     readonly atermterminal_row_len: (a: number, b: number) => number;
+    readonly atermterminal_row_range_json: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_row_text: (a: number, b: number) => [number, number];
     readonly atermterminal_scroll_frac_px: (a: number) => number;
     readonly atermterminal_scroll_frac_rows: (a: number) => number;
@@ -1483,7 +1527,9 @@ export interface InitOutput {
     readonly atermterminal_search_budgeted: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number) => number;
     readonly atermterminal_search_budgeted_cancel: (a: number) => void;
     readonly atermterminal_search_display_origin: (a: number) => number;
+    readonly atermterminal_search_index_release: (a: number) => void;
     readonly atermterminal_search_meta: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly atermterminal_search_summary: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly atermterminal_selection_clear: (a: number) => void;
     readonly atermterminal_selection_extend: (a: number, b: number, c: number) => void;
     readonly atermterminal_selection_finish: (a: number) => void;

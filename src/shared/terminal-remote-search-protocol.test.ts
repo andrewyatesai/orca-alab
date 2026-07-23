@@ -182,4 +182,28 @@ describe('remapRemoteSearchRow', () => {
     // Stable → exact jump at clientRow 50; the live resize to 132 is irrelevant.
     expect(remap).toEqual({ kind: 'in-window', clientRow: 50, approximate: false })
   })
+
+  // (d4) MUTATION-PROOF anchorHostCols honoring: the width fields must be
+  // load-bearing, not decorative. Hold EVERY other input fixed and vary ONLY the
+  // snapshot anchor width — the `approximate` verdict must flip. A remap that
+  // ignored anchorHostCols (the gate-failed shape) would return the same verdict
+  // for both and fail this test. The clientRow is intentionally identical across
+  // the pair, isolating the width field as the sole cause of the flip.
+  it('(d4) approximate flips solely on anchorHostCols — matching width is exact, mismatched is approximate', () => {
+    const fixed = {
+      matchHostRow: 148,
+      replayedAnchor: anchor(100, 7),
+      replayOriginRow: 0,
+      replayedRowCount: 100,
+      clientCols: 80
+    } as const
+    const exact = remapRemoteSearchRow({ ...fixed, responseAnchor: anchor(100, 7, 80) })
+    const approx = remapRemoteSearchRow({ ...fixed, responseAnchor: anchor(100, 7, 81) })
+    // Same landing row in both — ONLY the width field moved.
+    expect(exact).toEqual({ kind: 'in-window', clientRow: 48, approximate: false })
+    expect(approx).toEqual({ kind: 'in-window', clientRow: 48, approximate: true })
+    // The guarantee stated as a mutation: injecting a width the client cannot
+    // confirm equal MUST downgrade the jump to approximate.
+    expect(approx).not.toEqual(exact)
+  })
 })

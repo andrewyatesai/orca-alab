@@ -28,6 +28,13 @@ export type LinearScanRowReader = {
   /** Read `count` rows starting at `firstAbsRow` (in-range). Null = unavailable
    *  this call (resize skew); the scan settles what it has, flagged incomplete. */
   read: (firstAbsRow: number, count: number) => string[] | null
+  /** True when retained history extends BELOW the readable window this reader
+   *  can serve (e.g. row_range_json reads only the live viewport — scrollback
+   *  is un-indexable text this degradation path can't reach). When set, a scan
+   *  that reaches `oldestAbsRow` is NOT "fully scanned": it settles incomplete
+   *  so the palette shows the honest "not fully searched" badge instead of a
+   *  false exhaustive-empty. */
+  hasUnreadableDepth?: boolean
 }
 
 export type FederatedLinearScanResult = {
@@ -132,8 +139,15 @@ export function runFederatedLinearScan(opts: FederatedLinearScanOptions): void {
       opts.onDone(null)
       return
     }
-    if (!matcher || nextTopExclusive <= oldest) {
-      settle(false) // reached the oldest retained row: fully scanned
+    if (!matcher) {
+      settle(false) // empty/invalid query: a definitive zero-match result
+      return
+    }
+    if (nextTopExclusive <= oldest) {
+      // Reached the oldest READABLE row. "Fully scanned" only if no retained
+      // history lies below what this reader can serve (row_range_json is
+      // viewport-only — deeper scrollback is un-indexable text here).
+      settle(reader.hasUnreadableDepth === true)
       return
     }
     if (rowsScanned >= opts.maxRowsScanned || found.length >= opts.maxMatches) {

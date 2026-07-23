@@ -223,22 +223,39 @@ function findAsarEntry(entries, expectedPath) {
   return entries.find((entry) => normalizeAsarEntryPath(entry) === expectedPath)
 }
 
+const REQUIRED_PACKAGED_MAIN_FILES = [
+  'out/main/index.js',
+  'out/main/agent-hooks/managed-agent-hook-controls.js'
+]
+
+function isPackagedMainJsEntry(normalizedPath) {
+  return normalizedPath.startsWith('out/main/') && normalizedPath.endsWith('.js')
+}
+
 function verifyPackagedMainRuntimeDeps(resourcesDir, asar = require('@electron/asar')) {
   const asarPath = join(resourcesDir, 'app.asar')
   if (!existsSync(asarPath)) {
     return
   }
 
-  const mainFiles = ['out/main/index.js', 'out/main/agent-hooks/managed-agent-hook-controls.js']
   const entries = asar.listPackage(asarPath)
-  const missing = new Set()
 
-  for (const file of mainFiles) {
-    const entry = findAsarEntry(entries, file)
-    if (!entry) {
+  // Why: electron-vite splits the main bundle into out/main/chunks/**, and an
+  // externalized bare require (ssh2/node-pty/…) can land only in a chunk, not in
+  // the two entrypoints. Scan every packaged main JS entry so a runtime dep
+  // missing from copied node_modules fails packaging no matter which chunk needs it.
+  const scannedEntries = entries.filter((entry) =>
+    isPackagedMainJsEntry(normalizeAsarEntryPath(entry))
+  )
+  const scannedPaths = new Set(scannedEntries.map((entry) => normalizeAsarEntryPath(entry)))
+  for (const file of REQUIRED_PACKAGED_MAIN_FILES) {
+    if (!scannedPaths.has(file)) {
       throw new Error(`Packaged main file ${file} was not found in ${asarPath}`)
     }
+  }
 
+  const missing = new Set()
+  for (const entry of scannedEntries) {
     // Why: @electron/asar lists entries with host separators; Windows returns
     // backslashes, and extractFile expects that same host-style path.
     const internalPath = entry.replace(/^[\\/]+/, '')
@@ -437,6 +454,7 @@ module.exports = {
   createPackagedRuntimeNodeModuleResources,
   findAsarEntry,
   isPackagedExternalSpecifier,
+  isPackagedMainJsEntry,
   packageNameFromSpecifier,
   prunePackagedNodePty,
   prunePackagedParcelWatcher,

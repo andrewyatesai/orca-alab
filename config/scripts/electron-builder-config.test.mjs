@@ -394,6 +394,77 @@ describe('electron-builder config', () => {
     }
   })
 
+  it('fails when a main chunk requires a runtime dep missing from copied node_modules', async () => {
+    // Why: electron-vite splits the main bundle into out/main/chunks/**, and an
+    // externalized require (e.g. ssh2) can live only in a chunk. The completeness
+    // net must scan chunks too, not just the two entrypoints (#packaged-chunk-deps).
+    const resourcesDir = await mkdtemp(join(tmpdir(), 'orca-runtime-deps-chunk-'))
+    try {
+      await writeFile(join(resourcesDir, 'app.asar'), '', 'utf8')
+      // index.js and the hook entry only require deps that ARE present.
+      await mkdir(join(resourcesDir, 'node_modules', 'yaml'), { recursive: true })
+      await mkdir(join(resourcesDir, 'node_modules', 'zod'), { recursive: true })
+
+      const sources = new Map([
+        ['out/main/index.js', 'const z = require("zod")'],
+        ['out/main/agent-hooks/managed-agent-hook-controls.js', 'const YAML = require("yaml")'],
+        // The missing dep is reachable ONLY from a chunk, never from an entrypoint.
+        ['out/main/chunks/ssh-connection-deferred-abc123.js', 'const ssh = require("ssh2")']
+      ])
+      const asar = {
+        listPackage: () => [...sources.keys()].map((entry) => `/${entry}`),
+        extractFile: (_asarPath, internalPath) => Buffer.from(sources.get(internalPath), 'utf8')
+      }
+
+      expect(() => verifyPackagedMainRuntimeDeps(resourcesDir, asar)).toThrow(/ssh2/)
+    } finally {
+      await rm(resourcesDir, { recursive: true, force: true })
+    }
+  })
+
+  it('passes when a main chunk requires a runtime dep present in copied node_modules', async () => {
+    const resourcesDir = await mkdtemp(join(tmpdir(), 'orca-runtime-deps-chunk-ok-'))
+    try {
+      await writeFile(join(resourcesDir, 'app.asar'), '', 'utf8')
+      await mkdir(join(resourcesDir, 'node_modules', 'zod'), { recursive: true })
+      await mkdir(join(resourcesDir, 'node_modules', 'yaml'), { recursive: true })
+      await mkdir(join(resourcesDir, 'node_modules', 'ssh2'), { recursive: true })
+
+      const sources = new Map([
+        ['out\\main\\index.js', 'const z = require("zod")'],
+        ['out\\main\\agent-hooks\\managed-agent-hook-controls.js', 'const YAML = require("yaml")'],
+        ['out\\main\\chunks\\ssh-connection-deferred-abc123.js', 'const ssh = require("ssh2")']
+      ])
+      const asar = {
+        listPackage: () => [...sources.keys()].map((entry) => `\\${entry}`),
+        extractFile: (_asarPath, internalPath) => Buffer.from(sources.get(internalPath), 'utf8')
+      }
+
+      expect(() => verifyPackagedMainRuntimeDeps(resourcesDir, asar)).not.toThrow()
+    } finally {
+      await rm(resourcesDir, { recursive: true, force: true })
+    }
+  })
+
+  it('still fails when a required main entrypoint is absent from the asar', async () => {
+    const resourcesDir = await mkdtemp(join(tmpdir(), 'orca-runtime-deps-missing-entry-'))
+    try {
+      await writeFile(join(resourcesDir, 'app.asar'), '', 'utf8')
+      // Only a chunk is present; the required index.js entrypoint is missing.
+      const sources = new Map([['out/main/chunks/some-deferred-abc123.js', 'const x = 1']])
+      const asar = {
+        listPackage: () => [...sources.keys()].map((entry) => `/${entry}`),
+        extractFile: (_asarPath, internalPath) => Buffer.from(sources.get(internalPath), 'utf8')
+      }
+
+      expect(() => verifyPackagedMainRuntimeDeps(resourcesDir, asar)).toThrow(
+        /out\/main\/index\.js was not found/
+      )
+    } finally {
+      await rm(resourcesDir, { recursive: true, force: true })
+    }
+  })
+
   it('normalizes host-specific asar entry separators', () => {
     expect(findAsarEntry(['\\out\\main\\index.js'], 'out/main/index.js')).toBe(
       '\\out\\main\\index.js'

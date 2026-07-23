@@ -14,6 +14,9 @@ let WorktreeCard: typeof WorktreeCardComponent
 let sshConnectionStates = new Map<string, { status: string }>()
 let sshTargetLabels = new Map<string, string>()
 let runtimeStatusByEnvironmentId = new Map<string, { status?: unknown }>()
+let runtimeEnvironments: { id: string; name: string }[] = []
+let worktreesByRepo: Record<string, Worktree[]> = {}
+let repos: Repo[] = []
 let worktreeCardProperties: WorktreeCardProperty[] = ['status']
 
 vi.mock('@/store', () => ({
@@ -30,12 +33,15 @@ vi.mock('@/store', () => ({
       openModal,
       projectGroups: [],
       remoteBranchConflictByWorktreeId: {},
+      repos,
+      runtimeEnvironments,
       runtimeStatusByEnvironmentId,
       settings: null,
       sshConnectionStates,
       sshTargetLabels,
       updateWorktreeMeta,
-      worktreeCardProperties
+      worktreeCardProperties,
+      worktreesByRepo
     })
 }))
 
@@ -130,6 +136,9 @@ describe('WorktreeCard SSH reconnect prompt', () => {
     sshConnectionStates = new Map()
     sshTargetLabels = new Map()
     runtimeStatusByEnvironmentId = new Map()
+    runtimeEnvironments = []
+    worktreesByRepo = {}
+    repos = []
     worktreeCardProperties = ['status']
   })
 
@@ -148,30 +157,54 @@ describe('WorktreeCard SSH reconnect prompt', () => {
     expect(markup).toContain('SSH disconnected')
   })
 
-  it('marks a runtime-host worktree disconnected when its environment has no status', () => {
+  it('names the Orca server when a runtime-host worktree is disconnected', () => {
+    runtimeEnvironments = [{ id: 'env-1', name: 'Remote Mac' }]
     const runtimeRepo: Repo = {
       ...makeRepo(),
       connectionId: undefined,
       executionHostId: 'runtime:env-1'
     }
+    // Owner resolution reads the worktree/repo from the store, not props.
+    repos = [runtimeRepo]
+    worktreesByRepo = { 'repo-1': [makeWorktree()] }
     // No status entry for env-1 → host is disconnected.
     const markup = renderToStaticMarkup(
       <WorktreeCard worktree={makeWorktree()} repo={runtimeRepo} isActive={false} />
     )
-    expect(markup).toContain('Server disconnected')
+    expect(markup).toContain('Remote Mac disconnected')
   })
 
-  it('shows a runtime-host worktree as connected when its environment has a status', () => {
+  it('distinguishes connected worktrees on different Orca servers (#10061)', () => {
+    runtimeEnvironments = [
+      { id: 'env-1', name: 'Remote Mac' },
+      { id: 'env-2', name: 'Build Linux' }
+    ]
     runtimeStatusByEnvironmentId.set('env-1', { status: { runtimeId: 'r1' } })
-    const runtimeRepo: Repo = {
+    runtimeStatusByEnvironmentId.set('env-2', { status: { runtimeId: 'r2' } })
+    const repoOnEnv2: Repo = {
       ...makeRepo(),
       connectionId: undefined,
-      executionHostId: 'runtime:env-1'
+      executionHostId: 'runtime:env-2'
     }
-    const markup = renderToStaticMarkup(
-      <WorktreeCard worktree={makeWorktree()} repo={runtimeRepo} isActive={false} />
+    repos = [repoOnEnv2]
+
+    // A worktree whose own host overrides the repo default runs on env-1.
+    worktreesByRepo = { 'repo-1': [{ ...makeWorktree(), hostId: 'runtime:env-1' }] }
+    const remoteMacMarkup = renderToStaticMarkup(
+      <WorktreeCard
+        worktree={{ ...makeWorktree(), hostId: 'runtime:env-1' }}
+        repo={repoOnEnv2}
+        isActive={false}
+      />
     )
-    expect(markup).not.toContain('Server disconnected')
-    expect(markup).toContain('Project on Orca server')
+
+    // A worktree with no explicit host falls back to the repo's env-2.
+    worktreesByRepo = { 'repo-1': [makeWorktree()] }
+    const buildLinuxMarkup = renderToStaticMarkup(
+      <WorktreeCard worktree={makeWorktree()} repo={repoOnEnv2} isActive={false} />
+    )
+
+    expect(remoteMacMarkup).toContain('Project on Remote Mac')
+    expect(buildLinuxMarkup).toContain('Project on Build Linux')
   })
 })

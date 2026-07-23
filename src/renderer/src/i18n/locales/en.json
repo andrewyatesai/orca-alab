@@ -4345,7 +4345,9 @@
           "ca74db7550": "Project on SSH host",
           "021538e1d1": "SSH disconnected",
           "runtimeHostDisconnected": "Server disconnected",
+          "runtimeHostDisconnectedNamed": "{{hostName}} disconnected",
           "runtimeHostProject": "Project on Orca server",
+          "runtimeHostProjectNamed": "Project on {{hostName}}",
           "automationCreated": "Created by automation",
           "branchIdentity": "Branch",
           "branchFolderPathIdentity": "Branch or folder path",
@@ -13322,6 +13324,15 @@
         "useDiffSectionHunkStaging": {
           "c07665f012": "Failed to stage hunk",
           "f26f45ed02": "Failed to unstage hunk"
+        },
+        "editor": {
+          "save": {
+            "failure": {
+              "notice": {
+                "8c59ce5075": "Failed to save the file. Please try again."
+              }
+            }
+          }
         }
       },
       "diff": {

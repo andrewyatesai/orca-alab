@@ -603,9 +603,17 @@ function appendWorktreeRows(
     groupDepth: number
     sectionKey: string
     hostContextLabelByRepoId?: ReadonlyMap<string, string>
+    hostContextLabelByWorktreeId?: ReadonlyMap<string, string>
   }
 ): void {
-  const { nestLineage, collapsedGroups, groupDepth, sectionKey, hostContextLabelByRepoId } = options
+  const {
+    nestLineage,
+    collapsedGroups,
+    groupDepth,
+    sectionKey,
+    hostContextLabelByRepoId,
+    hostContextLabelByWorktreeId
+  } = options
   if (!nestLineage) {
     for (const worktree of worktrees) {
       result.push(
@@ -618,7 +626,9 @@ function appendWorktreeRows(
           isLastLineageChild: false,
           lineageChildCount: 0,
           lineageCollapsed: false,
-          hostContextLabel: hostContextLabelByRepoId?.get(worktree.repoId)
+          hostContextLabel:
+            hostContextLabelByWorktreeId?.get(worktree.id) ??
+            hostContextLabelByRepoId?.get(worktree.repoId)
         })
       )
     }
@@ -663,7 +673,9 @@ function appendWorktreeRows(
         isLastLineageChild: isLastChild,
         lineageChildCount: children.length,
         lineageCollapsed,
-        hostContextLabel: hostContextLabelByRepoId?.get(worktree.repoId)
+        hostContextLabel:
+          hostContextLabelByWorktreeId?.get(worktree.id) ??
+          hostContextLabelByRepoId?.get(worktree.repoId)
       })
     )
     if (lineageCollapsed) {
@@ -729,6 +741,26 @@ function getMixedHostContextLabels(
     uniqueLabels.add(label)
   }
   return uniqueLabels.size > 1 ? labelsByRepoId : undefined
+}
+
+// Why (#10061): in non-repo groupings the same repo's worktrees can run on
+// different runtime servers, so a per-repo host label can't distinguish them.
+// Emit a per-worktree label keyed by worktree.id, only when >1 unique host is
+// present so single-host views stay label-free.
+function getMixedWorktreeHostContextLabels(
+  worktrees: readonly Worktree[],
+  repoMap: Map<string, Repo>,
+  hostLabelById: ReadonlyMap<string, string> | undefined,
+  defaultHostId: ExecutionHostId
+): Map<string, string> | undefined {
+  const labelsByWorktreeId = new Map<string, string>()
+  const uniqueHostIds = new Set<ExecutionHostId>()
+  for (const worktree of worktrees) {
+    const hostId = getWorktreeExecutionHostId(worktree, repoMap.get(worktree.repoId), defaultHostId)
+    uniqueHostIds.add(hostId)
+    labelsByWorktreeId.set(worktree.id, hostLabelById?.get(hostId) ?? getExecutionHostLabel(hostId))
+  }
+  return uniqueHostIds.size > 1 ? labelsByWorktreeId : undefined
 }
 
 function getHostWorktreeCounts(
@@ -1020,6 +1052,12 @@ export function buildRows(
     pinnedDisplayPolicy === 'duplicate-in-groups'
       ? worktrees
       : worktrees.filter((worktree) => !worktree.isPinned)
+  const mixedWorktreeHostContextLabels = getMixedWorktreeHostContextLabels(
+    naturalWorktrees,
+    repoMap,
+    hostLabelById,
+    defaultHostId
+  )
   const renderedNaturalAnchorRepoIds = getRenderedNaturalAnchorRepoIds({
     groupBy,
     worktrees: naturalWorktrees,
@@ -1058,7 +1096,8 @@ export function buildRows(
           nestLineage,
           collapsedGroups,
           groupDepth: 0,
-          sectionKey: ALL_GROUP_KEY
+          sectionKey: ALL_GROUP_KEY,
+          hostContextLabelByWorktreeId: mixedWorktreeHostContextLabels
         })
       }
     }
@@ -1296,13 +1335,19 @@ export function buildRows(
           groupBy === 'repo'
             ? getMixedHostContextLabels(group, repoMap, projectIndex, hostLabelById)
             : undefined
+        // Why (#10061): repo grouping already segregates by host via the repo
+        // label; other groupings need the per-worktree label to tell apart same-
+        // repo worktrees that run on different runtime servers.
+        const hostContextLabelByWorktreeId =
+          groupBy === 'repo' ? undefined : mixedWorktreeHostContextLabels
         if (groupBy === 'repo') {
           appendWorktreeRows(result, items, repoMap, lineageById, worktreeMap, {
             nestLineage,
             collapsedGroups,
             groupDepth: projectGroupDepth,
             sectionKey: key,
-            hostContextLabelByRepoId
+            hostContextLabelByRepoId,
+            hostContextLabelByWorktreeId
           })
         } else {
           appendWorktreeRows(result, items, repoMap, lineageById, worktreeMap, {
@@ -1310,7 +1355,8 @@ export function buildRows(
             collapsedGroups,
             groupDepth: projectGroupDepth,
             sectionKey: key,
-            hostContextLabelByRepoId
+            hostContextLabelByRepoId,
+            hostContextLabelByWorktreeId
           })
         }
       }

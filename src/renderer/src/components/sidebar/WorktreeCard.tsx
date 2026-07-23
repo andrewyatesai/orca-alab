@@ -81,7 +81,13 @@ import {
 import { translate } from '@/i18n/i18n'
 import { recordRendererCrashBreadcrumb } from '@/lib/crash-diagnostics'
 import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../shared/workspace-scope'
-import { isRuntimeOwnedSshTargetId, parseExecutionHostId } from '../../../../shared/execution-host'
+import {
+  isRuntimeOwnedSshTargetId,
+  parseExecutionHostId,
+  toRuntimeExecutionHostId
+} from '../../../../shared/execution-host'
+import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
+import { getExplicitRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { DEFAULT_AGENT_ACTIVITY_DISPLAY_MODE } from '../../../../shared/constants'
 import { isGitHubBackedRepo } from '../../../../shared/project-host-setup-projection'
 
@@ -348,13 +354,31 @@ const WorktreeCard = React.memo(function WorktreeCard({
     (s) => (s.activeTabTypeByWorktree?.[worktree.id] ?? 'terminal') === 'terminal'
   )
 
+  const parsedRepoHost = parseExecutionHostId(repo?.executionHostId)
+  // Why (#10061): identify WHICH Orca server a workspace runs on. Resolve the
+  // worktree's runtime owner (its own host overrides the repo default) and name
+  // it, so same-repo worktrees on different servers are distinguishable.
+  const runtimeOwnerEnvironmentId = useAppStore((s) =>
+    getExplicitRuntimeEnvironmentIdForWorktree(s, worktree.id)
+  )
+  const runtimeHostId = runtimeOwnerEnvironmentId
+    ? toRuntimeExecutionHostId(runtimeOwnerEnvironmentId)
+    : null
+  const runtimeEnvironmentName = useAppStore((s) =>
+    runtimeOwnerEnvironmentId
+      ? (s.runtimeEnvironments.find((environment) => environment.id === runtimeOwnerEnvironmentId)
+          ?.name ?? null)
+      : null
+  )
+  const runtimeHostLabel = runtimeHostId
+    ? (getHostDisplayLabelOverrides(settings).get(runtimeHostId) ?? runtimeEnvironmentName)
+    : null
   // Why: runtime ("Orca server") hosts get the same disconnected dimming as SSH when their environment has no live status.
   const isRuntimeDisconnected = useAppStore((s) => {
-    const parsed = parseExecutionHostId(repo?.executionHostId)
-    if (parsed?.kind !== 'runtime') {
+    if (!runtimeOwnerEnvironmentId) {
       return false
     }
-    return !s.runtimeStatusByEnvironmentId.get(parsed.environmentId)?.status
+    return !s.runtimeStatusByEnvironmentId.get(runtimeOwnerEnvironmentId)?.status
   })
   // Why: the reconnect dialog blocks, so it never auto-shows for the active card (would steal app-wide focus); opens only on deliberate focus (handleClick).
   const [showDisconnectedDialog, setShowDisconnectedDialog] = useState(false)
@@ -1400,31 +1424,42 @@ const WorktreeCard = React.memo(function WorktreeCard({
               </Tooltip>
             )}
 
-            {!repo?.connectionId &&
-              parseExecutionHostId(repo?.executionHostId)?.kind === 'runtime' && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="shrink-0 inline-flex items-center">
-                      {isRuntimeDisconnected ? (
-                        <ServerOff className="size-3 text-red-400" />
-                      ) : (
-                        <Server className="size-3 text-muted-foreground" />
-                      )}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={8}>
-                    {isRuntimeDisconnected
+            {!repo?.connectionId && parsedRepoHost?.kind === 'runtime' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="shrink-0 inline-flex items-center">
+                    {isRuntimeDisconnected ? (
+                      <ServerOff className="size-3 text-red-400" />
+                    ) : (
+                      <Server className="size-3 text-muted-foreground" />
+                    )}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={8}>
+                  {isRuntimeDisconnected
+                    ? runtimeHostLabel
                       ? translate(
+                          'auto.components.sidebar.WorktreeCard.runtimeHostDisconnectedNamed',
+                          '{{hostName}} disconnected',
+                          { hostName: runtimeHostLabel }
+                        )
+                      : translate(
                           'auto.components.sidebar.WorktreeCard.runtimeHostDisconnected',
                           'Server disconnected'
+                        )
+                    : runtimeHostLabel
+                      ? translate(
+                          'auto.components.sidebar.WorktreeCard.runtimeHostProjectNamed',
+                          'Project on {{hostName}}',
+                          { hostName: runtimeHostLabel }
                         )
                       : translate(
                           'auto.components.sidebar.WorktreeCard.runtimeHostProject',
                           'Project on Orca server'
                         )}
-                  </TooltipContent>
-                </Tooltip>
-              )}
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             {showInlineRepoBadge && (
               <RepoIdentityChip repo={repo}>

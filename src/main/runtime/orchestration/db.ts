@@ -22,6 +22,7 @@ import {
   messageRowFromJson,
   optionalMessageRowFromJson
 } from './db-message-timestamp'
+import { listFromJson, optRowFromJson, rowFromJson } from './db-row-json'
 
 export type {
   MessageType,
@@ -66,22 +67,17 @@ function typesFilter(types?: MessageType[]): MessageType[] | undefined {
 export class OrchestrationDb {
   private store: RustOrchestrationStoreHandle
 
+  // Why: buildAgentOrchestrationByPaneKey rebuilds context on every 16ms graph
+  // publish, issuing ~2 napi dispatch lookups per terminal. The overwhelming
+  // majority never orchestrate, so cache "any dispatch rows exist?" to let the
+  // builder short-circuit the whole fan-out (#9694). createDispatchContext flips
+  // it true; resets clear it back to a cold re-derive.
+  private hasAnyDispatchContextsCache: boolean | undefined
+
   constructor(dbPath: string | ':memory:') {
     // Lazy-require so merely importing this module never forces the native addon
     // to load — only an actual store instantiation depends on it.
     this.store = new (requireRustGitBinding().OrchestrationStore)(dbPath)
-  }
-
-  private static row<T>(json: string): T {
-    return JSON.parse(json) as T
-  }
-
-  private static optRow<T>(json: string | null): T | undefined {
-    return json === null ? undefined : (JSON.parse(json) as T)
-  }
-
-  private static list<T>(json: string): T[] {
-    return JSON.parse(json) as T[]
   }
 
   // ── Messages ──
@@ -202,7 +198,7 @@ export class OrchestrationDb {
       taskTitle: task.taskTitle,
       displayName: task.displayName
     })
-    return OrchestrationDb.row<TaskRow>(
+    return rowFromJson<TaskRow>(
       this.store.createTask(
         generateId('task'),
         task.spec,
@@ -216,17 +212,17 @@ export class OrchestrationDb {
   }
 
   getTask(id: string): TaskRow | undefined {
-    return OrchestrationDb.optRow<TaskRow>(this.store.getTask(id))
+    return optRowFromJson<TaskRow>(this.store.getTask(id))
   }
 
   listTasks(filter?: { status?: TaskStatus; ready?: boolean }): TaskRow[] {
     const status = filter?.ready ? 'ready' : filter?.status
-    return OrchestrationDb.list<TaskRow>(this.store.listTasks(status))
+    return listFromJson<TaskRow>(this.store.listTasks(status))
   }
 
   listTasksWithDispatch(filter?: { status?: TaskStatus; ready?: boolean }): TaskWithDispatchRow[] {
     const status = filter?.ready ? 'ready' : filter?.status
-    return OrchestrationDb.list<TaskWithDispatchRow>(this.store.listTasksWithDispatch(status))
+    return listFromJson<TaskWithDispatchRow>(this.store.listTasksWithDispatch(status))
   }
 
   updateTaskStatus(id: string, status: TaskStatus, result?: string): TaskRow | undefined {
@@ -234,7 +230,7 @@ export class OrchestrationDb {
     // byte-identical to what the deleted TS store wrote.
     const completedAt =
       status === 'completed' || status === 'failed' ? new Date().toISOString() : null
-    return OrchestrationDb.optRow<TaskRow>(
+    return optRowFromJson<TaskRow>(
       this.store.updateTaskStatus(id, status, result ?? null, completedAt)
     )
   }
@@ -252,7 +248,7 @@ export class OrchestrationDb {
     // The store throws the same guard-path messages the TS twin did
     // (`Task not found: …`, `… is <status>; only ready …`, `Terminal … already
     // has an active dispatch (… for task …)`) — consumers match on `.message`.
-    return OrchestrationDb.row<DispatchContextRow>(
+    const row = rowFromJson<DispatchContextRow>(
       this.store.createDispatchContext(
         taskId,
         assigneeHandle,
@@ -260,26 +256,41 @@ export class OrchestrationDb {
         assigneePaneKey ?? null
       )
     )
+    this.hasAnyDispatchContextsCache = true
+    return row
+  }
+
+  /**
+   * Cheap "could any terminal have an active or recent-completed dispatch?"
+   * probe. When false, orchestration-context builders skip their per-terminal
+   * query fan-out entirely (#9694). Cached after first probe.
+   *
+   * Why the task-emptiness derivation: the Rust store exposes no direct
+   * dispatch_contexts existence probe, and listTasksWithDispatch surfaces only
+   * the ACTIVE dispatch id (null for a persisted *completed* dispatch), so it
+   * would wrongly report empty on a cold DB whose only dispatch has finished —
+   * dropping recent-completed context. A dispatch always references a task, so
+   * "no tasks at all" safely implies "no dispatches" (the never-orchestrate
+   * majority). The rare tasks-without-dispatch cold case just skips the win.
+   */
+  hasAnyDispatchContexts(): boolean {
+    return (this.hasAnyDispatchContextsCache ??= this.listTasks().length > 0)
   }
 
   getDispatchContext(taskId: string): DispatchContextRow | undefined {
-    return OrchestrationDb.optRow<DispatchContextRow>(this.store.getDispatchContext(taskId))
+    return optRowFromJson<DispatchContextRow>(this.store.getDispatchContext(taskId))
   }
 
   getDispatchContextById(dispatchId: string): DispatchContextRow | undefined {
-    return OrchestrationDb.optRow<DispatchContextRow>(this.store.getDispatchContextById(dispatchId))
+    return optRowFromJson<DispatchContextRow>(this.store.getDispatchContextById(dispatchId))
   }
 
   getActiveDispatchForTerminal(handle: string): DispatchContextRow | undefined {
-    return OrchestrationDb.optRow<DispatchContextRow>(
-      this.store.getActiveDispatchForTerminal(handle)
-    )
+    return optRowFromJson<DispatchContextRow>(this.store.getActiveDispatchForTerminal(handle))
   }
 
   getLatestDispatchForTerminal(handle: string): DispatchContextRow | undefined {
-    return OrchestrationDb.optRow<DispatchContextRow>(
-      this.store.getLatestDispatchForTerminal(handle)
-    )
+    return optRowFromJson<DispatchContextRow>(this.store.getLatestDispatchForTerminal(handle))
   }
 
   completeDispatch(ctxId: string): void {
@@ -291,9 +302,7 @@ export class OrchestrationDb {
   }
 
   failActiveDispatchForTask(taskId: string, error: string): DispatchContextRow | undefined {
-    return OrchestrationDb.optRow<DispatchContextRow>(
-      this.store.failActiveDispatchForTask(taskId, error)
-    )
+    return optRowFromJson<DispatchContextRow>(this.store.failActiveDispatchForTask(taskId, error))
   }
 
   recordHeartbeat(dispatchId: string, at: string): void {
@@ -306,11 +315,11 @@ export class OrchestrationDb {
     // grace + datetime()-wrapped comparison so space-format columns and ISO-Z
     // thresholds compare correctly). Upstream's TS julianday() reimplementation is
     // superseded by that Rust query.
-    return OrchestrationDb.list<DispatchContextRow>(this.store.getStaleDispatches(thresholdIso))
+    return listFromJson<DispatchContextRow>(this.store.getStaleDispatches(thresholdIso))
   }
 
   failDispatch(ctxId: string, error: string): DispatchContextRow | undefined {
-    return OrchestrationDb.optRow<DispatchContextRow>(this.store.failDispatch(ctxId, error))
+    return optRowFromJson<DispatchContextRow>(this.store.failDispatch(ctxId, error))
   }
 
   // Backdate a dispatch's `dispatched_at` / `last_heartbeat_at` — the seam the
@@ -326,27 +335,25 @@ export class OrchestrationDb {
   // ── Decision Gates ──
 
   createGate(gate: { taskId: string; question: string; options?: string[] }): DecisionGateRow {
-    return OrchestrationDb.row<DecisionGateRow>(
+    return rowFromJson<DecisionGateRow>(
       this.store.createGate(generateId('gate'), gate.taskId, gate.question, gate.options ?? [])
     )
   }
 
   resolveGate(gateId: string, resolution: string): DecisionGateRow | undefined {
-    return OrchestrationDb.optRow<DecisionGateRow>(this.store.resolveGate(gateId, resolution))
+    return optRowFromJson<DecisionGateRow>(this.store.resolveGate(gateId, resolution))
   }
 
   timeoutGate(gateId: string): DecisionGateRow | undefined {
-    return OrchestrationDb.optRow<DecisionGateRow>(this.store.timeoutGate(gateId))
+    return optRowFromJson<DecisionGateRow>(this.store.timeoutGate(gateId))
   }
 
   listGates(filter?: { taskId?: string; status?: GateStatus }): DecisionGateRow[] {
-    return OrchestrationDb.list<DecisionGateRow>(
-      this.store.listGates(filter?.taskId, filter?.status)
-    )
+    return listFromJson<DecisionGateRow>(this.store.listGates(filter?.taskId, filter?.status))
   }
 
   getGate(id: string): DecisionGateRow | undefined {
-    return OrchestrationDb.optRow<DecisionGateRow>(this.store.getGate(id))
+    return optRowFromJson<DecisionGateRow>(this.store.getGate(id))
   }
 
   // ── Coordinator Runs ──
@@ -356,7 +363,7 @@ export class OrchestrationDb {
     coordinatorHandle: string
     pollIntervalMs?: number
   }): CoordinatorRun {
-    return OrchestrationDb.row<CoordinatorRun>(
+    return rowFromJson<CoordinatorRun>(
       this.store.createCoordinatorRun(
         generateId('run'),
         run.spec,
@@ -367,40 +374,40 @@ export class OrchestrationDb {
   }
 
   getCoordinatorRun(id: string): CoordinatorRun | undefined {
-    return OrchestrationDb.optRow<CoordinatorRun>(this.store.getCoordinatorRun(id))
+    return optRowFromJson<CoordinatorRun>(this.store.getCoordinatorRun(id))
   }
 
   updateCoordinatorRun(id: string, status: CoordinatorStatus): CoordinatorRun | undefined {
     const completedAt =
       status === 'completed' || status === 'failed' ? new Date().toISOString() : null
-    return OrchestrationDb.optRow<CoordinatorRun>(
-      this.store.updateCoordinatorRun(id, status, completedAt)
-    )
+    return optRowFromJson<CoordinatorRun>(this.store.updateCoordinatorRun(id, status, completedAt))
   }
 
   getActiveCoordinatorRun(): CoordinatorRun | undefined {
-    return OrchestrationDb.optRow<CoordinatorRun>(this.store.getActiveCoordinatorRun())
+    return optRowFromJson<CoordinatorRun>(this.store.getActiveCoordinatorRun())
   }
 
   // Why: orchestrators may run concurrently (#4389) — gating needs every running row.
   getActiveCoordinatorRuns(): CoordinatorRun[] {
-    return OrchestrationDb.list<CoordinatorRun>(this.store.getActiveCoordinatorRuns())
+    return listFromJson<CoordinatorRun>(this.store.getActiveCoordinatorRuns())
   }
 
   // ── Queries for Coordinator ──
 
   getIdleTerminals(excludeHandles: string[] = []): string[] {
-    return OrchestrationDb.list<string>(this.store.getIdleTerminals(excludeHandles))
+    return listFromJson<string>(this.store.getIdleTerminals(excludeHandles))
   }
 
   // ── Lifecycle ──
 
   resetAll(): void {
     this.store.resetAll()
+    this.hasAnyDispatchContextsCache = undefined
   }
 
   resetTasks(): void {
     this.store.resetTasks()
+    this.hasAnyDispatchContextsCache = undefined
   }
 
   resetMessages(): void {

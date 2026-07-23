@@ -46,6 +46,7 @@ import {
 } from 'lucide-react-native'
 import type { RpcClient } from '../../../../src/transport/rpc-client'
 import { loadHosts } from '../../../../src/transport/host-store'
+import { startRuntimeCapabilityProbe } from '../../../../src/transport/runtime-capability-probe'
 import {
   loadTerminalAutocompleteEnabled,
   loadTerminalLinkOpenMode,
@@ -256,7 +257,6 @@ import type {
   MobileSessionTabType,
   RenderableDiffLine,
   RuntimeRepoSummary,
-  RuntimeStatusResult,
   SessionTabsResult,
   Terminal,
   TerminalCreateResult,
@@ -906,6 +906,8 @@ export default function SessionScreen() {
   const creatingTerminalRef = useRef(false)
   const [creatingBrowser, setCreatingBrowser] = useState(false)
   const [creatingMarkdown, setCreatingMarkdown] = useState(false)
+  const createControlsDisabled =
+    creating || creatingBrowser || creatingMarkdown || connState !== 'connected'
   const [createError, setCreateError] = useState('')
   const [createWarningState, setCreateWarningState] = useState(() =>
     createMobileSessionCreateWarningState(initialCreateWarning)
@@ -1377,7 +1379,10 @@ export default function SessionScreen() {
         {
           terminal: handle,
           client: { id: deviceTokenRef.current!, type: 'mobile' as const },
-          viewport: viewportRef.current ?? undefined,
+          viewport: nativeChatTerminalStream.mobileNativeChatSubscribeViewport(
+            covered,
+            viewportRef.current
+          ),
           capabilities: nativeChatTerminalStream.mobileNativeChatTerminalCapabilities(covered)
         },
         (result) => {
@@ -2317,40 +2322,23 @@ export default function SessionScreen() {
     }
     // Why: a client swap can keep the route connected while moving to an older
     // host; clear the prior capability before exposing host-specific actions.
+    setBrowserScreencastSupported(null)
+    setAgentSessionHistorySupported(null)
     setQuickCommandsSupported(null)
     setShowQuickCommands(false)
-    let stale = false
-    void client
-      .sendRequest('status.get')
-      .then((response) => {
-        if (stale || !response.ok) {
-          return
-        }
-        const status = (response as RpcSuccess).result as RuntimeStatusResult
-        setBrowserScreencastSupported(
-          status.capabilities?.includes('browser.screencast.v1') === true
-        )
-        setAgentSessionHistorySupported(
-          status.capabilities?.includes(MOBILE_AI_VAULT_CAPABILITY) === true
-        )
-        setQuickCommandsSupported(supportsMobileQuickCommands(status.capabilities))
-        // Why: hosts without this capability strip inputKind from terminal.send,
-        // so a forwarded xterm reply would become floor-stealing shell input.
-        hostQueryReplyInputSupportedRef.current =
-          status.capabilities?.includes(TERMINAL_QUERY_REPLY_INPUT_RUNTIME_CAPABILITY) === true
-      })
-      .catch(() => {
-        if (!stale) {
-          setBrowserScreencastSupported(false)
-          setAgentSessionHistorySupported(false)
-          setQuickCommandsSupported(false)
-          setShowQuickCommands(false)
-          hostQueryReplyInputSupportedRef.current = false
-        }
-      })
-    return () => {
-      stale = true
-    }
+    hostQueryReplyInputSupportedRef.current = false
+    // Why: the probe retries — a relay→direct cutover or request timeout rejects
+    // status.get without changing connState, which used to latch these hidden.
+    return startRuntimeCapabilityProbe(client, (capabilities) => {
+      setBrowserScreencastSupported(capabilities.includes('browser.screencast.v1'))
+      setAgentSessionHistorySupported(capabilities.includes(MOBILE_AI_VAULT_CAPABILITY))
+      setQuickCommandsSupported(supportsMobileQuickCommands(capabilities))
+      // Why: hosts without this capability strip inputKind from terminal.send,
+      // so a forwarded xterm reply would become floor-stealing shell input.
+      hostQueryReplyInputSupportedRef.current = capabilities.includes(
+        TERMINAL_QUERY_REPLY_INPUT_RUNTIME_CAPABILITY
+      )
+    })
   }, [client, connState])
 
   // Why: read deviceToken from host record so code can pass client.id on subscribe/send for driver-state-machine identity.
@@ -2472,6 +2460,7 @@ export default function SessionScreen() {
     terminalFrameHeightRef,
     viewportRef,
     viewportMeasuredRef,
+    nativeChatCoveredRef: showNativeChatRef,
     clientRef,
     deviceTokenRef,
     initializedHandlesRef,
@@ -2712,14 +2701,25 @@ export default function SessionScreen() {
       if (connState !== 'connected') {
         return
       }
-      void fetchSessionTabs()
-      void fetchTerminals()
-      // Why: live subscription keeps stream ownership, but the fallback list poll should stop while this route is hidden.
-      const interval = setInterval(() => {
+      const refreshOnForeground = () => {
+        if (AppState.currentState !== 'active') {
+          return
+        }
         void fetchSessionTabs()
         void fetchTerminals()
-      }, 2000)
-      return () => clearInterval(interval)
+      }
+      const appStateSubscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') {
+          refreshOnForeground()
+        }
+      })
+      // Why: live subscription keeps stream ownership, but the fallback list poll should stop while this route is hidden or backgrounded.
+      const interval = setInterval(refreshOnForeground, 2000)
+      refreshOnForeground()
+      return () => {
+        clearInterval(interval)
+        appStateSubscription.remove()
+      }
     }, [connState, fetchSessionTabs, fetchTerminals])
   )
 
@@ -4528,12 +4528,9 @@ export default function SessionScreen() {
                 style={({ pressed }) => [
                   styles.newTerminalButton,
                   pressed && styles.newTerminalButtonPressed,
-                  (creating || creatingBrowser || creatingMarkdown || connState !== 'connected') &&
-                    styles.newTerminalButtonDisabled
+                  createControlsDisabled && styles.newTerminalButtonDisabled
                 ]}
-                disabled={
-                  creating || creatingBrowser || creatingMarkdown || connState !== 'connected'
-                }
+                disabled={createControlsDisabled}
                 onPress={() => {
                   setCreateError('')
                   setShowCreateTabDrawer(true)
@@ -4542,14 +4539,22 @@ export default function SessionScreen() {
               >
                 <Plus size={16} color={colors.textSecondary} strokeWidth={2.2} />
               </Pressable>
-              {quickCommandsSupported === true ? (
-                <QuickCommandsTabButton
-                  disabled={
-                    creating || creatingBrowser || creatingMarkdown || connState !== 'connected'
+              {/* Why: stable placement matters, while old hosts must stay gated because they strip agentPrompt. */}
+              <QuickCommandsTabButton
+                disabled={createControlsDisabled}
+                onPress={() => {
+                  if (quickCommandsSupported === true) {
+                    setShowQuickCommands(true)
+                    return
                   }
-                  onPress={() => setShowQuickCommands(true)}
-                />
-              ) : null}
+                  showToast(
+                    quickCommandsSupported === false
+                      ? 'Desktop update required for quick commands'
+                      : 'Checking desktop capabilities — try again in a moment',
+                    1600
+                  )
+                }}
+              />
             </View>
           )}
         </SafeAreaView>
@@ -4590,9 +4595,7 @@ export default function SessionScreen() {
                         connState !== 'connected') &&
                         styles.createButtonDisabled
                     ]}
-                    disabled={
-                      creating || creatingBrowser || creatingMarkdown || connState !== 'connected'
-                    }
+                    disabled={createControlsDisabled}
                     onPress={() => {
                       setCreateError('')
                       setShowCreateTabDrawer(true)

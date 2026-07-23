@@ -106,6 +106,18 @@ function errorProvider(
   }
 }
 
+function rateLimitedClaude(retryAtMs: number): ProviderRateLimits {
+  return {
+    provider: 'claude',
+    session: null,
+    weekly: null,
+    updatedAt: Date.now(),
+    error: 'Claude usage is rate limited right now.',
+    status: 'error',
+    usageMetadata: { failureKind: 'rate-limited', retryAtMs }
+  }
+}
+
 function unavailableProvider(
   provider: ProviderRateLimits['provider'],
   message = 'Not configured'
@@ -398,6 +410,41 @@ describe('RateLimitService', () => {
       expect(fetchKimiRateLimits).toHaveBeenCalledTimes(1)
       expect(fetchMiniMaxRateLimits).toHaveBeenCalledTimes(1)
       expect(fetchGrokRateLimits).toHaveBeenCalledTimes(1)
+      expect(service.getState().claude?.status).toBe('ok')
+
+      service.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gates automated Claude refetch inside a Retry-After window but honors a user-directed refresh (#9617)', async () => {
+    vi.useFakeTimers()
+    try {
+      // Retry-After ~50 min out — far beyond the activation retry lanes.
+      const retryAtMs = Date.now() + 3000 * 1000
+      vi.mocked(fetchClaudeRateLimits)
+        .mockResolvedValueOnce(rateLimitedClaude(retryAtMs))
+        .mockResolvedValue(okProvider('claude', 12))
+      vi.mocked(fetchCodexRateLimits).mockResolvedValue(okProvider('codex', 24))
+
+      const service = new RateLimitService()
+      const window = new FakeRateLimitWindow()
+      service.attach(asRateLimitWindow(window))
+      service.start({ fetchImmediately: false })
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(fetchClaudeRateLimits).toHaveBeenCalledTimes(1)
+      expect(service.getState().claude?.status).toBe('error')
+
+      // Automated activation must not retry Claude while Retry-After is still open.
+      window.emit('focus')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fetchClaudeRateLimits).toHaveBeenCalledTimes(1)
+
+      // A user-directed (force) refresh bypasses the gate and recovers.
+      await service.refresh()
+      expect(fetchClaudeRateLimits).toHaveBeenCalledTimes(2)
       expect(service.getState().claude?.status).toBe('ok')
 
       service.stop()
@@ -746,6 +793,31 @@ describe('RateLimitService', () => {
     expect(state.claude?.error).toBe('still failing')
   })
 
+  it('keeps last-known Claude usage through a rate-limited window past the generic stale threshold (#9617)', async () => {
+    const service = new RateLimitService()
+    const internal = serviceInternals(service)
+
+    // Prior good snapshot aged past the 30-min generic stale threshold but well within 24h.
+    const agedUpdatedAt = Date.now() - 40 * 60 * 1000
+    vi.mocked(fetchClaudeRateLimits)
+      .mockResolvedValueOnce(okProvider('claude', 33, agedUpdatedAt))
+      .mockResolvedValueOnce(rateLimitedClaude(Date.now() + 5 * 60 * 1000))
+
+    vi.mocked(fetchCodexRateLimits)
+      .mockResolvedValueOnce(okProvider('codex', 44, Date.now()))
+      .mockResolvedValueOnce(okProvider('codex', 44, Date.now()))
+
+    await internal.fetchAll()
+    await internal.fetchAll()
+
+    // The rate-limited window outlasts the generic threshold, so the last-known
+    // snapshot must be retained rather than dropped to a bare error.
+    const state = service.getState()
+    expect(state.claude?.status).toBe('error')
+    expect(state.claude?.session?.usedPercent).toBe(33)
+    expect(state.claude?.usageMetadata?.failureKind).toBe('rate-limited')
+  })
+
   it('bypasses the debounce for explicit manual refreshes', async () => {
     const service = new RateLimitService()
 
@@ -1054,6 +1126,11 @@ describe('RateLimitService', () => {
       sessionCookie: 'session=abc123',
       workspaceIdOverride: ''
     }))
+    const networkProxySettings = {
+      httpProxyUrl: 'http://proxy.example:8080',
+      httpProxyBypassRules: 'localhost'
+    }
+    service.setNetworkProxySettingsResolver(() => networkProxySettings)
     service.setGeminiCliOAuthEnabledResolver(() => true)
 
     vi.mocked(fetchClaudeRateLimits).mockResolvedValueOnce(okProvider('claude', 10, Date.now()))
@@ -1078,7 +1155,11 @@ describe('RateLimitService', () => {
     expect(fetchGeminiRateLimits).toHaveBeenCalledTimes(1)
     expect(fetchGeminiRateLimits).toHaveBeenCalledWith(true)
     expect(fetchOpenCodeGoRateLimits).toHaveBeenCalledTimes(1)
-    expect(fetchOpenCodeGoRateLimits).toHaveBeenCalledWith('session=abc123', undefined)
+    expect(fetchOpenCodeGoRateLimits).toHaveBeenCalledWith(
+      'session=abc123',
+      undefined,
+      networkProxySettings
+    )
     expect(fetchGrokRateLimits).toHaveBeenCalledWith({
       signal: expect.any(AbortSignal),
       authReadResult: { status: 'missing' }

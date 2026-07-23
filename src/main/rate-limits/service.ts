@@ -91,6 +91,8 @@ const INDIVIDUALLY_REFRESHABLE_PROVIDERS: ReadonlySet<ActiveRateLimitProvider> =
   'grok'
 ])
 const STALE_THRESHOLD_MS = 30 * 60 * 1000 // 30 minutes — after this, stale data is dropped
+// Why: usage-endpoint 429 windows can outlast the generic threshold (Retry-After ~1h); quota is informational, so a stale snapshot beats a bare "Limited" (#9617).
+const RATE_LIMITED_STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000
 const INACTIVE_FETCH_DEBOUNCE_MS = 60 * 1000 // 60 seconds — debounce fetch-on-open
 const DEFERRED_STARTUP_ACTIVE_REFRESH_MS = 1000
 
@@ -764,6 +766,15 @@ export class RateLimitService {
     }))
   }
 
+  // Why: hitting a usage endpoint before its Retry-After expires burns the budget for nothing and keeps the 429 window alive (#9617).
+  private isRetryAfterActive(limits: ProviderRateLimits | null): boolean {
+    return Boolean(
+      limits?.status === 'error' &&
+      limits.usageMetadata?.retryAtMs &&
+      limits.usageMetadata.retryAtMs > Date.now()
+    )
+  }
+
   private getActiveWindowRefreshPlan(now: number): ActiveWindowRefreshPlan {
     const retryableFailures: ActiveRateLimitProvider[] = []
     for (const { provider, limits } of this.getActiveProviderState()) {
@@ -778,6 +789,10 @@ export class RateLimitService {
       }
       // Why: a failed startup read is not fresh data; keep it eligible for activation recovery, throttled per provider.
       if (limits.status === 'error') {
+        // Why: the server told us when to come back (Retry-After); retrying earlier burns the endpoint's budget and keeps the 429 alive (#9617).
+        if (this.isRetryAfterActive(limits)) {
+          continue
+        }
         const lastRetryAt = this.lastActiveFailureRetryAtByProvider[provider]
         const throttleMs = INDIVIDUALLY_REFRESHABLE_PROVIDERS.has(provider)
           ? activeFailureRefetchThrottleMs(
@@ -867,11 +882,14 @@ export class RateLimitService {
 
     try {
       let shouldContinue = true
+      // Why: only user-directed (force) fetches may bypass a provider's Retry-After gate; queued reruns inherit force because only forced calls queue them.
+      let cycleForce = options?.force ?? false
       while (shouldContinue) {
         const signal = await this.runWithFetchAbortSignal((fetchSignal) =>
-          this.runFetchAllCycle(fetchSignal)
+          this.runFetchAllCycle(fetchSignal, { force: cycleForce })
         )
         shouldContinue = false
+        cycleForce = true
         if (signal.aborted) {
           break
         }
@@ -892,7 +910,7 @@ export class RateLimitService {
         if (this.claudeOnlyFetchQueued) {
           this.claudeOnlyFetchQueued = false
           const claudeSignal = await this.runWithFetchAbortSignal((fetchSignal) =>
-            this.runFetchClaudeOnlyCycle(fetchSignal)
+            this.runFetchClaudeOnlyCycle(fetchSignal, { force: true })
           )
           if (claudeSignal.aborted) {
             break
@@ -937,7 +955,7 @@ export class RateLimitService {
         if (this.fullFetchQueued) {
           this.fullFetchQueued = false
           const fullSignal = await this.runWithFetchAbortSignal((fetchSignal) =>
-            this.runFetchAllCycle(fetchSignal)
+            this.runFetchAllCycle(fetchSignal, { force: true })
           )
           if (fullSignal.aborted) {
             break
@@ -951,7 +969,7 @@ export class RateLimitService {
         if (this.claudeOnlyFetchQueued) {
           this.claudeOnlyFetchQueued = false
           const claudeSignal = await this.runWithFetchAbortSignal((fetchSignal) =>
-            this.runFetchClaudeOnlyCycle(fetchSignal)
+            this.runFetchClaudeOnlyCycle(fetchSignal, { force: true })
           )
           if (claudeSignal.aborted) {
             break
@@ -985,18 +1003,21 @@ export class RateLimitService {
 
     try {
       let shouldContinue = true
+      // Why: only user-directed (force) fetches may bypass a provider's Retry-After gate; queued reruns inherit force because only forced calls queue them.
+      let cycleForce = options?.force ?? false
       while (shouldContinue) {
         const signal = await this.runWithFetchAbortSignal((fetchSignal) =>
-          this.runFetchClaudeOnlyCycle(fetchSignal)
+          this.runFetchClaudeOnlyCycle(fetchSignal, { force: cycleForce })
         )
         shouldContinue = false
+        cycleForce = true
         if (signal.aborted) {
           break
         }
         if (this.fullFetchQueued) {
           this.fullFetchQueued = false
           const fullSignal = await this.runWithFetchAbortSignal((fetchSignal) =>
-            this.runFetchAllCycle(fetchSignal)
+            this.runFetchAllCycle(fetchSignal, { force: true })
           )
           if (fullSignal.aborted) {
             break
@@ -1055,7 +1076,7 @@ export class RateLimitService {
         if (this.fullFetchQueued) {
           this.fullFetchQueued = false
           const fullSignal = await this.runWithFetchAbortSignal((fetchSignal) =>
-            this.runFetchAllCycle(fetchSignal)
+            this.runFetchAllCycle(fetchSignal, { force: true })
           )
           if (fullSignal.aborted) {
             break
@@ -1078,7 +1099,7 @@ export class RateLimitService {
         if (this.claudeOnlyFetchQueued) {
           this.claudeOnlyFetchQueued = false
           const claudeSignal = await this.runWithFetchAbortSignal((fetchSignal) =>
-            this.runFetchClaudeOnlyCycle(fetchSignal)
+            this.runFetchClaudeOnlyCycle(fetchSignal, { force: true })
           )
           if (claudeSignal.aborted) {
             break
@@ -1321,7 +1342,10 @@ export class RateLimitService {
     return { ...current, status: 'fetching' }
   }
 
-  private async runFetchAllCycle(signal: AbortSignal): Promise<void> {
+  private async runFetchAllCycle(
+    signal: AbortSignal,
+    options?: { force?: boolean }
+  ): Promise<void> {
     if (signal.aborted) {
       return
     }
@@ -1394,19 +1418,24 @@ export class RateLimitService {
       (reason) => ({ status: 'rejected', reason }) as const
     )
 
+    // Why: skip automated Claude fetches while a Retry-After window is open; a user-directed (force) fetch still bypasses (#9617).
+    const claudeFetchGated = !options?.force && this.isRetryAfterActive(previousState.claude)
+
     const [claudeResult, codexResult, geminiResult, opencodeGoResult, kimiResult, miniMaxResult] =
       await Promise.allSettled([
-        fetchClaudeRateLimits({
-          authPreparation: claudeAuthPreparation,
-          allowPtyFallback: this.shouldAllowClaudePtyFallback(claudeAuthPreparation),
-          allowUsagePanelSupplement: this.shouldAllowClaudeUsagePanelSupplement(),
-          networkProxySettings: this.networkProxySettingsResolver?.(),
-          signal,
-          reconcileManagedAuth: this.buildClaudeReconcileCallback(
-            claudeTarget,
-            claudeAuthPreparation
-          )
-        }),
+        claudeFetchGated
+          ? Promise.resolve(previousState.claude as ProviderRateLimits)
+          : fetchClaudeRateLimits({
+              authPreparation: claudeAuthPreparation,
+              allowPtyFallback: this.shouldAllowClaudePtyFallback(claudeAuthPreparation),
+              allowUsagePanelSupplement: this.shouldAllowClaudeUsagePanelSupplement(),
+              networkProxySettings: this.networkProxySettingsResolver?.(),
+              signal,
+              reconcileManagedAuth: this.buildClaudeReconcileCallback(
+                claudeTarget,
+                claudeAuthPreparation
+              )
+            }),
         missingWslCodexHome ??
           fetchCodexRateLimits({
             codexHomePath,
@@ -1414,7 +1443,11 @@ export class RateLimitService {
             signal
           }),
         fetchGeminiRateLimits(geminiCliOAuthEnabled),
-        fetchOpenCodeGoRateLimits(cookie, workspaceIdOverride || undefined),
+        fetchOpenCodeGoRateLimits(
+          cookie,
+          workspaceIdOverride || undefined,
+          this.networkProxySettingsResolver?.()
+        ),
         fetchKimiRateLimits(),
         miniMaxConfigResult.error
           ? Promise.resolve(this.getMiniMaxCredentialError(miniMaxConfigResult.error))
@@ -1526,7 +1559,9 @@ export class RateLimitService {
     const latestCodexProvenance = this.getCodexProvenance(codexTarget, latestCodexHomePath)
     const shouldApplyCodex =
       codexGeneration === this.codexFetchGeneration && codexProvenance === latestCodexProvenance
+    // Why: a gated cycle made no Claude attempt; applying its passthrough result would grow the failure streak and reset stale-policy clocks for free (#9617).
     const shouldApplyClaude =
+      !claudeFetchGated &&
       claudeGeneration === this.claudeFetchGeneration &&
       claudeProvenance === latestClaudeProvenance &&
       this.isSameClaudeTarget(claudeTarget, this.claudeFetchTarget)
@@ -1650,8 +1685,15 @@ export class RateLimitService {
     })
   }
 
-  private async runFetchClaudeOnlyCycle(signal: AbortSignal): Promise<void> {
+  private async runFetchClaudeOnlyCycle(
+    signal: AbortSignal,
+    options?: { force?: boolean }
+  ): Promise<void> {
     if (signal.aborted) {
+      return
+    }
+    // Why: skip automated Claude fetches while a Retry-After window is open; a user-directed (force) fetch still bypasses (#9617).
+    if (!options?.force && this.isRetryAfterActive(this.state.claude)) {
       return
     }
     const claudeTarget = this.claudeFetchTarget
@@ -1783,8 +1825,13 @@ export class RateLimitService {
       return fresh
     }
 
-    // Previous data is too old — don't show stale data
-    if (Date.now() - previous.updatedAt > STALE_THRESHOLD_MS) {
+    // Previous data is too old — don't show stale data. A rate-limited window
+    // can outlast the generic threshold, so hold the last-known snapshot longer (#9617).
+    const staleThresholdMs =
+      fresh.usageMetadata?.failureKind === 'rate-limited'
+        ? RATE_LIMITED_STALE_THRESHOLD_MS
+        : STALE_THRESHOLD_MS
+    if (Date.now() - previous.updatedAt > staleThresholdMs) {
       return fresh
     }
 

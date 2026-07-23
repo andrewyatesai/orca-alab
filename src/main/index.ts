@@ -94,7 +94,10 @@ import { maybeRedirectPackagedCliEntryLaunch } from './startup/packaged-cli-entr
 import { startFirstWindowStartupServices } from './startup/first-window-startup-services'
 import { createWslCliReconciliationStartupBarrier } from './startup/wsl-cli-reconciliation-startup-barrier'
 import { getDevInstanceIdentity } from './startup/dev-instance-identity'
-import { migrateStagingProfile } from './startup/staging-profile-migration'
+import {
+  migrateStagingProfile,
+  migrateStagingProfileKeychain
+} from './startup/staging-profile-migration'
 import { hydrateShellPath, mergePathSegments } from './startup/hydrate-shell-path'
 import {
   acquireSingleInstanceLock,
@@ -438,7 +441,14 @@ const devAgentHookEndpointNamespace = devInstanceIdentity.isDev
 installUncaughtPipeErrorGuard()
 configureDevUserDataPath(is.dev)
 // Why: the productName rename (59574d931) moved userData 'Orca Staging' → 'Orca ALab Edition'; adopt the old profile before the single-instance lock or any other consumer creates the new dir.
-migrateStagingProfile({ isPackaged: app.isPackaged, userDataPath: app.getPath('userData') })
+// Why skipKeychainCopy: the Keychain copy writes files/Keychain items into userData and must not run before the
+// single-instance lock — a transient losing instance would mutate shared userData. It's deferred to the lock-held
+// block below (migrateStagingProfileKeychain). Only the profile rename genuinely needs to precede the lock.
+migrateStagingProfile({
+  isPackaged: app.isPackaged,
+  userDataPath: app.getPath('userData'),
+  skipKeychainCopy: true
+})
 configureOrcaUserDataPathEnv()
 
 // Why: a launch that races Squirrel's in-flight update install would abort it
@@ -617,6 +627,13 @@ if (!hasSingleInstanceLock) {
 
 // Why: when another process holds the lock we've already quit; skip file-writing side effects so this transient process never touches userData.
 if (hasSingleInstanceLock) {
+  // Why: deferred from the pre-lock migrateStagingProfile — the Keychain copy + marker write are userData side
+  // effects that only the lock-holding instance may perform. Idempotent via item probes + marker, so running it
+  // one launch later than the rename is safe.
+  migrateStagingProfileKeychain({
+    isPackaged: app.isPackaged,
+    userDataPath: app.getPath('userData')
+  })
   // Why: couple to dev-parent only for electron-vite desktop runs; `orca serve`'s parent (CLI shim/background shell) isn't the intended server lifetime.
   const shouldCoupleToDevParent = is.dev && !isServeMode
   installDevParentDisconnectQuit(shouldCoupleToDevParent)

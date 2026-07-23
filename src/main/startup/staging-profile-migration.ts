@@ -135,8 +135,9 @@ function readKeychainCopyMarkerState(markerPath: string): KeychainCopyMarkerStat
     const priorAttempts = typeof marker.attempts === 'number' ? marker.attempts : 1
     return { blocked: priorAttempts >= MAX_KEYCHAIN_COPY_ATTEMPTS, priorAttempts }
   } catch {
-    // Why: an unreadable marker fails closed — never risk a Keychain prompt on every launch.
-    return { blocked: true, priorAttempts: MAX_KEYCHAIN_COPY_ATTEMPTS }
+    // Why: a torn/unparseable marker (crash or ENOSPC mid-write) must not wedge the migration
+    // forever — count it as one attempt so the copy retries, still bounded by the MAX cap.
+    return { blocked: false, priorAttempts: 1 }
   }
 }
 
@@ -213,8 +214,10 @@ export function copyStagingSafeStorageKeychainItem(options: {
   }
   try {
     // Why: terminal outcomes block retries for good; transient ones ('failed'/'old-item-missing') retry up to MAX so one locked-keychain launch cannot orphan safeStorage data.
+    // Why: tmp+rename so a crash/ENOSPC mid-write cannot leave a truncated marker that permanently wedges the migration.
+    const tmpPath = `${markerPath}.tmp`
     writeFileSync(
-      markerPath,
+      tmpPath,
       JSON.stringify({
         schemeVersion: 2,
         attemptedAt: Date.now(),
@@ -222,10 +225,40 @@ export function copyStagingSafeStorageKeychainItem(options: {
         attempts: markerState.priorAttempts + 1
       })
     )
+    renameSync(tmpPath, markerPath)
   } catch (error) {
     warn(`[staging-migration] could not write Keychain copy marker: ${String(error)}`)
   }
   return outcome
+}
+
+// Why separate + gated by the caller on the single-instance lock: the keychain copy runs `security` and writes
+// KEYCHAIN_COPY_MARKER_FILE into userData — file/Keychain side effects. A transient instance that loses the
+// lock race must never touch userData (index.ts:618 invariant), so only the lock-holding instance may call this.
+// The profile rename itself still runs pre-lock (it must, or the lock file would populate the new dir first).
+export function migrateStagingProfileKeychain(options: {
+  isPackaged: boolean
+  userDataPath: string
+  platform?: NodeJS.Platform
+  execFileSyncFn?: ExecFileSyncFn
+  appExecutablePath?: string
+  warn?: (message: string) => void
+}): void {
+  // Why: not gated on this launch's rename — a crash after renameSync but before the marker write
+  // must still get the Keychain copy next launch; item probes + marker keep it idempotent.
+  if (
+    options.isPackaged &&
+    basename(options.userDataPath) === NEW_PROFILE_DIR_NAME &&
+    existsSync(options.userDataPath)
+  ) {
+    copyStagingSafeStorageKeychainItem({
+      newProfilePath: options.userDataPath,
+      platform: options.platform,
+      execFileSyncFn: options.execFileSyncFn,
+      appExecutablePath: options.appExecutablePath,
+      warn: options.warn ?? ((message: string) => console.warn(message))
+    })
+  }
 }
 
 export function migrateStagingProfile(options: {
@@ -236,6 +269,9 @@ export function migrateStagingProfile(options: {
   appExecutablePath?: string
   log?: (message: string) => void
   warn?: (message: string) => void
+  // Why: the packaged app defers the Keychain copy until after the single-instance lock (see
+  // migrateStagingProfileKeychain); tests and any all-in-one caller leave this false to run it inline.
+  skipKeychainCopy?: boolean
 }): StagingProfileMigrationDecision {
   const log = options.log ?? ((message: string) => console.log(message))
   const warn = options.warn ?? ((message: string) => console.warn(message))
@@ -261,15 +297,10 @@ export function migrateStagingProfile(options: {
       warn(`[staging-migration] profile rename failed: ${String(error)}`)
     }
   }
-  // Why: not gated on this launch's rename — a crash after renameSync but before the marker write
-  // must still get the Keychain copy next launch; item probes + marker keep it idempotent.
-  if (
-    options.isPackaged &&
-    basename(options.userDataPath) === NEW_PROFILE_DIR_NAME &&
-    existsSync(options.userDataPath)
-  ) {
-    copyStagingSafeStorageKeychainItem({
-      newProfilePath: options.userDataPath,
+  if (!options.skipKeychainCopy) {
+    migrateStagingProfileKeychain({
+      isPackaged: options.isPackaged,
+      userDataPath: options.userDataPath,
       platform: options.platform,
       execFileSyncFn: options.execFileSyncFn,
       appExecutablePath: options.appExecutablePath,

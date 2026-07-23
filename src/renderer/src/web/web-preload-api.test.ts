@@ -3460,3 +3460,73 @@ describe('web GitLab preload API', () => {
     ])
   })
 })
+
+function encodePairingCode(overrides: { publicKeyB64?: string; endpoint?: string }): string {
+  const payload = {
+    v: 2,
+    endpoint: overrides.endpoint ?? 'ws://127.0.0.1:1234',
+    deviceToken: 'token',
+    publicKeyB64: overrides.publicKeyB64 ?? 'public-key'
+  }
+  return Buffer.from(JSON.stringify(payload)).toString('base64')
+}
+
+describe('web runtime environment re-pair provenance', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('carries the prior env id into compatibleEnvironmentIds when the offer key matches', async () => {
+    const globals = installBrowserGlobals('Linux')
+    writeStoredRuntimeEnvironment(globals.storage)
+    const { installWebPreloadApi } = await import('./web-preload-api')
+    installWebPreloadApi()
+
+    await globals.window.api.runtimeEnvironments.addFromPairingCode({
+      name: 'Server A again',
+      pairingCode: encodePairingCode({ publicKeyB64: 'public-key' })
+    })
+
+    const stored = JSON.parse(
+      globals.storage.getItem('orca.web.runtimeEnvironment.v1') ?? '{}'
+    ) as { id: string; compatibleEnvironmentIds?: string[] }
+    expect(stored.compatibleEnvironmentIds).toContain('web-env-1')
+    expect(stored.id).not.toBe('web-env-1')
+  })
+
+  it('resolves an old-env selector only when re-pairing proved the same server key', async () => {
+    const globals = installBrowserGlobals('Linux')
+    writeStoredRuntimeEnvironment(globals.storage)
+    const { installWebPreloadApi } = await import('./web-preload-api')
+    installWebPreloadApi()
+
+    const paired = await globals.window.api.runtimeEnvironments.addFromPairingCode({
+      name: 'Server A again',
+      pairingCode: encodePairingCode({ publicKeyB64: 'public-key' })
+    })
+
+    await expect(
+      globals.window.api.runtimeEnvironments.resolve({ selector: 'web-env-1' })
+    ).resolves.toMatchObject({ id: paired.environment.id, name: 'Server A again' })
+  })
+
+  it('rejects an old-env selector when re-pairing to a different server key', async () => {
+    const globals = installBrowserGlobals('Linux')
+    writeStoredRuntimeEnvironment(globals.storage)
+    const { installWebPreloadApi } = await import('./web-preload-api')
+    installWebPreloadApi()
+
+    await globals.window.api.runtimeEnvironments.addFromPairingCode({
+      name: 'Server B',
+      pairingCode: encodePairingCode({ publicKeyB64: 'different-key' })
+    })
+
+    await expect(
+      globals.window.api.runtimeEnvironments.resolve({ selector: 'web-env-1' })
+    ).rejects.toThrow('Unknown Orca runtime environment: web-env-1')
+  })
+})

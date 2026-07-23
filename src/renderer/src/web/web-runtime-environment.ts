@@ -4,6 +4,10 @@ import { createBrowserUuid } from '@/lib/browser-uuid'
 import { translate } from '@/i18n/i18n'
 
 export type StoredWebRuntimeEnvironment = Omit<PublicKnownRuntimeEnvironment, 'endpoints'> & {
+  // Why: prior env id + its ancestors, kept only when re-pairing to the same
+  // server publicKey, so ownership/provenance of resources created under the
+  // old environment survives re-pairing (#9776).
+  compatibleEnvironmentIds?: string[]
   endpoints: {
     id: string
     kind: 'websocket'
@@ -23,10 +27,24 @@ export function readStoredWebRuntimeEnvironment(): StoredWebRuntimeEnvironment |
   }
   try {
     const parsed = JSON.parse(raw) as StoredWebRuntimeEnvironment
-    if (!parsed.id || !parsed.name || parsed.endpoints.length === 0) {
+    if (
+      !parsed.id ||
+      !parsed.name ||
+      !Array.isArray(parsed.endpoints) ||
+      parsed.endpoints.length === 0
+    ) {
       return null
     }
-    return parsed
+    const compatibleEnvironmentIds = Array.isArray(parsed.compatibleEnvironmentIds)
+      ? parsed.compatibleEnvironmentIds.filter(
+          (environmentId): environmentId is string => typeof environmentId === 'string'
+        )
+      : []
+    const { compatibleEnvironmentIds: _unvalidatedIds, ...environment } = parsed
+    return {
+      ...environment,
+      ...(compatibleEnvironmentIds.length > 0 ? { compatibleEnvironmentIds } : {})
+    }
   } catch {
     return null
   }
@@ -43,9 +61,11 @@ export function clearStoredWebRuntimeEnvironment(): void {
 export function createStoredWebRuntimeEnvironment(args: {
   name: string
   offer: WebPairingOffer
+  previousEnvironment?: StoredWebRuntimeEnvironment | null
 }): StoredWebRuntimeEnvironment {
   const id = `web-${createBrowserUuid()}`
   const now = Date.now()
+  const compatibleEnvironmentIds = getCompatibleEnvironmentIds(args.previousEnvironment, args.offer)
   return {
     id,
     name: args.name.trim() || 'Orca Server',
@@ -53,6 +73,7 @@ export function createStoredWebRuntimeEnvironment(args: {
     updatedAt: now,
     lastUsedAt: null,
     runtimeId: null,
+    ...(compatibleEnvironmentIds.length > 0 ? { compatibleEnvironmentIds } : {}),
     preferredEndpointId: `ws-${id}`,
     endpoints: [
       {
@@ -67,11 +88,27 @@ export function createStoredWebRuntimeEnvironment(args: {
   }
 }
 
+// Why: re-pairing to a server whose endpoint publicKey matches the prior env
+// carries that env's id (and its ancestors) forward, so resources created under
+// the old id keep a provenance chain to the new one (#9776).
+function getCompatibleEnvironmentIds(
+  previous: StoredWebRuntimeEnvironment | null | undefined,
+  offer: WebPairingOffer
+): string[] {
+  if (!previous?.endpoints.some((endpoint) => endpoint.publicKeyB64 === offer.publicKeyB64)) {
+    return []
+  }
+  return [...new Set([...(previous.compatibleEnvironmentIds ?? []), previous.id])]
+}
+
 export function redactStoredWebRuntimeEnvironment(
   environment: StoredWebRuntimeEnvironment
 ): PublicKnownRuntimeEnvironment {
+  // Why: compatibleEnvironmentIds is internal provenance; never leak it out over
+  // the redacted public shape (#9776).
+  const { compatibleEnvironmentIds: _compatibleEnvironmentIds, ...publicEnvironment } = environment
   return {
-    ...environment,
+    ...publicEnvironment,
     endpoints: environment.endpoints.map(
       ({ deviceToken: _token, publicKeyB64: _key, ...rest }) => ({
         ...rest

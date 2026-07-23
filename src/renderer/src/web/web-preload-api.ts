@@ -1294,8 +1294,11 @@ function createRuntimeEnvironmentsApi(): NonNullable<Partial<PreloadApi>['runtim
       if (!offer) {
         throw new Error('Invalid Orca pairing code.')
       }
+      // Why: capture before closing clients so re-pairing to the same server key
+      // carries the prior env's provenance forward (#9776).
+      const previousEnvironment = activeEnvironment
       closeActiveRuntimeClients()
-      activeEnvironment = createStoredWebRuntimeEnvironment({ name, offer })
+      activeEnvironment = createStoredWebRuntimeEnvironment({ name, offer, previousEnvironment })
       saveStoredWebRuntimeEnvironment(activeEnvironment)
       return { environment: redactStoredWebRuntimeEnvironment(activeEnvironment) }
     },
@@ -3228,8 +3231,9 @@ function resolveEnvironment(selector: string): StoredWebRuntimeEnvironment {
   if (selector === environment.id || selector === environment.name || selector === 'active') {
     return environment
   }
-  if (selector.startsWith('web-') && environment.id.startsWith('web-')) {
-    // Why: persisted terminal ids can outlive a re-pair, which mints a fresh web-* id for the same active server.
+  if (environment.compatibleEnvironmentIds?.includes(selector)) {
+    // Why: a persisted selector (e.g. terminal id) tied to a prior env id resolves
+    // only when re-pairing proved the same server key carried it forward (#9776).
     return environment
   }
   throw new Error(`Unknown Orca runtime environment: ${selector}`)

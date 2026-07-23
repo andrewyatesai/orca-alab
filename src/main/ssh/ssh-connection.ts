@@ -1,6 +1,5 @@
 /* eslint-disable max-lines -- Why: SSH connection lifecycle, credential retries, reconnect policy, and transport fallback are intentionally co-located so state transitions stay auditable in one file. */
 import * as net from 'node:net'
-import { createHash } from 'node:crypto'
 import { Client as SshClient } from 'ssh2'
 import type { ChildProcess } from 'node:child_process'
 import type { ClientChannel, ConnectConfig, SFTPWrapper } from 'ssh2'
@@ -19,6 +18,11 @@ import {
 } from './ssh-system-fallback'
 import { resolveWithSshG, type SshResolvedConfig } from './ssh-config-parser'
 import { removeControlSocketPath } from './ssh-control-socket'
+import {
+  classifyPresentedHostKey,
+  computeHostKeyFingerprint,
+  readKnownHostsEntries
+} from './ssh-known-hosts'
 import {
   INITIAL_RETRY_ATTEMPTS,
   INITIAL_RETRY_DELAY_MS,
@@ -112,6 +116,9 @@ export class SshConnection {
   private cachedPassphrase: string | null = null
   private cachedPassword: string | null = null
   private hostKeyFingerprint: string | undefined
+  // Why: TOFU pin — the first host key accepted for this target, so a changed key on
+  // reconnect is rejected even before it lands in known_hosts (crash/MITM defense).
+  private pinnedHostKeyFingerprint: string | undefined
   private connectGeneration = 0
 
   constructor(target: SshTarget, callbacks: SshConnectionCallbacks) {
@@ -1113,19 +1120,52 @@ export class SshConnection {
     config.sock = p.sock
   }
 
+  // Why: ssh2 trusts whatever host key the peer presents, so an on-path attacker's key
+  // would be accepted (MITM) unless we verify it. Reject a known_hosts mismatch or a key
+  // that changed since we pinned it (TOFU); accept a match or a first-contact key.
+  private verifyPresentedHostKey(key: Buffer, host: string, port: number): boolean {
+    const fingerprint = computeHostKeyFingerprint(key)
+    const verdict = classifyPresentedHostKey(readKnownHostsEntries(), host, port, key)
+    if (verdict === 'mismatch') {
+      console.warn(
+        `[ssh] REJECTED host key for ${this.target.label} (${host}:${port}) — known_hosts mismatch, possible MITM. Presented ${fingerprint}`
+      )
+      return false
+    }
+    if (
+      verdict === 'unknown' &&
+      this.pinnedHostKeyFingerprint &&
+      this.pinnedHostKeyFingerprint !== fingerprint
+    ) {
+      console.warn(
+        `[ssh] REJECTED host key for ${this.target.label} (${host}:${port}) — key changed since first connect (pinned ${this.pinnedHostKeyFingerprint}, presented ${fingerprint}).`
+      )
+      return false
+    }
+    // Only record on acceptance: the relay isolates shared-home install locks by this fingerprint,
+    // and the pin must never carry a rejected key.
+    this.hostKeyFingerprint = fingerprint
+    this.pinnedHostKeyFingerprint = fingerprint
+    return true
+  }
+
   private doSsh2Connect(config: ConnectConfig, connectGeneration: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const client = new SshClient()
       let settled = false
 
-      // Why: the relay uses the negotiated server key to isolate shared-home
-      // install locks without comparing PIDs from an unrelated SSH host.
+      // Why: ssh2 does no host-key checking of its own; verify against known_hosts +
+      // TOFU here or an on-path attacker's key is accepted (MITM). See verifyPresentedHostKey.
       config.hostVerifier = (key: Buffer): boolean => {
-        if (!this.disposed && connectGeneration === this.connectGeneration) {
-          const digest = createHash('sha256').update(key).digest('base64').replace(/=+$/, '')
-          this.hostKeyFingerprint = `SHA256:${digest}`
+        // A late verifier from a superseded attempt targets a client onReady will discard; don't mutate trust state.
+        if (this.disposed || connectGeneration !== this.connectGeneration) {
+          return true
         }
-        return true
+        return this.verifyPresentedHostKey(
+          key,
+          config.host ?? this.target.host,
+          config.port ?? this.target.port
+        )
       }
 
       const cleanupStartupListeners = (): void => {

@@ -169,6 +169,18 @@ import {
 import { getRemoteHostPlatform } from './ssh-remote-platform'
 import type { SshTarget } from '../../shared/ssh-types'
 
+// Build a valid SSH wire-format host key: length-prefixed algorithm name + body bytes.
+function wireHostKey(type: string, body: string): Buffer {
+  const typeBuf = Buffer.from(type, 'ascii')
+  const len = Buffer.alloc(4)
+  len.writeUInt32BE(typeBuf.length)
+  return Buffer.concat([len, typeBuf, Buffer.from(body, 'utf8')])
+}
+
+type HostKeyVerifier = {
+  verifyPresentedHostKey: (key: Buffer, host: string, port: number) => boolean
+}
+
 function createTarget(overrides?: Partial<SshTarget>): SshTarget {
   return {
     id: 'target-1',
@@ -299,6 +311,8 @@ describe('SshConnection', () => {
     vi.mocked(resolveWithSshG).mockReset()
     vi.mocked(resolveWithSshG).mockResolvedValue(null)
     vi.unstubAllEnvs()
+    // Keep host-key verification off the real ~/.ssh/known_hosts so the suite is deterministic.
+    vi.stubEnv('ORCA_SSH_KNOWN_HOSTS_PATH', join(tmpdir(), 'orca-nonexistent-known-hosts'))
   })
 
   it('transitions to connected on successful connect', async () => {
@@ -350,6 +364,41 @@ describe('SshConnection', () => {
     firstVerifier?.(Buffer.from('obsolete-ssh-host-key'))
 
     expect(conn.getHostKeyFingerprint()).toBe(currentFingerprint)
+  })
+
+  it('rejects a host key that changed since the first connect (TOFU pin)', async () => {
+    const conn = new SshConnection(createTarget(), createCallbacks())
+    await conn.connect()
+    const priv = conn as unknown as HostKeyVerifier
+
+    // The same key the session pinned on first contact is still accepted.
+    expect(priv.verifyPresentedHostKey(Buffer.from('mock-ssh-host-key'), 'example.com', 22)).toBe(
+      true
+    )
+    // An attacker presenting a different key on reconnect is rejected.
+    expect(priv.verifyPresentedHostKey(Buffer.from('attacker-host-key'), 'example.com', 22)).toBe(
+      false
+    )
+  })
+
+  it('rejects a presented key that conflicts with a known_hosts entry (MITM)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orca-known-hosts-'))
+    try {
+      const trusted = wireHostKey('ssh-ed25519', 'trusted-key-body')
+      const knownHostsPath = join(dir, 'known_hosts')
+      writeFileSync(knownHostsPath, `example.com ssh-ed25519 ${trusted.toString('base64')}\n`)
+      vi.stubEnv('ORCA_SSH_KNOWN_HOSTS_PATH', knownHostsPath)
+
+      const conn = new SshConnection(createTarget(), createCallbacks())
+      const priv = conn as unknown as HostKeyVerifier
+
+      const attacker = wireHostKey('ssh-ed25519', 'attacker-key-body')
+      expect(priv.verifyPresentedHostKey(attacker, 'example.com', 22)).toBe(false)
+      // The genuine pinned key still verifies.
+      expect(priv.verifyPresentedHostKey(trusted, 'example.com', 22)).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('allows concurrent exec commands for ssh2 transport', async () => {

@@ -10,7 +10,12 @@ import {
 // and `scheduleDrain` captures the resume so the test drives the yielding drain loop by
 // hand (deterministic — no real macrotasks/timers). `now` is a manual clock so the
 // slice budget is exercised precisely.
-function harness(opts?: { chunkChars?: number; sliceMs?: number; sliceStep?: number }) {
+function harness(opts?: {
+  chunkChars?: number
+  sliceMs?: number
+  sliceStep?: number
+  focusBurst?: number
+}) {
   const executed: PaneRuntimeCommand[] = []
   let pendingResume: (() => void) | null = null
   let clock = 0
@@ -25,7 +30,8 @@ function harness(opts?: { chunkChars?: number; sliceMs?: number; sliceStep?: num
     },
     now: () => clock,
     chunkChars: opts?.chunkChars,
-    sliceMs: opts?.sliceMs
+    sliceMs: opts?.sliceMs,
+    focusBurst: opts?.focusBurst
   })
   // Run one drain slice (mirrors the MessageChannel macrotask firing).
   const runDrain = (): boolean => {
@@ -114,6 +120,28 @@ describe('aterm worker command scheduler (QoS)', () => {
     h.drainToIdle()
     const firstTwoPanes = h.executed.slice(0, 2).map((c) => c.paneId)
     expect(firstTwoPanes).toContain(2) // pane 2 serviced early, not after all of pane 1
+  })
+
+  it('a re-fed focused backlog cannot starve background panes: yields one bg unit per focusBurst', () => {
+    // A pane accrues a backlog WHILE background, then gains focus (the everyday
+    // "start a flood in a pane, then switch to watch it" flow) and keeps being re-fed —
+    // a focused pane with a backlog defers even its own `process`, so its queue never
+    // drains to empty on its own. Before the QoS fix pickPane returned the focused pane
+    // for every drain unit, so background sibling 2 ran only AFTER all 10 focused units.
+    const h = harness({ chunkChars: 1, focusBurst: 3 })
+    h.scheduler.submit(proc(1, 'aaaaaaaaaa')) // pane 1 floods while background: 10 chunks
+    h.scheduler.submit(proc(2, 'bbb')) // background sibling 2: 3 chunks
+    h.scheduler.noteFocus(1, true) // now pane 1 is focused WITH a backlog
+    h.drainToIdle()
+    const panes = h.executed.map((c) => c.paneId)
+    // Sibling 2 gets its guaranteed turn within the first focusBurst+1 units — not starved
+    // behind the whole focused flood.
+    expect(panes.slice(0, 4)).toEqual([1, 1, 1, 2])
+    // And its 3 units land interleaved (every 4th), finishing well before pane 1's flood.
+    const lastBg = panes.lastIndexOf(2)
+    const lastFocused = panes.lastIndexOf(1)
+    expect(lastBg).toBeLessThan(lastFocused)
+    expect(panes.filter((p) => p === 2)).toHaveLength(3)
   })
 
   it('forget() drops a pane deferred work so nothing runs against a freed engine', () => {

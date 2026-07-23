@@ -14,9 +14,11 @@
 //   • Per-pane FIFO is preserved absolutely: once a pane has ANY deferred work, all of
 //     its later commands queue behind it (a pane's `process` bytes and their ordering
 //     never change). Only the order BETWEEN panes shifts.
-//   • Background panes still make progress (round-robin across them; the focused pane's
-//     transient backlog gets priority but drains to empty and is not re-fed by the fast
-//     path), so nothing starves forever.
+//   • Background panes still make progress (round-robin across them). The focused pane's
+//     backlog gets strong priority, but a continuous flood into a *focused* pane re-feeds
+//     its queue via the enqueue path (a backlog makes even focused `process` defer), so
+//     "drains to empty" is not guaranteed. To keep that from starving siblings forever,
+//     the drain yields one background unit after every FOCUS_BURST focused units.
 
 import type { AtermWorkerPaneRuntimeCommand } from './aterm-render-worker-protocol'
 
@@ -40,6 +42,10 @@ export type AtermWorkerCommandSchedulerDeps = {
   /** Wall-time (ms) one synchronous drain slice may spend before yielding to
    *  interactive work — bounds the worst-case focused-keystroke wait. */
   sliceMs?: number
+  /** Consecutive focused-pane drain units serviced before one background unit is
+   *  guaranteed a turn — bounds how long a continuously re-fed focused flood can
+   *  starve background panes. */
+  focusBurst?: number
 }
 
 export type AtermWorkerCommandScheduler = {
@@ -57,6 +63,9 @@ export type AtermWorkerCommandScheduler = {
 
 const DEFAULT_CHUNK_CHARS = 8192
 const DEFAULT_SLICE_MS = 8
+// Focus dominates 8:1 — heavy enough that watched-pane output stays snappy, but the 9th
+// unit always goes to a background pane so a focused flood can't starve siblings forever.
+const DEFAULT_FOCUS_BURST = 8
 
 const defaultNow: () => number =
   typeof performance !== 'undefined' ? () => performance.now() : () => Date.now()
@@ -92,6 +101,7 @@ export function createAtermWorkerCommandScheduler(
   const now = deps.now ?? defaultNow
   const chunkChars = deps.chunkChars ?? DEFAULT_CHUNK_CHARS
   const sliceMs = deps.sliceMs ?? DEFAULT_SLICE_MS
+  const focusBurst = deps.focusBurst ?? DEFAULT_FOCUS_BURST
 
   // Per-pane FIFO of deferred commands. A present-but-non-empty entry is the "backlog"
   // that forces every later command for that pane to queue behind it.
@@ -100,6 +110,10 @@ export function createAtermWorkerCommandScheduler(
   const ready: number[] = []
   let focusedPaneId: number | null = null
   let drainScheduled = false
+  // Consecutive focused-pane units serviced since a background pane last got a turn.
+  // Persists across slices so a flood re-fed across slice boundaries can't reset the
+  // ratio and re-starve siblings on every new slice.
+  let focusedRunStreak = 0
 
   const enqueue = (paneId: number, item: PaneRuntimeCommand): void => {
     let q = queues.get(paneId)
@@ -138,14 +152,30 @@ export function createAtermWorkerCommandScheduler(
 
   const hasWork = (): boolean => ready.length > 0
 
-  // Focused pane first (its transient backlog is what the user is watching), else the
-  // round-robin head. Focused is not re-fed by the fast path, so it drains to empty and
-  // hands the loop back to background panes.
+  const firstReadyExcept = (exclude: number | null): number | null => {
+    for (const paneId of ready) {
+      if (paneId !== exclude) {
+        return paneId
+      }
+    }
+    return null
+  }
+
+  // Focused pane first (its backlog is what the user is watching), else the round-robin
+  // head. A focused pane CAN be re-fed indefinitely (a backlog defers even its own
+  // `process`), so after FOCUS_BURST consecutive focused units we hand one turn to a
+  // background pane before resuming focus — bounding sibling starvation while focus still
+  // dominates. Falls back to the focused queue when no background pane has work.
   const pickPane = (): number | null => {
-    if (focusedPaneId !== null && (queues.get(focusedPaneId)?.length ?? 0) > 0) {
+    const focusedHasWork = focusedPaneId !== null && (queues.get(focusedPaneId)?.length ?? 0) > 0
+    if (focusedHasWork && focusedRunStreak < focusBurst) {
       return focusedPaneId
     }
-    return ready.length > 0 ? ready[0] : null
+    const background = firstReadyExcept(focusedPaneId)
+    if (background !== null) {
+      return background
+    }
+    return focusedHasWork ? focusedPaneId : null
   }
 
   const servicePane = (paneId: number): void => {
@@ -160,9 +190,13 @@ export function createAtermWorkerCommandScheduler(
       if (at !== -1) {
         ready.splice(at, 1)
       }
-    } else if (ready[0] === paneId) {
-      // Rotate the round-robin head so a huge backlog can't starve its siblings.
-      ready.push(ready.shift() as number)
+    } else {
+      // Rotate the serviced pane to the back so a huge backlog can't starve its siblings.
+      // Works for the round-robin head AND a focus-priority pick that isn't at ready[0].
+      const at = ready.indexOf(paneId)
+      if (at !== -1) {
+        ready.push(ready.splice(at, 1)[0])
+      }
     }
     if (item) {
       deps.execute(item)
@@ -179,6 +213,8 @@ export function createAtermWorkerCommandScheduler(
       if (paneId === null) {
         break
       }
+      // Track the focus/background alternation that pickPane enforces.
+      focusedRunStreak = paneId === focusedPaneId ? focusedRunStreak + 1 : 0
       servicePane(paneId)
     } while (hasWork() && now() < deadline)
     if (hasWork() && !drainScheduled) {

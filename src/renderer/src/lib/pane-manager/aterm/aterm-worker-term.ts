@@ -345,6 +345,12 @@ export function createWorkerBackedTerm(deps: {
     revoke_clipboard_write: () => post({ type: 'setClipboardWriteAuthorized', allowed: false }),
     authorize_notifications: (allowed: boolean) =>
       post({ type: 'setNotificationsAuthorized', allowed }),
+    // Sync return is a placeholder (engine validation happens worker-side); the
+    // grid simply won't mint links of a refused scheme.
+    authorize_hyperlink_scheme: (scheme: string) => {
+      post({ type: 'setHyperlinkSchemeAuthorized', scheme })
+      return true
+    },
     search: (query: string, caseSensitive: boolean, isRegex?: boolean) => {
       // ONE find transport: the id-correlated query channel (a newer find cancels this
       // one). Sync callers can't await, so drop the promise — counts/highlights come

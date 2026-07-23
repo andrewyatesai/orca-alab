@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
 import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
+import { ORCA_DEEP_LINK_SCHEME } from '../../../../shared/orca-deep-link'
 import type { TerminalKittyKeyboardModeTracker } from '../../../../shared/terminal-kitty-keyboard-mode-tracker'
 import {
   PaneManager,
@@ -828,6 +829,9 @@ export function useTerminalPaneLifecycle({
         notificationSettings?.enabled === true &&
           notificationSettings.terminalAppNotifications === true
       )
+      // Unconditional (no setting): the deep-link security boundary is the
+      // consent/modifier gate on activation, not linkification (#4384 §9).
+      controller.setHyperlinkSchemeAuthorized(ORCA_DEEP_LINK_SCHEME)
       return true
     }
 

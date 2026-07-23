@@ -266,7 +266,9 @@ function isTerminalHandleLinkActivation(
   return isMac ? Boolean(event?.metaKey) : Boolean(event?.ctrlKey)
 }
 
-async function focusRuntimeTerminalHandle(
+// Exported for orca://focus deep links (terminal-orca-deep-links.ts) — same
+// runtime fallback as plain-text handle clicks.
+export async function focusRuntimeTerminalHandle(
   handle: string,
   runtimeEnvironmentId: string | null
 ): Promise<void> {

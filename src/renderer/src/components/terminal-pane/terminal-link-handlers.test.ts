@@ -18,6 +18,7 @@ import {
   type TerminalPathExistsCache
 } from './terminal-path-exists-cache'
 import { handleOscLink } from './terminal-osc-link-routing'
+import { routeTerminalOrcaDeepLink } from './terminal-orca-deep-links'
 import { installHttpLinkClickFallback } from './terminal-url-link-hit-testing'
 import { registerHttpLinkStoreAccessor } from '@/lib/http-link-routing'
 import { getConnectionId } from '@/lib/connection-context'
@@ -84,6 +85,12 @@ vi.mock('@/lib/worktree-activation', () => ({
 
 vi.mock('@/lib/connection-context', () => ({
   getConnectionId: vi.fn(() => null)
+}))
+
+// Why: orca deep-link handling has its own suite (terminal-orca-deep-links.test.ts);
+// here we only assert the routing seam consumes the click in-app.
+vi.mock('./terminal-orca-deep-links', () => ({
+  routeTerminalOrcaDeepLink: vi.fn(() => true)
 }))
 
 function setPlatform(userAgent: string): void {
@@ -167,6 +174,52 @@ describe('isTerminalLinkActivation', () => {
 })
 
 describe('handleOscLink', () => {
+  it('routes orca links in-app and consumes the click', () => {
+    setPlatform('Macintosh')
+    const preventDefault = vi.fn()
+
+    expect(
+      handleOscLink(
+        'orca://focus/term_abc',
+        { metaKey: true, ctrlKey: false, preventDefault },
+        { ...deps, runtimeEnvironmentId: 'ssh-env-1' }
+      )
+    ).toBe(true)
+
+    expect(routeTerminalOrcaDeepLink).toHaveBeenCalledWith('orca://focus/term_abc', {
+      worktreeId: 'wt-1',
+      runtimeEnvironmentId: 'ssh-env-1'
+    })
+    // Why: terminal-minted orca links must never round-trip through the OS handler.
+    expect(openUrlMock).not.toHaveBeenCalled()
+    expect(preventDefault).toHaveBeenCalled()
+  })
+
+  it('orca link without modifier is ignored', () => {
+    setPlatform('Macintosh')
+
+    expect(handleOscLink('orca://focus/term_abc', { metaKey: false, ctrlKey: false }, deps)).toBe(
+      false
+    )
+
+    expect(routeTerminalOrcaDeepLink).not.toHaveBeenCalled()
+  })
+
+  it('malformed orca link is consumed and does not fall through to path detection', () => {
+    setPlatform('Macintosh')
+
+    expect(
+      handleOscLink('orca://unknown-host/segment', { metaKey: true, ctrlKey: false }, deps)
+    ).toBe(true)
+
+    expect(routeTerminalOrcaDeepLink).toHaveBeenCalledWith('orca://unknown-host/segment', {
+      worktreeId: 'wt-1',
+      runtimeEnvironmentId: null
+    })
+    expect(openFilePathMock).not.toHaveBeenCalled()
+    expect(openFileMock).not.toHaveBeenCalled()
+  })
+
   it('ignores http links without the platform modifier on desktop', () => {
     setPlatform('Macintosh')
     storeState.settings = { openLinksInApp: true }

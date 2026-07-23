@@ -4,6 +4,7 @@ import type { LinkHandlerDeps } from './terminal-link-handlers'
 import { resolveTerminalFileUrlTarget } from '../../../../shared/terminal-file-url-target'
 import { openDetectedFilePath } from './terminal-file-open-routing'
 import { isTerminalLinkActivation } from './terminal-link-activation'
+import { routeTerminalOrcaDeepLink } from './terminal-orca-deep-links'
 import {
   openTerminalHttpLink,
   type TerminalLinkRoutingPreferenceRequester
@@ -83,6 +84,16 @@ export function handleOscLink(
       worktreeId: deps.worktreeId,
       forceSystemBrowser: Boolean(event?.shiftKey),
       requestOpenLinksInAppPreference: deps.requestOpenLinksInAppPreference
+    })
+    return true
+  }
+
+  if (parsed.protocol === 'orca:') {
+    // Why: terminal-minted orca:// links must route in-app (never the OS handler)
+    // and are always consumed — no fall-through to file-path detection.
+    routeTerminalOrcaDeepLink(rawText, {
+      worktreeId: deps.worktreeId,
+      runtimeEnvironmentId: deps.runtimeEnvironmentId ?? null
     })
     return true
   }

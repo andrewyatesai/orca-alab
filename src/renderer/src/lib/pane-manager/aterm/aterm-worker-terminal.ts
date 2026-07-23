@@ -104,6 +104,7 @@ export function createWorkerTerminal(
   setSelectionInactiveBg: (bg: number | null) => void
   setClipboardWriteAuthorized: (allowed: boolean) => void
   setNotificationsAuthorized: (allowed: boolean) => void
+  setHyperlinkSchemeAuthorized: (scheme: string) => void
   /** Update the hover link/cursor; returns whether the OUTCOME (STATE hoverLink/hoverCursor)
    *  changed, so the caller can post a render-free STATE only when it did. */
   setHover: (pos: { row: number; col: number } | null) => boolean
@@ -312,6 +313,8 @@ export function createWorkerTerminal(
     setClipboardWriteAuthorized: (allowed) =>
       allowed ? e.authorize_clipboard_write() : e.revoke_clipboard_write(),
     setNotificationsAuthorized: (allowed) => e.authorize_notifications(allowed),
+    // Feature-detected: pre-capability engine builds ignore the mint (fail-closed).
+    setHyperlinkSchemeAuthorized: (scheme: string) => void e.authorize_hyperlink_scheme?.(scheme),
     setHover: (pos) => {
       const prevLink = hoverLink
       const prevCursor = hoverCursor

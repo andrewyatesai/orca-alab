@@ -2572,6 +2572,8 @@ function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
     onSplitTerminal: () => noopUnsubscribe,
     onRenameTerminal: () => noopUnsubscribe,
     onFocusTerminal: () => noopUnsubscribe,
+    // Deep links do nothing on the relay/mobile web client (design #4384 §6.4).
+    onDeepLink: () => noopUnsubscribe,
     onFocusEditorTab: () => noopUnsubscribe,
     onCloseSessionTab: () => noopUnsubscribe,
     onMoveSessionTab: () => noopUnsubscribe,

@@ -476,6 +476,7 @@ import type {
 } from '../shared/workspace-cleanup'
 import type { KeybindingActionId, KeybindingFileSnapshot } from '../shared/keybindings'
 import type { CustomKeybinding } from '../shared/custom-keybindings'
+import type { OrcaDeepLinkUiEvent } from '../shared/orca-deep-link'
 
 type GitLabRepoSelectorArgs = {
   repoPath: string
@@ -2984,6 +2985,7 @@ export type PreloadApi = {
         scrollToBottomIfOutputSinceLastView?: boolean
       }) => void
     ) => () => void
+    onDeepLink: (callback: (data: OrcaDeepLinkUiEvent) => void) => () => void
     onFocusEditorTab: (
       callback: (data: { tabId: string; worktreeId: string }) => void
     ) => () => void

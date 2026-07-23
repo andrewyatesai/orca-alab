@@ -83,6 +83,7 @@ export function createStableAtermPaneController(
     bracketedPasteMode: () => current().bracketedPasteMode(),
     setClipboardWriteAuthorized: (allowed) => current().setClipboardWriteAuthorized(allowed),
     setNotificationsAuthorized: (allowed) => current().setNotificationsAuthorized(allowed),
+    setHyperlinkSchemeAuthorized: (scheme) => current().setHyperlinkSchemeAuthorized(scheme),
     element: options.element,
     textarea: options.textarea,
     isFocusEventMode: () => current().isFocusEventMode(),

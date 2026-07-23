@@ -6,6 +6,7 @@ import { shouldRetryPaneSpawnOnSshReconnect } from './ssh-reconnect-pane-retry'
 import { applyWorktreeHeadIdentities } from './worktree-head-identity-apply'
 import { getWorktreeMapFromState, getRepoMapFromState } from '@/store/selectors'
 import { applyUIZoom } from '@/lib/ui-zoom'
+import { handleDeepLinkUiEvent } from '@/lib/deep-link-ui-notices'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { buildLinearIssueLinkedWorkItem } from '@/lib/linear-linked-work-item'
 import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
@@ -1823,6 +1824,8 @@ export function useIpcEvents(): void {
         }
       )
     )
+
+    unsubs.push(window.api.ui.onDeepLink(handleDeepLinkUiEvent))
 
     unsubs.push(
       window.api.ui.onFocusEditorTab(({ tabId, worktreeId }) => {

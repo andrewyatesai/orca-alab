@@ -287,6 +287,9 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
     case 'setNotificationsAuthorized':
       term?.setNotificationsAuthorized(msg.allowed)
       return
+    case 'setHyperlinkSchemeAuthorized':
+      term?.setHyperlinkSchemeAuthorized(msg.scheme)
+      return
     case 'setDrawSuspended':
       pane.frameScheduler.setSuspended(msg.suspended)
       return

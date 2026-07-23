@@ -149,6 +149,9 @@ export type WorkerEngine = Pick<
   note_matrix_rain_signal?: (code: number, weight: number) => void
   /** CM-A3 block read; optional — the GPU module doesn't export it (yet). */
   last_command_output?: () => string | undefined
+  /** Host-minted extra OSC-8 scheme (deep-links #4384); optional so glue keeps
+   *  working against a pre-capability wasm blob (links just stay unlinkified). */
+  authorize_hyperlink_scheme?: (scheme: string) => boolean
 }
 
 /** The per-pane engine + the normalized hot-path ops the worker terminal drives. */

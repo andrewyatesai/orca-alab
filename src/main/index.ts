@@ -107,6 +107,9 @@ import {
   shouldSkipSingleInstanceLock
 } from './startup/single-instance-lock'
 import { shouldDeferLaunchForUpdateInstall } from './startup/update-install-launch-gate'
+import { registerOrcaProtocolClient } from './startup/deep-link-scheme-registration'
+import { createDeepLinkRouter, extractDeepLinkFromArgv } from './startup/deep-link-routing'
+import { createMainDeepLinkDispatcher, DEEP_LINK_UI_CHANNEL } from './ipc/deep-links'
 import { startEventLoopStallProbe } from './startup/event-loop-stall-probe'
 import { startMainThreadChurnProbe } from './diagnostics/main-thread-churn-probe'
 import {
@@ -593,6 +596,26 @@ function recordAgentStateCrashBreadcrumb(agentType: string, state: string): void
   })
 }
 
+// ── orca:// deep links (#4384): OS-routed link intake. Terminal-clicked links
+// never pass through here — they route in-app (terminal-orca-deep-links.ts).
+const deepLinkDispatcher = createMainDeepLinkDispatcher({
+  getRuntime: () => runtime,
+  sendDeepLinkUiEvent: (event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return false
+    }
+    mainWindow.webContents.send(DEEP_LINK_UI_CHANNEL, event)
+    return true
+  },
+  focusMainWindow: focusExistingWindow
+})
+const deepLinkRouter = createDeepLinkRouter({
+  dispatch: deepLinkDispatcher.dispatch,
+  isWindowReady: () => desktopActivationGate.getState() === 'ready' && mainWindow !== null,
+  requestActivation: requestDesktopActivation,
+  onUnparseable: deepLinkDispatcher.notifyUnrecognized
+})
+
 // Why: acquire AFTER configureDevUserDataPath — Electron derives lock identity from `userData`, so dev/packaged lock in separate namespaces.
 // Why skip in dev: parallel `pnpm dev` from multiple worktrees would make the second exit silently; packaged keeps the lock (corruption PR #1326 / #1312).
 const bypassSingleInstanceLock = shouldBypassSingleInstanceLock({
@@ -611,7 +634,15 @@ const hasSingleInstanceLock = skipSingleInstanceLock
   ? true
   : bypassSingleInstanceLock
     ? true
-    : acquireSingleInstanceLock(app, requestDesktopActivation)
+    : acquireSingleInstanceLock(app, (argv) => {
+        requestDesktopActivation()
+        // A second launch relays its argv here — the only Windows/Linux path
+        // for an OS-routed orca:// URL while the app is already running.
+        const raw = extractDeepLinkFromArgv(argv)
+        if (raw) {
+          deepLinkRouter.routeRaw(raw, { source: 'os' })
+        }
+      })
 if (startupDiagnosticsEnabled) {
   logStartupDiagnostic('single-instance-lock-result', {
     acquired: hasSingleInstanceLock,
@@ -666,11 +697,31 @@ if (hasSingleInstanceLock) {
   }
   // Why: headless serve's offscreen BrowserWindows need an X display (Xvfb) on Linux; the result gates whether the offscreen backend is installed.
   headlessBrowserDisplayAvailable = ensureVirtualDisplayForHeadlessServe({ isServeMode })
+
+  if (!isServeMode) {
+    registerOrcaProtocolClient(app, { isServeMode, isDefaultApp: Boolean(process.defaultApp) })
+    // Why: registered before whenReady — macOS can deliver open-url before ready;
+    // the router queues until the renderer's listeners attach.
+    app.on('open-url', (event, url) => {
+      event.preventDefault()
+      deepLinkRouter.routeRaw(url, { source: 'os' })
+    })
+    if (process.platform !== 'darwin') {
+      // First-launch deep link on Windows/Linux arrives in our own argv.
+      const rawDeepLinkFromLaunch = extractDeepLinkFromArgv(process.argv)
+      if (rawDeepLinkFromLaunch) {
+        deepLinkRouter.routeRaw(rawDeepLinkFromLaunch, { source: 'os' })
+      }
+    }
+  }
 }
 
 ipcMain.handle('app:awaitFirstWindowStartupServices', async () => {
   // Why: restored WSL terminals get a bounded chance to receive launcher repairs before window rendering proceeds.
   await Promise.all([firstWindowStartupServicesReady, managedWslCliStartupBarrierReady])
+  // Why: the renderer pulls this once its ui:* listeners attach — the earliest
+  // point queued deep links (open-url/argv before ready) can't be lost pre-mount.
+  deepLinkRouter.drainQueued()
 })
 
 // Why: the renderer pulls this once its ui:openSettings listener attaches, so a Settings request queued before mount isn't lost.

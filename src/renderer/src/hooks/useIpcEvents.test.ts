@@ -992,6 +992,7 @@ describe('useIpcEvents browser tab create routing', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -1215,6 +1216,7 @@ describe('useIpcEvents updater integration', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -1585,6 +1587,7 @@ describe('useIpcEvents updater integration', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -2083,6 +2086,7 @@ describe('useIpcEvents updater integration', () => {
             focusTerminalListenerRef.current = listener
             return () => {}
           },
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -2975,6 +2979,7 @@ describe('useIpcEvents browser tab close routing', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: (listener: CloseSessionTabListener) => {
             if (closeSessionTabListenerRef) {
@@ -3532,6 +3537,7 @@ describe('useIpcEvents browser tab close routing', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -3751,6 +3757,7 @@ describe('useIpcEvents browser tab close routing', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -3965,6 +3972,7 @@ describe('useIpcEvents browser tab close routing', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -4206,6 +4214,7 @@ describe('useIpcEvents CLI-created worktree activation', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -4458,6 +4467,7 @@ describe('useIpcEvents CLI-created worktree activation', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -4715,6 +4725,7 @@ describe('useIpcEvents agent status snapshot integration', () => {
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
           onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -7075,7 +7086,10 @@ describe('useIpcEvents agent status snapshot integration', () => {
     }))
     stubAuxiliaryModules()
     // Why: an earlier test doMocks '@/lib/workspace-session' with an empty payload; restore the real builder for this merge-path test.
-    vi.doMock('@/lib/workspace-session', async () => await vi.importActual('@/lib/workspace-session'))
+    vi.doMock(
+      '@/lib/workspace-session',
+      async () => await vi.importActual('@/lib/workspace-session')
+    )
     vi.stubGlobal(
       'window',
       buildWindowApi({

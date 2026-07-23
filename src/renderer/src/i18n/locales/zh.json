@@ -5142,7 +5142,9 @@
           "3f1bdf3cb4": "环境文本过长，无法安全解析。",
           "codexSessionSource": "要导入的 Codex 主目录",
           "codexSessionSourceInfo": "关于导入 Codex 历史记录",
-          "codexSessionSourceTooltip": "Orca 在隔离的主目录中运行 Codex。将此项指向您现有的 Codex 主目录以导入会话历史记录。留空则使用 ~/.codex。"
+          "codexSessionSourceTooltip": "Orca 在隔离的主目录中运行 Codex。将此项指向您现有的 Codex 主目录以导入会话历史记录。留空则使用 ~/.codex。",
+          "03e1a5081a": "on {{value0}}",
+          "25a41a9aad": "Re-detect agents installed on the active server"
         },
         "AppIconSelector": {
           "d5a112dc9b": "下一个图标",
@@ -13324,6 +13326,15 @@
         "useDiffSectionHunkStaging": {
           "c07665f012": "Failed to stage hunk",
           "f26f45ed02": "Failed to unstage hunk"
+        },
+        "editor": {
+          "save": {
+            "failure": {
+              "notice": {
+                "8c59ce5075": "Failed to save the file. Please try again."
+              }
+            }
+          }
         }
       },
       "diff": {

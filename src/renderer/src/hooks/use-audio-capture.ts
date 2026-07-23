@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 type BufferedAudioChunk = {
   samples: Float32Array
@@ -240,6 +240,19 @@ export function useAudioCapture() {
   }, [resetBufferedAudio])
 
   const getCapturedChunkCount = useCallback(() => capturedChunkCountRef.current, [])
+
+  // Why: guarantee the mic/AudioContext are released if the consumer unmounts
+  // mid-capture without calling stop() — otherwise the OS mic indicator (and a
+  // live MediaStream) leak until app restart. cleanupCaptureResources is stable,
+  // so this cleanup runs only on unmount.
+  useEffect(() => {
+    return () => {
+      startRequestRef.current += 1
+      isCapturingRef.current = false
+      bufferAudioRef.current = false
+      cleanupCaptureResources()
+    }
+  }, [cleanupCaptureResources])
 
   const stop = useCallback(
     (options: StopAudioCaptureOptions = {}) => {

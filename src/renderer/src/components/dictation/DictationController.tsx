@@ -233,6 +233,18 @@ export function DictationController() {
     await finishDictationSession(sessionId)
   }, [finishDictationSession, setDictationState, stopCapture])
 
+  // Why: disabling Voice mid-session leaves the mic/AudioContext live with no
+  // hotkey path to stop it (both stop handlers gate on enabled), so the OS mic
+  // indicator stays on until restart. Force a stop when Voice flips off.
+  useEffect(() => {
+    if (settings?.voice?.enabled) {
+      return
+    }
+    if (dictationStateRef.current !== 'idle') {
+      void stopDictation()
+    }
+  }, [settings?.voice?.enabled, stopDictation])
+
   // Toggle mode: use IPC from main process (before-input-event intercepts
   // the keyDown so Cmd+E doesn't reach xterm or trigger system shortcuts).
   useEffect(() => {

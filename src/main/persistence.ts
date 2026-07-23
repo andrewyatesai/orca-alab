@@ -254,28 +254,77 @@ import { track } from './telemetry/client'
 import { getCohortAtEmit } from './telemetry/cohort-classifier'
 import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from './startup/startup-diagnostics'
 
-function encrypt(plaintext: string): string {
-  if (!plaintext || !safeStorage.isEncryptionAvailable()) {
-    return plaintext
-  }
+// Why tag persisted secrets by how they were stored: a plaintext value must never be silently read
+// back and trusted as if it were decrypted ciphertext, and a genuine ciphertext must never be mistaken
+// for plaintext (which would double-encrypt or leak it). Untagged legacy values keep their old meaning.
+const ENCRYPTED_SECRET_PREFIX = 'orca-safestorage-v1:'
+const PLAINTEXT_SECRET_PREFIX = 'orca-plaintext-v1:'
+
+// Why: production — especially headless/SSH hosts where safeStorage is routinely unavailable — must never
+// silently persist secrets in cleartext. A dev may opt in explicitly, mirroring allowsPlaintextOrcaCloudSession.
+function allowsPlaintextPersistedSecret(env: NodeJS.ProcessEnv = process.env): boolean {
+  let packaged = false
   try {
-    return safeStorage.encryptString(plaintext).toString('base64')
-  } catch (err) {
-    console.error('[persistence] Encryption failed:', err)
-    return plaintext
+    packaged = app?.isPackaged === true
+  } catch {
+    packaged = false
   }
+  return (
+    env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS === '1' && env.NODE_ENV !== 'production' && !packaged
+  )
 }
 
-// Why return `undecryptedCiphertext`: when encryption is AVAILABLE but a value still fails to decrypt
-// (transient keychain change / restored or cross-machine profile), the raw bytes are genuine ciphertext,
-// not legacy plaintext. Re-encrypting them on the next save would double-encrypt and permanently destroy
-// the secret, so the caller must preserve these exact bytes verbatim instead of re-encrypting them.
-function decryptTracked(ciphertext: string): {
+// Returns a tagged, persistable representation of `plaintext`, or '' when the secret must not touch disk
+// (encryption unavailable in production). The caller keeps the value in memory, so the running session stays
+// functional; the secret simply isn't written until a keychain exists — mirroring the cloud-session model.
+function encrypt(plaintext: string): string {
+  if (!plaintext) {
+    return plaintext
+  }
+  if (safeStorage.isEncryptionAvailable()) {
+    try {
+      return ENCRYPTED_SECRET_PREFIX + safeStorage.encryptString(plaintext).toString('base64')
+    } catch (err) {
+      // Why: an encryptString failure is NOT license to write cleartext — fall through to the same
+      // unavailable handling so a transient error can't silently downgrade a secret to plaintext.
+      console.error('[persistence] Encryption failed:', err)
+    }
+  }
+  if (allowsPlaintextPersistedSecret()) {
+    console.warn(
+      '[persistence] safeStorage unavailable — persisting secret in plaintext (dev opt-in ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS).'
+    )
+    return PLAINTEXT_SECRET_PREFIX + plaintext
+  }
+  console.warn(
+    '[persistence] safeStorage unavailable — secret kept in memory only, not written to disk. Set ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS=1 (dev builds) to persist in plaintext.'
+  )
+  return ''
+}
+
+// Why return `undecryptedCiphertext`: when a stored ciphertext can't be decrypted right now (encryption
+// unavailable, transient keychain change, restored/cross-machine profile), it is still genuine ciphertext,
+// not legacy plaintext. Re-encrypting it on the next save would double-encrypt and permanently destroy the
+// secret, so the caller preserves these exact bytes verbatim (via undecryptableSecretCiphertexts).
+function decryptTracked(stored: string): {
   value: string
   undecryptedCiphertext: string | null
 } {
-  if (!ciphertext || !safeStorage.isEncryptionAvailable()) {
-    return { value: ciphertext, undecryptedCiphertext: null }
+  if (!stored) {
+    return { value: stored, undecryptedCiphertext: null }
+  }
+  if (stored.startsWith(PLAINTEXT_SECRET_PREFIX)) {
+    // Explicitly tagged dev plaintext — read back as plaintext, never confused with ciphertext.
+    return { value: stored.slice(PLAINTEXT_SECRET_PREFIX.length), undecryptedCiphertext: null }
+  }
+  const isTaggedCiphertext = stored.startsWith(ENCRYPTED_SECRET_PREFIX)
+  const ciphertext = isTaggedCiphertext ? stored.slice(ENCRYPTED_SECRET_PREFIX.length) : stored
+
+  if (!safeStorage.isEncryptionAvailable()) {
+    // No keychain: we cannot read ciphertext, and an untagged value may be legacy plaintext OR legacy
+    // ciphertext. Return the stored blob as-is and preserve it verbatim so a transient outage can't
+    // destroy a genuine secret (nor rewrite it), matching the pre-tag round-trip behavior.
+    return { value: stored, undecryptedCiphertext: stored }
   }
   try {
     return {
@@ -283,11 +332,12 @@ function decryptTracked(ciphertext: string): {
       undecryptedCiphertext: null
     }
   } catch {
-    // Why: decrypt failure usually means plaintext (pre-encryption) or a changed keychain; return raw so the cookie survives upgrade.
+    // Why: decrypt failure means a changed keychain (genuine ciphertext) or legacy pre-encryption
+    // plaintext; either way return the stored blob verbatim so it survives and isn't double-encrypted.
     console.warn(
-      '[persistence] safeStorage decryption failed — returning ciphertext as-is. Possible keychain reset.'
+      '[persistence] safeStorage decryption failed — preserving value as-is. Possible keychain reset or legacy plaintext.'
     )
-    return { value: ciphertext, undecryptedCiphertext: ciphertext }
+    return { value: stored, undecryptedCiphertext: stored }
   }
 }
 

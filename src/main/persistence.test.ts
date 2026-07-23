@@ -106,12 +106,16 @@ const { trackMock, getCohortAtEmitMock } = vi.hoisted(() => ({
   getCohortAtEmitMock: vi.fn()
 }))
 
+// Why: default true so existing crypto tests are unaffected; individual tests flip
+// `available` to exercise the safeStorage-unavailable (headless/SSH) path.
+const safeStorageControl = vi.hoisted(() => ({ available: true }))
+
 vi.mock('electron', () => ({
   app: {
     getPath: () => testState.dir
   },
   safeStorage: {
-    isEncryptionAvailable: () => true,
+    isEncryptionAvailable: () => safeStorageControl.available,
     encryptString: (plaintext: string) => Buffer.from(`encrypted:${plaintext}`, 'utf-8'),
     decryptString: (ciphertext: Buffer) => {
       const decoded = ciphertext.toString('utf-8')
@@ -6793,6 +6797,73 @@ describe('Store', () => {
 
     const store = await createStore()
     expect(store.getUI().browserKagiSessionLink).toBe(sessionLink)
+  })
+
+  it('does NOT persist a secret in cleartext when safeStorage is unavailable in production', async () => {
+    // Regression: on headless/SSH hosts safeStorage is often unavailable. encrypt() previously
+    // returned the raw plaintext, landing proxy URLs / cookies on disk in the clear with no signal.
+    const cookie = 'sk-super-secret-session-cookie'
+    delete process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS
+    safeStorageControl.available = false
+    try {
+      const store = await createStore()
+      store.updateSettings({ opencodeSessionCookie: cookie })
+      store.flush()
+
+      const persisted = readDataFile() as { settings: { opencodeSessionCookie: string } }
+      // Memory-only: the secret never touches disk (empty), yet stays usable in memory this session.
+      expect(persisted.settings.opencodeSessionCookie).toBe('')
+      expect(JSON.stringify(persisted)).not.toContain(cookie)
+      expect(store.getSettings().opencodeSessionCookie).toBe(cookie)
+    } finally {
+      safeStorageControl.available = true
+    }
+  })
+
+  it('persists a tagged plaintext secret only under the dev opt-in and reads it back', async () => {
+    const cookie = 'dev-plaintext-cookie'
+    process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS = '1'
+    safeStorageControl.available = false
+    try {
+      const store = await createStore()
+      store.updateSettings({ opencodeSessionCookie: cookie })
+      store.flush()
+
+      const persisted = readDataFile() as { settings: { opencodeSessionCookie: string } }
+      // Tagged so a plaintext value can never be silently read back as if it were decrypted ciphertext.
+      expect(persisted.settings.opencodeSessionCookie).toBe(`orca-plaintext-v1:${cookie}`)
+
+      const reloaded = await createStore()
+      expect(reloaded.getSettings().opencodeSessionCookie).toBe(cookie)
+    } finally {
+      delete process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS
+      safeStorageControl.available = true
+    }
+  })
+
+  it('preserves an existing encrypted secret verbatim across a safeStorage outage', async () => {
+    // Save encrypted while the keychain is available, then reload/resave while it is gone: the
+    // ciphertext must be re-emitted verbatim, never dropped or rewritten as cleartext.
+    const cookie = 'persist-across-outage'
+    const store = await createStore()
+    store.updateSettings({ opencodeSessionCookie: cookie })
+    store.flush()
+    const encryptedOnDisk = (readDataFile() as { settings: { opencodeSessionCookie: string } })
+      .settings.opencodeSessionCookie
+    expect(encryptedOnDisk.startsWith('orca-safestorage-v1:')).toBe(true)
+
+    delete process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS
+    safeStorageControl.available = false
+    try {
+      const reloaded = await createStore()
+      reloaded.updateUI({ browserDefaultZoomLevel: 1.25 })
+      reloaded.flush()
+
+      const persisted = readDataFile() as { settings: { opencodeSessionCookie: string } }
+      expect(persisted.settings.opencodeSessionCookie).toBe(encryptedOnDisk)
+    } finally {
+      safeStorageControl.available = true
+    }
   })
 
   it('preserves persisted smart sort value', async () => {

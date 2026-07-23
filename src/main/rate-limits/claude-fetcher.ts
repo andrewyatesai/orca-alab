@@ -505,6 +505,7 @@ function metadataForAttempt(input: {
   source?: UsageRateLimitSource
   failureKind?: UsageRateLimitFailureKind
   deferredByLiveClaudeSession?: boolean
+  retryAtMs?: number
 }): UsageRateLimitMetadata {
   return {
     source: input.source,
@@ -512,7 +513,8 @@ function metadataForAttempt(input: {
     failureKind: input.failureKind,
     credentialSource: input.oauthCredentials.source,
     authProvenance: input.authPreparation?.provenance ?? 'system',
-    deferredByLiveClaudeSession: input.deferredByLiveClaudeSession
+    deferredByLiveClaudeSession: input.deferredByLiveClaudeSession,
+    retryAtMs: input.retryAtMs
   }
 }
 
@@ -727,12 +729,19 @@ function errorResultForClassification(input: {
 }): ProviderRateLimits {
   const message =
     input.error instanceof Error ? input.error.message : String(input.error || 'Unknown error')
+  // Why: a 429 Retry-After tells us when the endpoint reopens; carry it as an
+  // absolute deadline so automated refetch lanes skip until it expires (#9617).
+  const retryAtMs =
+    input.error instanceof OAuthUsageError && input.error.retryAfterMs
+      ? Date.now() + input.error.retryAfterMs
+      : undefined
   return makeClaudeUsageResult('error', withMacTailscaleDnsHint(message), {
     ...metadataForAttempt({
       attemptedSources: input.attempts.attemptedSources,
       oauthCredentials: input.oauthCredentials,
       authPreparation: input.authPreparation,
-      failureKind: input.classification.failureKind
+      failureKind: input.classification.failureKind,
+      retryAtMs
     })
   })
 }

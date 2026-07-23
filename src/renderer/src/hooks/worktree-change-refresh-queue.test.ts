@@ -28,13 +28,17 @@ describe('createWorktreeChangeRefreshQueue', () => {
     queue.enqueue({ repoId: 'repo-1' })
 
     expect(handler).toHaveBeenCalledTimes(1)
-    expect(handler).toHaveBeenCalledWith('repo-1', undefined, undefined)
+    expect(handler).toHaveBeenCalledWith('repo-1', undefined, undefined, {
+      forceLocalOwner: undefined
+    })
 
     firstRefresh.resolve()
     await flushPromises()
 
     expect(handler).toHaveBeenCalledTimes(2)
-    expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, undefined)
+    expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, undefined, {
+      forceLocalOwner: undefined
+    })
   })
 
   it('does not overlap refreshes for the same repo', async () => {
@@ -73,8 +77,12 @@ describe('createWorktreeChangeRefreshQueue', () => {
     queue.enqueue({ repoId: 'repo-2' })
 
     expect(handler).toHaveBeenCalledTimes(2)
-    expect(handler).toHaveBeenNthCalledWith(1, 'repo-1', undefined, undefined)
-    expect(handler).toHaveBeenNthCalledWith(2, 'repo-2', undefined, undefined)
+    expect(handler).toHaveBeenNthCalledWith(1, 'repo-1', undefined, undefined, {
+      forceLocalOwner: undefined
+    })
+    expect(handler).toHaveBeenNthCalledWith(2, 'repo-2', undefined, undefined, {
+      forceLocalOwner: undefined
+    })
 
     repoOneRefresh.resolve()
     await flushPromises()
@@ -100,8 +108,12 @@ describe('createWorktreeChangeRefreshQueue', () => {
       await flushPromises()
 
       expect(handler).toHaveBeenCalledTimes(3)
-      expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, renamed)
-      expect(handler).toHaveBeenNthCalledWith(3, 'repo-1', undefined, undefined)
+      expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, renamed, {
+        forceLocalOwner: undefined
+      })
+      expect(handler).toHaveBeenNthCalledWith(3, 'repo-1', undefined, undefined, {
+        forceLocalOwner: undefined
+      })
     } finally {
       consoleError.mockRestore()
     }
@@ -116,8 +128,12 @@ describe('createWorktreeChangeRefreshQueue', () => {
     queue.enqueue({ repoId: 'repo-1', renamed })
     await flushPromises()
 
-    expect(handler).toHaveBeenNthCalledWith(1, 'repo-1', undefined, undefined)
-    expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, renamed)
+    expect(handler).toHaveBeenNthCalledWith(1, 'repo-1', undefined, undefined, {
+      forceLocalOwner: undefined
+    })
+    expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, renamed, {
+      forceLocalOwner: undefined
+    })
   })
 
   it('keeps a plain refresh queued after a rename', async () => {
@@ -136,8 +152,42 @@ describe('createWorktreeChangeRefreshQueue', () => {
     await flushPromises()
 
     expect(handler).toHaveBeenCalledTimes(3)
-    expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, renamed)
-    expect(handler).toHaveBeenNthCalledWith(3, 'repo-1', undefined, undefined)
+    expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, renamed, {
+      forceLocalOwner: undefined
+    })
+    expect(handler).toHaveBeenNthCalledWith(3, 'repo-1', undefined, undefined, {
+      forceLocalOwner: undefined
+    })
+  })
+
+  it('propagates forceLocalOwner to the handler and never coalesces it into a runtime-routed scan (#6628)', async () => {
+    const firstRefresh = deferred()
+    const handler = vi.fn().mockReturnValueOnce(firstRefresh.promise).mockResolvedValue(undefined)
+    const queue = createWorktreeChangeRefreshQueue(handler)
+
+    // A local-origin event pins to the local host...
+    queue.enqueue({ repoId: 'repo-1', forceLocalOwner: true })
+    // ...a differing runtime-routed event must not fold into the local-pinned scan...
+    queue.enqueue({ repoId: 'repo-1' })
+    // ...and a second local-pinned event coalesces with the trailing local one.
+    queue.enqueue({ repoId: 'repo-1', forceLocalOwner: true })
+
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledWith('repo-1', undefined, undefined, {
+      forceLocalOwner: true
+    })
+
+    firstRefresh.resolve()
+    await flushPromises()
+
+    // Two distinct trailing scans survived: the runtime-routed one, then the local one.
+    expect(handler).toHaveBeenCalledTimes(3)
+    expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, undefined, {
+      forceLocalOwner: undefined
+    })
+    expect(handler).toHaveBeenNthCalledWith(3, 'repo-1', undefined, undefined, {
+      forceLocalOwner: true
+    })
   })
 
   it('drops queued trailing refreshes after disposal', async () => {

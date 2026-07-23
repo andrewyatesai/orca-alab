@@ -2283,10 +2283,17 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       const ownerState = get()
       const requestStartedWorktrees = ownerState.worktreesByRepo[repoId]
       // Why: events from a non-focused host pass ownerHostId so a duplicate repo id refreshes that host's rows, not the focused host's.
-      const hostId = repoHostId(ownerState, repoId, options?.ownerHostId)
+      // Why: forceLocalOwner pins the refresh to the local host so a local
+      // worktrees:changed under an active runtime lists local rows instead of
+      // routing (and purging) against the remote runtime owner (#6628).
+      const hostId = options?.forceLocalOwner
+        ? LOCAL_EXECUTION_HOST_ID
+        : repoHostId(ownerState, repoId, options?.ownerHostId)
       const ownerWasMissingAtStart = !ownerState.repos.some((repo) => repo.id === repoId)
       const setup = getProjectHostSetupForRepoHost(ownerState, repoId, hostId)
-      const settings = settingsForRepoOwner(ownerState, repoId, hostId)
+      const settings = options?.forceLocalOwner
+        ? settingsForExecutionHostOwner(ownerState.settings, LOCAL_EXECUTION_HOST_ID)
+        : settingsForRepoOwner(ownerState, repoId, hostId)
       const detected = await listDetectedWorktreesForRepoCoalesced(settings, repoId, {
         executionHostId: hostId,
         requireAuthoritative: options?.requireAuthoritative
@@ -2646,10 +2653,15 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     set({ hasHydratedWorktreePurge: true })
   },
 
-  fetchWorktreeLineage: async () => {
+  fetchWorktreeLineage: async (options) => {
     try {
       // Why: lineage is a focused-host refresh; host-merge so other hosts' fetched lineage is preserved.
-      await refreshWorktreeLineageForSettings(get().settings, set, {
+      // forceLocalOwner pins it to the local host so a local worktrees:changed under
+      // an active runtime refreshes local lineage, not the remote runtime's (#6628).
+      const lineageSettings = options?.forceLocalOwner
+        ? settingsForExecutionHostOwner(get().settings, LOCAL_EXECUTION_HOST_ID)
+        : get().settings
+      await refreshWorktreeLineageForSettings(lineageSettings, set, {
         reuseRecentCompatibilityFailure: true
       })
     } catch (err) {

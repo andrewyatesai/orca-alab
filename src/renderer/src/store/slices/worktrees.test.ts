@@ -1403,6 +1403,43 @@ describe('fetchWorktrees', () => {
     ])
   })
 
+  it('forceLocalOwner pins an unbound repo refresh to the local host and preserves remote rows under an active runtime (#6628)', async () => {
+    const store = createTestStore()
+    // A remote runtime is active and its rows already live in the sidebar.
+    const remoteRow = makeWorktree({
+      id: 'repo1::/remote/wt1',
+      repoId: 'repo1',
+      path: '/remote/wt1',
+      hostId: 'runtime:env-1'
+    })
+    // A CLI created this worktree locally (`orca worktree create`); the local IPC reports it.
+    const localCliWorktree = makeWorktree({
+      id: 'repo1::/local/cli-wt',
+      repoId: 'repo1',
+      path: '/local/cli-wt'
+    })
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      // Unbound repo: without forceLocalOwner its list fetch would route to the active runtime.
+      repos: [{ id: 'repo1', path: '/repo', displayName: 'Repo', badgeColor: '#000', addedAt: 0 }],
+      worktreesByRepo: { repo1: [remoteRow] }
+    } as Partial<AppState>)
+    mockApi.worktrees.listDetected.mockImplementationOnce(async ({ repoId }: { repoId: string }) =>
+      makeDetectedResult(repoId, [localCliWorktree])
+    )
+    runtimeEnvironmentCall.mockClear()
+
+    await store.getState().fetchWorktrees('repo1', { forceLocalOwner: true })
+
+    // The refresh routed to the local host IPC, never the active runtime.
+    expect(mockApi.worktrees.listDetected).toHaveBeenCalledWith({ repoId: 'repo1' })
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+    // The CLI worktree is now visible AND the runtime's remote row survived (no purge).
+    const ids = store.getState().worktreesByRepo['repo1']?.map((worktree) => worktree.id)
+    expect(ids).toContain('repo1::/local/cli-wt')
+    expect(ids).toContain('repo1::/remote/wt1')
+  })
+
   it('falls back to legacy remote worktree.list when detectedList is unavailable', async () => {
     const store = createTestStore()
     const remote = makeWorktree({

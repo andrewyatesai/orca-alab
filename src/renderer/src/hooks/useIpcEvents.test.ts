@@ -7617,3 +7617,350 @@ describe('useIpcEvents agent status snapshot integration', () => {
     expect(setAgentStatus).toHaveBeenCalledTimes(1)
   })
 })
+
+// Why: pins the renderer-hook crux of #6628 — a local worktrees:changed while a
+// remote runtime is active must pin the refresh to the local host AND skip the
+// repo-wide deletion-purge, so a CLI-created worktree becomes visible without the
+// diff wiping the active runtime's rows. The store/queue tests don't invoke
+// handleWorktreesChanged, so this is the only guard on the purge-skip early return.
+describe('useIpcEvents worktrees:changed local-owner refresh (#6628)', () => {
+  type WorktreesChangedData = {
+    repoId: string
+    renamed?: { oldWorktreeId: string; newWorktreeId: string }
+  }
+  type WorktreesChangedListener = (data: WorktreesChangedData) => void
+
+  const flushMicrotasks = async (): Promise<void> => {
+    // Why: the refresh queue drains through chained resolved promises (no timers),
+    // so a fixed batch of microtask turns lets fetch + lineage + the purge decision settle.
+    for (let i = 0; i < 16; i++) {
+      await Promise.resolve()
+    }
+  }
+
+  function stubReactSyncEffect(): void {
+    vi.doMock('react', async () => {
+      const actual = await vi.importActual<typeof ReactModule>('react')
+      return {
+        ...actual,
+        useEffect: (effect: () => void | (() => void)) => {
+          effect()
+        }
+      }
+    })
+  }
+
+  function stubAuxiliaryModules(): void {
+    vi.doMock('@/lib/ui-zoom', () => ({ applyUIZoom: vi.fn() }))
+    vi.doMock('@/lib/worktree-activation', () => ({
+      activateAndRevealWorktree: vi.fn(),
+      ensureWorktreeHasInitialTerminal: vi.fn()
+    }))
+    vi.doMock('@/components/sidebar/visible-worktrees', () => ({
+      getVisibleWorktreeIds: () => []
+    }))
+    vi.doMock('@/lib/editor-font-zoom', () => ({
+      nextEditorFontZoomLevel: vi.fn(() => 0),
+      computeEditorFontSize: vi.fn(() => 13)
+    }))
+    vi.doMock('@/components/settings/SettingsConstants', () => ({
+      zoomLevelToPercent: vi.fn(() => 100),
+      ZOOM_MIN: -3,
+      ZOOM_MAX: 3
+    }))
+    vi.doMock('@/lib/zoom-events', () => ({ dispatchZoomLevelChanged: vi.fn() }))
+  }
+
+  function buildWindowApi(listenerRef: {
+    current: WorktreesChangedListener | null
+  }): Record<string, unknown> {
+    return {
+      api: {
+        repos: { onChanged: () => () => {} },
+        worktrees: {
+          onChanged: (cb: WorktreesChangedListener) => {
+            listenerRef.current = cb
+            return () => {}
+          },
+          onBaseStatus: () => () => {},
+          onRemoteBranchConflict: () => () => {}
+        },
+        ui: {
+          onStateChanged: () => () => {},
+          onOpenSettings: () => () => {},
+          consumePendingOpenSettings: () => Promise.resolve(false),
+          onOpenFeatureTour: () => () => {},
+          onToggleLeftSidebar: () => () => {},
+          onToggleRightSidebar: () => () => {},
+          onToggleWorktreePalette: () => () => {},
+          onToggleFloatingTerminal: () => () => {},
+          onOpenQuickOpen: () => () => {},
+          onToggleQuickCommandsMenu: () => () => {},
+          onOpenNewWorkspace: () => () => {},
+          onOpenTasks: () => () => {},
+          onJumpToWorktreeIndex: () => () => {},
+          onJumpToTabIndex: () => () => {},
+          onWorktreeHistoryNavigate: () => () => {},
+          onActivateWorktree: () => () => {},
+          onCreateTerminal: () => () => {},
+          onRequestTerminalCreate: () => () => {},
+          onRequestTerminalTabMount: () => () => {},
+          replyTerminalCreate: () => {},
+          onSplitTerminal: () => () => {},
+          onRenameTerminal: () => () => {},
+          onFocusTerminal: () => () => {},
+          onDeepLink: () => () => {},
+          onFocusEditorTab: () => () => {},
+          onCloseSessionTab: () => () => {},
+          onMoveSessionTab: () => () => {},
+          onOpenFileFromMobile: () => () => {},
+          onOpenDiffFromMobile: () => () => {},
+          onCloseTerminal: () => () => {},
+          onSleepWorktree: () => () => {},
+          onResumeSleepingAgents: () => () => {},
+          onNewBrowserTab: () => () => {},
+          onNewMarkdownTab: () => () => {},
+          onRequestTabCreate: () => () => {},
+          replyTabCreate: () => {},
+          onRequestTabClose: () => () => {},
+          replyTabClose: () => {},
+          onRequestTabSetProfile: () => () => {},
+          replyTabSetProfile: () => {},
+          onNewTerminalTab: () => () => {},
+          onCloseActiveTab: () => () => {},
+          onSwitchTab: () => () => {},
+          onSwitchTabAcrossAllTypes: () => () => {},
+          onSwitchRecentTab: () => () => {},
+          onSwitchTerminalTab: () => () => {},
+          onToggleStatusBar: () => () => {},
+          onFullscreenChanged: () => () => {},
+          onTerminalZoom: () => () => {},
+          getZoomLevel: () => 0,
+          set: vi.fn()
+        },
+        settings: { onChanged: () => () => {} },
+        updater: {
+          getStatus: () => Promise.resolve({ state: 'idle' }),
+          onStatus: () => () => {},
+          onClearDismissal: () => () => {}
+        },
+        browser: {
+          onGuestLoadFailed: () => () => {},
+          onPaneFocus: () => () => {},
+          onOpenLinkInOrcaTab: () => () => {},
+          onNavigationUpdate: () => () => {},
+          onActivateView: () => () => {}
+        },
+        rateLimits: {
+          get: () => Promise.resolve({ limits: {}, lastUpdatedAt: Date.now() }),
+          onUpdate: () => () => {}
+        },
+        runtime: {
+          getTerminalFitOverrides: () => Promise.resolve([]),
+          getTerminalDrivers: () => Promise.resolve([]),
+          getBrowserDrivers: () => Promise.resolve([]),
+          onTerminalFitOverrideChanged: () => () => {},
+          onTerminalDriverChanged: () => () => {},
+          onBrowserDriverChanged: () => () => {}
+        },
+        ssh: {
+          listTargets: () => Promise.resolve([]),
+          listPortForwards: () => Promise.resolve([]),
+          listDetectedPorts: () => Promise.resolve([]),
+          getState: () => Promise.resolve(null),
+          onStateChanged: () => () => {},
+          onCredentialRequest: () => () => {},
+          onCredentialResolved: () => () => {},
+          onPortForwardsChanged: () => () => {},
+          onDetectedPortsChanged: () => () => {}
+        },
+        agentStatus: {
+          onSet: vi.fn(() => () => {}),
+          onClear: vi.fn(() => () => {}),
+          getSnapshot: vi.fn(() => Promise.resolve([])),
+          drop: vi.fn()
+        }
+      }
+    }
+  }
+
+  type DetectedWorktreeMap = Record<
+    string,
+    { authoritative: boolean; worktrees: { id: string; repoId: string }[] }
+  >
+
+  async function setup({ runtimeActive }: { runtimeActive: boolean }): Promise<{
+    useIpcEvents: () => void
+    emitWorktreesChanged: (data: WorktreesChangedData) => void
+    detectedWorktreesByRepo: DetectedWorktreeMap
+    fetchWorktrees: ReturnType<typeof vi.fn>
+    fetchWorktreeLineage: ReturnType<typeof vi.fn>
+    purgeWorktreeTerminalState: ReturnType<typeof vi.fn>
+    removeWorkspaceSpaceWorktrees: ReturnType<typeof vi.fn>
+  }> {
+    // Pre-existing remote/runtime row that the forced-local scan won't re-list.
+    const detectedWorktreesByRepo: DetectedWorktreeMap = {
+      'repo-1': { authoritative: true, worktrees: [{ id: 'wt-remote', repoId: 'repo-1' }] }
+    }
+    // Why: a forced-local scan under a runtime returns only the local host's rows;
+    // dropping the pre-existing remote row is exactly what the purge-skip must not act on.
+    const fetchWorktrees = vi.fn(async (repoId: string) => {
+      detectedWorktreesByRepo[repoId] = {
+        authoritative: true,
+        worktrees: [{ id: 'wt-cli-local', repoId }]
+      }
+    })
+    const fetchWorktreeLineage = vi.fn(async () => {})
+    const purgeWorktreeTerminalState = vi.fn()
+    const removeWorkspaceSpaceWorktrees = vi.fn()
+
+    const storeState: Record<string, unknown> = {
+      setUpdateStatus: vi.fn(),
+      fetchRepos: vi.fn(),
+      fetchWorktrees,
+      fetchWorktreeLineage,
+      purgeWorktreeTerminalState,
+      removeWorkspaceSpaceWorktrees,
+      migrateWorktreeIdentity: vi.fn(),
+      setActiveView: vi.fn(),
+      activeModal: null,
+      closeModal: vi.fn(),
+      openModal: vi.fn(),
+      activeWorktreeId: null,
+      activeView: 'terminal',
+      setActiveRepo: vi.fn(),
+      setActiveWorktree: vi.fn(),
+      revealWorktreeInSidebar: vi.fn(),
+      setIsFullScreen: vi.fn(),
+      updateBrowserTabPageState: vi.fn(),
+      activeTabType: 'terminal',
+      editorFontZoomLevel: 0,
+      setEditorFontZoomLevel: vi.fn(),
+      setRateLimitsFromPush: vi.fn(),
+      updateWorktreeBaseStatus: vi.fn(),
+      updateWorktreeRemoteBranchConflict: vi.fn(),
+      setSshConnectionState: vi.fn(),
+      setSshTargetLabels: vi.fn(),
+      setPortForwards: vi.fn(),
+      clearPortForwards: vi.fn(),
+      setDetectedPorts: vi.fn(),
+      enqueueSshCredentialRequest: vi.fn(),
+      removeSshCredentialRequest: vi.fn(),
+      clearTabPtyId: vi.fn(),
+      updateTabTitle: vi.fn(),
+      runtimePaneTitlesByTabId: {},
+      ptyIdsByTabId: {},
+      terminalLayoutsByTabId: {},
+      activeTabIdByWorktree: {},
+      agentStatusByPaneKey: {},
+      clearTransientAgentStatuses: vi.fn(),
+      recentlyClosedAgentStatusTabIds: {},
+      repos: [],
+      detectedWorktreesByRepo,
+      worktreesByRepo: { 'repo-1': [{ id: 'wt-remote', repoId: 'repo-1' }] },
+      tabsByWorktree: {},
+      unifiedTabsByWorktree: {},
+      groupsByWorktree: {},
+      layoutByWorktree: {},
+      activeGroupIdByWorktree: {},
+      openFiles: [],
+      editorDrafts: {},
+      markdownFrontmatterVisible: {},
+      activeFileIdByWorktree: {},
+      activeTabTypeByWorktree: {},
+      browserTabsByWorktree: {},
+      browserPagesByWorkspace: {},
+      activeBrowserTabId: null,
+      activeBrowserTabIdByWorktree: {},
+      browserUrlHistory: [],
+      sshConnectionStates: new Map(),
+      lastKnownRelayPtyIdByTabId: {},
+      lastVisitedAtByWorktreeId: {},
+      defaultTerminalTabsAppliedByWorktreeId: {},
+      workspaceSessionReady: false,
+      settings: {
+        terminalFontSize: 13,
+        activeRuntimeEnvironmentId: runtimeActive ? 'env-remote' : ''
+      }
+    }
+
+    const onWorktreesChanged: { current: WorktreesChangedListener | null } = { current: null }
+
+    stubReactSyncEffect()
+    vi.doMock('../store', () => ({
+      useAppStore: { subscribe: vi.fn(() => () => {}), getState: () => storeState }
+    }))
+    stubAuxiliaryModules()
+    // buildWindowApi captures the listener into onWorktreesChanged.current.
+    vi.stubGlobal('window', buildWindowApi(onWorktreesChanged))
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+
+    return {
+      useIpcEvents,
+      emitWorktreesChanged: (data) => onWorktreesChanged.current?.(data),
+      detectedWorktreesByRepo,
+      fetchWorktrees,
+      fetchWorktreeLineage,
+      purgeWorktreeTerminalState,
+      removeWorkspaceSpaceWorktrees
+    }
+  }
+
+  beforeEach(() => {
+    vi.resetModules()
+    vi.unstubAllGlobals()
+  })
+
+  it('pins the refresh to the local host and skips the deletion-purge under an active runtime', async () => {
+    const {
+      useIpcEvents,
+      emitWorktreesChanged,
+      detectedWorktreesByRepo,
+      fetchWorktrees,
+      fetchWorktreeLineage,
+      purgeWorktreeTerminalState,
+      removeWorkspaceSpaceWorktrees
+    } = await setup({ runtimeActive: true })
+
+    useIpcEvents()
+    await Promise.resolve()
+
+    emitWorktreesChanged({ repoId: 'repo-1' })
+    await flushMicrotasks()
+
+    // (a) fetch is pinned to the local host and the CLI worktree becomes visible.
+    expect(fetchWorktrees).toHaveBeenCalledWith('repo-1', { forceLocalOwner: true })
+    expect(fetchWorktreeLineage).toHaveBeenCalledWith({ forceLocalOwner: true })
+    const visibleIds = detectedWorktreesByRepo['repo-1'].worktrees.map((worktree) => worktree.id)
+    expect(visibleIds).toContain('wt-cli-local')
+
+    // (b) the repo-wide deletion-purge is SKIPPED so the pre-existing remote row survives.
+    // Delete the purge-skip early return in handleWorktreesChanged and this fails.
+    expect(purgeWorktreeTerminalState).not.toHaveBeenCalled()
+    expect(removeWorkspaceSpaceWorktrees).not.toHaveBeenCalled()
+  })
+
+  it('applies the normal deletion diff for a local event when no runtime is active', async () => {
+    const {
+      useIpcEvents,
+      emitWorktreesChanged,
+      fetchWorktrees,
+      purgeWorktreeTerminalState,
+      removeWorkspaceSpaceWorktrees
+    } = await setup({ runtimeActive: false })
+
+    useIpcEvents()
+    await Promise.resolve()
+
+    emitWorktreesChanged({ repoId: 'repo-1' })
+    await flushMicrotasks()
+
+    // Still local-pinned (the onChanged listener always tags local origin)...
+    expect(fetchWorktrees).toHaveBeenCalledWith('repo-1', { forceLocalOwner: true })
+    // ...but with no runtime overlap the purge-skip does not fire, so the diff runs
+    // and reaps the row the fresh scan no longer lists.
+    expect(purgeWorktreeTerminalState).toHaveBeenCalledWith(['wt-remote'])
+    expect(removeWorkspaceSpaceWorktrees).toHaveBeenCalledWith(['wt-remote'])
+  })
+})

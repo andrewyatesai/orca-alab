@@ -862,8 +862,13 @@ export function useIpcEvents(): void {
     const handleWorktreesChanged = async (
       repoId: string,
       ownerHostId?: ExecutionHostId,
-      renamed?: { oldWorktreeId: string; newWorktreeId: string }
+      renamed?: { oldWorktreeId: string; newWorktreeId: string },
+      options?: { forceLocalOwner?: boolean }
     ): Promise<void> => {
+      // Why: snapshot runtime overlap at start; a focus change mid-refresh must not
+      // flip the local-pinned event back onto the deletion-purge path (#6628).
+      const localRefreshStartedWithRuntime =
+        options?.forceLocalOwner === true && isRuntimeEnvironmentActive()
       // Why: capture active-ness before migration moves the pointer; re-key maps before the diff so a rename isn't a deletion.
       const renamedWasActive =
         renamed != null && useAppStore.getState().activeWorktreeId === renamed.oldWorktreeId
@@ -879,20 +884,41 @@ export function useIpcEvents(): void {
       const before =
         getAuthoritativeDetectedWorktreeIds(state, repoId) ??
         getVisibleWorktreeIdsForRepo(state, repoId)
-      await (ownerHostId
-        ? state.fetchWorktrees(repoId, { ownerHostId })
-        : state.fetchWorktrees(repoId))
-      await useAppStore.getState().fetchWorktreeLineage()
+      await (options?.forceLocalOwner
+        ? state.fetchWorktrees(repoId, { forceLocalOwner: true })
+        : ownerHostId
+          ? state.fetchWorktrees(repoId, { ownerHostId })
+          : state.fetchWorktrees(repoId))
+      await useAppStore
+        .getState()
+        .fetchWorktreeLineage(options?.forceLocalOwner ? { forceLocalOwner: true } : undefined)
       // Why: an id change unmounts the active pane; re-activate so the tab reconciles, else it vanishes until re-select.
       if (renamedWasActive && renamed) {
         useAppStore.getState().setActiveWorktree(renamed.newWorktreeId)
+      }
+      // Why: sweep expired rename-grace entries before any early return, else a
+      // forced-local (or non-authoritative) event lets the map grow all session.
+      const now = Date.now()
+      for (const [id, expiry] of recentlyRenamedWorktreeIdExpiry) {
+        if (expiry <= now) {
+          recentlyRenamedWorktreeIdExpiry.delete(id)
+        }
+      }
+      // Why: the deletion diff below is repo-wide, but a forced-local scan overlapping
+      // a runtime can't prove remote absence (legacy runtime rows may lack hostId).
+      // fetchWorktrees already purged removed local rows host-scoped, so skip the diff
+      // here to never overwrite the active runtime's worktree state (#6628).
+      if (
+        options?.forceLocalOwner &&
+        (localRefreshStartedWithRuntime || isRuntimeEnvironmentActive())
+      ) {
+        return
       }
       const afterState = useAppStore.getState()
       const after = getAuthoritativeDetectedWorktreeIds(afterState, repoId)
       if (!after) {
         return
       }
-      const now = Date.now()
       const removed: string[] = []
       for (const id of before) {
         if (after.has(id)) {
@@ -904,11 +930,6 @@ export function useIpcEvents(): void {
           continue
         }
         removed.push(id)
-      }
-      for (const [id, expiry] of recentlyRenamedWorktreeIdExpiry) {
-        if (expiry <= now) {
-          recentlyRenamedWorktreeIdExpiry.delete(id)
-        }
       }
       if (removed.length > 0) {
         console.warn(
@@ -1121,12 +1142,12 @@ export function useIpcEvents(): void {
           repoId: string
           renamed?: { oldWorktreeId: string; newWorktreeId: string }
         }) => {
-          if (isRuntimeEnvironmentActive()) {
-            // Why: local worktree events carry local repo ids; fetching the runtime with them can purge or overwrite server state.
-            return
-          }
+          // Why: this event has local origin; tag forceLocalOwner so the refresh
+          // pins to the local host across queue delays and runtime focus changes
+          // instead of dropping the event — otherwise a CLI-created local worktree
+          // stays invisible in the sidebar while a runtime is active (#6628).
           // A folder rename changes the worktree id; handleWorktreesChanged re-keys state and shields it from the deletion diff.
-          worktreeChangeRefreshQueue.enqueue(data)
+          worktreeChangeRefreshQueue.enqueue({ ...data, forceLocalOwner: true })
         }
       )
     )

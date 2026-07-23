@@ -120,10 +120,16 @@ export type WorktreeSlice = {
   fetchDetectedWorktrees: (repoId: string) => Promise<DetectedWorktreeListResult | null>
   fetchWorktrees: (
     repoId: string,
-    options?: { requireAuthoritative?: boolean; ownerHostId?: ExecutionHostId }
+    options?: {
+      requireAuthoritative?: boolean
+      ownerHostId?: ExecutionHostId
+      // Why: pin an unbound repo's refresh to the local host so a local
+      // worktrees:changed under an active runtime lists local rows (#6628).
+      forceLocalOwner?: boolean
+    }
   ) => Promise<boolean>
   fetchAllWorktrees: (options?: { hydrationPurge?: 'allow' | 'defer' }) => Promise<void>
-  fetchWorktreeLineage: () => Promise<void>
+  fetchWorktreeLineage: (options?: { forceLocalOwner?: boolean }) => Promise<void>
   updateWorktreeLineage: (
     worktreeId: string,
     args: { parentWorktreeId?: string; noParent?: boolean }

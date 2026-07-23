@@ -8,11 +8,18 @@ import {
   renameSync,
   unlinkSync,
   copyFileSync,
+  readdirSync,
   statSync,
   realpathSync
 } from 'node:fs'
-import { writeFile, rename, mkdir, rm, copyFile } from 'node:fs/promises'
-import { join, dirname, isAbsolute, resolve, sep } from 'node:path'
+import { rename, mkdir, rm, copyFile } from 'node:fs/promises'
+import { join, dirname, basename, isAbsolute, resolve, sep } from 'node:path'
+import {
+  writeTmpDurableSync,
+  writeTmpDurableAsync,
+  fsyncDirForFileSync,
+  fsyncDirForFileAsync
+} from './atomic-file-write'
 import { homedir } from 'node:os'
 import { createHash, randomUUID } from 'node:crypto'
 import type {
@@ -259,27 +266,29 @@ function encrypt(plaintext: string): string {
   }
 }
 
-function decrypt(ciphertext: string): string {
+// Why return `undecryptedCiphertext`: when encryption is AVAILABLE but a value still fails to decrypt
+// (transient keychain change / restored or cross-machine profile), the raw bytes are genuine ciphertext,
+// not legacy plaintext. Re-encrypting them on the next save would double-encrypt and permanently destroy
+// the secret, so the caller must preserve these exact bytes verbatim instead of re-encrypting them.
+function decryptTracked(ciphertext: string): {
+  value: string
+  undecryptedCiphertext: string | null
+} {
   if (!ciphertext || !safeStorage.isEncryptionAvailable()) {
-    return ciphertext
+    return { value: ciphertext, undecryptedCiphertext: null }
   }
   try {
-    return safeStorage.decryptString(Buffer.from(ciphertext, 'base64'))
+    return {
+      value: safeStorage.decryptString(Buffer.from(ciphertext, 'base64')),
+      undecryptedCiphertext: null
+    }
   } catch {
     // Why: decrypt failure usually means plaintext (pre-encryption) or a changed keychain; return raw so the cookie survives upgrade.
     console.warn(
       '[persistence] safeStorage decryption failed — returning ciphertext as-is. Possible keychain reset.'
     )
-    return ciphertext
+    return { value: ciphertext, undecryptedCiphertext: ciphertext }
   }
-}
-
-function encryptOptionalSecret(value: string | null | undefined): string | null {
-  return value ? encrypt(value) : null
-}
-
-function decryptOptionalSecret(value: string | null | undefined): string | null {
-  return value ? decrypt(value) : null
 }
 
 function retireLegacyInstructionsForClearedTextActionRecipes(
@@ -399,6 +408,13 @@ function gcStaleWorktreeMeta(state: PersistedState): number {
       continue
     }
     if (existsSync(worktreePath)) {
+      continue
+    }
+    // Why: existsSync can't tell "worktree deleted" from "volume not mounted" — an unplugged external/network
+    // drive (e.g. /Volumes/<name>/...) fails identically. A genuine `git worktree remove` leaves the parent
+    // container intact; an absent mount takes the whole ancestor chain with it. Only condemn when the parent
+    // still exists, so a temporarily-absent mount never permanently wipes displayName/comment/PR/lineage.
+    if (!existsSync(dirname(worktreePath))) {
       continue
     }
     delete state.worktreeMeta[key]
@@ -2691,6 +2707,9 @@ export class Store {
   private writeGeneration = 0
   // Why: after a profile transfer rewrites this file on disk, a late flush of stale in-memory state would resurrect the moved project.
   private writesFrozen = false
+  // Why: exact ciphertext strings that failed to decrypt at load (encryption available but wrong key). buildStateToSave
+  // re-emits them verbatim so a save never double-encrypts genuine ciphertext into unrecoverable garbage.
+  private undecryptableSecretCiphertexts = new Set<string>()
   // Plaintext hash at last write, to skip no-op writes; not the payload, since encrypt() uses a random IV per call.
   private lastWrittenStateHash: string | null = null
   private firstPendingSaveAt: number | null = null
@@ -2884,6 +2903,44 @@ export class Store {
     }
   }
 
+  // Why: a corrupt primary is often just tail-truncated JSON (hand-repairable) and can be up to
+  // BACKUP_MIN_INTERVAL_MS newer than the newest backup. Copy it aside before it's destroyed (by a backup
+  // restore or the first defaults save) so the total-loss branch keeps a recovery window; keep the newest few.
+  private quarantineCorruptPrimary(dataFile: string): void {
+    try {
+      if (!existsSync(dataFile)) {
+        return
+      }
+      const quarantinePath = `${dataFile}.corrupt-${Date.now()}`
+      copyFileSync(dataFile, quarantinePath)
+      console.warn(`[persistence] Quarantined unreadable state file to ${quarantinePath}`)
+      this.pruneCorruptQuarantines(dataFile)
+    } catch (err) {
+      console.error('[persistence] Failed to quarantine corrupt state file:', err)
+    }
+  }
+
+  private pruneCorruptQuarantines(dataFile: string, keep = 2): void {
+    try {
+      const dir = dirname(dataFile)
+      const prefix = `${basename(dataFile)}.corrupt-`
+      const stale = readdirSync(dir)
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => ({ name, ts: Number(name.slice(prefix.length)) }))
+        .sort((a, b) => b.ts - a.ts)
+        .slice(keep)
+      for (const entry of stale) {
+        try {
+          unlinkSync(join(dir, entry.name))
+        } catch {
+          // Best-effort pruning; a stale quarantine left behind is harmless.
+        }
+      }
+    } catch {
+      // Best-effort; dir listing failure must never block recovery.
+    }
+  }
+
   private restoreFromBackup(dataFile: string): boolean {
     for (let i = 0; i < BACKUP_COUNT; i++) {
       const path = backupPath(dataFile, i)
@@ -2894,6 +2951,8 @@ export class Store {
         const raw = readFileSync(path, 'utf-8')
         JSON.parse(raw)
         mkdirSync(dirname(dataFile), { recursive: true })
+        // Why: preserve the corrupt primary before the backup bytes overwrite it (it may be newer/repairable).
+        this.quarantineCorruptPrimary(dataFile)
         writeFileSync(dataFile, raw, 'utf-8')
         console.warn(`[persistence] Recovered state from backup slot ${i}: ${path}`)
         return true
@@ -2926,14 +2985,28 @@ export class Store {
         logPersistenceStartupMilestone('persistence-json-parse-done')
 
         // Why: secrets are stored encrypted via safeStorage; decrypt at the load boundary so the app sees plaintext.
+        // Track any value that failed to decrypt while encryption was available so buildStateToSave re-emits its
+        // original ciphertext verbatim instead of double-encrypting it (which would destroy the secret permanently).
         if (parsed.settings?.opencodeSessionCookie) {
-          parsed.settings.opencodeSessionCookie = decrypt(parsed.settings.opencodeSessionCookie)
+          const result = decryptTracked(parsed.settings.opencodeSessionCookie)
+          parsed.settings.opencodeSessionCookie = result.value
+          if (result.undecryptedCiphertext) {
+            this.undecryptableSecretCiphertexts.add(result.undecryptedCiphertext)
+          }
         }
         if (parsed.settings?.httpProxyUrl) {
-          parsed.settings.httpProxyUrl = decrypt(parsed.settings.httpProxyUrl)
+          const result = decryptTracked(parsed.settings.httpProxyUrl)
+          parsed.settings.httpProxyUrl = result.value
+          if (result.undecryptedCiphertext) {
+            this.undecryptableSecretCiphertexts.add(result.undecryptedCiphertext)
+          }
         }
         if (parsed.ui?.browserKagiSessionLink) {
-          parsed.ui.browserKagiSessionLink = decryptOptionalSecret(parsed.ui.browserKagiSessionLink)
+          const result = decryptTracked(parsed.ui.browserKagiSessionLink)
+          parsed.ui.browserKagiSessionLink = result.value
+          if (result.undecryptedCiphertext) {
+            this.undecryptableSecretCiphertexts.add(result.undecryptedCiphertext)
+          }
         }
 
         // Merge with defaults in case new fields were added
@@ -3510,6 +3583,11 @@ export class Store {
     }
 
     if (result === null) {
+      // Why: no usable primary and no usable backup. The corrupt file is still on disk and the first defaults
+      // save will rename over it — preserve it first so a hand-repair / manual recovery remains possible.
+      if (fileExistedOnLoad) {
+        this.quarantineCorruptPrimary(dataFile)
+      }
       result = getDefaultPersistedState(homedir())
     }
 
@@ -3700,6 +3778,16 @@ export class Store {
     return createHash('sha1').update(JSON.stringify(this.getDurableState())).digest('hex')
   }
 
+  // Why: a value that failed to decrypt at load is still the ORIGINAL ciphertext; encrypting it again would
+  // double-encrypt and permanently destroy the secret (unrecoverable even after a keychain restore). Re-emit it
+  // verbatim. A user-changed value won't match the tracked ciphertext and encrypts normally.
+  private encryptSecretForSave(value: string): string {
+    if (value && this.undecryptableSecretCiphertexts.has(value)) {
+      return value
+    }
+    return encrypt(value)
+  }
+
   // Why: build payload synchronously so hash and serialized bytes reflect the same state tick (no await interleave).
   private buildStateToSave(): string {
     // Why: clone before encrypting secrets so in-memory this.state stays plaintext.
@@ -3707,12 +3795,14 @@ export class Store {
       ...this.getDurableState(),
       settings: {
         ...this.state.settings,
-        opencodeSessionCookie: encrypt(this.state.settings.opencodeSessionCookie),
-        httpProxyUrl: encrypt(this.state.settings.httpProxyUrl ?? '')
+        opencodeSessionCookie: this.encryptSecretForSave(this.state.settings.opencodeSessionCookie),
+        httpProxyUrl: this.encryptSecretForSave(this.state.settings.httpProxyUrl ?? '')
       },
       ui: {
         ...this.state.ui,
-        browserKagiSessionLink: encryptOptionalSecret(this.state.ui.browserKagiSessionLink)
+        browserKagiSessionLink: this.state.ui.browserKagiSessionLink
+          ? this.encryptSecretForSave(this.state.ui.browserKagiSessionLink)
+          : null
       }
     }
     // Why compact: ~20% fewer bytes and less serialize time; all readers JSON.parse so formatting is irrelevant.
@@ -3739,16 +3829,24 @@ export class Store {
     // Why: on any write/rename failure, remove the tmp file so it doesn't leave a multi-MB orphan.
     let renamed = false
     try {
-      await writeFile(tmpFile, payload, 'utf-8')
+      // Why fsync: durable against power loss, not just process crash — see atomic-file-write.ts.
+      await writeTmpDurableAsync(tmpFile, payload)
       // Why: if flush() bumped writeGeneration mid-write, it already wrote fresher state; don't overwrite it.
       if (this.writeGeneration !== gen) {
         return
       }
       await rename(tmpFile, dataFile)
       renamed = true
+      await fsyncDirForFileAsync(dataFile)
       // Why re-check gen: a sync flush during the rename await may have written fresher state; don't record a stale hash over it.
       if (this.writeGeneration === gen) {
         this.lastWrittenStateHash = stateHash
+      } else {
+        // Why: flushOrThrow bumped the generation and renameSync'd fresher state on the main thread while
+        // THIS stale rename was still queued in the libuv threadpool — so our rename landed LAST and clobbered it.
+        // The gen check at :3744 can't un-submit an already-issued rename; re-run the sync write (force, since
+        // lastWrittenStateHash now holds the fresh hash) so the newest state is the deterministic last writer.
+        this.writeToDiskSync({ force: true })
       }
     } finally {
       if (!renamed) {
@@ -3787,9 +3885,11 @@ export class Store {
     // Why: on any write/rename failure, remove the tmp file so shutdown crashes don't leak orphans.
     let renamed = false
     try {
-      writeFileSync(tmpFile, payload, 'utf-8')
+      // Why fsync: durable against power loss, not just process crash — see atomic-file-write.ts.
+      writeTmpDurableSync(tmpFile, payload)
       renameSync(tmpFile, dataFile)
       renamed = true
+      fsyncDirForFileSync(dataFile)
       this.lastWrittenStateHash = stateHash
     } finally {
       if (!renamed) {

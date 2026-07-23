@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   writeFileSync,
   readFileSync,
+  readdirSync,
   rmSync,
   mkdtempSync,
   mkdirSync,
@@ -11,6 +12,7 @@ import {
   statSync,
   symlinkSync
 } from 'node:fs'
+import type * as FsPromises from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type {
@@ -120,6 +122,27 @@ vi.mock('electron', () => ({
     }
   }
 }))
+
+// Why: lets a single test interpose logic (a shutdown flush) inside an in-flight async rename to reproduce the
+// stale-rename-lands-last race. Null hook = transparent pass-through, so every other test is unaffected.
+const fsPromisesRenameControl = vi.hoisted(() => ({
+  hook: null as null | ((from: string, to: string) => Promise<void>)
+}))
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof FsPromises>('node:fs/promises')
+  return {
+    ...actual,
+    default: actual,
+    rename: async (from: string, to: string) => {
+      const hook = fsPromisesRenameControl.hook
+      if (hook) {
+        fsPromisesRenameControl.hook = null
+        await hook(from, to)
+      }
+      return actual.rename(from, to)
+    }
+  }
+})
 
 vi.mock('./telemetry/client', () => ({
   track: trackMock
@@ -3630,7 +3653,9 @@ describe('Store', () => {
     store.removeProjectForHost('shared', 'ssh:ssh-a')
 
     // The removed SSH host's session is pruned; the surviving local session stays.
-    expect(store.getWorkspaceSession('ssh:ssh-a').lastVisitedAtByWorktreeId?.['shared::/repo']).toBeUndefined()
+    expect(
+      store.getWorkspaceSession('ssh:ssh-a').lastVisitedAtByWorktreeId?.['shared::/repo']
+    ).toBeUndefined()
     expect(store.getWorkspaceSession().lastVisitedAtByWorktreeId?.['shared::/repo']).toBe(111)
   })
 
@@ -3662,7 +3687,9 @@ describe('Store', () => {
     store.removeProjectForHost('shared', 'local')
 
     expect(store.getWorkspaceSession().lastVisitedAtByWorktreeId?.['shared::/repo']).toBeUndefined()
-    expect(store.getWorkspaceSession('ssh:ssh-a').lastVisitedAtByWorktreeId?.['shared::/repo']).toBe(222)
+    expect(
+      store.getWorkspaceSession('ssh:ssh-a').lastVisitedAtByWorktreeId?.['shared::/repo']
+    ).toBe(222)
   })
 
   it('removeProjectForHost prunes only the removed host when a third host also shares the owner key', async () => {
@@ -3712,9 +3739,13 @@ describe('Store', () => {
     store.removeProjectForHost('shared', 'ssh:ssh-a')
 
     // Only the removed host's partition is pruned; local and the other SSH host survive.
-    expect(store.getWorkspaceSession('ssh:ssh-a').lastVisitedAtByWorktreeId?.['shared::/repo']).toBeUndefined()
+    expect(
+      store.getWorkspaceSession('ssh:ssh-a').lastVisitedAtByWorktreeId?.['shared::/repo']
+    ).toBeUndefined()
     expect(store.getWorkspaceSession().lastVisitedAtByWorktreeId?.['shared::/repo']).toBe(111)
-    expect(store.getWorkspaceSession('ssh:ssh-b').lastVisitedAtByWorktreeId?.['shared::/repo']).toBe(333)
+    expect(
+      store.getWorkspaceSession('ssh:ssh-b').lastVisitedAtByWorktreeId?.['shared::/repo']
+    ).toBe(333)
   })
 
   it('reorderReposForHost independently reorders local and SSH rows with shared ids', async () => {
@@ -5853,6 +5884,9 @@ describe('Store', () => {
   it('garbage-collects stale local worktreeMeta at load with a 30-day grace', async () => {
     const OLD = Date.now() - 40 * 24 * 60 * 60 * 1000
     const RECENT = Date.now() - 1 * 24 * 60 * 60 * 1000
+    // Why the container exists: a genuine `git worktree remove` leaves the parent dir intact and deletes only
+    // the worktree; GC condemns those. (A missing PARENT means an unmounted volume — covered by its own test.)
+    mkdirSync(join(testState.dir, 'gone'), { recursive: true })
     const missing = (name: string): string => join(testState.dir, 'gone', name)
     const meta = (lastActivityAt: number, extra: Record<string, unknown> = {}) => ({
       displayName: '',
@@ -5896,6 +5930,29 @@ describe('Store', () => {
     expect(kept).not.toContain(deadKey)
     expect(kept).not.toContain(orphanKey)
     expect(store.getWorktreeLineage(deadKey)).toBeUndefined()
+  })
+
+  it('does not GC a stale worktreeMeta whose parent volume is unmounted (missing ancestor)', async () => {
+    // Why: existsSync can't tell "worktree deleted" from "volume not mounted". An unplugged external/network
+    // drive takes the whole ancestor chain with it, so a missing PARENT must be treated as possibly-unmounted
+    // and never condemned — otherwise displayName/comment/PR/lineage are lost on remount.
+    const OLD = Date.now() - 40 * 24 * 60 * 60 * 1000
+    // Deliberately do NOT create the parent: the worktree AND its container are both absent (unmount signature).
+    const unmountedKey = `r1::${join(testState.dir, 'unmounted-volume', 'workspace')}`
+    writeDataFile({
+      repos: [makeRepo()],
+      worktreeMeta: {
+        [unmountedKey]: {
+          displayName: 'Archived on external SSD',
+          comment: 'keep me',
+          lastActivityAt: OLD
+        }
+      }
+    })
+
+    const store = await createStore()
+    expect(Object.keys(store.getAllWorktreeMeta())).toContain(unmountedKey)
+    expect(store.getAllWorktreeMeta()[unmountedKey]?.comment).toBe('keep me')
   })
 
   it('never GCs folder-workspace instance metas — the meta IS the workspace', async () => {
@@ -6692,6 +6749,34 @@ describe('Store', () => {
 
     const reloaded = await createStore()
     expect(reloaded.getUI().browserKagiSessionLink).toBe(sessionLink)
+  })
+
+  it('preserves the original ciphertext of a secret that fails to decrypt instead of double-encrypting it', async () => {
+    // Simulates a genuine safeStorage ciphertext from a now-unavailable key (keychain rotation / restored profile):
+    // base64 that does NOT decode to the mock's 'encrypted:' prefix, so decryptString throws. The value must be
+    // written back verbatim on the next save — re-encrypting it ('encrypted:<base64>') would destroy the secret
+    // permanently even after the original key is restored.
+    const foreignCiphertext = Buffer.from('FOREIGN-KEY:top-secret-cookie', 'utf-8').toString(
+      'base64'
+    )
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: { opencodeSessionCookie: foreignCiphertext },
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: {}
+    })
+
+    const store = await createStore()
+    // Trigger a save of unrelated state so buildStateToSave re-serializes the secret field.
+    store.updateUI({ browserDefaultZoomLevel: 1.25 })
+    store.flush()
+
+    const persisted = readDataFile() as { settings: { opencodeSessionCookie: string } }
+    expect(persisted.settings.opencodeSessionCookie).toBe(foreignCiphertext)
+    expect(persisted.settings.opencodeSessionCookie).not.toContain('encrypted:')
   })
 
   it('keeps plaintext Kagi session links readable for migration from older builds', async () => {
@@ -10347,10 +10432,106 @@ describe('Store', () => {
       }
     })
 
+    it('a shutdown flush that lands mid-rename does not let the stale async write win', async () => {
+      // Repro of the stale-rename-lands-last race: the debounced async write's rename is queued in the threadpool
+      // behind other work; a shutdown flushOrThrow renameSyncs fresher state on the main thread FIRST; then the
+      // queued stale rename executes LAST and clobbers it. The fix re-runs the sync write after the stale rename
+      // when the generation advanced, so the newest state is the deterministic last writer.
+      vi.useFakeTimers()
+      try {
+        writeDataFile({
+          schemaVersion: 1,
+          repos: [makeRepo({ id: 'seed' })],
+          worktreeMeta: {},
+          settings: {},
+          ui: {},
+          githubCache: { pr: {}, issue: {} },
+          workspaceSession: {}
+        })
+        const store = await createStore()
+        // Stale snapshot the async write will carry.
+        store.addRepo(makeRepo({ id: 'stale-async', path: '/stale' }))
+        // Arm the async rename to interleave a shutdown flush of FRESHER state right before the stale bytes land.
+        fsPromisesRenameControl.hook = async () => {
+          store.addRepo(makeRepo({ id: 'fresh-flush', path: '/fresh' }))
+          store.flushOrThrow()
+        }
+        vi.advanceTimersByTime(1000)
+        await store.waitForPendingWrite()
+
+        const persisted = readDataFile() as { repos: { id: string }[] }
+        const ids = persisted.repos.map((r) => r.id).sort()
+        // Without the fix, 'fresh-flush' is lost (stale rename overwrote the flush's file last).
+        expect(ids).toContain('fresh-flush')
+        expect(ids).toContain('stale-async')
+        expect(ids).toContain('seed')
+      } finally {
+        fsPromisesRenameControl.hook = null
+        vi.useRealTimers()
+      }
+    })
+
     function writeBackup(index: number, data: unknown): void {
       mkdirSync(testState.dir, { recursive: true })
       writeFileSync(backupFile(index), JSON.stringify(data, null, 2), 'utf-8')
     }
+
+    function quarantineFiles(): string[] {
+      return readdirSync(testState.dir).filter((name) => name.startsWith('orca-data.json.corrupt-'))
+    }
+
+    it('quarantines the corrupt primary before a backup overwrites it', async () => {
+      mkdirSync(testState.dir, { recursive: true })
+      const corruptBytes = '{"repos":[{"id":"almost-valid"'
+      writeFileSync(dataFile(), corruptBytes, 'utf-8')
+      writeBackup(0, {
+        schemaVersion: 1,
+        repos: [makeRepo({ id: 'recovered' })],
+        worktreeMeta: {},
+        settings: {},
+        ui: {},
+        githubCache: { pr: {}, issue: {} },
+        workspaceSession: {}
+      })
+
+      const store = await createStore()
+      expect(store.getRepos().map((r) => r.id)).toEqual(['recovered'])
+
+      const quarantined = quarantineFiles()
+      expect(quarantined).toHaveLength(1)
+      // The original (repairable) bytes are preserved verbatim, not destroyed by the restore.
+      expect(readFileSync(join(testState.dir, quarantined[0]), 'utf-8')).toBe(corruptBytes)
+    })
+
+    it('quarantines the corrupt primary when every backup is unusable and it resets to defaults', async () => {
+      mkdirSync(testState.dir, { recursive: true })
+      const corruptBytes = '{{{totally-corrupt-and-no-backups'
+      writeFileSync(dataFile(), corruptBytes, 'utf-8')
+      for (let i = 0; i < 5; i++) {
+        writeFileSync(backupFile(i), `{{slot-${i}-corrupt`, 'utf-8')
+      }
+
+      const store = await createStore()
+      expect(store.getRepos()).toEqual([])
+
+      const quarantined = quarantineFiles()
+      expect(quarantined.length).toBeGreaterThanOrEqual(1)
+      expect(readFileSync(join(testState.dir, quarantined[0]), 'utf-8')).toBe(corruptBytes)
+    })
+
+    it('does not create a quarantine copy on a clean load (no corruption)', async () => {
+      writeDataFile({
+        schemaVersion: 1,
+        repos: [makeRepo({ id: 'fine' })],
+        worktreeMeta: {},
+        settings: {},
+        ui: {},
+        githubCache: { pr: {}, issue: {} },
+        workspaceSession: {}
+      })
+      await createStore()
+      expect(quarantineFiles()).toHaveLength(0)
+    })
 
     it('recovers from .bak.0 when the primary file is corrupt', async () => {
       mkdirSync(testState.dir, { recursive: true })

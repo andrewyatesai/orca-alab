@@ -5,6 +5,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import CommentMarkdown from './comment-markdown-content'
 
+// Why: only trusted (blob:/data:) image sources render as an actual <img>; an
+// untrusted remote/relative src is deliberately gated to a click-to-load link
+// to avoid tracking-pixel leaks, so image interception must be tested with a
+// trusted data URI.
+const TRUSTED_IMAGE_SRC = 'data:image/png;base64,iVBORw0KGgo='
+
 describe('CommentMarkdown link click handler', () => {
   let root: Root | null = null
   let container: HTMLDivElement | null = null
@@ -129,21 +135,21 @@ describe('CommentMarkdown link click handler', () => {
       root?.render(
         <CommentMarkdown
           variant="document"
-          content="![diagram](assets/diagram.png)"
+          content={`![diagram](${TRUSTED_IMAGE_SRC})`}
           onLinkClick={onLinkClick}
         />
       )
     })
 
     const image = container.querySelector<HTMLImageElement>('img[alt="diagram"]')
-    expect(image?.getAttribute('src')).toBe('assets/diagram.png')
+    expect(image?.getAttribute('src')).toBe(TRUSTED_IMAGE_SRC)
     const event = new window.MouseEvent('click', { bubbles: true, cancelable: true })
 
     act(() => {
       image?.dispatchEvent(event)
     })
 
-    expect(onLinkClick).toHaveBeenCalledWith(expect.any(Object), 'assets/diagram.png')
+    expect(onLinkClick).toHaveBeenCalledWith(expect.any(Object), TRUSTED_IMAGE_SRC)
     expect(event.defaultPrevented).toBe(true)
   })
 })

@@ -6,6 +6,12 @@ import type {
   MigrationUnsupportedPtyEntry
 } from '../../../../shared/agent-status-types'
 import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import {
+  type LiveEntriesByWorktreeCache,
+  liveEntryWorktreeId,
+  maybePatchLiveEntriesCache,
+  recordLiveEntriesFullRebuild
+} from './worktree-agent-live-index-patch'
 
 // Why: selector unit tests often pass partial store mocks; production state
 // owns these maps, but missing mock maps should behave like empty slices.
@@ -30,12 +36,6 @@ export type RuntimeAgentOrchestrationState = Pick<
 type TabWorktreeIndexCache = {
   tabsByWorktree: WorktreeAgentRowsState['tabsByWorktree']
   tabIdToWorktreeId: Map<string, string>
-}
-
-type LiveEntriesByWorktreeCache = {
-  tabsByWorktree: WorktreeAgentRowsState['tabsByWorktree']
-  agentStatusByPaneKey: WorktreeAgentRowsState['agentStatusByPaneKey']
-  entriesByWorktree: Map<string, AgentStatusEntry[]>
 }
 
 type MigrationUnsupportedByWorktreeCache = {
@@ -63,7 +63,10 @@ let migrationUnsupportedByWorktreeCache: MigrationUnsupportedByWorktreeCache | n
 let retainedEntriesByWorktreeCache: RetainedEntriesByWorktreeCache | null = null
 let runtimeAgentOrchestrationByWorktreeCache: RuntimeAgentOrchestrationByWorktreeCache | null = null
 
-function reuseArrayIfEqual<T>(previous: T[] | undefined, next: T[]): T[] {
+// Why exported: WorktreeList reuses this exact-equality identity check to keep
+// derived arrays referentially stable across order-preserving epoch bumps so
+// memo'd cards can bail out of re-render.
+export function reuseArrayIfEqual<T>(previous: T[] | undefined, next: T[]): T[] {
   if (!previous || previous.length !== next.length) {
     return next
   }
@@ -127,16 +130,24 @@ export function getLiveEntriesByWorktree(
   }
 
   const tabIdToWorktreeId = getTabIdToWorktreeId(tabsByWorktree)
+  // Why (#9383): a status ping mints a fresh agentStatusByPaneKey but usually
+  // touches one worktree's bucket; patch that bucket instead of rebuilding the
+  // whole O(all live agents) index when the tab index is unchanged.
+  const patchedCache = maybePatchLiveEntriesCache(
+    liveEntriesByWorktreeCache,
+    tabsByWorktree,
+    agentStatusByPaneKey,
+    tabIdToWorktreeId
+  )
+  if (patchedCache) {
+    liveEntriesByWorktreeCache = patchedCache
+    return patchedCache.entriesByWorktree
+  }
+  recordLiveEntriesFullRebuild()
   const previous = liveEntriesByWorktreeCache?.entriesByWorktree
   const entriesByWorktree = new Map<string, AgentStatusEntry[]>()
   for (const [paneKey, entry] of Object.entries(agentStatusByPaneKey)) {
-    const parsed = parsePaneKey(paneKey)
-    if (!parsed) {
-      continue
-    }
-    const tabWorktreeId = tabIdToWorktreeId.get(parsed.tabId)
-    // Why: keep early attributed child rows, but hide completed rows once their tab is gone.
-    const worktreeId = tabWorktreeId ?? (entry.state === 'done' ? undefined : entry.worktreeId)
+    const worktreeId = liveEntryWorktreeId(paneKey, entry, tabIdToWorktreeId)
     if (!worktreeId) {
       continue
     }
@@ -248,10 +259,7 @@ export function getRuntimeAgentOrchestrationByWorktree(
 
   const tabIdToWorktreeId = getTabIdToWorktreeId(tabsByWorktree)
   const previous = runtimeAgentOrchestrationByWorktreeCache?.orchestrationByWorktree
-  const orchestrationByWorktree = new Map<
-    string,
-    Record<string, AgentStatusOrchestrationContext>
-  >()
+  const orchestrationByWorktree = new Map<string, Record<string, AgentStatusOrchestrationContext>>()
   for (const [paneKey, orchestration] of Object.entries(runtimeAgentOrchestrationByPaneKey)) {
     const parsed = parsePaneKey(paneKey)
     const parsedParent = orchestration.parentPaneKey

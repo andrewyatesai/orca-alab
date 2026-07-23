@@ -1,7 +1,19 @@
 import type { SshChannelMultiplexer } from './ssh-channel-multiplexer'
-import { RelayErrorCode, isGitResponseStreamMarker } from './relay-protocol'
+import {
+  GIT_RESPONSE_CHUNK_SIZE,
+  RelayErrorCode,
+  isGitResponseStreamMarker
+} from './relay-protocol'
 
 const SENTINEL_STREAM_ID = -1
+
+/** Upper bound a client will reassemble for a single git response. The marker's
+ * totalBytes/chunkCount are relay-declared and unbounded on the wire, so a
+ * hostile/buggy relay could otherwise flood in-order chunks forever (each under
+ * the frame cap, resetting the inactivity timer) and OOM the main process.
+ * Mirrors the fs reader's MAX_*_SIZE ceilings. */
+const MAX_GIT_RESPONSE_BYTES = 256 * 1024 * 1024
+const MAX_GIT_RESPONSE_CHUNKS = Math.ceil(MAX_GIT_RESPONSE_BYTES / GIT_RESPONSE_CHUNK_SIZE)
 
 /** Reject if no stream frame (chunk/end/error) arrives within this window,
  * reset on each frame. mux.request's own timeout only bounds the fast sentinel
@@ -147,7 +159,28 @@ export function requestGitStreamable(
         )
         return
       }
+      // Why: totalBytes/chunkCount are the only completeness bounds and were
+      // checked only at responseEnd; a relay that never sends responseEnd could
+      // stream chunks past the declared totals unbounded. Fail the moment the
+      // stream exceeds either declared total so reassembly can't grow past the
+      // marker (already capped below) — mirrors the fs reader.
+      if (expectedSeq >= chunkCount) {
+        fail(
+          new GitResponseStreamError(
+            `Git stream ${streamIdRef.current} exceeded declared chunk count ${chunkCount}`
+          )
+        )
+        return
+      }
       const decoded = Buffer.from(data, 'base64')
+      if (receivedBytes + decoded.length > totalBytes) {
+        fail(
+          new GitResponseStreamError(
+            `Git stream ${streamIdRef.current} exceeded declared byte count ${totalBytes}`
+          )
+        )
+        return
+      }
       parts.push(decoded)
       receivedBytes += decoded.length
       expectedSeq += 1
@@ -297,6 +330,20 @@ export function requestGitStreamable(
           return
         }
         const marker = result.__orcaGitResponseStream
+        // Why: the marker is relay-declared and unbounded on the wire; reject an
+        // absurd totalBytes/chunkCount before reassembly so a hostile relay
+        // can't pre-authorize an OOM-sized stream.
+        if (
+          marker.totalBytes > MAX_GIT_RESPONSE_BYTES ||
+          marker.chunkCount > MAX_GIT_RESPONSE_CHUNKS
+        ) {
+          fail(
+            new GitResponseStreamError(
+              `Git response stream too large: ${marker.totalBytes} bytes / ${marker.chunkCount} chunks exceeds client cap`
+            )
+          )
+          return
+        }
         totalBytes = marker.totalBytes
         chunkCount = marker.chunkCount
         streamIdRef.current = marker.streamId

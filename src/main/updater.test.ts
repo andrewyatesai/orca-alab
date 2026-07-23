@@ -11,6 +11,9 @@ const {
   autoUpdaterMock,
   isMock,
   killAllPtyMock,
+  loadElectronAutoUpdaterMock,
+  manualMacUpdatesRef,
+  shellMock,
   powerMonitorOnMock
 } = vi.hoisted(() => {
   const appEventHandlers = new Map<string, ((...args: unknown[]) => void)[]>()
@@ -54,6 +57,8 @@ const {
     autoUpdaterMock.updateConfigPath = undefined
     autoUpdaterMock.allowPrerelease = false
     delete (autoUpdaterMock as Record<string, unknown>).verifyUpdateCodeSignature
+    loadElectronAutoUpdaterMock.mockClear()
+    shellMock.openExternal.mockReset().mockResolvedValue(undefined)
   }
 
   const autoUpdaterMock = {
@@ -69,6 +74,8 @@ const {
     emit,
     reset
   }
+  const loadElectronAutoUpdaterMock = vi.fn(() => autoUpdaterMock)
+  const shellMock = { openExternal: vi.fn() }
 
   return {
     appMock: {
@@ -88,6 +95,9 @@ const {
     autoUpdaterMock,
     isMock: { dev: false },
     killAllPtyMock: vi.fn(),
+    loadElectronAutoUpdaterMock,
+    manualMacUpdatesRef: { value: false },
+    shellMock,
     powerMonitorOnMock: vi.fn()
   }
 })
@@ -97,6 +107,7 @@ vi.mock('electron', () => ({
   BrowserWindow: browserWindowMock,
   autoUpdater: nativeUpdaterMock,
   powerMonitor: { on: powerMonitorOnMock },
+  shell: shellMock,
   net: { fetch: vi.fn() }
 }))
 
@@ -105,7 +116,11 @@ vi.mock('electron-updater', () => ({
 }))
 
 vi.mock('./electron-updater-loader', () => ({
-  loadElectronAutoUpdater: () => autoUpdaterMock
+  loadElectronAutoUpdater: loadElectronAutoUpdaterMock
+}))
+
+vi.mock('./updater-install-policy', () => ({
+  getUpdateInstallMode: () => (manualMacUpdatesRef.value ? 'manual' : 'automatic')
 }))
 
 vi.mock('@electron-toolkit/utils', () => ({
@@ -182,7 +197,8 @@ vi.mock('./updater-prerelease-feed', () => ({
       : result
   },
   getReleaseDownloadUrl: (tag: string) =>
-    `https://github.com/alabsystems/orca-alab/releases/download/${tag}`
+    `https://github.com/alabsystems/orca-alab/releases/download/${tag}`,
+  normalizeTagToVersion: (tag: string) => tag.replace(/^v/i, '')
 }))
 
 describe('updater', () => {
@@ -210,6 +226,7 @@ describe('updater', () => {
     fetchChangelogMock.mockReset().mockResolvedValue(null)
     fetchNewerReleaseTagsMock.mockReset().mockResolvedValue([])
     updateFeedConfiguredRef.value = true
+    manualMacUpdatesRef.value = false
     vi.unstubAllGlobals()
     vi.useRealTimers()
   })
@@ -259,6 +276,102 @@ describe('updater', () => {
 
       expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
       expect(fetchNewerReleaseTagsMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('manual desktop updates', () => {
+    it('discovers a public release without loading a native updater and opens its release page', async () => {
+      manualMacUpdatesRef.value = true
+      fetchNewerReleaseTagsMock.mockResolvedValue({
+        tags: ['v1.0.52'],
+        state: 'ready'
+      })
+      const sendMock = vi.fn()
+      const { checkForUpdatesFromMenu, downloadUpdate, setupAutoUpdater } =
+        await import('./updater')
+
+      setupAutoUpdater({ webContents: { send: sendMock } } as never, {
+        getLastUpdateCheckAt: () => Date.now()
+      })
+      checkForUpdatesFromMenu()
+
+      await vi.waitFor(() => {
+        expect(sendMock).toHaveBeenCalledWith('updater:status', {
+          state: 'available',
+          version: '1.0.52',
+          releaseUrl: 'https://github.com/alabsystems/orca-alab/releases/tag/v1.0.52',
+          installMode: 'manual',
+          changelog: null
+        })
+      })
+      expect(fetchNewerReleaseTagsMock).toHaveBeenCalledWith('1.0.51', 1, {
+        includePrerelease: false
+      })
+      expect(loadElectronAutoUpdaterMock).not.toHaveBeenCalled()
+      expect(autoUpdaterMock.setFeedURL).not.toHaveBeenCalled()
+      expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
+
+      downloadUpdate()
+      await vi.waitFor(() => {
+        expect(shellMock.openExternal).toHaveBeenCalledWith(
+          'https://github.com/alabsystems/orca-alab/releases/tag/v1.0.52'
+        )
+      })
+      expect(autoUpdaterMock.downloadUpdate).not.toHaveBeenCalled()
+    })
+
+    it('reports latest when no newer public release is ready', async () => {
+      manualMacUpdatesRef.value = true
+      fetchNewerReleaseTagsMock.mockResolvedValue({ tags: [], state: 'no-newer' })
+      const sendMock = vi.fn()
+      const { checkForUpdatesFromMenu, setupAutoUpdater } = await import('./updater')
+
+      setupAutoUpdater({ webContents: { send: sendMock } } as never, {
+        getLastUpdateCheckAt: () => Date.now()
+      })
+      checkForUpdatesFromMenu()
+
+      await vi.waitFor(() => {
+        expect(sendMock).toHaveBeenCalledWith('updater:status', {
+          state: 'not-available',
+          userInitiated: true
+        })
+      })
+      expect(loadElectronAutoUpdaterMock).not.toHaveBeenCalled()
+    })
+
+    it('keeps publishing-window checks on the short retry when last-good is current', async () => {
+      vi.useFakeTimers()
+      manualMacUpdatesRef.value = true
+      fetchNewerReleaseTagsMock
+        .mockResolvedValueOnce({
+          tags: [],
+          state: 'not-ready',
+          lastGoodTag: 'v1.0.51'
+        })
+        .mockResolvedValueOnce({ tags: [], state: 'no-newer' })
+      const setLastUpdateCheckAt = vi.fn()
+      const sendMock = vi.fn()
+      const { setupAutoUpdater } = await import('./updater')
+
+      setupAutoUpdater({ webContents: { send: sendMock } } as never, {
+        getLastUpdateCheckAt: () => null,
+        setLastUpdateCheckAt
+      })
+
+      await vi.waitFor(() => {
+        expect(sendMock).toHaveBeenCalledWith('updater:status', {
+          state: 'not-available'
+        })
+      })
+      expect(setLastUpdateCheckAt).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(59 * 60 * 1000)
+      expect(fetchNewerReleaseTagsMock).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(60 * 1000)
+      await vi.waitFor(() => {
+        expect(fetchNewerReleaseTagsMock).toHaveBeenCalledTimes(2)
+      })
     })
   })
 
@@ -2110,43 +2223,6 @@ describe('updater', () => {
 
     expect(setDismissedUpdateNudgeId).toHaveBeenCalledWith('campaign-1')
     expect(setPendingUpdateNudgeId).toHaveBeenCalledWith(null)
-  })
-
-  // Why: this fork has no Windows code-signing identity (audit F13), so the
-  // updater must fail closed: electron-updater treats a resolved string as a
-  // verification failure and skips the install. Accepting everything (the
-  // upstream posture, which relies on SignPath Foundation signing this fork
-  // does not have) would install whatever the feed serves.
-  it('rejects Windows update signatures while no fork publisher identity exists', async () => {
-    vi.stubGlobal('process', { ...process, platform: 'win32' })
-
-    const { setupAutoUpdater } = await import('./updater')
-
-    const sendMock = vi.fn()
-    const mainWindow = { webContents: { send: sendMock } }
-
-    setupAutoUpdater(mainWindow as never)
-
-    // The override should be set on the autoUpdater mock
-    const override = (autoUpdaterMock as Record<string, unknown>).verifyUpdateCodeSignature
-    expect(override).toBeTypeOf('function')
-    // Resolving to a string means "verification failed" — the update is skipped.
-    await expect((override as () => Promise<string | null>)()).resolves.toMatch(
-      /no Windows code-signing publisher identity/
-    )
-  })
-
-  it('does not override verifyUpdateCodeSignature on non-Windows platforms', async () => {
-    vi.stubGlobal('process', { ...process, platform: 'darwin' })
-
-    const { setupAutoUpdater } = await import('./updater')
-
-    const sendMock = vi.fn()
-    const mainWindow = { webContents: { send: sendMock } }
-
-    setupAutoUpdater(mainWindow as never)
-
-    expect((autoUpdaterMock as Record<string, unknown>).verifyUpdateCodeSignature).toBeUndefined()
   })
 
   // Why: native github provider + allowPrerelease traps RC users on the RC channel, so resolve the newest tag ourselves and pin the generic feed to it.

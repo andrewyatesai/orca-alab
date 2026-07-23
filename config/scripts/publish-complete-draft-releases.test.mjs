@@ -7,6 +7,7 @@ import {
   isTagBuiltFromCurrentRef,
   isReleaseCutDraft,
   publishCompleteDraftReleases,
+  resolveReleaseDraftAuthors,
   writeGithubOutputs
 } from './publish-complete-draft-releases.mjs'
 
@@ -45,7 +46,14 @@ function jsonResponse(body, init = {}) {
 }
 
 describe('isReleaseCutDraft', () => {
-  it('only accepts bot-authored desktop draft releases', () => {
+  it('accepts trusted ALab fork drafts and legacy bot-authored RC drafts', () => {
+    expect(
+      isReleaseCutDraft({
+        draft: true,
+        tag_name: 'v1.4.147-fork.2',
+        author: { login: 'alabsystems' }
+      })
+    ).toBe(true)
     expect(
       isReleaseCutDraft({
         draft: true,
@@ -63,8 +71,8 @@ describe('isReleaseCutDraft', () => {
     expect(
       isReleaseCutDraft({
         draft: true,
-        tag_name: 'v1.4.2',
-        author: { login: 'github-actions[bot]' }
+        tag_name: 'v1.4.147-fork.2',
+        author: { login: 'untrusted-user' }
       })
     ).toBe(false)
     expect(
@@ -74,6 +82,45 @@ describe('isReleaseCutDraft', () => {
         author: { login: 'github-actions[bot]' }
       })
     ).toBe(false)
+    expect(
+      isReleaseCutDraft({
+        draft: true,
+        tag_name: 'v1.4.2',
+        author: { login: 'github-actions[bot]' }
+      })
+    ).toBe(true)
+    expect(
+      isReleaseCutDraft({
+        draft: true,
+        tag_name: 'v0.4.2-fork.1',
+        author: { login: 'github-actions[bot]' }
+      })
+    ).toBe(false)
+    expect(
+      isReleaseCutDraft({
+        draft: true,
+        tag_name: 'v1.4.2-fork.0',
+        author: { login: 'github-actions[bot]' }
+      })
+    ).toBe(false)
+  })
+
+  it('allows an explicit cross-repository service identity', () => {
+    expect(
+      isReleaseCutDraft(
+        {
+          draft: true,
+          tag_name: 'v1.4.147-fork.2',
+          author: { login: 'release-service' }
+        },
+        { allowedAuthors: ['release-service'] }
+      )
+    ).toBe(true)
+    expect(
+      resolveReleaseDraftAuthors({
+        ORCA_RELEASE_DRAFT_AUTHORS: 'release-service, andrewyatesai'
+      })
+    ).toEqual(['release-service', 'andrewyatesai'])
   })
 })
 
@@ -113,7 +160,7 @@ describe('isTagBuiltFromCurrentRef', () => {
 })
 
 describe('publishCompleteDraftReleases', () => {
-  it('publishes complete release-cut drafts and skips incomplete ones', async () => {
+  it('publishes complete ALab fork drafts and skips incomplete ones', async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -121,29 +168,29 @@ describe('publishCompleteDraftReleases', () => {
           {
             id: 7,
             draft: true,
-            tag_name: 'v1.4.2-rc.7',
+            tag_name: 'v1.4.147-fork.1',
             created_at: '2026-05-15T07:31:19Z',
             author: { login: 'github-actions[bot]' }
           },
           {
             id: 8,
             draft: true,
-            tag_name: 'v1.4.2-rc.8',
+            tag_name: 'v1.4.147-fork.2',
             created_at: '2026-05-15T10:51:57Z',
             author: { login: 'github-actions[bot]' }
           }
         ])
       )
-      .mockResolvedValueOnce(jsonResponse({ tag_name: 'v1.4.2-rc.7', draft: false }))
+      .mockResolvedValueOnce(jsonResponse({ tag_name: 'v1.4.147-fork.1', draft: false }))
     const verifyReleaseAssets = vi.fn(async ({ tag }) => {
-      if (tag === 'v1.4.2-rc.8') {
-        throw new Error('Release v1.4.2-rc.8 is missing required assets.')
+      if (tag === 'v1.4.147-fork.2') {
+        throw new Error('Release v1.4.147-fork.2 is missing required assets.')
       }
     })
     const log = vi.fn()
 
     const result = await publishCompleteDraftReleases({
-      repo: 'stablyai/orca',
+      repo: 'alabsystems/orca-alab',
       token: 'token',
       fetchImpl,
       verifyReleaseAssets,
@@ -152,20 +199,23 @@ describe('publishCompleteDraftReleases', () => {
     })
 
     expect(result).toEqual({
-      published: ['v1.4.2-rc.7'],
+      published: ['v1.4.147-fork.1'],
       skipped: [
         {
-          tag: 'v1.4.2-rc.8',
-          reason: 'Release v1.4.2-rc.8 is missing required assets.'
+          tag: 'v1.4.147-fork.2',
+          reason: 'Release v1.4.147-fork.2 is missing required assets.'
         }
       ]
     })
     expect(fetchImpl).toHaveBeenLastCalledWith(
-      'https://api.github.com/repos/stablyai/orca/releases/7',
+      'https://api.github.com/repos/alabsystems/orca-alab/releases/7',
       expect.objectContaining({
         method: 'PATCH',
-        body: JSON.stringify({ draft: false, prerelease: true })
+        body: JSON.stringify({ draft: false, prerelease: false })
       })
+    )
+    expect(verifyReleaseAssets).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: 'alab-macos' })
     )
   })
 
@@ -185,7 +235,7 @@ describe('publishCompleteDraftReleases', () => {
     const log = vi.fn()
 
     const result = await publishCompleteDraftReleases({
-      repo: 'stablyai/orca',
+      repo: 'alabsystems/orca-alab',
       token: 'token',
       fetchImpl,
       verifyReleaseAssets,
@@ -199,6 +249,65 @@ describe('publishCompleteDraftReleases', () => {
     })
     expect(verifyReleaseAssets).not.toHaveBeenCalled()
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.github.com/repos/alabsystems/orca-alab/releases?per_page=100&page=1',
+      expect.any(Object)
+    )
+  })
+
+  it('paginates beyond the first 100 releases before publishing an exact candidate', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index,
+      draft: false,
+      tag_name: `mobile-v0.0.${index}`,
+      author: { login: 'github-actions[bot]' }
+    }))
+    const candidate = {
+      id: 201,
+      draft: true,
+      tag_name: 'v1.4.148-fork.1',
+      created_at: '2026-05-16T10:51:57Z',
+      author: { login: 'alabsystems' }
+    }
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(firstPage))
+      .mockResolvedValueOnce(jsonResponse([candidate]))
+      .mockResolvedValueOnce(jsonResponse({ ...candidate, draft: false }))
+    const verifyReleaseAssets = vi.fn()
+
+    const result = await publishCompleteDraftReleases({
+      repo: 'alabsystems/orca-alab',
+      token: 'token',
+      fetchImpl,
+      verifyReleaseAssets,
+      isDraftBuiltFromCurrentRef: vi.fn(async () => true),
+      assetProfile: 'alab-full',
+      log: vi.fn()
+    })
+
+    expect(result.published).toEqual(['v1.4.148-fork.1'])
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      'https://api.github.com/repos/alabsystems/orca-alab/releases?per_page=100&page=2',
+      expect.any(Object)
+    )
+    expect(verifyReleaseAssets).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: 'v1.4.148-fork.1', profile: 'alab-full' })
+    )
+  })
+
+  it('rejects an unknown asset profile before querying or publishing', async () => {
+    const fetchImpl = vi.fn()
+    await expect(
+      publishCompleteDraftReleases({
+        repo: 'alabsystems/orca-alab',
+        token: 'token',
+        fetchImpl,
+        assetProfile: 'everything'
+      })
+    ).rejects.toThrow('Unknown release asset profile')
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
 

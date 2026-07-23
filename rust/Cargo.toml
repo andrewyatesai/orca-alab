@@ -50,7 +50,7 @@ exclude = ["aterm", "orca-git-wasm"]
 edition = "2021"
 rust-version = "1.96"
 license = "MIT"
-repository = "https://github.com/stablyai/orca"
+repository = "https://github.com/andrewyatesai/orca-alab"
 
 [profile.release]
 # Native binaries ship stripped and LTO'd for size — the app replaces a

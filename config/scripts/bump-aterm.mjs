@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Bump the aterm terminal engine. aterm is a PINNED git submodule at rust/aterm
-// (github.com/andrewyatesai/aterm) — the previous source-vendoring is gone. This
+// (github.com/alabsystems/aterm) — the previous source-vendoring is gone. This
 // updates the submodule to the latest origin/main (or a given --rev) and rebuilds
 // the wasm bindings, native terminal addon, and Rust daemon so generated artifacts
 // and both Cargo locks match the new pin. The offline dependency vendor (rust/vendor)

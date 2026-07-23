@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { resolveMacComputerUseBundleId } from './mac-computer-use-bundle-id.mjs'
 import { prepareSwiftPmManifestApiWorkaround } from './swiftpm-manifest-api-workaround.mjs'
 
 const repoRoot = path.resolve(import.meta.dirname, '../..')
@@ -9,15 +10,11 @@ const binaryPath = path.join(packagePath, '.build', 'release', 'orca-computer-us
 const appPath = path.join(packagePath, '.build', 'release', 'Orca Computer Use.app')
 const appExecutablePath = path.join(appPath, 'Contents', 'MacOS', 'orca-computer-use-macos')
 const appIconPath = path.join(appPath, 'Contents', 'Resources', 'AppIcon.icns')
-const entitlementsPath = path.join(
-  repoRoot,
-  'resources',
-  'build',
-  'entitlements.computer-use.mac.plist'
-)
-const bundleId = process.env.ORCA_COMPUTER_MACOS_BUNDLE_ID ?? 'com.stablyai.orca.computer-use'
+const bundleId = resolveMacComputerUseBundleId(process.env)
 const displayName = 'Orca Computer Use'
-const signingIdentity = resolveSigningIdentity()
+// Why: dev and release helpers must not inherit production credentials or a
+// developer's keychain identity; the packaged outer app uses the same seal.
+const signingIdentity = '-'
 const universalTriples = ['arm64-apple-macosx', 'x86_64-apple-macosx']
 
 if (process.platform !== 'darwin') {
@@ -73,33 +70,7 @@ function createHelperApp() {
 }
 
 function codesignArgs(identity, targetPath) {
-  const args = ['--force', '--deep', '--sign', identity]
-  if (process.env.ORCA_MAC_RELEASE === '1' && identity !== '-') {
-    args.push('--options', 'runtime', '--timestamp', '--entitlements', entitlementsPath)
-  }
-  args.push(targetPath)
-  return args
-}
-
-function resolveSigningIdentity() {
-  const explicitIdentity = process.env.ORCA_COMPUTER_MACOS_SIGN_IDENTITY ?? process.env.CSC_NAME
-  if (explicitIdentity) {
-    return explicitIdentity
-  }
-  const identities = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
-    encoding: 'utf8'
-  })
-  if (identities.status !== 0 || !identities.stdout) {
-    return '-'
-  }
-  const developmentMatch = identities.stdout.match(/"([^"]*Apple Development:[^"]+)"/)
-  if (process.env.ORCA_MAC_RELEASE !== '1' && developmentMatch) {
-    return developmentMatch[1]
-  }
-  const releaseMatch =
-    identities.stdout.match(/"([^"]*Developer ID Application:[^"]+)"/) ??
-    identities.stdout.match(/"([^"]*Apple Distribution:[^"]+)"/)
-  return releaseMatch?.[1] ?? developmentMatch?.[1] ?? '-'
+  return ['--force', '--deep', '--sign', identity, targetPath]
 }
 
 function run(command, args, env) {

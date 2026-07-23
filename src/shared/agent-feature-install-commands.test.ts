@@ -8,10 +8,15 @@ import {
   ORCA_LINEAR_SKILL_UPDATE_COMMAND,
   ORCA_CLI_ORCHESTRATION_SKILL_INSTALL_COMMAND,
   ORCA_CLI_SKILL_UPDATE_COMMAND,
+  ORCA_SKILLS_REPOSITORY_URL,
   ORCHESTRATION_SKILL_UPDATE_COMMAND
 } from './agent-feature-install-commands'
 
 describe('agent feature skill commands', () => {
+  it('installs ALab skills from the development source repository', () => {
+    expect(ORCA_SKILLS_REPOSITORY_URL).toBe('https://github.com/andrewyatesai/orca-alab')
+  })
+
   it('builds single-skill update commands', () => {
     expect(buildAgentFeatureSkillUpdateCommand('orchestration')).toBe(
       'npx skills update orchestration --global'

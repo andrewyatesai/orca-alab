@@ -237,7 +237,7 @@ python3 scripts/recreate_bootstrap.py --stage 2   # if bootstrap/trust-stage0/di
 bash tests/e2e_trust_toolchain.sh                  # inventory/e2e gate
 
 # 2. Verify Orca's pure crates (from rust/).
-cd /path/to/orca/rust
+cd /path/to/orca-alab/rust
 ~/trust/build/host/stage2/bin/tcargo trust check -p orca-core   --format json
 ~/trust/build/host/stage2/bin/tcargo trust check -p orca-agents --format json
 ~/trust/build/host/stage2/bin/tcargo trust check -p orca-config --format json

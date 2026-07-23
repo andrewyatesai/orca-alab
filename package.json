@@ -3,8 +3,15 @@
   "version": "1.4.147-fork.1",
   "description": "Next-gen IDE for parallel agentic development",
   "homepage": "https://github.com/andrewyatesai/orca-alab",
+  "bugs": {
+    "url": "https://github.com/andrewyatesai/orca-alab/issues"
+  },
   "license": "Apache-2.0",
-  "author": "stablyai",
+  "author": "ALab Systems",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andrewyatesai/orca-alab.git"
+  },
   "bin": {
     "orca": "./out/cli/index.js",
     "orca-dev": "./config/scripts/orca-dev.mjs"
@@ -12,13 +19,14 @@
   "main": "./out/main/index.js",
   "scripts": {
     "format": "oxfmt --write .",
-    "lint": "oxlint --ignore-pattern .claude/worktrees && pnpm run lint:switch-exhaustiveness && node config/scripts/check-styled-scrollbars.mjs && pnpm run check:reliability-gates && pnpm run check:aterm-pin && pnpm run check:max-lines-ratchet && pnpm run verify:bundled-skill-guides && pnpm run verify:skill-bundle-manifest && pnpm run verify:localization-catalog && pnpm run verify:localization-coverage",
+    "lint": "oxlint --ignore-pattern .claude/worktrees && pnpm run lint:switch-exhaustiveness && pnpm run check:development-repository-identity && node config/scripts/check-styled-scrollbars.mjs && pnpm run check:reliability-gates && pnpm run check:aterm-pin && pnpm run check:max-lines-ratchet && pnpm run verify:bundled-skill-guides && pnpm run verify:skill-bundle-manifest && pnpm run verify:localization-catalog && pnpm run verify:localization-coverage",
     "lint:react-doctor": "oxlint --config config/oxlint-react-doctor.json",
     "lint:react-doctor:changed": "node config/scripts/lint-react-doctor-changed.mjs",
     "lint:switch-exhaustiveness": "oxlint --type-aware --config config/oxlint-switch-exhaustiveness.json src/main src/preload src/shared src/relay src/cli src/renderer/src config tests --quiet",
     "prepare": "husky",
     "test": "pnpm run build:terminal-addon && node config/scripts/ensure-native-runtime.mjs --runtime=node && vitest run --config config/vitest.config.ts",
     "check:styled-scrollbars": "node config/scripts/check-styled-scrollbars.mjs",
+    "check:development-repository-identity": "node config/scripts/check-development-repository-identity.mjs",
     "check:reliability-gates": "node config/scripts/check-reliability-gates.mjs",
     "check:max-lines-ratchet": "node config/scripts/check-max-lines-ratchet.mjs",
     "check:feature-wall-assets": "node config/scripts/check-feature-wall-assets.mjs",
@@ -67,9 +75,9 @@
     "build:cli": "tsc -p config/tsconfig.cli.json --outDir out --composite false --incremental false && node config/scripts/prepare-cli-crypto-wasm.mjs && node config/scripts/verify-cli-bin.mjs --fix-executable --fix-package-json --run-help && node config/scripts/install-dev-cli.mjs",
     "build:electron-vite": "node config/scripts/run-electron-vite-build.mjs",
     "build:web": "node config/scripts/run-vite-web-build.mjs && node config/scripts/verify-web-build.mjs",
-    "build:desktop": "node config/scripts/verify-telemetry-constants.mjs --preflight && pnpm run check:aterm-pin && pnpm run typecheck && pnpm run build:relay && pnpm run build:cli && pnpm run build:electron-vite && pnpm run build:web",
+    "build:desktop": "node config/scripts/verify-telemetry-constants.mjs --preflight && pnpm run check:aterm-pin && pnpm run typecheck && pnpm run build:relay && pnpm run build:electron-vite && pnpm run build:cli && pnpm run build:web",
     "build": "pnpm run build:desktop && pnpm run build:native && pnpm run build:terminal-addon",
-    "build:release": "node config/scripts/verify-telemetry-constants.mjs --preflight && pnpm run check:aterm-pin && pnpm run build:relay && pnpm run build:native && pnpm run build:terminal-addon && pnpm run verify:computer-native && pnpm run build:cli && pnpm run build:electron-vite && pnpm run build:web",
+    "build:release": "node config/scripts/verify-telemetry-constants.mjs --preflight && pnpm run check:aterm-pin && pnpm run build:relay && pnpm run build:native && pnpm run build:terminal-addon && pnpm run verify:computer-native && pnpm run build:electron-vite && pnpm run build:cli && pnpm run build:web",
     "postinstall": "node config/scripts/rebuild-native-deps.mjs",
     "rebuild:electron": "node config/scripts/rebuild-native-deps.mjs",
     "rebuild:node": "pnpm rebuild node-pty",

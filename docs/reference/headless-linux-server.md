@@ -11,20 +11,25 @@ Orca uses that display instead of starting a competing Xvfb process.
 
 ## Ubuntu 22.04 Prerequisites
 
-Install the AppImage runtime dependency and Xvfb:
+Install the [source-build prerequisites](../../README.md#build-and-run-from-source),
+the AppImage runtime dependency, Git, and Xvfb:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y curl libfuse2 xvfb
+sudo apt-get install -y git libfuse2 xvfb
 ```
 
-Download and make the AppImage executable:
+ALab does not currently publish a Linux AppImage in its public release
+repository. Build the development source instead of silently substituting the
+production vendor's binary:
 
 ```bash
+git clone --recurse-submodules https://github.com/andrewyatesai/orca-alab.git
+cd orca-alab
+pnpm install --frozen-lockfile
+pnpm build:linux
 sudo mkdir -p /opt/orca
-sudo curl -L https://github.com/stablyai/orca/releases/latest/download/orca-linux.AppImage \
-  -o /opt/orca/orca-linux.AppImage
-sudo chmod +x /opt/orca/orca-linux.AppImage
+sudo install -m 0755 dist/orca-linux.AppImage /opt/orca/orca-linux.AppImage
 ```
 
 If `Xvfb` was installed somewhere other than `/usr/bin`, confirm systemd can

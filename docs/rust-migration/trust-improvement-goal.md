@@ -13,7 +13,7 @@
 
 **Mission.** Make **Trust** (your verifying Rust compiler fork at `~/trust`, private
 remote `andrewyatesai/trust`) able to **actually prove the obligations of
-real-world Rust**, using the **Orca** workspace (`~/orc/rust`) as the canonical
+real-world Rust**, using the **Orca** workspace (`/path/to/orca-alab/rust`) as the canonical
 verification workload. Drive the co-evolution loop: run Trust on Orca → every
 `unknown` / `unsupported` / pipeline failure is a Trust ticket → fix Trust →
 rebuild → re-verify → repeat, until Orca's pure-logic crates verify clean.
@@ -74,10 +74,10 @@ panic/overflow/contract safety" — the moat.
    submodule as the home for reusable verified specs Orca's crates import.
 
 **The loop (each iteration):**
-1. `cd ~/orc/rust && ~/trust/build/host/stage2/bin/tcargo trust check -p <crate> --format json` (or direct `trustc` per-crate while Gap 4 is open). Force recompile so trustc re-runs.
+1. `cd /path/to/orca-alab/rust && ~/trust/build/host/stage2/bin/tcargo trust check -p <crate> --format json` (or direct `trustc` per-crate while Gap 4 is open). Force recompile so trustc re-runs.
 2. Triage outcomes: `proved` → keep; `unknown`/`unsupported` → read the reason, it names the missing MIR op / call target = the next Trust change.
 3. Implement the Trust change on the **latest** `origin/main` (fetch + rebase first).
-4. Rebuild stage2 (LLVM is cached after the first build), re-verify, update the gap log in `~/orc/docs/rust-migration/trust-verification.md`.
+4. Rebuild stage2 (LLVM is cached after the first build), re-verify, update the gap log in `/path/to/orca-alab/docs/rust-migration/trust-verification.md`.
 5. Commit Trust fixes onto latest remote main and push (private origin only).
 
 **Definition of done.** Orca's pure-logic crates (`orca-core`, `orca-text`,

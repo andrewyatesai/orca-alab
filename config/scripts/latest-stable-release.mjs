@@ -1,24 +1,38 @@
 #!/usr/bin/env node
 
 import { pathToFileURL } from 'node:url'
+import { parseDesktopReleaseTag } from './desktop-release-tag.mjs'
+import { resolveReleaseRepository } from './release-repository.mjs'
 
 const API_VERSION = '2022-11-28'
-// Why: major 0 is the constellation snapshot namespace (publication engine),
-// never a desktop app release; matching it would misreport "latest stable".
-const DESKTOP_STABLE_TAG_PATTERN = /^v([1-9][0-9]*)\.([0-9]+)\.([0-9]+)$/
 
 export function parseDesktopStableTag(tag) {
-  const match = DESKTOP_STABLE_TAG_PATTERN.exec(tag)
-  if (!match) {
+  const parsed = parseDesktopReleaseTag(tag)
+  if (!parsed || parsed.rc !== null) {
     return null
   }
 
   return {
-    tag,
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3])
+    tag: parsed.tag,
+    major: parsed.major,
+    minor: parsed.minor,
+    patch: parsed.patch,
+    fork: parsed.fork
   }
+}
+
+function compareDesktopStableTags(a, b) {
+  const versionDiff = a.major - b.major || a.minor - b.minor || a.patch - b.patch
+  if (versionDiff !== 0 || a.fork === b.fork) {
+    return versionDiff
+  }
+  if (a.fork === null) {
+    return 1
+  }
+  if (b.fork === null) {
+    return -1
+  }
+  return a.fork - b.fork
 }
 
 export function latestStableDesktopReleaseTag(releases) {
@@ -26,9 +40,12 @@ export function latestStableDesktopReleaseTag(releases) {
     .filter((release) => release?.draft !== true)
     .map((release) => parseDesktopStableTag(release?.tag_name ?? release?.tagName ?? ''))
     .filter(Boolean)
-    .sort((a, b) => a.major - b.major || a.minor - b.minor || a.patch - b.patch)
 
-  return stableTags.at(-1)?.tag ?? ''
+  // Why: imported upstream-style tags must never advance ALab's independent fork release train.
+  const forkTags = stableTags.filter((release) => release.fork !== null)
+  return (
+    (forkTags.length > 0 ? forkTags : stableTags).sort(compareDesktopStableTags).at(-1)?.tag ?? ''
+  )
 }
 
 async function githubJson(fetchImpl, url, token) {
@@ -76,7 +93,7 @@ export async function fetchReleases(repo, token, fetchImpl = fetch) {
 
 async function main() {
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-  const repo = process.env.GITHUB_REPOSITORY || 'alabsystems/orca-alab'
+  const repo = resolveReleaseRepository(process.env)
   const releases = await fetchReleases(repo, token)
   process.stdout.write(latestStableDesktopReleaseTag(releases))
 }

@@ -1,7 +1,8 @@
 # Orca Fork — Staging Privacy Statement
 
 **Audience:** the staging cohort of this Orca fork (the builds versioned
-`x.y.z-fork.N`, distributed from `andrewyatesai/orc`).
+`x.y.z-fork.N`, developed at `andrewyatesai/orca-alab` and distributed from
+`alabsystems/orca-alab` Releases).
 **Effective:** 2026-07-04. This document is the target of the in-app
 "privacy" links (Settings → Privacy, and the first-launch telemetry notice).
 
@@ -11,11 +12,11 @@ practices — the fork's data goes to the fork team, not to the public vendor.
 
 ## Who receives the data
 
-The fork team operating `andrewyatesai/orc`. Nothing is sent to the public
-Orca vendor: the fork's builds carry their own PostHog project key and their
-own feedback endpoint, and builds without those configured **fail closed**
-(they transmit nothing and feedback submission reports a configuration
-error rather than falling back to any vendor host).
+The ALab development team operating `andrewyatesai/orca-alab`. Nothing is sent
+to the production Orca vendor: the fork's builds carry their own PostHog
+project key and their own feedback endpoint, and builds without those
+configured **fail closed** (they transmit nothing and feedback submission
+reports a configuration error rather than falling back to any vendor host).
 
 ## What is collected (telemetry)
 

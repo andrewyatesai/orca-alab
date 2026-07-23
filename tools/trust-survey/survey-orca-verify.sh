@@ -47,9 +47,11 @@ for cand in \
 done
 [ -n "$TCARGO" ] || { echo "FATAL: no tcargo-trust binary found under $TRUST/build" >&2; exit 2; }
 
-# The orc Rust workspace Cargo.toml lives under rust/, not the repo root — tcargo must
+# The Orca Rust workspace Cargo.toml lives under rust/, not the repo root — tcargo must
 # run from there or it finds no manifest and degrades to the transport:missing-json probe.
-export WS="${ORC_RUST:-$HOME/orc/rust}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
+export WS="${ORC_RUST:-$REPO_ROOT/rust}"
 [ -f "$WS/Cargo.toml" ] || { echo "FATAL: no Cargo.toml at $WS (set ORC_RUST)" >&2; exit 2; }
 
 mkdir -p "$OUT_DIR"

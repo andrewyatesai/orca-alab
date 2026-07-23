@@ -6,6 +6,10 @@ import Svg, { Path } from 'react-native-svg'
 import Constants from 'expo-constants'
 import { OrcaLogo } from '../src/components/OrcaLogo'
 import { colors, spacing, typography } from '../src/theme/mobile-theme'
+import {
+  ORCA_ALAB_DEVELOPMENT_REPOSITORY_URL,
+  ORCA_ALAB_PUBLIC_REPOSITORY_URL
+} from '../../src/shared/repository-endpoints'
 
 // Why: read version + native build identifier from expo-constants at
 // runtime so the About screen never drifts out of sync with app.json.
@@ -58,18 +62,18 @@ export default function AboutScreen() {
       <View style={styles.section}>
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-          onPress={() => void Linking.openURL('https://onOrca.dev')}
+          onPress={() => void Linking.openURL(ORCA_ALAB_PUBLIC_REPOSITORY_URL)}
         >
           <Globe size={16} color={colors.textSecondary} />
-          <Text style={styles.rowValue}>onOrca.dev</Text>
+          <Text style={styles.rowValue}>Orca ALab releases</Text>
         </Pressable>
         <View style={styles.separator} />
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-          onPress={() => void Linking.openURL('https://github.com/stablyai/orca')}
+          onPress={() => void Linking.openURL(ORCA_ALAB_DEVELOPMENT_REPOSITORY_URL)}
         >
           <GithubIcon />
-          <Text style={styles.rowValue}>stablyai/orca</Text>
+          <Text style={styles.rowValue}>andrewyatesai/orca-alab</Text>
         </Pressable>
         <View style={styles.separator} />
         <Pressable
@@ -77,7 +81,7 @@ export default function AboutScreen() {
           onPress={() => void Linking.openURL('https://x.com/orca_build')}
         >
           <XIcon />
-          <Text style={styles.rowValue}>@orca_build</Text>
+          <Text style={styles.rowValue}>Upstream @orca_build</Text>
         </Pressable>
       </View>
 

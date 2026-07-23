@@ -34,10 +34,11 @@ import { useSetupGuideProgress } from '../setup-guide/use-setup-guide-progress'
 import { SidebarFeedbackDialog } from './SidebarFeedbackDialog'
 import { translate } from '@/i18n/i18n'
 import { getUpdateCheckClickOptions, getUpdateCheckHint } from '@/lib/update-check-click-options'
-
-const DOCS_URL = 'https://www.onorca.dev/docs'
-const CHANGELOG_URL = 'https://onorca.dev/changelog'
-const GITHUB_URL = 'https://github.com/stablyai/orca'
+import {
+  ORCA_ALAB_DEVELOPMENT_DOCS_URL,
+  ORCA_ALAB_DEVELOPMENT_REPOSITORY_URL,
+  ORCA_ALAB_PUBLIC_CHANGELOG_URL
+} from '../../../../shared/repository-endpoints'
 const DISCORD_URL = 'https://discord.gg/fzjDKHxv8Q'
 const X_URL = 'https://x.com/orca_build'
 const NO_UPDATE_CHECK_MODIFIERS = { ctrlKey: false, metaKey: false, shiftKey: false }
@@ -280,7 +281,7 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
                 'auto.components.sidebar.SidebarSettingsHelpMenu.cdc87f897e',
                 'Docs'
               )}
-              url={DOCS_URL}
+              url={ORCA_ALAB_DEVELOPMENT_DOCS_URL}
               icon={<BookOpen className="size-3.5" />}
             />
             <ExternalMenuItem
@@ -288,7 +289,7 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
                 'auto.components.sidebar.SidebarSettingsHelpMenu.5f83d86d92',
                 'Changelog'
               )}
-              url={CHANGELOG_URL}
+              url={ORCA_ALAB_PUBLIC_CHANGELOG_URL}
               icon={<ScrollText className="size-3.5" />}
             />
             <DropdownMenuSeparator />
@@ -297,17 +298,23 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
                 'auto.components.sidebar.SidebarSettingsHelpMenu.5687ab246a',
                 'GitHub'
               )}
-              url={GITHUB_URL}
+              url={ORCA_ALAB_DEVELOPMENT_REPOSITORY_URL}
               icon={<Github className="size-3.5" />}
             />
             <DropdownMenuItem onSelect={() => openExternalUrl(DISCORD_URL)}>
               <DiscordIcon />
-              {translate('auto.components.sidebar.SidebarSettingsHelpMenu.eb9884e55b', 'Discord')}
+              {translate(
+                'auto.components.sidebar.SidebarSettingsHelpMenu.eb9884e55b',
+                'Upstream Discord'
+              )}
               <ExternalLink className="ml-auto size-3 text-muted-foreground" />
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => openExternalUrl(X_URL)}>
               <XIcon />
-              {translate('auto.components.sidebar.SidebarSettingsHelpMenu.c4f8e1b72a', 'X')}
+              {translate(
+                'auto.components.sidebar.SidebarSettingsHelpMenu.c4f8e1b72a',
+                'Upstream X'
+              )}
               <ExternalLink className="ml-auto size-3 text-muted-foreground" />
             </DropdownMenuItem>
             <DropdownMenuSeparator />

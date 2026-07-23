@@ -42,6 +42,10 @@ export function getUpdateChangelogPageUrl(): string {
   return `https://github.com/${UPDATE_FEED_REPO_SLUG}/releases`
 }
 
+export function getReleasePageUrl(tag: string): string {
+  return `https://github.com/${UPDATE_FEED_REPO_SLUG}/releases/tag/${encodeURIComponent(tag)}`
+}
+
 /** Mines `/releases/tag/<tag>` hrefs out of GitHub's releases atom feed.
  *  Rebuilt per call because `g`-flagged RegExps carry lastIndex state. */
 export function getReleaseTagHrefPattern(): RegExp {

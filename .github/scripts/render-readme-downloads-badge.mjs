@@ -1,7 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { resolveReleaseRepository } from '../../config/scripts/release-repository.mjs'
 
-const repository = process.env.GITHUB_REPOSITORY ?? 'alabsystems/orca-alab'
+const repository = resolveReleaseRepository(process.env)
 const token = process.env.GITHUB_TOKEN
 const outputPath = process.env.DOWNLOADS_BADGE_PATH ?? 'docs/assets/readme-downloads.svg'
 

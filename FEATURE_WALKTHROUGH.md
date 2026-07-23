@@ -260,13 +260,15 @@ blanket quiet mode:
 - The CLI converts its crypto WASM glue for Node/CommonJS, verifies a real
   `--help` execution during the build, and installs `orca-dev` in
   `~/.local/bin` without a privileged `/usr/local/bin` attempt.
-- `ORCA_LOCAL_BUILD=1` is the explicit warning-free contributor path for this
-  `-fork` version; it compiles telemetry out without presenting a dark-staging
-  warning and is rejected in CI/release contexts.
+- `ORCA_LOCAL_BUILD=1` is the explicit contributor path for this `-fork`
+  version; it compiles telemetry out without presenting the missing-telemetry
+  staging warning and is rejected in CI/release contexts.
 
-The final full install, lint, typecheck, native-helper, desktop, web,
-relay, CLI, and local production build completed without compiler or bundler
-warnings; exact results are recorded under **Validation status** below.
+The final full lint, typecheck, native-helper, desktop, web, relay, CLI, and
+local production build completed successfully; exact results are recorded under
+**Validation status** below. The validation host used Node 26 while the project
+requires Node 24, so pnpm's engine notice and Node's deprecation notices remain
+visible rather than being misreported as clean build output.
 
 ## 1. Add a project
 
@@ -590,7 +592,10 @@ orca-dev computer get-app-state --app <app-selector> --json
 On macOS, Computer Use requires Accessibility and Screen Recording permissions;
 Linux and Windows do not use that macOS permission flow. `computer permissions`
 reports permission state, while `computer capabilities` verifies the available
-native helper on every platform. Read the safety and action guidance with:
+native helper on every platform. Because ALab macOS bundles use ad-hoc
+signatures, macOS may ask you to approve privacy permissions again after
+installing a rebuilt or newer ALab build. Read the safety and action guidance
+with:
 
 ```bash
 orca-dev skills get computer-use --full
@@ -623,24 +628,22 @@ rather than relabelled as fresh runs:
   `e268133cbc6b96add0cddd1fb79e250884035899`. The submodule checkout is clean,
   detached at that revision, and matches both the worktree gitlink and the
   manifest's `sourceCommit`.
-- Fresh walkthrough validation: all **337/337** focused unit/component tests and
-  all **12/12** Electron E2E checks passed. The E2E lane covers all 14 screens,
+- Fresh walkthrough validation: all **329/329** focused unit/component tests and
+  all **9/9** Electron E2E checks passed. The E2E lane covers all 14 screens,
   standard and compact layouts, reduced motion, keyboard/focus continuity,
   replay persistence, the paired final actions, first-run onboarding handoff,
   and terminal-first startup/restoration. A separate visual audit captured and
   inspected both the first fold and scrolled outcome of every screen.
 - The production-like Electron E2E build passed with the pinned CPU/GPU aterm
   artifacts. Full Node, CLI, web, renderer, and mobile typechecking passed.
-  Localization verified **10,936** references and parity across all **11,884**
+  Localization verified **10,938** references and parity across all **11,885**
   keys in each shipped locale.
 - Rust/TypeScript differential parity passed **1,432** cases across **81** vector
   files and **1,514** assertions, including the expanded 14-screen tour-depth
   protocol and terminal-stream opcode coverage.
-- Oxlint, switch exhaustiveness, scrollbar policy, reliability gates, formatting,
-  and the max-lines ratchet passed. The repository-wide lint wrapper then stopped
-  only at the unrelated append-only skill-history check because upstream's new
-  `v1.4.150` tag postdates this fork's committed `v1.4.150-rc.0` snapshot; no
-  skill artifacts were regenerated or changed.
+- The complete repository lint wrapper passed: Oxlint, switch exhaustiveness,
+  renamed-repository identity, scrollbar policy, reliability gates, aterm pin,
+  max-lines ratchet, bundled skills, append-only skill history, and localization.
 - Schema-2 aterm provenance check: all **8/8** generated CPU/GPU artifacts,
   byte lengths, hashes, source commit, and compatibility-patch digest match.
 - Current-head upstream focus: the new OSC 8 scheme-capability conformance test
@@ -671,16 +674,15 @@ rather than relabelled as fresh runs:
 - `orca-dev status --json` reported the app running with both runtime and graph
   state `ready`. A live Computer Use snapshot independently reported app name
   and window title **Orca: ALab Edition**.
-- Frozen dependency install, lint, typecheck, formatting, desktop/web/relay/CLI
-  builds, macOS native helpers, addon build/cache validation, and the complete
-  `ORCA_LOCAL_BUILD=1 pnpm build` all passed. The final build emitted no
-  compiler or bundler warnings; the temporal Cargo proof receipt was labelled
-  `verified`, not hidden.
+- Lint, typecheck, desktop/web/relay/CLI builds, macOS native helpers, addon
+  build/cache validation, and the complete `ORCA_LOCAL_BUILD=1 pnpm build` all
+  passed. The temporal Cargo proof receipt was labelled `verified`, not hidden.
 
-Earlier broad regression evidence also remains green: Vitest **31,894** tests,
-renderer checks **379**, differential/parity **1,513**, and terminal gauntlet
-**109**. Those larger historical counts complement the fresh latest-pin lanes
-above; they are not relabelled as a newly repeated full-suite run.
+The final full Vitest run passed **34,606** tests across **3,290** files, with
+**84** tests and **10** files explicitly skipped. Earlier renderer checks
+**379**, differential/parity **1,513**, and terminal gauntlet **109** remain
+historical complementary evidence; they are not relabelled as newly repeated
+runs.
 
 ## Update and maintain the source build
 
@@ -693,7 +695,7 @@ requires the stable `wasm32-unknown-unknown` target and Binaryen's `wasm-opt` on
 To update and rebuild:
 
 ```bash
-cd /path/to/orc
+cd /path/to/orca-alab
 git pull --ff-only
 git submodule update --init --recursive
 pnpm install --frozen-lockfile
@@ -703,10 +705,11 @@ orca-dev open --json
 orca-dev status --json
 ```
 
-`ORCA_LOCAL_BUILD=1 pnpm build` is the warning-free contributor build path for
-this `-fork` version. It deliberately leaves telemetry constants unset and
-compiles telemetry transport out; it is rejected for CI and release builds and
-must not be used to produce a shippable staging artifact.
+`ORCA_LOCAL_BUILD=1 pnpm build` is the contributor build path for this `-fork`
+version. It deliberately leaves telemetry constants unset, compiles telemetry
+transport out, and suppresses only the missing-telemetry staging warning; it is
+rejected for CI and release builds and must not be used to produce a shippable
+staging artifact.
 
 Maintainers advance and regenerate the terminal engine as one provenance-bound
 operation:
@@ -726,7 +729,7 @@ changed), generated glue/types/WASM, and artifact manifest together.
 For active development with rebuilds and hot reload, use:
 
 ```bash
-cd /path/to/orc
+cd /path/to/orca-alab
 pnpm dev
 ```
 

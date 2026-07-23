@@ -3574,7 +3574,7 @@
         "share": {
           "card": {
             "utils": {
-              "19f4b4dc75": "github.com/stablyai/orca",
+              "19f4b4dc75": "github.com/alabsystems/orca-alab",
               "d864fc5f98": "출력",
               "5d66fdd7c2": "입력",
               "7080aeaebb": "추론",
@@ -4064,8 +4064,8 @@
           "5b120b9634": "익명으로 제출",
           "c9e5ea0791": "GitHub:",
           "d46ddd66fc": "무엇을 개선할 수 있나요?",
-          "3460258a54": "X에서 팔로우",
-          "26108d3699": "Discord 참여",
+          "3460258a54": "X에서 업스트림 팔로우",
+          "26108d3699": "업스트림 Discord 참여",
           "d245c4ef6c": "GitHub 이슈",
           "9b33530b3d": "우리에게 연락하는 다른 방법",
           "a828fa4aee": "작동하는 부분, 손상된 부분 또는 Orca가 다음에 수행해야 할 작업을 공유하세요.",
@@ -4127,7 +4127,7 @@
         "SidebarSettingsHelpMenu": {
           "ad3d3ed7f1": "Orca 재시작",
           "29c56f30ee": "업데이트 확인",
-          "eb9884e55b": "Discord",
+          "eb9884e55b": "업스트림 Discord",
           "5687ab246a": "GitHub",
           "5f83d86d92": "변경 내역",
           "cdc87f897e": "문서",
@@ -4140,7 +4140,7 @@
           "d396773ef0": "확인 중",
           "f8a2c91d4e": "마일스톤",
           "b7e4d2a19c": "온보딩",
-          "c4f8e1b72a": "X"
+          "c4f8e1b72a": "업스트림 X"
         },
         "SidebarToolbar": {
           "19e32d0e5f": "폴더 선택기를 열어 프로젝트를 추가하세요.",
@@ -5649,7 +5649,8 @@
           "31fd7150cf": "업데이트 확인 중...",
           "3394d1f663": "확인 중",
           "d69a09b672": "업데이트는 시작 시 자동으로 확인됩니다.",
-          "7173352632": "idle"
+          "7173352632": "idle",
+          "manualInstallAvailable": "을(를) 수동으로 설치할 수 있습니다."
         },
         "GeneralWorkspaceSettingsSection": {
           "3d538a98f7": "워크스페이스의 열기 메뉴에서 사용 가능한 앱을 선택하세요.",
@@ -5983,7 +5984,7 @@
         "MobileSettingsPane": {
           "9a3c280e49": "GitHub 릴리스",
           "b0088412a1": "또는 다음에서 Android APK를 받으세요",
-          "b5a2ed83ff": "앱스토어",
+          "b5a2ed83ff": "업스트림 iOS App Store",
           "c8491c17ef": "QR 코드를 스캔하여 휴대폰에서 Orca를 제어하세요. 베타/초기 미리보기 - 버그 및 주요 변경 사항이 예상됩니다. 다음에서 iOS 앱을 받으세요.",
           "e7a3ae8c4e": "모바일",
           "174f4a3c6d": "휴대폰에서 terminals과 agents를 제어하세요.",
@@ -5992,7 +5993,7 @@
           "d4f2b65f30": "사이드바에 Orca Mobile 바로가기를 표시합니다.",
           "installIntro": "다음 스토어에서 Orca Mobile 설치",
           "installOutro": "하고 아래에서 페어링하세요.",
-          "androidApkLabel": "Android APK"
+          "androidApkLabel": "업스트림 Android APK"
         },
         "NotificationsPane": {
           "906b4afebf": "테스트 알림 보내기",
@@ -11370,10 +11371,10 @@
               "2a532d6fd7": "Android 카메라로 스캔하여 GitHub 릴리스에서 최신 APK를 다운로드하세요.",
               "432db52b73": "iPhone 카메라로 스캔하여 App Store를 엽니다.",
               "preview": {
-                "tagline": "최신 기능, 매일 업데이트."
+                "tagline": "호환되는 업스트림 미리보기, 매일 업데이트."
               },
               "stable": {
-                "tagline": "정식 출시 버전, 매주 업데이트."
+                "tagline": "호환되는 업스트림 릴리스, 매주 업데이트."
               }
             }
           }
@@ -14647,7 +14648,7 @@
       "tasks": {
         "provider": {
           "github": "GitHub",
-          "repository": "stablyai/orca"
+          "repository": "andrewyatesai/orca-alab"
         }
       }
     }

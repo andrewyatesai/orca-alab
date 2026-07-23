@@ -144,7 +144,7 @@ the regressing commit quickly.
 ## Reproduce
 
 ```
-cd ~/orc/rust
+cd /path/to/orca-alab/rust
 TRUST_VERIFY_SURVEY=1 TRUST_VERIFY_POLICY=verify-example-corpus \
   ~/trust/build/aarch64-apple-darwin/stage3-tools-bin/aarch64-apple-darwin/tcargo-trust \
   trust check -p orca-core --format json --allow-l0-gaps

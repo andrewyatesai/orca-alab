@@ -2,6 +2,13 @@
 // drives a real program through a real node-pty inside the real daemon Session.
 // `interactive` scenarios open the alternate screen / move the cursor heavily —
 // exactly what the old parser couldn't handle.
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const shellPath = (value) => `'${value.replaceAll("'", "'\\''")}'`
+const repoRootForShell = shellPath(repoRoot)
+
 export const SCENARIOS = {
   colors: {
     cmd: '/bin/sh',
@@ -15,7 +22,7 @@ export const SCENARIOS = {
     cmd: '/bin/sh',
     args: [
       '-c',
-      'cd /Users/ayates/orc && git -c color.ui=always log --oneline --graph -40; sleep 0.2'
+      `cd ${repoRootForShell} && git -c color.ui=always log --oneline --graph -40; sleep 0.2`
     ],
     durationMs: 2500
   },
@@ -37,7 +44,7 @@ export const SCENARIOS = {
   },
   vim: {
     cmd: 'vim',
-    args: ['-u', 'NONE', '-N', '-c', 'set nocompatible', '/Users/ayates/orc/README.md'],
+    args: ['-u', 'NONE', '-N', '-c', 'set nocompatible', join(repoRoot, 'README.md')],
     inputs: [
       { afterMs: 700, data: 'gg' },
       { afterMs: 900, data: '/Orca\r' }
@@ -47,7 +54,7 @@ export const SCENARIOS = {
   },
   less: {
     cmd: '/bin/sh',
-    args: ['-c', 'less /Users/ayates/orc/package.json'],
+    args: ['-c', `less ${shellPath(join(repoRoot, 'package.json'))}`],
     inputs: [
       { afterMs: 600, data: ' ' },
       { afterMs: 900, data: 'G' }
@@ -72,7 +79,7 @@ export const SCENARIOS = {
   },
   'colored-ls': {
     cmd: '/bin/sh',
-    args: ['-c', 'CLICOLOR_FORCE=1 ls -la -G /Users/ayates/orc; sleep 0.2'],
+    args: ['-c', `CLICOLOR_FORCE=1 ls -la -G ${repoRootForShell}; sleep 0.2`],
     durationMs: 1500
   },
   'tput-matrix': {

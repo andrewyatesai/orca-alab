@@ -1,3 +1,9 @@
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const benchDir = join(repoRoot, 'tools', 'terminal-bench')
+
 export const meta = {
   name: 'terminal-conformance-audit',
   description:
@@ -24,7 +30,7 @@ DECSET/DECRST worth checking: 5 DECSCNM (reverse screen), 6 DECOM, 7 DECAWM
  2004 bracketed, 1000/1002/1003/1006 mouse.`
 
 const RECIPE = `
-Working dir: /Users/ayates/orc/tools/terminal-bench
+Working dir: ${benchDir}
 Prefix shell commands with: export PATH=/opt/homebrew/bin:$PATH &&
 Test a byte stream against BOTH engines:
   python3 -c "import sys; sys.stdout.buffer.write(b'...ANSI...')" > /tmp/orca-bench/<uniq>.bin

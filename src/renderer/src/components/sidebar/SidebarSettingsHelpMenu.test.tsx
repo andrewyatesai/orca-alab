@@ -227,19 +227,46 @@ describe('SidebarSettingsHelpMenu', () => {
     expect(html).not.toContain('Onboarding')
   })
 
-  it('renders Docs link', () => {
-    const html = renderToStaticMarkup(<SidebarSettingsHelpMenu />)
-    expect(html).toContain('Docs')
+  it('opens ALab development docs', async () => {
+    const container = await renderMenu()
+    const docsButton = findMenuItem(container, 'Docs')
+
+    await act(async () => {
+      docsButton.click()
+    })
+
+    expect(mocks.shellOpenUrl).toHaveBeenCalledWith(
+      'https://github.com/andrewyatesai/orca-alab/tree/main/docs'
+    )
   })
 
-  it('renders Changelog link', () => {
-    const html = renderToStaticMarkup(<SidebarSettingsHelpMenu />)
-    expect(html).toContain('Changelog')
+  it('opens the public ALab release changelog', async () => {
+    const container = await renderMenu()
+    const changelogButton = findMenuItem(container, 'Changelog')
+
+    await act(async () => {
+      changelogButton.click()
+    })
+
+    expect(mocks.shellOpenUrl).toHaveBeenCalledWith(
+      'https://github.com/alabsystems/orca-alab/releases'
+    )
   })
 
   it('renders GitHub link', () => {
     const html = renderToStaticMarkup(<SidebarSettingsHelpMenu />)
     expect(html).toContain('GitHub')
+  })
+
+  it('opens the ALab development repository from the GitHub link', async () => {
+    const container = await renderMenu()
+    const githubButton = findMenuItem(container, 'GitHub')
+
+    await act(async () => {
+      githubButton.click()
+    })
+
+    expect(mocks.shellOpenUrl).toHaveBeenCalledWith('https://github.com/andrewyatesai/orca-alab')
   })
 
   it('renders Discord link', () => {
@@ -251,7 +278,7 @@ describe('SidebarSettingsHelpMenu', () => {
 
   it('opens Discord invite through the shell bridge', async () => {
     const container = await renderMenu()
-    const discordButton = findMenuItem(container, 'Discord')
+    const discordButton = findMenuItem(container, 'Upstream Discord')
 
     await act(async () => {
       discordButton.click()
@@ -262,7 +289,7 @@ describe('SidebarSettingsHelpMenu', () => {
 
   it('renders X link', () => {
     const html = renderToStaticMarkup(<SidebarSettingsHelpMenu />)
-    expect(html).toContain('>X<')
+    expect(html).toContain('Upstream X')
   })
 
   it('renders Check for Updates menu item', () => {

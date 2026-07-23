@@ -1,7 +1,7 @@
 # Trust goal — prove REAL obligations, fail-closed on vacuity (no vanity metrics)
 
 > Paste the block below as the session goal / standing directive for the agent
-> working on Trust (`~/trust`), using Orca (`~/orc/rust`) as the workload. It
+> working on Trust (`~/trust`), using Orca (`/path/to/orca-alab/rust`) as the workload. It
 > supersedes `trust-improvement-goal.md`, which was satisfiable by vanity metrics.
 
 ---

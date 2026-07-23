@@ -10,8 +10,6 @@ import type {
   ComputerUsePermissionStatusResult
 } from '../../shared/computer-use-permissions-types'
 
-const DEFAULT_COMPUTER_USE_BUNDLE_ID = 'com.stablyai.orca.computer-use'
-
 export { getComputerUsePermissionStatus } from './macos-computer-use-permission-status'
 
 export function openComputerUsePermissions(
@@ -143,10 +141,16 @@ function readComputerUseBundleId(helperAppPath: string): string {
         stdio: ['ignore', 'pipe', 'ignore']
       }
     ).trim()
-    return bundleId || DEFAULT_COMPUTER_USE_BUNDLE_ID
-  } catch {
-    return DEFAULT_COMPUTER_USE_BUNDLE_ID
-  }
+    if (bundleId) {
+      return bundleId
+    }
+  } catch {}
+  // Why: guessing a fallback can erase another edition's TCC grants; reset
+  // only the identity proven by the helper bundle being operated on.
+  throw new RuntimeClientError(
+    'accessibility_error',
+    'Could not read the Orca Computer Use bundle identifier'
+  )
 }
 
 function resetTccPermission(service: string, bundleId: string): void {

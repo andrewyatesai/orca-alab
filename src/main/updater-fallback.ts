@@ -14,6 +14,7 @@ export function statusesEqual(left: UpdateStatus, right: UpdateStatus): boolean 
         left.version === right.version &&
         left.activeNudgeId === right.activeNudgeId &&
         left.releaseUrl === right.releaseUrl &&
+        left.installMode === right.installMode &&
         // Why: fetchChangelog creates a fresh object each time, so reference
         // equality is always false. Compare by presence — since update-available
         // fires at most once per check cycle, this is sufficient.

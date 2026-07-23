@@ -114,11 +114,11 @@ import {
   rateLimitGuard,
   type RateLimitBucketKind
 } from './rate-limit'
+import { ORCA_ALAB_PUBLIC_REPOSITORY_SLUG } from '../../shared/repository-endpoints'
 
 type GhExecOptions = ReturnType<typeof ghRepoExecOptions>
 type HostedReviewLocalGitOptions = ReturnType<typeof getHostedReviewLocalGitOptions>
 
-const ORCA_REPO = 'stablyai/orca'
 const PR_CHECK_LOG_TAIL_JOB_LIMIT = 5
 // Why: each entry holds up to 16KB of log text; bound the cache so a long session can't grow it unbounded.
 const PR_CHECK_LOG_TAIL_CACHE_MAX_ENTRIES = 128
@@ -222,7 +222,7 @@ export async function checkOrcaStarred(): Promise<boolean | null> {
   try {
     const { stdout, stderr } = await execFileAsync(
       'gh',
-      ['api', '--include', `user/starred/${ORCA_REPO}`],
+      ['api', '--include', `user/starred/${ORCA_ALAB_PUBLIC_REPOSITORY_SLUG}`],
       { encoding: 'utf-8' }
     )
     const response = `${stdout ?? ''}\n${stderr ?? ''}`
@@ -377,9 +377,13 @@ export async function getPullRequestPushTarget(
 export async function starOrca(): Promise<boolean> {
   await acquire()
   try {
-    await execFileAsync('gh', ['api', '-X', 'PUT', `user/starred/${ORCA_REPO}`], {
-      encoding: 'utf-8'
-    })
+    await execFileAsync(
+      'gh',
+      ['api', '-X', 'PUT', `user/starred/${ORCA_ALAB_PUBLIC_REPOSITORY_SLUG}`],
+      {
+        encoding: 'utf-8'
+      }
+    )
     return true
   } catch {
     return false

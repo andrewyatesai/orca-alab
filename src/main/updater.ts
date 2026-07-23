@@ -1,6 +1,5 @@
 /* eslint-disable max-lines */
-import { app, BrowserWindow, powerMonitor } from 'electron'
-import type { NsisUpdater } from 'electron-updater'
+import { app, BrowserWindow, powerMonitor, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import type { UpdateCheckOptions, UpdateStatus } from '../shared/types'
 import { isWindowsSignatureCheckUnavailableFailure } from '../shared/updater-windows-signature-check'
@@ -36,10 +35,16 @@ import {
 } from './updater-fallback'
 import {
   fetchNewerReleaseTagsWithReadiness,
-  getReleaseDownloadUrl
+  getReleaseDownloadUrl,
+  normalizeTagToVersion
 } from './updater-prerelease-feed'
 import { fetchNudge, shouldApplyNudge } from './updater-nudge'
-import { getReleasesLatestDownloadUrl, isUpdateFeedConfigured } from './updater-feed-endpoints'
+import {
+  getReleasePageUrl,
+  getReleasesLatestDownloadUrl,
+  isUpdateFeedConfigured
+} from './updater-feed-endpoints'
+import { getUpdateInstallMode } from './updater-install-policy'
 
 type CheckFailureSource = 'event' | 'promise' | 'fallback-promise'
 type MissingManifestPrereleaseFallbackResult = { userInitiated: boolean }
@@ -1064,6 +1069,113 @@ function retryPrereleaseFallbackAfterMissingManifest(
   return true
 }
 
+async function runManualReleaseCheck(
+  attemptId: number,
+  variant: UpdateCheckVariant,
+  requestedByUser: boolean
+): Promise<void> {
+  if (!isActiveUpdateCheckAttempt(attemptId)) {
+    return
+  }
+  markUpdateCheckLaunched(attemptId)
+  clearBackgroundCheckLaunchPending()
+  sendStatus({ state: 'checking', userInitiated: requestedByUser || undefined })
+
+  const currentVersion = app.getVersion()
+  const isPerfCheck = variant === 'perf'
+  const includePrerelease =
+    isPerfCheck ||
+    variant === 'prerelease' ||
+    includePrereleaseActive ||
+    isPrereleaseVersion(currentVersion)
+  let result: Awaited<ReturnType<typeof fetchNewerReleaseTagsWithReadiness>>
+  try {
+    result = await fetchNewerReleaseTagsWithReadiness(currentVersion, 1, {
+      includePrerelease,
+      ...(isPerfCheck ? { releaseFilter: 'perf' as const } : {})
+    })
+  } catch {
+    if (!isActiveUpdateCheckAttempt(attemptId)) {
+      return
+    }
+    const wasUserInitiated = requestedByUser || backgroundCheckPromotedToUserInitiated
+    backgroundCheckPromotedToUserInitiated = false
+    userInitiatedCheck = false
+    clearAvailableUpdateContext()
+    await sendCheckFailureStatus(
+      'net::ERR_FAILED while fetching update releases',
+      wasUserInitiated || undefined
+    )
+    return
+  }
+  if (!isActiveUpdateCheckAttempt(attemptId)) {
+    return
+  }
+
+  const wasUserInitiated = requestedByUser || backgroundCheckPromotedToUserInitiated
+  backgroundCheckPromotedToUserInitiated = false
+  userInitiatedCheck = false
+  const releaseTag = result.tags[0] ?? result.lastGoodTag ?? null
+  if (releaseTag) {
+    const version = normalizeTagToVersion(releaseTag)
+    if (compareVersions(version, currentVersion) <= 0) {
+      clearAvailableUpdateContext()
+      if (result.state === 'not-ready') {
+        // Why: a current last-good tag does not mean the newer publishing
+        // release vanished; keep the short retry and any active nudge alive.
+        publishingWindowLastGoodCheck = { lastGoodTag: releaseTag }
+        scheduleAutomaticUpdateCheck(AUTO_UPDATE_RETRY_INTERVAL_MS)
+      } else {
+        recordCompletedUpdateCheck()
+        if (!wasUserInitiated) {
+          scheduleAutomaticUpdateCheck(AUTO_UPDATE_CHECK_INTERVAL_MS)
+        }
+      }
+      sendStatus({ state: 'not-available', userInitiated: wasUserInitiated || undefined })
+      return
+    }
+
+    availableVersion = version
+    availableReleaseUrl = getReleasePageUrl(releaseTag)
+    if (result.state === 'not-ready') {
+      // Why: a verified older release remains useful while the newest assets
+      // publish, but the nudge and short retry must continue targeting newest.
+      publishingWindowLastGoodCheck = { lastGoodTag: releaseTag }
+      scheduleAutomaticUpdateCheck(AUTO_UPDATE_RETRY_INTERVAL_MS)
+    } else {
+      recordCompletedUpdateCheck()
+      if (!wasUserInitiated) {
+        scheduleAutomaticUpdateCheck(AUTO_UPDATE_CHECK_INTERVAL_MS)
+      }
+    }
+    console.info(`[updater] manual release available: current=${currentVersion} tag=${releaseTag}`)
+    sendStatus({
+      state: 'available',
+      version,
+      releaseUrl: availableReleaseUrl,
+      installMode: 'manual',
+      changelog: null
+    })
+    return
+  }
+
+  clearAvailableUpdateContext()
+  if (result.state === 'no-newer') {
+    recordCompletedUpdateCheck()
+    if (!wasUserInitiated) {
+      scheduleAutomaticUpdateCheck(AUTO_UPDATE_CHECK_INTERVAL_MS)
+    }
+    sendStatus({ state: 'not-available', userInitiated: wasUserInitiated || undefined })
+    return
+  }
+
+  const message =
+    result.state === 'not-ready'
+      ? 'Latest release assets are still publishing'
+      : 'net::ERR_FAILED while fetching update releases'
+  await sendCheckFailureStatus(message, wasUserInitiated || undefined)
+}
+
 function runBackgroundUpdateCheck(
   nudgeId: string | null = getPersistedPendingUpdateNudgeId()
 ): void {
@@ -1086,6 +1198,10 @@ function runBackgroundUpdateCheck(
   backgroundCheckLaunchPending = true
   backgroundCheckPromotedToUserInitiated = false
   const attemptId = beginUpdateCheckAttempt()
+  if (getUpdateInstallMode() === 'manual') {
+    void runManualReleaseCheck(attemptId, 'default', false)
+    return
+  }
   // Don't send 'checking' here — the 'checking-for-update' handler does; sending from both dupes notifications (issue #35).
   const autoUpdater = getAutoUpdater()
   const launch = (): Promise<unknown> | undefined => {
@@ -1121,6 +1237,9 @@ export function checkForUpdates(): void {
 }
 
 function enablePrereleaseManifestChecks(): void {
+  if (getUpdateInstallMode() === 'manual') {
+    return
+  }
   getAutoUpdater().allowPrerelease = true
 }
 
@@ -1173,6 +1292,10 @@ export function checkForUpdatesFromMenu(options?: UpdateCheckOptions): void {
   }
 
   const attemptId = beginUpdateCheckAttempt()
+  if (getUpdateInstallMode() === 'manual') {
+    void runManualReleaseCheck(attemptId, checkVariant, true)
+    return
+  }
   const autoUpdater = getAutoUpdater()
   const launch = (): Promise<unknown> | undefined => {
     if (!isActiveUpdateCheckAttempt(attemptId)) {
@@ -1337,93 +1460,74 @@ export function setupAutoUpdater(
     return
   }
 
-  const autoUpdater = getAutoUpdater()
-  autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
-
-  // Why: our only on-machine window into electron-updater; otherwise an unexpected update-not-available or failed fetch is invisible.
-  autoUpdater.logger = {
-    info: (m: unknown) => console.info('[autoUpdater]', m),
-    warn: (m: unknown) => console.warn('[autoUpdater]', m),
-    error: (m: unknown) => console.error('[autoUpdater]', m),
-    debug: (m: unknown) => console.debug('[autoUpdater]', m)
-  } as never
-
-  // Why: this fork has no Windows code-signing identity yet (audit F13), so a
-  // downloaded installer cannot be verified against any trusted publisher.
-  // Fail closed — electron-updater treats a resolved string as a verification
-  // failure and skips the install — instead of inheriting upstream's
-  // accept-everything bypass. This is the inverse of the no-op override
-  // upstream warns against: it rejects every unsigned installer rather than
-  // accepting it. Consequence (documented in
-  // docs/reference/fork-versioning.md): Windows staging updates require a
-  // manual reinstall, and the unsigned installer trips SmartScreen. Remove
-  // this override only once fork-signed builds exist and
-  // win.signtoolOptions.publisherName names the fork's certificate.
-  // Caution: electron-updater only calls this override when app-update.yml
-  // carries a publisherName — keep win.signtoolOptions.publisherName set in
-  // config/electron-builder.config.cjs (pinned by its config test) or
-  // verification is skipped entirely.
-  if (process.platform === 'win32') {
-    ;(autoUpdater as NsisUpdater).verifyUpdateCodeSignature = () => {
-      const message =
-        'Update rejected: this fork build has no Windows code-signing publisher identity ' +
-        'configured, so downloaded update signatures cannot be verified. Install updates manually.'
-      console.error(`[updater] ${message}`)
-      return Promise.resolve(message)
-    }
-  }
-
-  // Why: generic provider avoids the native GitHub provider's RC-channel filtering; per-check repinning to a concrete /releases/download/<tag>/ URL avoids /latest redirect drift between check and download.
-  autoUpdater.setFeedURL({
-    provider: 'generic',
-    url: getReleasesLatestDownloadUrl()
-  })
-
   if (autoUpdaterInitialized) {
     return
   }
   autoUpdaterInitialized = true
 
-  registerAutoUpdaterHandlers({
-    autoUpdater,
-    clearAvailableUpdateContext,
-    consumeMissingManifestPrereleaseFallbackResult,
-    getMissingManifestPrereleaseFallbackUserInitiated,
-    getPublishingWindowLastGoodCheck,
-    getActiveUpdateCheckEventAttemptId,
-    getCurrentStatus: () => currentStatus,
-    getKnownReleaseUrl,
-    getPendingInstallVersion,
-    getUserInitiatedCheck: () => userInitiatedCheck,
-    handleQuitAndInstallFailure,
-    isQuitAndInstallHandoffActive,
-    hasNewerDownloadedVersion,
-    shouldHandleUpdaterErrorEvent,
-    performQuitAndInstall,
-    clearUpdateAvailableEventPending,
-    isActiveUpdateCheckAttempt,
-    markUpdateCheckEventAttempt,
-    markUpdateAvailableEventPending,
-    sendCheckFailureStatus,
-    sendErrorStatus,
-    markMissingManifestPrereleaseFallbackChecking,
-    shouldSuppressMissingManifestPrereleaseFallbackEvent,
-    suppressMissingManifestPrereleaseFallbackPromiseFailure,
-    recordCompletedUpdateCheck,
-    sendStatus,
-    scheduleAutomaticUpdateCheck,
-    clearBackgroundCheckLaunchPending,
-    setAvailableReleaseUrl: (releaseUrl) => {
-      availableReleaseUrl = releaseUrl
-    },
-    setAvailableVersion: (version) => {
-      availableVersion = version
-    },
-    setUserInitiatedCheck: (value) => {
-      userInitiatedCheck = value
-    }
-  })
+  if (getUpdateInstallMode() === 'manual') {
+    // Why: ALab lacks stable macOS and Windows publisher identities, so native
+    // updaters cannot authenticate a different release.
+    console.info('[updater] this platform uses manual releases; native updater stays dormant')
+  } else {
+    const autoUpdater = getAutoUpdater()
+    autoUpdater.autoDownload = false
+    autoUpdater.autoInstallOnAppQuit = true
+
+    // Why: our only on-machine window into electron-updater; otherwise an unexpected update-not-available or failed fetch is invisible.
+    autoUpdater.logger = {
+      info: (m: unknown) => console.info('[autoUpdater]', m),
+      warn: (m: unknown) => console.warn('[autoUpdater]', m),
+      error: (m: unknown) => console.error('[autoUpdater]', m),
+      debug: (m: unknown) => console.debug('[autoUpdater]', m)
+    } as never
+
+    // Why: generic provider avoids the native GitHub provider's RC-channel filtering; per-check repinning to a concrete /releases/download/<tag>/ URL avoids /latest redirect drift between check and download.
+    autoUpdater.setFeedURL({
+      provider: 'generic',
+      url: getReleasesLatestDownloadUrl()
+    })
+
+    registerAutoUpdaterHandlers({
+      autoUpdater,
+      clearAvailableUpdateContext,
+      consumeMissingManifestPrereleaseFallbackResult,
+      getMissingManifestPrereleaseFallbackUserInitiated,
+      getPublishingWindowLastGoodCheck,
+      getActiveUpdateCheckEventAttemptId,
+      getCurrentStatus: () => currentStatus,
+      getKnownReleaseUrl,
+      getPendingInstallVersion,
+      getUserInitiatedCheck: () => userInitiatedCheck,
+      handleQuitAndInstallFailure,
+      isQuitAndInstallHandoffActive,
+      hasNewerDownloadedVersion,
+      shouldHandleUpdaterErrorEvent,
+      performQuitAndInstall,
+      clearUpdateAvailableEventPending,
+      isActiveUpdateCheckAttempt,
+      markUpdateCheckEventAttempt,
+      markUpdateAvailableEventPending,
+      sendCheckFailureStatus,
+      sendErrorStatus,
+      markMissingManifestPrereleaseFallbackChecking,
+      shouldSuppressMissingManifestPrereleaseFallbackEvent,
+      suppressMissingManifestPrereleaseFallbackPromiseFailure,
+      recordCompletedUpdateCheck,
+      sendStatus,
+      scheduleAutomaticUpdateCheck,
+      clearBackgroundCheckLaunchPending,
+      setAvailableReleaseUrl: (releaseUrl) => {
+        availableReleaseUrl = releaseUrl
+      },
+      setAvailableVersion: (version) => {
+        availableVersion = version
+      },
+      setUserInitiatedCheck: (value) => {
+        userInitiatedCheck = value
+      }
+    })
+  }
 
   void checkForUpdateNudge()
   scheduleUpdateNudgeCheck()
@@ -1462,6 +1566,17 @@ export function setupAutoUpdater(
 
 export function downloadUpdate(): void {
   if (downloadInFlight) {
+    return
+  }
+  if (currentStatus.state === 'available' && currentStatus.installMode === 'manual') {
+    const releaseUrl = currentStatus.releaseUrl
+    if (!releaseUrl) {
+      sendErrorStatus('Could not open the manual update because its release URL is missing.')
+      return
+    }
+    void shell.openExternal(releaseUrl).catch((error) => {
+      sendErrorStatus(`Could not open the manual update: ${String(error?.message ?? error)}`)
+    })
     return
   }
   // Why: allow retry from 'error' (availableVersion stays cached) so the error card's Retry Download button works.

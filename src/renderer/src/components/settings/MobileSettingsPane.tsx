@@ -36,24 +36,29 @@ export function MobileSettingsPane(): React.JSX.Element {
               'auto.components.settings.MobileSettingsPane.installIntro',
               'Install Orca Mobile from the'
             )}{' '}
+            {/* Why: ALab has no iOS artifact yet; label the compatible
+                production-vendor App Store binary explicitly. */}
             <button
               type="button"
               onClick={() => void window.api.shell.openUrl(ORCA_IOS_APP_STORE_URL)}
               className="cursor-pointer underline underline-offset-2 hover:text-foreground"
             >
-              {translate('auto.components.settings.MobileSettingsPane.b5a2ed83ff', 'App Store')}
+              {translate(
+                'auto.components.settings.MobileSettingsPane.b5a2ed83ff',
+                'Upstream iOS App Store'
+              )}
             </button>
             {' · '}
             <button
               type="button"
-              // Why: Android is moving to Google Play soon, but until then
-              // link directly to the pinned APK asset for the current mobile release.
+              // Why: ALab has no Android artifact yet; label the compatible
+              // production-vendor APK instead of presenting it as an ALab build.
               onClick={() => void window.api.shell.openUrl(ORCA_ANDROID_APK_URL)}
               className="cursor-pointer underline underline-offset-2 hover:text-foreground"
             >
               {translate(
                 'auto.components.settings.MobileSettingsPane.androidApkLabel',
-                'Android APK'
+                'Upstream Android APK'
               )}
             </button>
             {translate(

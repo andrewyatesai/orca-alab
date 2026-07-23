@@ -5,6 +5,10 @@ import { access, lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/prom
 import path from 'node:path'
 import process from 'node:process'
 import { isDeepStrictEqual } from 'node:util'
+import {
+  assertReleasedHistoryPreserved,
+  stabilizeReleasedHistory
+} from './skill-release-history-stability.mjs'
 
 // Why: the three artifacts version independently — bumping one shape must not
 // rewrite the others or bypass the registry's schema-gated append-only guard.
@@ -323,7 +327,7 @@ function skillsTreeShasAtRefs(refs) {
   })
 }
 
-function buildReleasedHistory() {
+function buildReleasedHistory(requiredReleaseVersions = new Set()) {
   const registry = { schemaVersion: SNAPSHOT_REGISTRY_SCHEMA_VERSION, skills: {} }
   const mapping = { schemaVersion: RELEASE_MAPPING_SCHEMA_VERSION, releases: [] }
   const tags = releaseTags()
@@ -340,7 +344,10 @@ function buildReleasedHistory() {
   let previousSkillsTreeSha = null
   for (const [index, tag] of tags.entries()) {
     const skillsTreeSha = treeShas[index]
-    if (!skillsTreeSha || skillsTreeSha === previousSkillsTreeSha) {
+    if (
+      !skillsTreeSha ||
+      (skillsTreeSha === previousSkillsTreeSha && !requiredReleaseVersions.has(tag.slice(1)))
+    ) {
       continue
     }
     previousSkillsTreeSha = skillsTreeSha
@@ -377,14 +384,20 @@ function buildReleasedHistory() {
   return { registry, mapping }
 }
 
-// Why: the artifacts must be pure functions of skills/ bytes and release-tag
-// history. Stamping the app version made every release cut invalidate the
-// committed output on all open branches and drag skill CI onto unrelated PRs.
-async function buildArtifacts() {
-  const { registry, mapping } = buildReleasedHistory()
-  const releasedSnapshotCounts = Object.fromEntries(
-    Object.entries(registry.skills).map(([name, snapshots]) => [name, snapshots.length])
+// Why: committed release identities are an append-only input; late-fetched tags
+// must not renumber snapshots already shipped to users.
+async function buildArtifacts(committedRegistry = null, committedMapping = null) {
+  const requiredReleaseVersions = new Set(
+    committedMapping?.schemaVersion === RELEASE_MAPPING_SCHEMA_VERSION
+      ? committedMapping.releases.map((release) => release.appVersion)
+      : []
   )
+  const releasedHistory = stabilizeReleasedHistory(
+    buildReleasedHistory(requiredReleaseVersions),
+    committedRegistry,
+    committedMapping
+  )
+  const { registry, mapping } = releasedHistory
   const skillDirectories = (await readdir(SKILLS_ROOT, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -422,44 +435,13 @@ async function buildArtifacts() {
       skills: currentSkills
     },
     snapshotRegistry: registry,
-    releaseMapping: mapping,
-    releasedSnapshotCounts
+    releaseMapping: mapping
   }
 }
 
-// Why: released snapshots are the detection ground truth for existing installs,
-// so a generation-logic change must not rewrite them silently. Only the one
-// unreleased working-tree append per skill may change between runs.
-function assertReleasedHistoryPreserved(committedRegistry, artifacts) {
-  if (!committedRegistry || committedRegistry.schemaVersion !== SNAPSHOT_REGISTRY_SCHEMA_VERSION) {
-    return
-  }
-  for (const [name, committedSnapshots] of Object.entries(committedRegistry.skills ?? {})) {
-    const releasedCount = artifacts.releasedSnapshotCounts[name] ?? 0
-    const regenerated = artifacts.snapshotRegistry.skills[name] ?? []
-    if (releasedCount < Math.max(0, committedSnapshots.length - 1)) {
-      throw new Error(
-        `Released snapshot history is incomplete for ${name}. ` +
-          'Fetch all release tags before regenerating skill artifacts.'
-      )
-    }
-    const protectedCount = Math.min(committedSnapshots.length, releasedCount)
-    for (let index = 0; index < protectedCount; index += 1) {
-      const committed = committedSnapshots[index]
-      const rebuilt = regenerated[index]
-      if (!rebuilt || !isDeepStrictEqual(rebuilt, committed)) {
-        throw new Error(
-          `Released snapshot history changed for ${name} at revision ${committed.releaseRevision}. ` +
-            'Released snapshots are append-only; a deliberate identity migration must update this check.'
-        )
-      }
-    }
-  }
-}
-
-async function readCommittedRegistry() {
+async function readCommittedArtifact(filePath) {
   try {
-    return JSON.parse(await readFile(SNAPSHOT_REGISTRY_PATH, 'utf8'))
+    return JSON.parse(await readFile(filePath, 'utf8'))
   } catch {
     return null
   }
@@ -538,8 +520,12 @@ async function verifyArtifacts(artifacts) {
 }
 
 async function main() {
-  const artifacts = await buildArtifacts()
-  assertReleasedHistoryPreserved(await readCommittedRegistry(), artifacts)
+  const [committedRegistry, committedMapping] = await Promise.all([
+    readCommittedArtifact(SNAPSHOT_REGISTRY_PATH),
+    readCommittedArtifact(RELEASE_MAPPING_PATH)
+  ])
+  const artifacts = await buildArtifacts(committedRegistry, committedMapping)
+  assertReleasedHistoryPreserved(committedRegistry, committedMapping, artifacts)
   await (process.argv.includes('--write') ? writeArtifacts : verifyArtifacts)(artifacts)
 }
 

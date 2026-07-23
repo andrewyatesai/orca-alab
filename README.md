@@ -21,7 +21,10 @@ For a guided tour of the product and its engineering, see the
 
 Desktop builds are on the
 [Releases page](https://github.com/alabsystems/orca-alab/releases). macOS
-builds are currently unsigned: right-click → **Open** on first launch.
+builds are ad-hoc signed for launch, not Developer ID-signed or notarized:
+right-click → **Open** on first launch. The app can check for newer macOS
+releases, but installation is manual from that Releases page. Windows update
+installation is likewise manual while ALab has no trusted publisher identity.
 
 ALab Edition versions itself independently. Each release documents the
 upstream Orca version it is aligned to — the current release is aligned to
@@ -61,7 +64,7 @@ product; the section below covers the engineering underneath.
 ### Rust and aterm terminal stack
 
 ALab Edition replaces the xterm.js rendering and headless-terminal dependencies
-with a pinned [aterm](https://github.com/andrewyatesai/aterm) engine:
+with a pinned [aterm](https://github.com/alabsystems/aterm) engine:
 
 - Rust terminal state, parsing, search, selection, and scrollback
 - optimized CPU and GPU WebAssembly renderers
@@ -207,7 +210,9 @@ available.
 
 On macOS, the dedicated Computer Use helper requires user approval for
 Accessibility and Screen Recording before it can control other applications or
-capture their windows.
+capture their windows. Because ALab builds use ad-hoc signatures, macOS may ask
+you to approve privacy permissions again after installing a rebuilt or newer
+ALab build.
 
 ## License and attribution
 

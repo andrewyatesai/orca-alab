@@ -1,3 +1,5 @@
+# Development-only electron-updater fallback. Orca returns before updater
+# initialization in dev mode, so packaged ALab builds never read this feed.
 provider: github
 owner: andrewyatesai
 repo: orca-alab

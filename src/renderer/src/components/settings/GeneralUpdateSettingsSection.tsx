@@ -8,6 +8,7 @@ import { SearchableSetting } from './SearchableSetting'
 import { SettingsSubsectionHeader } from './SettingsFormControls'
 import { translate } from '@/i18n/i18n'
 import { getUpdateCheckClickOptions, getUpdateCheckHint } from '@/lib/update-check-click-options'
+import { getOrcaAlabPublicReleaseUrl } from '../../../../shared/repository-endpoints'
 
 export function GeneralUpdateSettingsSection(): React.JSX.Element {
   const updateStatus = useAppStore((s) => s.updateStatus)
@@ -39,6 +40,11 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [appName, setAppName] = useState('Orca: ALab Edition')
   const updateCheckHint = getUpdateCheckHint()
+  const isManualUpdate = updateStatus.state === 'available' && updateStatus.installMode === 'manual'
+  const availableReleaseUrl =
+    updateStatus.state === 'available'
+      ? (updateStatus.releaseUrl ?? getOrcaAlabPublicReleaseUrl(updateStatus.version))
+      : null
 
   useEffect(() => {
     let cancelled = false
@@ -121,6 +127,7 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
               variant="default"
               size="sm"
               onClick={() => {
+                // Why: main owns manual-update URL validation and reports shell failures through updater status.
                 void window.api.updater.download().catch((error) => {
                   toast.error(
                     translate(
@@ -136,11 +143,17 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
               className="gap-2"
             >
               <Download className="size-3.5" />
-              {translate(
-                'auto.components.settings.GeneralUpdateSettingsSection.42717918f4',
-                'Install Update ('
+              {isManualUpdate ? (
+                translate('auto.components.UpdateCard.47126bcf57', 'Download Manually')
+              ) : (
+                <>
+                  {translate(
+                    'auto.components.settings.GeneralUpdateSettingsSection.42717918f4',
+                    'Install Update ('
+                  )}
+                  {updateStatus.version})
+                </>
               )}
-              {updateStatus.version})
             </Button>
           ) : updateStatus.state === 'downloaded' ? (
             <Button variant="default" size="sm" onClick={handleRestartToUpdate} className="gap-2">
@@ -172,15 +185,17 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
                 'Version'
               )}{' '}
               {updateStatus.version}{' '}
-              {translate(
-                'auto.components.settings.GeneralUpdateSettingsSection.8311da27ba',
-                'is available. Click "Install Update" to download and install it.'
-              )}{' '}
+              {isManualUpdate
+                ? `${translate(
+                    'auto.components.settings.GeneralUpdateSettingsSection.manualInstallAvailable',
+                    'is available for manual installation.'
+                  )} `
+                : `${translate(
+                    'auto.components.settings.GeneralUpdateSettingsSection.8311da27ba',
+                    'is available. Click "Install Update" to download and install it.'
+                  )} `}
               <a
-                href={
-                  updateStatus.releaseUrl ??
-                  `https://github.com/stablyai/orca/releases/tag/v${updateStatus.version}`
-                }
+                href={availableReleaseUrl ?? getOrcaAlabPublicReleaseUrl(updateStatus.version)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-foreground"
@@ -215,10 +230,7 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
                 'is ready to install.'
               )}{' '}
               <a
-                href={
-                  updateStatus.releaseUrl ??
-                  `https://github.com/stablyai/orca/releases/tag/v${updateStatus.version}`
-                }
+                href={updateStatus.releaseUrl ?? getOrcaAlabPublicReleaseUrl(updateStatus.version)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-foreground"
@@ -276,7 +288,7 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
             ) : (
               <a
                 className="underline underline-offset-2 hover:text-foreground"
-                href={`https://github.com/andrewyatesai/aterm/commit/${ORCA_BUILD_INFO.atermRev}`}
+                href={`https://github.com/alabsystems/aterm/commit/${ORCA_BUILD_INFO.atermRev}`}
                 target="_blank"
                 rel="noreferrer"
               >

@@ -78,6 +78,7 @@ const organizations: OrcaCloudOrgSummary[] = [
 function configureCloudEnv(): void {
   vi.stubEnv('ORCA_CLOUD_API_URL', 'https://orca-cloud.example')
   vi.stubEnv('ORCA_CLOUD_CLIENT_ID', 'desktop-client')
+  vi.stubEnv('ORCA_RELAY_URL', 'https://relay.orca-cloud.example')
 }
 
 function futureExpiresAt(): number {
@@ -120,6 +121,7 @@ describe('Orca cloud profile service', () => {
     vi.unstubAllEnvs()
     vi.stubEnv('ORCA_CLOUD_API_URL', '')
     vi.stubEnv('ORCA_CLOUD_CLIENT_ID', '')
+    vi.stubEnv('ORCA_RELAY_URL', '')
   })
 
   afterEach(() => {
@@ -184,6 +186,7 @@ describe('Orca cloud profile service', () => {
     await connectCurrentOrcaProfile(userDataPath)
     vi.stubEnv('ORCA_CLOUD_API_URL', '')
     vi.stubEnv('ORCA_CLOUD_CLIENT_ID', '')
+    vi.stubEnv('ORCA_RELAY_URL', '')
 
     expect(getCurrentOrcaProfileAuthStatus(userDataPath)).toMatchObject({
       configured: false,

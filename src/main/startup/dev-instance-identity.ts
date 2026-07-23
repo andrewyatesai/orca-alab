@@ -61,7 +61,7 @@ function createDevAppUserModelId(identityKey: string | null): string {
 }
 
 function readPackagedProductName(): string | null {
-  // Why: fork staging builds inject their productName ("Orca Staging") into
+  // Why: fork staging builds inject their productName ("Orca ALab Edition") into
   // the packaged package.json via electron-builder extraMetadata, and Electron
   // initializes app.name from it before any of this code runs. A guarded lazy
   // require keeps this module importable in non-Electron unit tests.

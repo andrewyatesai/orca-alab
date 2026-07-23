@@ -7,7 +7,8 @@ import {
 
 vi.mock('electron', () => ({
   app: {
-    isPackaged: false
+    isPackaged: false,
+    name: 'Orca ALab Edition'
   }
 }))
 
@@ -22,7 +23,8 @@ describe('Orca cloud auth config', () => {
   it('builds default desktop auth endpoints from the API URL', () => {
     const state = getOrcaCloudAuthConfig({
       ORCA_CLOUD_API_URL: 'https://orca-cloud.example/',
-      ORCA_CLOUD_CLIENT_ID: 'desktop-client'
+      ORCA_CLOUD_CLIENT_ID: 'desktop-client',
+      ORCA_RELAY_URL: 'https://relay.orca-cloud.example'
     })
 
     expect(state).toEqual({
@@ -37,15 +39,22 @@ describe('Orca cloud auth config', () => {
         orgEndpoint: 'https://orca-cloud.example/v1/desktop/auth/org',
         logoutEndpoint: 'https://orca-cloud.example/v1/desktop/auth/logout',
         relayTokenEndpoint: 'https://orca-cloud.example/v1/desktop/auth/relay-token',
-        relayDirectorUrl: 'https://relay.onorca.dev',
+        relayDirectorUrl: 'https://relay.orca-cloud.example',
         clientId: 'desktop-client',
         scope: 'openid profile email offline_access'
       }
     })
   })
 
-  it('uses first-party production endpoints without runtime env in packaged builds', () => {
-    expect(getOrcaCloudAuthConfig({}, true)).toEqual({
+  it('keeps packaged ALab builds unconfigured without ALab-owned endpoints', () => {
+    expect(getOrcaCloudAuthConfig({}, true, false)).toEqual({
+      configured: false,
+      setupMessage: 'Orca Cloud sign-in is not configured for this build.'
+    })
+  })
+
+  it('uses upstream endpoints only for an explicit public-identity build', () => {
+    expect(getOrcaCloudAuthConfig({}, true, true)).toEqual({
       configured: true,
       config: {
         apiBaseUrl: 'https://login.onorca.dev',
@@ -67,7 +76,8 @@ describe('Orca cloud auth config', () => {
   it('allows loopback HTTP endpoints for local desktop auth development', () => {
     const state = getOrcaCloudAuthConfig({
       ORCA_CLOUD_API_URL: 'http://localhost:4100',
-      ORCA_CLOUD_CLIENT_ID: 'desktop-client'
+      ORCA_CLOUD_CLIENT_ID: 'desktop-client',
+      ORCA_RELAY_URL: 'http://localhost:4200'
     })
 
     expect(state.configured).toBe(true)
@@ -78,7 +88,8 @@ describe('Orca cloud auth config', () => {
       getOrcaCloudAuthConfig(
         {
           ORCA_CLOUD_API_URL: 'http://localhost:4100',
-          ORCA_CLOUD_CLIENT_ID: 'desktop-client'
+          ORCA_CLOUD_CLIENT_ID: 'desktop-client',
+          ORCA_RELAY_URL: 'https://relay.orca-cloud.example'
         },
         true
       )
@@ -87,7 +98,8 @@ describe('Orca cloud auth config', () => {
     const httpsState = getOrcaCloudAuthConfig(
       {
         ORCA_CLOUD_API_URL: 'https://orca-cloud.example',
-        ORCA_CLOUD_CLIENT_ID: 'desktop-client'
+        ORCA_CLOUD_CLIENT_ID: 'desktop-client',
+        ORCA_RELAY_URL: 'https://relay.orca-cloud.example'
       },
       true
     )
@@ -98,9 +110,22 @@ describe('Orca cloud auth config', () => {
     expect(
       getOrcaCloudAuthConfig({
         ORCA_CLOUD_API_URL: 'http://orca-cloud.example',
-        ORCA_CLOUD_CLIENT_ID: 'desktop-client'
+        ORCA_CLOUD_CLIENT_ID: 'desktop-client',
+        ORCA_RELAY_URL: 'https://relay.orca-cloud.example'
       })
     ).toMatchObject({ configured: false })
+  })
+
+  it('does not fall back to the upstream relay for an ALab endpoint', () => {
+    expect(
+      getOrcaCloudAuthConfig({
+        ORCA_CLOUD_API_URL: 'https://orca-cloud.example',
+        ORCA_CLOUD_CLIENT_ID: 'desktop-client'
+      })
+    ).toEqual({
+      configured: false,
+      setupMessage: 'Orca Cloud sign-in is not configured for this build.'
+    })
   })
 
   it('allows dev plaintext sessions only outside production', () => {

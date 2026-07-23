@@ -96,4 +96,20 @@ describe('StarNagCard', () => {
     expect(fallbackButton?.className).toContain('bg-amber-400/15')
     expect(fallbackButton?.parentElement?.textContent).toContain('Later')
   })
+
+  it('opens the public ALab repository in web fallback mode', async () => {
+    ;({ root, container } = renderCard())
+
+    act(() => showCallback?.({ mode: 'web', surface: 'card' }))
+    const button = Array.from(container.querySelectorAll('button')).find((candidate) =>
+      candidate.textContent?.includes('Open GitHub')
+    )
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(shell.openUrl).toHaveBeenCalledWith('https://github.com/alabsystems/orca-alab')
+    expect(starNag.openWeb).toHaveBeenCalledTimes(1)
+  })
 })

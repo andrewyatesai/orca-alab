@@ -3,6 +3,7 @@
 
 import type { EventName, EventProps } from '../../../shared/telemetry-events'
 import type { TelemetryConsentState } from '../../../shared/telemetry-consent-types'
+import { ORCA_ALAB_PRIVACY_URL } from '../../../shared/repository-endpoints'
 
 // Re-exported so renderer call sites can import the mapper from this lib
 // alongside `track`. The mapping now lives in the Rust `orca_core::agent_kind`
@@ -17,8 +18,7 @@ export { tuiAgentToAgentKind } from './git-wasm/agent-kind'
 // Fork staging: this must point at the FORK's privacy statement, never the
 // public vendor's (onorca.dev) — the vendor's doc describes a different data
 // recipient than the fork's PostHog project. See G0-4 in the staging audit.
-export const PRIVACY_URL =
-  'https://github.com/andrewyatesai/orca-alab/blob/main/docs/reference/privacy-staging.md'
+export const PRIVACY_URL = ORCA_ALAB_PRIVACY_URL
 
 // Why: the IPC boundary is untyped at runtime, so validate before the Privacy pane trusts a payload from main.
 function isTelemetryConsentState(x: unknown): x is TelemetryConsentState {

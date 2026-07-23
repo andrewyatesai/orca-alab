@@ -4,6 +4,7 @@ import {
   type FeatureWallMediaTile,
   type FeatureWallMediaTileId
 } from './feature-wall-tiles'
+import { ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS } from './repository-endpoints'
 
 export type FeatureWallWorkflowId = 'start' | 'plan' | 'build' | 'ship' | 'scale' | 'anywhere'
 
@@ -51,7 +52,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
     lede: 'Start in a local scratch terminal or resume the active workspace terminal, then add another codebase and runtime when you need one.',
     primaryTileId: 'tile-02',
     relatedTileIds: ['tile-09'],
-    docsUrl: 'https://www.onorca.dev/docs/terminal',
+    docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.terminal,
     steps: [
       {
         id: 'terminal',
@@ -59,7 +60,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Start in a terminal—project or scratch',
         description:
           'Orca opens a workspace terminal by default—or a local scratch terminal before a project exists. Run any CLI agent, split tabs or panes, and review then launch Quick Commands. Project commands from orca.yaml stay inert until you approve the current shared content; changes require re-review. GPU/CPU rendering, focus-aware QoS, predictive echo, full-scrollback search, inline images, terminal effects, and bundled build tools support heavy agent work. Warm sessions reattach after an app restart; after a host reboot, Orca restores layout and scrollback, not exited processes.',
-        docsUrl: 'https://www.onorca.dev/docs/terminal'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.terminal
       },
       {
         id: 'add-project',
@@ -67,7 +68,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Bring in a codebase',
         description:
           'Choose where project operations run—this computer (native or WSL), an SSH host, or a paired Orca runtime—then open an existing folder, clone a repository, or create a project. Existing checkouts stay on their current branch. When you later create a Git workspace, configured repository setup/install commands can run automatically in its new worktree after you approve shared orca.yaml command content; changes require re-review.',
-        docsUrl: 'https://www.onorca.dev/docs/model/worktrees'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.addProject
       }
     ]
   },
@@ -78,7 +79,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
     lede: 'Turn incoming work into an isolated environment with its context attached.',
     primaryTileId: 'tile-03',
     relatedTileIds: ['tile-01', 'tile-10'],
-    docsUrl: 'https://www.onorca.dev/docs/model/worktrees',
+    docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.tasks,
     steps: [
       {
         id: 'tasks',
@@ -86,7 +87,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Turn tasks into ready-to-run work',
         description:
           'Connect the providers you use, browse GitHub, GitLab, Linear, and Jira work, then carry an issue or review into a workspace as linked context.',
-        docsUrl: 'https://www.onorca.dev/docs/review/github'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.tasks
       },
       {
         id: 'workspaces',
@@ -94,7 +95,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Plan, fan out, and keep the winner',
         description:
           'Use the Workspace Board to organize existing workspaces in status lanes. For a Git project, fan one task into isolated worktrees from the same base, compare each diff and check result, keep the winner, then archive alternatives. Folder-only projects keep sharing their original root; the board does not launch or merge the race.',
-        docsUrl: 'https://www.onorca.dev/docs/model/worktrees'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.workspaces
       }
     ]
   },
@@ -105,7 +106,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
     lede: 'Guide the agents you already use, keep implementation context together, and verify UI work in place.',
     primaryTileId: 'tile-04',
     relatedTileIds: ['tile-11', 'tile-07', 'tile-12', 'tile-05'],
-    docsUrl: 'https://www.onorca.dev/docs/agents/supported',
+    docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.workbench,
     steps: [
       {
         id: 'agents',
@@ -113,7 +114,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Intervene now, recover context later',
         description:
           'Run supported or custom terminal agents, then use statuses, the optional Agents feed, and notifications to reach waiting or blocked work. Search Agent Session History, inspect a log when available, jump to its worktree, or resume when the transcript has conversation content and the target workspace and host are compatible. Manual leaves agent permission checks enabled; full autonomy asks supported agents to bypass them. Neither makes worktrees a machine-security sandbox.',
-        docsUrl: 'https://www.onorca.dev/docs/agents/supported'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.workspaces
       },
       {
         id: 'workbench',
@@ -121,7 +122,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Move through code and context without friction',
         description:
           'Use Quick Open and the Jump Palette across workspace tabs, files, settings, actions, ports, and rich previews; drag context into an agent prompt. Use the default-on Floating Workspace for cross-repo or scratch terminal, agent, Markdown, and browser tabs. Its directory and tabs stay local while an SSH or paired-runtime workspace is focused. Optional Voice Dictation transcribes into the focused pane after model and microphone setup.',
-        docsUrl: 'https://www.onorca.dev/docs/model/quick-open'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.workbench
       },
       {
         id: 'browser-design',
@@ -129,7 +130,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Turn rendered UI into precise agent context',
         description:
           'Open a real Chromium page for the workspace, select an element in Design Mode, and send its DOM and computed styles, plus a source hint and cropped screenshot when available, to an agent. Import cookies into a selected browser profile only when you choose to reuse an authenticated session. Review the context, hot-reload the result, and verify the changed state.',
-        docsUrl: 'https://www.onorca.dev/docs/browser/design-mode'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.browser
       }
     ]
   },
@@ -140,7 +141,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
     lede: 'Turn an agent result into a reviewed, provider-ready change.',
     primaryTileId: 'tile-08',
     relatedTileIds: [],
-    docsUrl: 'https://www.onorca.dev/docs/review/annotate-ai-diff',
+    docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.review,
     steps: [
       {
         id: 'review-ship',
@@ -148,7 +149,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Compare, recover, and publish deliberately',
         description:
           'Compare candidate diffs, annotate lines, and send a revision bundle. If checks fail or conflicts surface, return to the same workspace, resolve, and retry; then have a human re-review the resolved diff and refreshed checks before staging focused hunks. Confirm Git writes and PR/MR publishing separately, then archive the finished workspace.',
-        docsUrl: 'https://www.onorca.dev/docs/review/annotate-ai-diff'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.review
       }
     ]
   },
@@ -159,7 +160,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
     lede: 'Let agents operate Orca, coordinate dependent work, and make repeatable jobs run on demand or on schedule.',
     primaryTileId: 'tile-09',
     relatedTileIds: ['tile-04', 'tile-11'],
-    docsUrl: 'https://www.onorca.dev/docs/cli/orchestration',
+    docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.orchestration,
     steps: [
       {
         id: 'cli-skills',
@@ -167,7 +168,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Let agents drive Orca itself',
         description:
           'The Orca CLI and version-matched bundled, personal, repository, and plugin skills let agents operate workspaces, terminals, files, browsers, and automations. Discovery follows the host that runs the work—local, SSH, or paired runtime.',
-        docsUrl: 'https://www.onorca.dev/docs/cli/skills'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.cli
       },
       {
         id: 'orchestration',
@@ -175,7 +176,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Coordinate work with dependencies',
         description:
           'Use a simple workspace race for independent approaches. When tasks depend on one another, give a coordinator a worker graph, pause for human decisions when workers raise questions, relay those decisions, recover blockers, and collect the results into one accountable run.',
-        docsUrl: 'https://www.onorca.dev/docs/cli/orchestration'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.orchestration
       },
       {
         id: 'automations',
@@ -183,7 +184,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Make recurring work repeatable',
         description:
           'Save a prompt and target, add an optional precheck, then run manually or on a schedule in a fresh or existing workspace. Inspect history, recover failed runs, and rerun when the selected local or remote target is reachable.',
-        docsUrl: 'https://www.onorca.dev/docs/cli/automations'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.automations
       }
     ]
   },
@@ -194,7 +195,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
     lede: 'Reach remote work, keep an eye on it from Mobile, exercise apps on iOS or Android, and, where supported, operate visible desktop software.',
     primaryTileId: 'tile-06',
     relatedTileIds: [],
-    docsUrl: 'https://www.onorca.dev/docs/ssh',
+    docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.remoteMobile,
     steps: [
       {
         id: 'remote-mobile',
@@ -203,7 +204,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         description:
           'Run projects locally, over SSH, on a paired runtime, or in an on-demand environment described by orca.yaml. After one-time pairing, Orca Mobile remains a companion for notifications, monitoring, Quick Commands, and follow-ups; the desktop/runtime coordinates the session, while the selected local or SSH host retains execution authority.',
         availabilityLabel: 'Mobile beta',
-        docsUrl: 'https://www.onorca.dev/docs/mobile'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.remoteMobile
       },
       {
         id: 'mobile-emulators',
@@ -211,7 +212,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         title: 'Drive iOS and Android test devices',
         description:
           "On a Mac with Xcode, open Orca's workspace-scoped iOS Simulator pane. On macOS, Linux, or Windows, target a booted Android emulator or physical ADB device through the same CLI namespace and stream it into Orca's workspace Emulator pane; an AVD can also keep its own window open. Let an agent load the version-matched skill, discover the exact device, inspect accessibility or logs, act, and verify; iOS control is local to the Mac.",
-        docsUrl: 'https://www.onorca.dev/docs/cli/skills'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.mobileEmulators
       },
       {
         id: 'computer-use',
@@ -220,7 +221,7 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
         description:
           "Computer Use ships native helpers per platform. On macOS, grant Accessibility and Screen Recording; on every platform, check capabilities before inspecting a visible app and invoking advertised actions. Use Orca's browser tools for pages inside Orca.",
         availabilityLabel: 'Beta',
-        docsUrl: 'https://www.onorca.dev/docs/cli/computer-use'
+        docsUrl: ORCA_ALAB_FEATURE_WALKTHROUGH_SECTION_URLS.computerUse
       }
     ]
   }

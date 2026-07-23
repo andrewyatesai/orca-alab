@@ -229,7 +229,7 @@ export function TasksAnimatedVisual(props: { reducedMotion: boolean }): JSX.Elem
               'connected for tasks'
             )}{' '}
             {' · '}
-            {translate('auto.fw.tasks.provider.repository', 'stablyai/orca')}
+            {translate('auto.fw.tasks.provider.repository', 'andrewyatesai/orca-alab')}
           </span>
         </span>
       </div>

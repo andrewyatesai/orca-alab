@@ -348,9 +348,9 @@ map}\label{11-process-and-trust-boundary-map}
 \end{Shaded}
 
 The executable entry is still \texttt{out/main/index.js}, declared in
-\href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/package.json\#L11}{\texttt{package.json}}
+\href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/package.json\#L11}{\texttt{package.json}}
 and built from
-\href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/index.ts\#L1}{\texttt{src/main/index.ts}}.
+\href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/index.ts\#L1}{\texttt{src/main/index.ts}}.
 The main module binds the Rust dispatch surface before importing
 Electron. TypeScript then controls \texttt{app.whenReady()}, constructs
 \texttt{BrowserWindow}, and loads either the Vite dev URL or the
@@ -440,13 +440,13 @@ electron-builder product path \\
 }
 
 The live Rust workspace has 26 members in
-\href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/rust/Cargo.toml\#L12}{\texttt{rust/Cargo.toml}},
+\href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/rust/Cargo.toml\#L12}{\texttt{rust/Cargo.toml}},
 but workspace membership is not proof of product execution. The shipped
 roots are narrower: the daemon, the aggregate Node-API add-on, aterm
 WASM, Git/dispatch WASM, and crypto WASM.
 
 The important business-logic seam is
-\href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/shared/orca-dispatch-seam.ts\#L1}{\texttt{orca-dispatch-seam.ts}}.
+\href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/shared/orca-dispatch-seam.ts\#L1}{\texttt{orca-dispatch-seam.ts}}.
 Main and CLI bind it to Rust through Node-API; renderer and relay
 contexts bind the same conceptual registry through WASM. The Rust
 registry currently spans roughly 79 pure-domain modules. This lets
@@ -478,9 +478,9 @@ execution}\label{14-literal-development-execution}
 \end{Shaded}
 
 The chain is visible in
-\href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/package.json\#L42}{\texttt{package.json}}
+\href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/package.json\#L42}{\texttt{package.json}}
 and
-\href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/config/scripts/run-electron-vite-dev.mjs\#L9}{\texttt{run-electron-vite-dev.mjs}}.
+\href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/config/scripts/run-electron-vite-dev.mjs\#L9}{\texttt{run-electron-vite-dev.mjs}}.
 The aterm, Git-dispatch, and crypto WASM bundles are not rebuilt by
 every \texttt{pnpm\ dev}; their explicit regeneration commands are
 \texttt{build:aterm-wasm}, \texttt{build:relay-wasm}, and
@@ -523,7 +523,7 @@ At launch:
 
 The product identity is deliberately separate from upstream:
 \texttt{com.stablyai.orca.staging} / \texttt{Orca\ ALab\ Edition} in
-\href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/config/electron-builder.config.cjs\#L19}{\texttt{electron-builder.config.cjs}}.
+\href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/config/electron-builder.config.cjs\#L19}{\texttt{electron-builder.config.cjs}}.
 
 There is one build-consistency gap worth fixing: \texttt{build},
 \texttt{build:release}, and \texttt{build:unpack} do not explicitly
@@ -791,7 +791,7 @@ drift}\label{32-current-caveats-and-documentation-drift}
 \begin{itemize}
 \tightlist
 \item
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/docs/rust-migration/architecture.md}{\texttt{docs/rust-migration/architecture.md}}
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/docs/rust-migration/architecture.md}{\texttt{docs/rust-migration/architecture.md}}
   is a target architecture, not the current runtime. Sections that
   describe the daemon as TypeScript or the native shell as the product
   are historical or aspirational.
@@ -1420,37 +1420,37 @@ Key ALab sources:
 \tightlist
 \item
   build and entry points:\par
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/package.json}{\texttt{package.json}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/electron.vite.config.ts}{\texttt{electron.vite.config.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/config/scripts/run-electron-vite-dev.mjs}{\texttt{run-electron-vite-dev.mjs}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/config/electron-builder.config.cjs}{\texttt{electron-builder.config.cjs}}
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/package.json}{\texttt{package.json}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/electron.vite.config.ts}{\texttt{electron.vite.config.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/config/scripts/run-electron-vite-dev.mjs}{\texttt{run-electron-vite-dev.mjs}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/config/electron-builder.config.cjs}{\texttt{electron-builder.config.cjs}}
 \item
   Electron/preload/renderer:\par
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/index.ts}{\texttt{src/main/index.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/window/createMainWindow.ts}{\texttt{createMainWindow.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/preload/index.ts}{\texttt{src/preload/index.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/renderer/src/main.tsx}{\texttt{src/renderer/src/main.tsx}}
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/index.ts}{\texttt{src/main/index.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/window/createMainWindow.ts}{\texttt{createMainWindow.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/preload/index.ts}{\texttt{src/preload/index.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/renderer/src/main.tsx}{\texttt{src/renderer/src/main.tsx}}
 \item
   daemon:\par
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/daemon/daemon-init.ts}{\texttt{daemon-init.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/daemon/daemon-spawner.ts}{\texttt{daemon-spawner.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/rust/crates/orca-daemon/src/lib.rs}{\texttt{orca-daemon}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/rust/crates/orca-daemon/src/protocol.rs}{\texttt{daemon\ protocol}}
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/daemon/daemon-init.ts}{\texttt{daemon-init.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/daemon/daemon-spawner.ts}{\texttt{daemon-spawner.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/rust/crates/orca-daemon/src/lib.rs}{\texttt{orca-daemon}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/rust/crates/orca-daemon/src/protocol.rs}{\texttt{daemon\ protocol}}
 \item
   terminal renderer:\par
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/renderer/src/lib/pane-manager/aterm/aterm-strategy-select.ts}{\texttt{aterm-strategy-select.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/renderer/src/lib/pane-manager/aterm/aterm-shared-render-worker.ts}{\texttt{aterm-shared-render-worker.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/renderer/src/lib/pane-manager/aterm/aterm-render-worker.ts}{\texttt{aterm-render-worker.ts}}
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/renderer/src/lib/pane-manager/aterm/aterm-strategy-select.ts}{\texttt{aterm-strategy-select.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/renderer/src/lib/pane-manager/aterm/aterm-shared-render-worker.ts}{\texttt{aterm-shared-render-worker.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/renderer/src/lib/pane-manager/aterm/aterm-render-worker.ts}{\texttt{aterm-render-worker.ts}}
 \item
   Rust seams:\par
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/native/orca-node/src/lib.rs}{\texttt{native/orca-node}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/rust/crates/orca-dispatch/src/lib.rs}{\texttt{orca-dispatch}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/shared/orca-dispatch-seam.ts}{\texttt{orca-dispatch-seam.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/relay/git-wasm.ts}{\texttt{relay\ Git\ WASM}}
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/native/orca-node/src/lib.rs}{\texttt{native/orca-node}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/rust/crates/orca-dispatch/src/lib.rs}{\texttt{orca-dispatch}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/shared/orca-dispatch-seam.ts}{\texttt{orca-dispatch-seam.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/relay/git-wasm.ts}{\texttt{relay\ Git\ WASM}}
 \item
   SSH:\par
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/relay/relay.ts}{\texttt{relay.ts}}\\
-  \href{https://github.com/andrewyatesai/orc/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/ssh/ssh-relay-deploy.ts}{\texttt{ssh-relay-deploy.ts}}.
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/relay/relay.ts}{\texttt{relay.ts}}\\
+  \href{https://github.com/andrewyatesai/orca-alab/blob/d3ba1bcb17324714a838b2970e04fcd96989e84f/src/main/ssh/ssh-relay-deploy.ts}{\texttt{ssh-relay-deploy.ts}}.
 \end{itemize}
 
 Reproducible upstream inspections at the pinned ref:

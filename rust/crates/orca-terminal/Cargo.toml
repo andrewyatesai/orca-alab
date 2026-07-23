@@ -8,7 +8,7 @@ repository.workspace = true
 description = "Headless terminal emulation for Orca (replaces @xterm/headless): grid, cursor, cwd/OSC-7 tracking. A thin adapter over the aterm engine, which owns the VT parser, grid, scrollback, and SGR/colour model."
 
 [dependencies]
-# The aterm terminal engine (github.com/andrewyatesai/aterm) owns the headless
+# The aterm terminal engine (github.com/alabsystems/aterm) owns the headless
 # VT pipeline: parser, grid, scrollback, SGR/colour model, OSC-7 cwd, mouse
 # modes. `orca-terminal` is the anti-corruption layer that re-exposes aterm's
 # `Terminal` under Orca's stable `HeadlessTerminal` surface so `orca-ffi` /

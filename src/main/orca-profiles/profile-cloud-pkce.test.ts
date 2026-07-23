@@ -107,6 +107,17 @@ describe('Orca cloud PKCE flow', () => {
     })
   })
 
+  it('rejects a callback with no state without settling the flow', async () => {
+    const { flow, redirectUri, state } = await startedFlow()
+
+    const missingStateResponse = await readHttp(callbackUrl(redirectUri, { code: 'wrong-code' }))
+    expect(missingStateResponse.statusCode).toBe(400)
+
+    const validResponse = await readHttp(callbackUrl(redirectUri, { code: 'real-code', state }))
+    expect(validResponse.statusCode).toBe(200)
+    await expect(flow).resolves.toMatchObject({ code: 'real-code', state })
+  })
+
   it('rejects a provider error that matches the flow state', async () => {
     const { flow, redirectUri, state } = await startedFlow()
     const observedFlow = flow.catch((error: unknown) => error)

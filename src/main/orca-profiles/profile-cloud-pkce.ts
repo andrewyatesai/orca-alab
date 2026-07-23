@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type Server, type ServerResponse } from 'node:http'
 import { shell } from 'electron'
+import { timingSafeTokenCompare } from '../../shared/timing-safe-token-compare'
 import type { OrcaCloudAuthConfig } from './profile-cloud-auth-config'
 import {
   ORCA_CLOUD_CALLBACK_RESPONSE_HEADERS,
@@ -91,8 +92,10 @@ export function beginOrcaCloudPkceFlow(
         }
         const code = url.searchParams.get('code')
         const returnedState = url.searchParams.get('state')
-        if (returnedState !== state) {
-          // Why: stray loopback probes must not be able to cancel the user's login.
+        if (returnedState === null || !timingSafeTokenCompare(state, returnedState)) {
+          // Why: constant-time compare of the anti-CSRF state (a 256-bit per-flow
+          // secret) matches the fork's bearer-token path; stray loopback probes
+          // must not be able to cancel the user's login.
           writeInvalidCallback(response)
           return
         }

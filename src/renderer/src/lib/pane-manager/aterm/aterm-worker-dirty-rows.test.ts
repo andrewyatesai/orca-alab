@@ -175,3 +175,116 @@ describe('aterm-worker-dirty-rows churn rate limit (P7)', () => {
     }
   })
 })
+
+// ── E9: single batch row-range export replaces the per-row wasm walk ─────────────
+// Feature-detected on the pinned artifact; the per-row path above stays the
+// fallback for engines without the export (and for skewed payloads).
+describe('aterm-worker-dirty-rows E9 batch row-range export', () => {
+  // Engine whose batch export mirrors its per-row surface, so both paths must
+  // produce identical dirty rows. `widths` is emitted only for rows with a wide cell.
+  function makeBatchEngine(rows: string[], wideCols: Record<number, Set<number>> = {}) {
+    const perRow = makeEngine(rows, wideCols)
+    const cols = { value: 0 }
+    return {
+      ...perRow,
+      cols,
+      row_range_json: vi.fn((first: number, count: number) =>
+        JSON.stringify(
+          Array.from({ length: count }, (_, i) => {
+            const y = first + i
+            const text = rows[y] ?? ''
+            const wide = wideCols[y]
+            const base = { text, wrapped: false, len: text.length }
+            return wide && wide.size > 0
+              ? {
+                  ...base,
+                  widths: Array.from({ length: cols.value }, (_, x) =>
+                    wide.has(x) ? '2' : '1'
+                  ).join('')
+                }
+              : base
+          })
+        )
+      )
+    }
+  }
+
+  it('one boundary crossing per build: no per-row or per-cell engine calls', () => {
+    const engine = makeBatchEngine(['hello', 'wo漢ld'], { 1: new Set([2]) })
+    engine.cols.value = 8
+    const tracker = createAtermDirtyRowTracker(engine)
+    const dirty = tracker.build(2, 8, 0)
+    expect(engine.row_range_json).toHaveBeenCalledExactlyOnceWith(0, 2)
+    expect(engine.row_text).not.toHaveBeenCalled()
+    expect(engine.row_is_wrapped).not.toHaveBeenCalled()
+    expect(engine.row_len).not.toHaveBeenCalled()
+    expect(engine.cell_is_wide).not.toHaveBeenCalled()
+    expect(dirty.map((r) => r.widths)).toEqual(['11111111', '11211111'])
+  })
+
+  it('produces dirty rows identical to the per-row path for the same content', () => {
+    const rows = ['plain', 'wi漢de', '']
+    const wide = { 1: new Set([2]) }
+    const batchEngine = makeBatchEngine(rows, wide)
+    batchEngine.cols.value = 6
+    const perRowEngine = makeEngine(rows, wide)
+    const fromBatch = createAtermDirtyRowTracker(batchEngine).build(3, 6, 0)
+    const fromPerRow = createAtermDirtyRowTracker(perRowEngine).build(3, 6, 0)
+    expect(fromBatch).toEqual(fromPerRow)
+  })
+
+  it('unchanged rows are still diffed away across builds (batch path keeps deltas)', () => {
+    const rows = ['a', 'b']
+    const engine = makeBatchEngine(rows)
+    engine.cols.value = 4
+    const tracker = createAtermDirtyRowTracker(engine)
+    expect(tracker.build(2, 4, 0)).toHaveLength(2)
+    rows[1] = 'B!'
+    const dirty = tracker.build(2, 4, 0)
+    expect(dirty.map((r) => ({ y: r.y, text: r.text }))).toEqual([{ y: 1, text: 'B!' }])
+  })
+
+  it('churn-throttled frames never touch the batch export either', () => {
+    const rows = ['a']
+    const engine = makeBatchEngine(rows)
+    engine.cols.value = 4
+    let t = 0
+    const tracker = createAtermDirtyRowTracker(engine, () => t)
+    tracker.build(1, 4, 0)
+    t += 16
+    tracker.build(1, 4, 5) // churn frame 1 → full export
+    engine.row_range_json.mockClear()
+    t += 16
+    expect(tracker.build(1, 4, 10)).toEqual([]) // churn frame 2 → throttled
+    expect(engine.row_range_json).not.toHaveBeenCalled()
+    expect(tracker.stale()).toBe(true)
+  })
+
+  it('an undefined export (range unavailable) falls back to per-row for that frame only', () => {
+    const rows = ['abc']
+    const engine = makeBatchEngine(rows)
+    engine.cols.value = 4
+    engine.row_range_json.mockReturnValueOnce(undefined as unknown as string)
+    const tracker = createAtermDirtyRowTracker(engine)
+    expect(tracker.build(1, 4, 0).map((r) => r.text)).toEqual(['abc'])
+    expect(engine.row_text).toHaveBeenCalled()
+    // Next build retries — and uses — the batch export again.
+    engine.row_text.mockClear()
+    rows[0] = 'abcd'
+    expect(tracker.build(1, 4, 0).map((r) => r.text)).toEqual(['abcd'])
+    expect(engine.row_text).not.toHaveBeenCalled()
+  })
+
+  it('a skewed payload disables the batch path for good and serves per-row rows', () => {
+    const rows = ['abc']
+    const engine = makeBatchEngine(rows)
+    engine.cols.value = 4
+    engine.row_range_json.mockReturnValue('skewed{')
+    const tracker = createAtermDirtyRowTracker(engine)
+    expect(tracker.build(1, 4, 0).map((r) => r.text)).toEqual(['abc'])
+    rows[0] = 'abcd'
+    expect(tracker.build(1, 4, 0).map((r) => r.text)).toEqual(['abcd'])
+    expect(engine.row_range_json).toHaveBeenCalledTimes(1)
+    expect(engine.row_text).toHaveBeenCalled()
+  })
+})

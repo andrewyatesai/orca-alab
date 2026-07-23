@@ -92,6 +92,7 @@ import {
   type LargeDiffRenderLimit
 } from '@/components/editor/large-diff-render-limit'
 import type { CombinedDiffFileTreeEntry } from '@/components/editor/combined-diff-file-tree-model'
+import { orderEntriesByFileTree } from '@/components/pull-request-diff-file-order'
 import {
   getStoredTextDiffContent,
   getStoredTextDiffResult
@@ -2312,7 +2313,9 @@ function PRFilesCombinedDiffViewer({
     setSectionHeights({})
     setActiveTreeSectionKey(null)
     setSections(
-      entries.map((entry) => ({
+      // Why: order sections by the same tree DFS the file list renders so a
+      // file's tree-row position matches its diff-scroll position (issue #9485).
+      orderEntriesByFileTree(entries).map((entry) => ({
         key: getPRFileSectionKey(entry.path),
         path: entry.path,
         oldPath: entry.oldPath,

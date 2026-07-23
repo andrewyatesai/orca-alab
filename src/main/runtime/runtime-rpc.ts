@@ -372,6 +372,9 @@ const MOBILE_RPC_METHOD_ALLOWLIST = new Set([
   'terminal.multiplex',
   'terminal.read',
   'terminal.rename',
+  // Why: read-only match summaries (fed §2.4) — same exposure class as terminal.read.
+  'terminal.search',
+  'terminal.searchContext',
   'terminal.send',
   'terminal.setAutoRestoreFit',
   'terminal.setDisplayMode',

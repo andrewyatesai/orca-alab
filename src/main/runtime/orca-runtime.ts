@@ -762,6 +762,7 @@ import {
   registerConptyDa1OverrideInstaller,
   shouldModelAnswerHiddenPtyQueries
 } from './terminal-model-query-authority'
+import { terminalHostRowAnchorLedger } from './terminal-host-row-anchor'
 // Why: the query-reply election derives "visible host" from the same hidden-mark state the delivery gate reads, so election and delivery cannot diverge (#9156).
 import { isHiddenRendererPty } from '../ipc/pty-hidden-delivery-gate'
 import {
@@ -1266,7 +1267,13 @@ type RuntimeHeadlessTerminal = {
   // the seq actually painted into this emulator, not the latest PTY seq.
   outputSequence: number
   writeChain: Promise<void>
+  // Why: a recreated emulator restarts its stable-row coordinates at 0, so a
+  // remote-search snapshot anchor is only valid within ONE emulator lifetime
+  // (fed §2.4); the ledger compares this to refuse cross-incarnation remaps.
+  incarnation: number
 }
+
+let nextHeadlessTerminalIncarnation = 1
 
 type RuntimeVisibleTerminalState = {
   lines: string[]
@@ -7608,6 +7615,10 @@ export class OrcaRuntimeService {
     alternateScreen?: boolean
     scrollbackAnsi?: string
     pendingEscapeTailAnsi?: string
+    // Fed §2.4 anchor inputs — headless-source snapshots only.
+    scrollbackLines?: number
+    retainedOriginRow?: number
+    headlessIncarnation?: number
   } | null> {
     return this.serializeTerminalBufferFromAvailableState(ptyId, opts)
   }
@@ -7662,6 +7673,113 @@ export class OrcaRuntimeService {
     // best available state and avoids a false "snapshot unavailable" result.
     const rendererSnapshot = await this.serializeRendererTerminalBuffer(ptyId, opts)
     return rendererSnapshot ?? this.serializeProviderTerminalBuffer(ptyId, opts)
+  }
+
+  /** Fed §2.4 host-side search authority (`terminal.search`): the same per-PTY
+   *  emulator that answers model queries. Rows are STABLE host rows
+   *  (originRow + retained index) so the remote client can remap them against
+   *  its snapshot anchor. `available:false` when this PTY has no headless
+   *  state or the engine/addon cannot search — never a thrown federated error. */
+  async searchTerminalScrollback(
+    handle: string,
+    opts: { query: string; caseSensitive?: boolean; regex?: boolean; maxMatches?: number }
+  ): Promise<{
+    available: boolean
+    matches: { hostRow: number; col: number; len: number; line: string }[]
+    total: number
+    incomplete: boolean
+    originRow: number | null
+    hostCols: number | null
+    alternateScreen: boolean
+    incarnation: number | null
+  }> {
+    const unavailable = {
+      available: false,
+      matches: [],
+      total: 0,
+      incomplete: false,
+      originRow: null,
+      hostCols: null,
+      alternateScreen: false,
+      incarnation: null
+    }
+    const ptyId = this.resolveLeafForHandle(handle)?.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_found')
+    }
+    const state = this.headlessTerminals.get(ptyId)
+    if (!state) {
+      return unavailable
+    }
+    // Why: search must observe every byte already accepted for this PTY, or a
+    // just-printed match is invisible to the palette that triggered on it.
+    await state.writeChain
+    const outcome = state.emulator.searchScrollback({
+      query: opts.query,
+      caseSensitive: opts.caseSensitive,
+      regex: opts.regex,
+      // Why the cap: summaries-only crosses the wire (fed §2.4, 64KB/host).
+      maxMatches: Math.max(0, Math.min(opts.maxMatches ?? 50, 200))
+    })
+    if (!outcome) {
+      return unavailable
+    }
+    return {
+      available: true,
+      // Why the snippet clamp: `line` is a snippet, not a transcript; an
+      // unbounded flooded line would blow the per-host summary budget.
+      matches: outcome.matches.map((m) => ({ ...m, line: m.line.slice(0, 512) })),
+      total: outcome.total,
+      incomplete: outcome.incomplete,
+      originRow: outcome.originRow,
+      hostCols: state.emulator.getAppliedSize().cols,
+      alternateScreen: state.emulator.isAlternateScreen,
+      incarnation: state.incarnation
+    }
+  }
+
+  /** Fed §2.4 `terminal.searchContext`: context lines around a STABLE host
+   *  row. Empty lines when the row is no longer retained. */
+  async terminalSearchContext(
+    handle: string,
+    opts: { hostRow: number; before: number; after: number }
+  ): Promise<{
+    available: boolean
+    lines: string[]
+    firstHostRow: number | null
+    incarnation: number | null
+  }> {
+    const ptyId = this.resolveLeafForHandle(handle)?.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_found')
+    }
+    const state = this.headlessTerminals.get(ptyId)
+    if (!state) {
+      return { available: false, lines: [], firstHostRow: null, incarnation: null }
+    }
+    await state.writeChain
+    const window = state.emulator.searchContext(
+      opts.hostRow,
+      // Why the clamp: context is an inline peek (±20 in the design), not a
+      // bulk-history download path.
+      Math.max(0, Math.min(opts.before, 100)),
+      Math.max(0, Math.min(opts.after, 100))
+    )
+    if (!window) {
+      return { available: false, lines: [], firstHostRow: null, incarnation: null }
+    }
+    return {
+      available: true,
+      lines: window.lines.map((line) => line.slice(0, 512)),
+      firstHostRow: window.firstHostRow,
+      incarnation: state.incarnation
+    }
+  }
+
+  /** Current emulator incarnation for a PTY (fed §2.4 anchor validity), or
+   *  null when no headless state exists. */
+  getHeadlessIncarnation(ptyId: string): number | null {
+    return this.headlessTerminals.get(ptyId)?.incarnation ?? null
   }
 
   async clearTerminalBuffer(handle: string): Promise<{ handle: string; cleared: boolean }> {
@@ -7959,7 +8077,12 @@ export class OrcaRuntimeService {
     if (viewAttributes) {
       emulator.applyPushedViewAttributes(viewAttributes)
     }
-    state = { emulator, outputSequence: 0, writeChain: Promise.resolve() }
+    state = {
+      emulator,
+      outputSequence: 0,
+      writeChain: Promise.resolve(),
+      incarnation: nextHeadlessTerminalIncarnation++
+    }
     return state
   }
 
@@ -8071,6 +8194,9 @@ export class OrcaRuntimeService {
     oscLinks?: TerminalOscLinkRange[]
     alternateScreen?: boolean
     pendingEscapeTailAnsi?: string
+    scrollbackLines?: number
+    retainedOriginRow?: number
+    headlessIncarnation?: number
   } | null> {
     if (this.providerSnapshotPreferredPtys.has(ptyId)) {
       // Why: pre-attach stream bytes only form a suffix of restored state. A
@@ -8455,6 +8581,9 @@ export class OrcaRuntimeService {
     // reset, so the next live chunk completes it instead of rendering it
     // literally (Bug E / #7329).
     pendingEscapeTailAnsi?: string
+    scrollbackLines?: number
+    retainedOriginRow?: number
+    headlessIncarnation?: number
   } | null> {
     const state = this.headlessTerminals.get(ptyId)
     if (!state) {
@@ -8466,6 +8595,14 @@ export class OrcaRuntimeService {
     const isAlternateScreen = state.emulator.isAlternateScreen
     const scrollbackRows = opts.scrollbackRows ?? 0
     const snapshot = state.emulator.getSnapshot({ scrollbackRows })
+    // Why AFTER getSnapshot (which settles retention) and in the same sync
+    // tick: the origin must describe the exact coordinate state the serialized
+    // history was read in, or the remote-search anchor is off by the settle.
+    // Optional-called: test fakes and older emulator seams may omit it.
+    const retainedOriginRow =
+      typeof state.emulator.retainedOriginRow === 'function'
+        ? state.emulator.retainedOriginRow()
+        : null
     const data = snapshot.rehydrateSequences + snapshot.snapshotAnsi
     return data.length > 0 || opts.includeEmpty === true
       ? this.preferTrackedLastTitle(ptyId, {
@@ -8478,6 +8615,9 @@ export class OrcaRuntimeService {
           source: 'headless' as const,
           oscLinks: snapshot.oscLinks,
           scrollbackAnsi: snapshot.scrollbackAnsi,
+          scrollbackLines: snapshot.scrollbackLines,
+          ...(retainedOriginRow !== null ? { retainedOriginRow } : {}),
+          headlessIncarnation: state.incarnation,
           ...(snapshot.pendingEscapeTailAnsi
             ? { pendingEscapeTailAnsi: snapshot.pendingEscapeTailAnsi }
             : {}),
@@ -8499,6 +8639,9 @@ export class OrcaRuntimeService {
     if (!state) {
       return
     }
+    // Why: stable-row anchors die with the emulator lifetime that minted them
+    // (fed §2.4); a successor emulator restarts coordinates at 0.
+    terminalHostRowAnchorLedger().clearPty(ptyId)
     this.headlessTerminals.delete(ptyId)
     // Why: queued chain links still parse below before the emulator disposes;
     // sever the reply sink now so they cannot write to a respawned PTY that

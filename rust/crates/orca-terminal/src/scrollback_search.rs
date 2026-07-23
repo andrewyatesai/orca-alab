@@ -49,6 +49,55 @@ pub struct SearchOutcome {
 /// compile): a hostile pattern fails to compile and yields zero matches.
 const REGEX_SIZE_LIMIT: usize = 1 << 20;
 
+// Kernel-parity constants (aterm-search grapheme.rs): the wasm engine folds
+// with lowercase + final-sigma normalization; the daemon must fold
+// byte-identically or the two kernels disagree on Greek/Turkish matches.
+const FINAL_SIGMA: char = 'ς';
+const SIGMA: char = 'σ';
+
+fn lower_fold_char(c: char) -> impl Iterator<Item = char> {
+    c.to_lowercase().map(|lc| if lc == FINAL_SIGMA { SIGMA } else { lc })
+}
+
+fn lower_fold(s: &str) -> String {
+    s.chars().flat_map(lower_fold_char).collect()
+}
+
+/// Folded-byte → original-byte map (port of aterm-search `LowerByteMap`):
+/// entries at char boundaries plus an end sentinel; a mid-expansion offset
+/// (e.g. inside `İ` → `i̇`) rounds UP to the next original boundary, exactly
+/// like the wasm kernel, so partial-expansion matches span the whole source
+/// char on both kernels.
+struct FoldByteMap {
+    entries: Vec<(usize, usize)>,
+}
+
+impl FoldByteMap {
+    fn new(original: &str) -> Self {
+        let mut entries = Vec::new();
+        let mut orig = 0usize;
+        let mut low = 0usize;
+        for ch in original.chars() {
+            entries.push((low, orig));
+            orig += ch.len_utf8();
+            low += lower_fold_char(ch).map(char::len_utf8).sum::<usize>();
+        }
+        entries.push((low, orig));
+        Self { entries }
+    }
+
+    fn map_to_original(&self, lower_byte: usize) -> usize {
+        let total = self.entries.last().map_or(0, |&(_, orig)| orig);
+        match self.entries.binary_search_by_key(&lower_byte, |&(lo, _)| lo) {
+            Ok(idx) => self.entries.get(idx).map_or(total, |&(_, orig)| orig),
+            Err(idx) if idx < self.entries.len() => {
+                self.entries.get(idx).map_or(total, |&(_, orig)| orig)
+            }
+            Err(_) => total,
+        }
+    }
+}
+
 /// The compiled query: literal (with optional case folding) or regex.
 /// Invalid/oversized regex compiles to `None` == zero matches, matching the
 /// wasm engine's contract for the pane find bar.
@@ -75,12 +124,18 @@ impl Matcher {
         }
         let fold_case = !opts.case_sensitive;
         Matcher::Literal {
-            needle: if fold_case { query.to_lowercase() } else { query.to_string() },
+            needle: if fold_case { lower_fold(query) } else { query.to_string() },
             fold_case,
         }
     }
 
-    /// All non-overlapping match spans in `line`, as CHAR (offset, len) pairs.
+    /// All match spans in `line`, as CHAR (offset, len) pairs. Literal spans
+    /// mirror the wasm kernel's scan (aterm-search index.rs): OVERLAPPING
+    /// matches (advance by one folded char) with fold offsets mapped back to
+    /// the original text — so both kernels agree on the match SET. Cols here
+    /// are char offsets into `line` (daemon text-only contract), not the
+    /// renderer's display columns (that unit difference is the one documented
+    /// kernel divergence).
     fn spans(&self, line: &str) -> Vec<(usize, usize)> {
         match self {
             Matcher::Never => Vec::new(),
@@ -97,14 +152,35 @@ impl Matcher {
                 .filter(|(_, len)| *len > 0)
                 .collect(),
             Matcher::Literal { needle, fold_case } => {
-                let haystack = if *fold_case { line.to_lowercase() } else { line.to_string() };
-                let needle_chars = needle.chars().count();
+                let (haystack, map) = if *fold_case {
+                    (lower_fold(line), Some(FoldByteMap::new(line)))
+                } else {
+                    (line.to_string(), None)
+                };
                 let mut spans = Vec::new();
-                let mut from = 0;
-                while let Some(rel) = haystack[from..].find(needle.as_str()) {
-                    let start = from + rel;
-                    spans.push((haystack[..start].chars().count(), needle_chars));
-                    from = start + needle.len().max(1);
+                let mut start = 0usize;
+                while let Some(tail) = haystack.get(start..) {
+                    let Some(pos) = tail.find(needle.as_str()) else {
+                        break;
+                    };
+                    let abs = start + pos;
+                    let end = abs + needle.len();
+                    let (orig_start, orig_end) = match &map {
+                        Some(m) => (m.map_to_original(abs), m.map_to_original(end)),
+                        None => (abs, end),
+                    };
+                    let col = line[..orig_start].chars().count();
+                    let len = line[orig_start..orig_end].chars().count();
+                    if len > 0 {
+                        spans.push((col, len));
+                    }
+                    // Advance by one folded char to preserve overlapping
+                    // matches while staying on a UTF-8 boundary (wasm parity).
+                    let step = haystack
+                        .get(abs..)
+                        .and_then(|s| s.chars().next())
+                        .map_or(1, char::len_utf8);
+                    start = abs + step;
                 }
                 spans
             }
@@ -246,6 +322,28 @@ mod tests {
     }
 
     #[test]
+    fn stable_rows_identify_matches_across_eviction() {
+        // Fed §2.4 remap contract: `retained_origin_row() + abs_row` is a
+        // stable coordinate — the same match keeps the same stable row after
+        // OTHER rows are evicted, so a snapshot anchor stays arithmetically
+        // coherent with later search responses.
+        let mut term = HeadlessTerminal::with_scrollback(1, 16, 6);
+        for i in 0..6 {
+            term.process_str(&format!("row {i}\r\n"));
+        }
+        let out = term.search_scrollback("row 4", SearchOptions::default(), 10, None);
+        assert_eq!(out.total, 1);
+        let stable = term.retained_origin_row() + out.matches[0].abs_row as u64;
+        for i in 6..8 {
+            term.process_str(&format!("row {i}\r\n"));
+        }
+        let after = term.search_scrollback("row 4", SearchOptions::default(), 10, None);
+        assert_eq!(after.total, 1, "row 4 must still be retained for this fixture");
+        assert!(term.retained_origin_row() > 0, "eviction must have advanced the origin");
+        assert_eq!(term.retained_origin_row() + after.matches[0].abs_row as u64, stable);
+    }
+
+    #[test]
     fn case_insensitive_by_default_case_sensitive_on_request() {
         let mut term = term_with_lines(&["Mixed CASE line", "mixed case line"]);
         let insensitive = term.search_scrollback("mixed case", SearchOptions::default(), 10, None);
@@ -279,6 +377,41 @@ mod tests {
             None,
         );
         assert_eq!(bad, SearchOutcome::default());
+    }
+
+    #[test]
+    fn literal_matches_overlap_like_the_wasm_kernel() {
+        // aterm-search advances by ONE folded char, so 'aa' in 'aaaa' matches
+        // at cols 0, 1, 2 — the daemon kernel must agree on the match set.
+        let mut term = term_with_lines(&["aaaa"]);
+        let out = term.search_scrollback("aa", SearchOptions::default(), 10, None);
+        assert_eq!(out.total, 3);
+        let cols: Vec<usize> = out.matches.iter().map(|m| m.col).collect();
+        assert_eq!(cols, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn case_fold_spans_stay_in_original_char_offsets() {
+        // 'İ' lowercases to 2 chars; the span must cover the ORIGINAL 8 chars
+        // of "İstanbul", not the folded 9 (wasm-kernel parity via FoldByteMap).
+        let mut term = term_with_lines(&["İstanbul needle"]);
+        let out = term.search_scrollback("İSTANBUL", SearchOptions::default(), 10, None);
+        assert_eq!(out.total, 1);
+        assert_eq!(out.matches[0].col, 0);
+        assert_eq!(out.matches[0].len, 8);
+        // Offsets AFTER the expanding fold stay anchored to the original line.
+        let tail = term.search_scrollback("NEEDLE", SearchOptions::default(), 10, None);
+        assert_eq!(tail.matches[0].col, 9);
+        assert_eq!(tail.matches[0].len, 6);
+    }
+
+    #[test]
+    fn final_sigma_folds_to_sigma_like_the_wasm_kernel() {
+        let mut term = term_with_lines(&["λόγος test"]);
+        // Final sigma ς and medial σ must be equal under the fold.
+        let out = term.search_scrollback("λόγοσ", SearchOptions::default(), 10, None);
+        assert_eq!(out.total, 1);
+        assert_eq!(out.matches[0].len, 5);
     }
 
     #[test]

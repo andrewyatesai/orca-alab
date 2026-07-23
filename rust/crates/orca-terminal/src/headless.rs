@@ -197,6 +197,19 @@ impl HeadlessTerminal {
         self.inner.grid().scrollback_lines()
     }
 
+    /// Absolute row of the OLDEST retained history row — the engine's stable
+    /// row coordinate (monotonic: advances on eviction/clear, never reused).
+    /// Federated search converts retained-relative `abs_row`s into stable host
+    /// rows as `retained_origin_row() + abs_row`, so a remote client can remap
+    /// match rows against a snapshot anchor without eviction races (fed §2.4).
+    /// `&mut` because retention settles first (`serialize_ansi`'s contract):
+    /// staged compress-offload promotion can evict over-limit rows, and the
+    /// origin must agree with what a snapshot/search observer sees.
+    pub fn retained_origin_row(&mut self) -> u64 {
+        self.settle_scrollback();
+        self.inner.grid().oldest_absolute_row()
+    }
+
     /// Text of scrollback line `index` (0 = oldest), trailing blanks trimmed.
     pub fn scrollback_row_text(&self, index: usize) -> String {
         match self.inner.grid().get_history_line(index) {
@@ -792,6 +805,55 @@ mod tests {
             term.process_str(&format!("L{i}\r\n"));
         }
         assert!(term.scrollback_len() <= 3, "exceeded cap: {}", term.scrollback_len());
+    }
+
+    #[test]
+    fn retained_origin_row_is_stable_under_appends_and_advances_on_eviction() {
+        // Fed §2.4: stable-row identity. Below the cap, appending output must
+        // not move the origin; once at the cap, each evicted line advances it
+        // by exactly one so `origin + retained_index` never re-identifies rows.
+        let mut term = HeadlessTerminal::with_scrollback(1, 8, 3);
+        assert_eq!(term.retained_origin_row(), 0);
+        term.process_str("a\r\nb\r\n");
+        assert_eq!(term.retained_origin_row(), 0, "appends below cap keep the origin");
+        let before = term.retained_origin_row();
+        let len_before = term.scrollback_len();
+        for i in 0..10 {
+            term.process_str(&format!("L{i}\r\n"));
+        }
+        let evicted = (len_before + 10).saturating_sub(term.scrollback_len());
+        assert!(evicted > 0, "cap must have evicted rows");
+        assert_eq!(term.retained_origin_row(), before + evicted as u64);
+        // A row's stable identity survives eviction of OTHER rows: the newest
+        // retained history line keeps `origin + index` pointing at its text.
+        let idx = term.scrollback_len() - 1;
+        let stable = term.retained_origin_row() + idx as u64;
+        let text = term.scrollback_row_text(idx);
+        term.process_str("tail\r\n");
+        let origin_now = term.retained_origin_row();
+        let new_idx = (stable - origin_now) as usize;
+        assert_eq!(term.scrollback_row_text(new_idx), text);
+    }
+
+    #[test]
+    fn retained_origin_row_advances_past_cleared_history() {
+        // clear() drops retained rows; their stable coordinates must never be
+        // reused for new content (monotonic origin), so a stale anchor maps to
+        // "no longer retained" instead of a wrong row.
+        let mut term = HeadlessTerminal::with_scrollback(2, 16, 100);
+        for i in 0..10 {
+            term.process_str(&format!("line{i}\r\n"));
+        }
+        let history = term.scrollback_len() as u64;
+        let origin_before = term.retained_origin_row();
+        term.clear_scrollback();
+        assert_eq!(term.scrollback_len(), 0);
+        assert!(
+            term.retained_origin_row() >= origin_before + history,
+            "cleared rows keep their (now-unretained) stable coordinates: origin {} -> {}",
+            origin_before,
+            term.retained_origin_row()
+        );
     }
 
     #[test]

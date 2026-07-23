@@ -35,7 +35,10 @@ export type RustHeadlessTerminalHandle = {
   oscLinkRanges(scrollbackRows?: number): TerminalOscLinkRange[]
   /** E-5 federated search over history + visible grid: newest-first summaries,
    *  the true total, and the truncation honesty flag. Invalid regex = zero
-   *  matches. `cutoffRow` keeps only rows strictly older than it. */
+   *  matches. `cutoffRow` keeps only rows strictly older than it. `originRow`
+   *  (fed §2.4; absent on pre-Wave-5 addons — feature-detect) is the stable
+   *  absolute row of retained index 0 in the same settled state as the
+   *  matches, so `originRow + absRow` is an eviction-stable host row. */
   searchScrollback(
     query: string,
     caseSensitive?: boolean,
@@ -46,13 +49,19 @@ export type RustHeadlessTerminalHandle = {
     matches: { absRow: number; col: number; len: number; line: string }[]
     total: number
     incomplete: boolean
+    originRow?: number
   }
-  /** Context lines around an absolute row, clamped to retained content. */
+  /** Context lines around an absolute row, clamped to retained content.
+   *  `originRow`: same stable-row contract as `searchScrollback`. */
   searchContext(
     absRow: number,
     before: number,
     after: number
-  ): { lines: string[]; firstAbsRow: number }
+  ): { lines: string[]; firstAbsRow: number; originRow?: number }
+  /** Stable absolute row of retained history index 0 (fed §2.4 remote wire):
+   *  monotonic across eviction/clear, settled before read. Absent on
+   *  pre-Wave-5 addons — callers must feature-detect. */
+  retainedOriginRow?(): number
 }
 
 export type RustHeadlessTerminalCtor = new (

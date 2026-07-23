@@ -158,10 +158,17 @@ describe("federated fan-out cold/warm latency (residual 5 / 5E)", () => {
       );
     }
 
-    // Committed floor: the retained index must make warm no slower than cold.
-    // ×1.5 headroom absorbs cross-run jitter while still failing loudly if a
-    // regression makes warm rebuild the index every call (residual 2 undone).
-    expect(warmMs).toBeLessThanOrEqual(coldMs * 1.5);
+    // Committed floor — PROVES reuse, not mere non-regression: warm must be
+    // MATERIALLY faster than cold, because reuse structurally deletes the
+    // dominant cost (the from-scratch index build over deep scrollback). A
+    // regression that undoes residual 2 rebuilds on every call, collapsing warm
+    // onto cold (ratio → ~1.0) and tripping this bound. The 0.7 ceiling is a
+    // ~3.9× margin over the measured ratio (~0.18, i.e. ~5.6× speedup, reps
+    // tightly clustered ±3%); the index build is CPU-bound and structural, so
+    // the RATIO stays stable even when a loaded CI box inflates both regimes.
+    // A ≤ coldMs×1.5-style bound would NOT prove reuse — it passes when warm
+    // equals cold (the exact rebuild-every-time regression this must catch).
+    expect(warmMs).toBeLessThanOrEqual(coldMs * 0.7);
     // Catastrophic-regression ceiling: a full cold N-pane fan-out over this much
     // scrollback stays well under 2 s even on a slow CI runner.
     expect(coldMs).toBeLessThan(2000);

@@ -81,7 +81,7 @@ type IpynbViewerProps = {
   scrollCacheKey: string
   onContentChange: (content: string) => void
   onDirtyStateHint: (dirty: boolean) => void
-  onSave: (content: string) => Promise<void>
+  onSave: (content: string) => Promise<boolean>
 }
 
 const NOTEBOOK_SOURCE_COMMIT_DELAY_MS = 400
@@ -845,7 +845,10 @@ export default function IpynbViewer({
     setRunError(null)
     setRunningCellIndex(index)
     try {
-      await onSave(latestContent)
+      const didSave = await onSave(latestContent)
+      if (!didSave) {
+        return
+      }
       const result = await window.api.notebook.runPythonCell({
         filePath,
         code: cell.source,

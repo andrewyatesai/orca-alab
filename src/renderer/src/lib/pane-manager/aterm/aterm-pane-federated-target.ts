@@ -4,7 +4,6 @@
 // budget (never an unbudgeted call). Split from the wiring for the line cap.
 
 import { copyBudgetedStep } from './aterm-engine-budgeted-search'
-import { detectEngineSearchSummary } from './aterm-engine-search-summary'
 import type { AtermFederatedSearchTarget } from './aterm-federated-search-target'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -23,8 +22,9 @@ export function buildFederatedSearchTarget(
     }
     return {
       kind: 'in-process',
+      // E-6 (binding): only the budgeted cursor surface — a skew pin without it
+      // is refused by the scan runner, never scanned unbudgeted on this thread.
       engine: {
-        search: (q, cs, regex) => term.search(q, cs, regex),
         // Guarded per call: artifact skew can leave a pin without the budgeted API.
         searchBudgeted:
           typeof term.search_budgeted === 'function'
@@ -34,8 +34,7 @@ export function buildFederatedSearchTarget(
         searchBudgetedCancel:
           typeof term.search_budgeted_cancel === 'function'
             ? () => term.search_budgeted_cancel()
-            : undefined,
-        searchSummary: detectEngineSearchSummary(term)
+            : undefined
       },
       baseY: () => term.base_y,
       rows: () => gridSizing.grid().rows

@@ -83,6 +83,26 @@ describe('mergeFederatedBatch', () => {
     expect(group.matches.map((m) => m.absRow)).toEqual([500, 100])
   })
 
+  it('a depth-extension batch with NO known cutoff fails closed (drops all matches)', () => {
+    const groups = new Map<string, FederatedResultGroup>()
+    mergeFederatedBatch(groups, liveBatch({ sessionId: 's1', matches: [match(500)], total: 1 }))
+    // A skewed adapter flags depth extension but the controller resolves no
+    // cutoff for the session: accepting the batch could double-report live rows.
+    mergeFederatedBatch(
+      groups,
+      liveBatch({
+        sessionId: 's1',
+        depthExtension: true,
+        matches: [match(100), match(500)],
+        total: 2
+      })
+      // cutoffRow deliberately undefined
+    )
+    const group = [...groups.values()][0]
+    expect(group.matches.map((m) => m.absRow)).toEqual([500])
+    expect(group.total).toBe(1)
+  })
+
   it('orders matches newest-first within a group and caps at top-K with honest total', () => {
     const groups = new Map<string, FederatedResultGroup>()
     const many = Array.from({ length: FEDERATED_TOP_K_MATCHES + 10 }, (_, i) => match(i))

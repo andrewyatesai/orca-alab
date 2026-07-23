@@ -140,15 +140,19 @@ export function createLivePaneSearchAdapter(deps: {
     // ── In-process fallback panes: serial main-thread scan, idle-sliced ────────
     const inProcessPanes = panes.filter((p) => p.target.kind === 'in-process')
     const inProcessRun = (async () => {
+      // §4 admission is CUMULATIVE (the worker walk's rule, mirrored): visible
+      // panes keep their warm index after scanning, so their estimates stay
+      // counted — later panes are refused once the collective retained bytes
+      // would breach the budget, not judged one pane at a time.
+      let residentEstimateBytes = 0
       for (const pane of inProcessPanes) {
         if (isCancelled() || pane.target.kind !== 'in-process') {
           return
         }
         const target = pane.target
-        // Same §4 admission estimate as the worker walk: a pane too deep to
-        // index degrades to an honest empty-but-incomplete batch.
         const estimate = (target.baseY() + target.rows()) * FEDERATED_INDEX_BYTES_PER_LINE
-        if (estimate > FEDERATED_WORKER_INDEX_BUDGET_BYTES) {
+        if (residentEstimateBytes + estimate > FEDERATED_WORKER_INDEX_BUDGET_BYTES) {
+          // Honest degradation: too deep to index within the remaining budget.
           emit(toBatch(pane, [], 0, true, 'over-budget'))
           continue
         }
@@ -165,9 +169,12 @@ export function createLivePaneSearchAdapter(deps: {
               if (result && !isCancelled()) {
                 emit(toBatch(pane, result.matches, result.total, result.incomplete, 'none'))
               }
-              // Immediate eviction for non-visible panes (§4) — visible panes
-              // keep the warm index for their own find bar.
-              if (!pane.visible && !pane.focused) {
+              if (pane.visible || pane.focused) {
+                // Visible panes keep the warm index (their find bar benefits) —
+                // it stays counted against this run's resident budget.
+                residentEstimateBytes += estimate
+              } else {
+                // Immediate eviction for non-visible panes (§4).
                 target.engine.searchBudgetedCancel?.()
               }
               resolve()

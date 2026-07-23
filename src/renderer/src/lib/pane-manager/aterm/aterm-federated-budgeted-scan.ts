@@ -6,7 +6,6 @@
 // state — it drives the engine's budgeted cursor directly and publishes nothing.
 
 import type { EngineBudgetedSearchStep } from './aterm-engine-budgeted-search'
-import type { EngineSearchSummaryFn } from './aterm-engine-search-summary'
 import type { AtermFederatedMatch } from './aterm-worker-federated-protocol'
 import {
   SEARCH_FIND_MAX_RESTARTS,
@@ -21,9 +20,11 @@ const SLICE_INITIAL_ROWS = 4096
 const SLICE_MIN_ROWS = 256
 const SLICE_MAX_ROWS = 262144
 
-/** The engine surface one federated pane scan drives. */
+/** The engine surface one federated pane scan drives. E-6 (binding): ONLY the
+ *  budgeted cursor — no one-shot member exists here, so no federated code path
+ *  can reach an unbudgeted engine call. Snippets wait for the real E-1 export
+ *  (budgeted per the fed design's E-6 rev); no speculative summary surface. */
 export type FederatedScanEngine = {
-  search: (query: string, caseSensitive: boolean, isRegex: boolean) => Uint32Array
   searchBudgeted?: (
     query: string,
     caseSensitive: boolean,
@@ -32,9 +33,6 @@ export type FederatedScanEngine = {
     rowBudget: number
   ) => EngineBudgetedSearchStep
   searchBudgetedCancel?: () => void
-  /** E-1 summary binding (feature-detected); preferred for snippets once the
-   *  budgeted scan has warmed the index. */
-  searchSummary?: EngineSearchSummaryFn
 }
 
 export type FederatedPaneScanResult = {
@@ -59,7 +57,9 @@ export type FederatedPaneScanOptions = {
   onDone: (result: FederatedPaneScanResult | null) => void
 }
 
-/** Order matches newest-first and apply the per-pane cap + snippet join. */
+/** Order matches newest-first and apply the per-pane cap. Snippets stay null
+ *  until the real E-1 export lands (its fed-design E-6 rev takes a row budget +
+ *  cursor); calling any unbudgeted summary here would defeat E-6 on completion. */
 function finishScan(
   opts: FederatedPaneScanOptions,
   found: AtermFederatedMatch[],
@@ -67,36 +67,13 @@ function finishScan(
 ): void {
   const total = found.length
   const sorted = [...found].sort((a, b) => b.absRow - a.absRow || b.col - a.col)
-  const capped = sorted.slice(0, opts.maxMatches)
-  // Snippets ride the E-1 summary binding when present: the budgeted scan above
-  // has just warmed the index, so the summary read is O(matches), not a rebuild.
-  const summary = opts.engine.searchSummary?.(
-    opts.query,
-    opts.caseSensitive,
-    opts.isRegex,
-    opts.maxMatches
-  )
-  if (summary) {
-    const snippetByPos = new Map<string, string | null>()
-    for (const m of summary.matches) {
-      snippetByPos.set(`${m.absRow}:${m.col}`, m.snippet)
-    }
-    for (const m of capped) {
-      m.snippet = snippetByPos.get(`${m.absRow}:${m.col}`) ?? null
-    }
-    opts.onDone({
-      matches: capped,
-      total: Math.max(total, summary.total),
-      incomplete: incomplete || summary.incomplete
-    })
-    return
-  }
-  opts.onDone({ matches: capped, total, incomplete })
+  opts.onDone({ matches: sorted.slice(0, opts.maxMatches), total, incomplete })
 }
 
-/** Run one pane's scan. Every engine call is row-budgeted (E-6); a pane on an
- *  artifact-skew pin without the budgeted API degrades to the same legacy
- *  one-shot the pane find bar uses — bounded by that pin's own behavior. */
+/** Run one pane's scan. Every engine call is row-budgeted (E-6, binding): a
+ *  pane on an artifact-skew pin WITHOUT the budgeted API is refused with an
+ *  honest empty-but-incomplete result — never the legacy one-shot, which would
+ *  be exactly the unbudgeted (worker- or main-thread-stalling) call E-6 bans. */
 export function runFederatedPaneScan(opts: FederatedPaneScanOptions): void {
   const { engine } = opts
   const searchBudgeted = engine.searchBudgeted
@@ -105,27 +82,7 @@ export function runFederatedPaneScan(opts: FederatedPaneScanOptions): void {
       opts.onDone(null)
       return
     }
-    // Artifact-skew fallback (mirrors the pane find bar): the legacy one-shot,
-    // which drops the engine's incomplete signal — reported honestly as false.
-    let flat: Uint32Array
-    try {
-      flat = engine.search(opts.query, opts.caseSensitive, opts.isRegex)
-    } catch {
-      // Engine freed mid-run (pane disposed) — settle as cancelled, never throw
-      // into the shared worker (a crash there retires EVERY pane).
-      opts.onDone(null)
-      return
-    }
-    finishScan(
-      opts,
-      decodeMatches(flat).map((m) => ({
-        absRow: m.line,
-        col: m.startCol,
-        len: m.length,
-        snippet: null
-      })),
-      false
-    )
+    opts.onDone({ matches: [], total: 0, incomplete: true })
     return
   }
   let cursor: bigint | undefined

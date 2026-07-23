@@ -8,6 +8,7 @@ import type {
   AtermWorkerFederatedCommand,
   AtermWorkerFederatedEvent
 } from '../pane-manager/aterm/aterm-worker-federated-protocol'
+import { FEDERATED_INDEX_BYTES_PER_LINE } from '../pane-manager/aterm/aterm-worker-federated-find'
 import type { FederatedPaneBatch } from './federated-search-model'
 
 function workerPane(
@@ -29,7 +30,7 @@ function workerPane(
 function inProcessPane(
   paneKey: string,
   matches: number[],
-  opts?: Partial<Pick<DiscoveredLivePane, 'visible' | 'focused'>>
+  opts?: Partial<Pick<DiscoveredLivePane, 'visible' | 'focused'>> & { baseY?: number }
 ): DiscoveredLivePane {
   const [tabId, leafId] = paneKey.split(':')
   return {
@@ -40,8 +41,19 @@ function inProcessPane(
     lastOutputAt: 0,
     target: {
       kind: 'in-process',
-      engine: { search: () => new Uint32Array(matches) },
-      baseY: () => 100,
+      // E-6: only the budgeted cursor surface exists on the scan engine.
+      engine: {
+        searchBudgeted: () => ({
+          matches: new Uint32Array(matches),
+          complete: true,
+          cursor: undefined,
+          reset: true,
+          incompleteIndex: false,
+          rowsFed: 124,
+          totalRows: 124
+        })
+      },
+      baseY: () => opts?.baseY ?? 100,
       rows: () => 24
     }
   }
@@ -221,5 +233,33 @@ describe('createLivePaneSearchAdapter (in-process fallback)', () => {
     })
     await adapter.query('foo', { caseSensitive: false, isRegex: false }, 1, 50, () => undefined)
     expect(cancel).toHaveBeenCalled()
+  })
+
+  it('admission is CUMULATIVE across visible in-process panes (§4 hard budget)', async () => {
+    // Each pane alone fits the 256MB estimate budget; two visible panes keep
+    // their warm indexes, so the third must be refused, not judged in isolation.
+    const deepRows = Math.floor((100 * 1024 * 1024) / FEDERATED_INDEX_BYTES_PER_LINE)
+    const panes = [
+      inProcessPane('t:v1', [1, 0, 1], { visible: true, baseY: deepRows }),
+      inProcessPane('t:v2', [2, 0, 1], { visible: true, baseY: deepRows }),
+      inProcessPane('t:v3', [3, 0, 1], { visible: true, baseY: deepRows })
+    ]
+    const adapter = createLivePaneSearchAdapter({
+      discoverPanes: () => panes,
+      postFederated: () => false,
+      subscribeFederated: () => () => undefined,
+      yieldIdle: (next) => next()
+    })
+    const batches: FederatedPaneBatch[] = []
+    await adapter.query('foo', { caseSensitive: false, isRegex: false }, 1, 50, (b) =>
+      batches.push(b)
+    )
+    expect(batches).toHaveLength(3)
+    expect(batches[0].degraded).toBe('none')
+    expect(batches[1].degraded).toBe('none')
+    // Third pane: cumulative retained estimate would breach the budget.
+    expect(batches[2].degraded).toBe('over-budget')
+    expect(batches[2].matches).toEqual([])
+    expect(batches[2].incomplete).toBe(true)
   })
 })

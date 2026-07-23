@@ -33,7 +33,6 @@ function makePane(opts?: {
   const evictWarm = vi.fn()
   return {
     engine: {
-      search: vi.fn(() => new Uint32Array()),
       searchBudgeted: vi.fn(() => {
         opts?.onScan?.()
         return completeStep(opts?.matches ?? [4, 0, 3])
@@ -293,7 +292,6 @@ describe('createWorkerFederatedFind', () => {
 
     const pane: FederatedFindPaneSource = {
       engine: {
-        search: handle.search,
         searchBudgeted: vi.fn(() => completeStep([50, 0, 3]))
       },
       baseY: () => 100,

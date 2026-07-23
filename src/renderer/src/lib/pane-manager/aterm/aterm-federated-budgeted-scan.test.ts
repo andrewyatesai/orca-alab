@@ -49,7 +49,6 @@ describe('runFederatedPaneScan', () => {
       step({ matches: new Uint32Array([12, 1, 3]), complete: true, cursor: undefined })
     ]
     const engine: FederatedScanEngine = {
-      search: vi.fn(),
       searchBudgeted: vi.fn(() => steps.shift()!)
     }
     const result = runToResult(engine)
@@ -64,7 +63,6 @@ describe('runFederatedPaneScan', () => {
 
   it('caps streamed matches at maxMatches, keeping the NEWEST, with total honest', () => {
     const engine: FederatedScanEngine = {
-      search: vi.fn(),
       searchBudgeted: vi.fn(() =>
         step({
           matches: new Uint32Array([1, 0, 1, 2, 0, 1, 3, 0, 1, 4, 0, 1]),
@@ -86,7 +84,6 @@ describe('runFederatedPaneScan', () => {
       step({ matches: new Uint32Array([9, 0, 1]), reset: true, complete: true, cursor: undefined })
     ]
     const engine: FederatedScanEngine = {
-      search: vi.fn(),
       searchBudgeted: vi.fn(() => steps.shift()!)
     }
     const r = runToResult(engine) as FederatedPaneScanResult
@@ -100,7 +97,6 @@ describe('runFederatedPaneScan', () => {
     )
     const cancel = vi.fn()
     const engine: FederatedScanEngine = {
-      search: vi.fn(),
       searchBudgeted,
       searchBudgetedCancel: cancel
     }
@@ -116,7 +112,6 @@ describe('runFederatedPaneScan', () => {
     let calls = 0
     const cancel = vi.fn()
     const engine: FederatedScanEngine = {
-      search: vi.fn(),
       searchBudgeted: vi.fn(() => {
         calls++
         return step({ matches: new Uint32Array([1, 0, 1]), reset: calls === 1 })
@@ -128,9 +123,18 @@ describe('runFederatedPaneScan', () => {
     expect(cancel).toHaveBeenCalled()
   })
 
-  it('joins snippets from the feature-detected search_summary on completion', () => {
+  it('REFUSES a pin without the budgeted API: empty + incomplete, no engine call (E-6)', () => {
+    // No searchBudgeted member at all — the E-6 binding contract says the scan
+    // must fail closed rather than reach for any unbudgeted one-shot.
+    const engine: FederatedScanEngine = {}
+    const r = runToResult(engine) as FederatedPaneScanResult
+    expect(r.matches).toEqual([])
+    expect(r.total).toBe(0)
+    expect(r.incomplete).toBe(true)
+  })
+
+  it('leaves snippets null on completion (no unbudgeted summary call exists to make)', () => {
     const engine: FederatedScanEngine = {
-      search: vi.fn(),
       searchBudgeted: vi.fn(() =>
         step({
           matches: new Uint32Array([5, 2, 3, 8, 0, 3]),
@@ -138,33 +142,14 @@ describe('runFederatedPaneScan', () => {
           complete: true,
           cursor: undefined
         })
-      ),
-      searchSummary: vi.fn(() => ({
-        matches: [
-          { absRow: 8, col: 0, len: 3, snippet: 'foo bar' },
-          { absRow: 5, col: 2, len: 3, snippet: 'x foo y' }
-        ],
-        total: 2,
-        incomplete: false
-      }))
+      )
     }
     const r = runToResult(engine) as FederatedPaneScanResult
-    expect(r.matches[0]).toMatchObject({ absRow: 8, snippet: 'foo bar' })
-    expect(r.matches[1]).toMatchObject({ absRow: 5, snippet: 'x foo y' })
-  })
-
-  it('falls back to the legacy one-shot search on pins without the budgeted API', () => {
-    const engine: FederatedScanEngine = {
-      search: vi.fn(() => new Uint32Array([2, 0, 3, 6, 1, 3]))
-    }
-    const r = runToResult(engine) as FederatedPaneScanResult
-    expect(r.matches.map((m) => m.absRow)).toEqual([6, 2])
-    expect(r.incomplete).toBe(false)
+    expect(r.matches.every((m) => m.snippet === null)).toBe(true)
   })
 
   it('settles null (never throws) when the engine is freed mid-run', () => {
     const engine: FederatedScanEngine = {
-      search: vi.fn(),
       searchBudgeted: vi.fn(() => {
         throw new Error('null pointer passed to rust')
       })

@@ -56,10 +56,14 @@ export function mergeFederatedBatch(
   cutoffRow?: number
 ): void {
   const key = federatedGroupKey(batch)
-  const incoming =
-    batch.depthExtension && cutoffRow !== undefined
+  // Depth-extension batches FAIL CLOSED without a known cutoff (dedup §2.3): a
+  // skewed adapter that flags depth extension but resolves no cutoff would
+  // otherwise double-report rows the live scan already covered.
+  const incoming = batch.depthExtension
+    ? cutoffRow !== undefined
       ? filterDepthExtensionMatches(batch.matches, cutoffRow)
-      : [...batch.matches]
+      : []
+    : [...batch.matches]
   const existing = groups.get(key)
   if (!existing) {
     groups.set(key, {

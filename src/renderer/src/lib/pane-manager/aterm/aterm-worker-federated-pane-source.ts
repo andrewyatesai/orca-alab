@@ -29,11 +29,11 @@ export function federatedPaneSourceFromRuntime(
     return null
   }
   return {
+    // E-6 (binding): only the budgeted cursor surface is exposed to the
+    // federated scan — no one-shot, no unbudgeted summary.
     engine: {
-      search: handle.search,
       searchBudgeted: handle.searchBudgeted,
-      searchBudgetedCancel: handle.searchBudgetedCancel,
-      searchSummary: handle.searchSummary
+      searchBudgetedCancel: handle.searchBudgetedCancel
     },
     baseY: () => handle.engine.base_y,
     rows: () => pane.term?.dimensions().rows ?? 0,

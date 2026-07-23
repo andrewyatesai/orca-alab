@@ -71,3 +71,13 @@ export const FEDERATED_TOP_K_MATCHES = 50
 
 /** Debounce after the last keystroke before a query fans out (§1 liveness). */
 export const FEDERATED_QUERY_DEBOUNCE_MS = 75
+
+/** §1 smart-case: case-insensitive until the query contains an uppercase letter;
+ *  the explicit toggle forces sensitivity outright (applies to regex too, the
+ *  ripgrep --smart-case convention). */
+export function federatedEffectiveCaseSensitive(
+  query: string,
+  caseSensitiveToggle: boolean
+): boolean {
+  return caseSensitiveToggle || /\p{Lu}/u.test(query)
+}

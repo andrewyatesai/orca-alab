@@ -15,7 +15,10 @@ import {
   createProductionFederatedSearchController,
   jumpToFederatedResultInApp
 } from '@/lib/federated-search/federated-search-production'
-import { FEDERATED_QUERY_DEBOUNCE_MS } from '@/lib/federated-search/federated-search-model'
+import {
+  FEDERATED_QUERY_DEBOUNCE_MS,
+  federatedEffectiveCaseSensitive
+} from '@/lib/federated-search/federated-search-model'
 import type { FederatedResultGroup } from '@/lib/federated-search/federated-search-grouping'
 import type { FederatedMatch } from '@/lib/federated-search/federated-search-model'
 
@@ -80,7 +83,13 @@ export default function FederatedSearchPalette(): React.JSX.Element | null {
     }
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null
-      controller.setQuery(query.trim(), { caseSensitive, isRegex: regexEnabled })
+      const trimmed = query.trim()
+      controller.setQuery(trimmed, {
+        // §1 smart-case: an uppercase letter in the query turns on sensitivity
+        // even with the toggle off; the toggle forces it outright.
+        caseSensitive: federatedEffectiveCaseSensitive(trimmed, caseSensitive),
+        isRegex: regexEnabled
+      })
     }, FEDERATED_QUERY_DEBOUNCE_MS)
     return () => {
       if (debounceRef.current !== null) {

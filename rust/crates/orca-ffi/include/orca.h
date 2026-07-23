@@ -65,6 +65,20 @@ void orca_terminal_size(const OrcaTerminal *terminal, size_t *out_rows, size_t *
 /* Resize the grid. */
 void orca_terminal_resize(OrcaTerminal *terminal, size_t rows, size_t cols);
 
+/* Federated search (E-5) over scrollback + visible grid: newest-first match
+ * summaries as JSON `{"matches":[{"absRow","col","len","line"}],"total",
+ * "incomplete"}`. case_sensitive/is_regex are 0/1; invalid regex means zero
+ * matches. Free with orca_string_free(); NULL on bad input. Mutates retention
+ * settling, hence non-const. */
+char *orca_terminal_search_scrollback(OrcaTerminal *terminal, const char *query,
+                                      unsigned char case_sensitive, unsigned char is_regex,
+                                      size_t max_matches);
+
+/* Context lines around an absolute row: JSON `{"lines":[...],"firstAbsRow":n}`.
+ * Free with orca_string_free(). */
+char *orca_terminal_search_context(OrcaTerminal *terminal, size_t abs_row, size_t before,
+                                   size_t after);
+
 /* Release a string returned by an orca_* function. */
 void orca_string_free(char *string);
 

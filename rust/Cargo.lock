@@ -738,6 +738,7 @@ version = "0.0.1"
 dependencies = [
  "orca-session",
  "orca-terminal",
+ "serde_json",
 ]
 
 [[package]]

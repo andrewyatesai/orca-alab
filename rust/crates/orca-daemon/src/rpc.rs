@@ -40,7 +40,7 @@ fn frame_batch_kib() -> usize {
     })
 }
 
-fn field_str<'a>(payload: &'a Value, key: &str) -> &'a str {
+pub(crate) fn field_str<'a>(payload: &'a Value, key: &str) -> &'a str {
     payload.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
@@ -51,7 +51,7 @@ fn field_str<'a>(payload: &'a Value, key: &str) -> &'a str {
 /// not) — desyncing the kernel winsize from the engine grid. Clamp to the same
 /// `1..=u16::MAX` band orca-terminal's `dim()` enforces (also rejecting explicit
 /// `0`); absent/non-integer keeps the caller's default, mirroring `scrollback_rows`.
-fn field_u16(payload: &Value, key: &str, default: u16) -> u16 {
+pub(crate) fn field_u16(payload: &Value, key: &str, default: u16) -> u16 {
     match payload.get(key).and_then(Value::as_u64) {
         Some(v) => v.clamp(1, u16::MAX as u64) as u16,
         None => default,
@@ -67,7 +67,7 @@ const SCROLLBACK_ROWS_MAX: u64 = 50_000;
 /// (protocol skew, hostile client) keeps the historical `DEFAULT_SCROLLBACK`;
 /// out-of-range values clamp instead of erroring so a skewed client still gets
 /// a session.
-fn scrollback_rows(payload: &Value) -> usize {
+pub(crate) fn scrollback_rows(payload: &Value) -> usize {
     match payload.get("scrollbackRows").and_then(Value::as_u64) {
         Some(rows) => rows.clamp(SCROLLBACK_ROWS_MIN, SCROLLBACK_ROWS_MAX) as usize,
         None => DEFAULT_SCROLLBACK,
@@ -330,6 +330,15 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             None => rpc_err(id, "unknown session"),
         },
         "cancelCreateOrAttach" => void_ack(id),
+        // v1021 federated search (4E): warm-session summaries + context, and the
+        // generation-cached transient replay for cold/parked content. Read-only
+        // (same authority as getSnapshot) — subscribers may search too.
+        "searchSessions" => crate::session_search::search_sessions(id, payload, registry),
+        "searchContext" => crate::session_search::search_context(id, payload, registry),
+        "searchReplay" => crate::session_search::search_replay(id, payload, registry),
+        "searchReplayContext" => {
+            crate::session_search::search_replay_context(id, payload, registry)
+        }
         // Deliver a named signal to the child (node-pty's `kill(signal)`). Errors
         // from a dead child are dropped like the Node daemon; an unknown session
         // errors (host.signal throws on a missing session there too).

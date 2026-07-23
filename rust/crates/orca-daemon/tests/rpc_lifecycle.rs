@@ -435,8 +435,9 @@ fn ping_and_unknown_session_error() {
 fn protocol_version_is_pinned() {
     // Guards the fork's daemon namespace: 1000+ is fork-reserved so a public
     // Orca build (v18) never handshakes with this daemon (see protocol.rs).
-    assert_eq!(orca_daemon::protocol::PROTOCOL_VERSION, 1020);
-    // 1019 (subscriber role) and 1020 (opt-in binary stream plane) are additive:
-    // a 1018 hello must stay accepted.
+    assert_eq!(orca_daemon::protocol::PROTOCOL_VERSION, 1021);
+    // 1019 (subscriber role), 1020 (opt-in binary stream plane) and 1021
+    // (federated-search RPCs) are additive: a 1018 hello must stay accepted.
     assert_eq!(orca_daemon::protocol::MIN_SUPPORTED_PROTOCOL_VERSION, 1018);
+    assert_eq!(orca_daemon::protocol::SESSION_SEARCH_PROTOCOL_VERSION, 1021);
 }

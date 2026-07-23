@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { hardenExistingSecureFile, writeSecureJsonFile } from '../../shared/secure-file'
+import { timingSafeTokenCompare } from '../../shared/timing-safe-token-compare'
 import type { DeviceScope } from '../../shared/runtime-types'
 import { DEVICE_REGISTRY_FILENAME } from './mobile-pairing-files'
 import type { RelayDeviceBinding } from './relay/relay-revoke-outbox'
@@ -144,7 +145,18 @@ export class DeviceRegistry {
   }
 
   validateToken(token: string): DeviceEntry | null {
-    return this.devices.find((d) => d.token === token) ?? null
+    // Why: device tokens are secret bearer credentials, so match with a
+    // constant-time compare like the shared runtime-auth path — a `===` lookup
+    // short-circuits and leaks how many leading bytes match via response timing.
+    // Scan every device (no early return) so per-request work is independent of
+    // which device (if any) matched.
+    let match: DeviceEntry | null = null
+    for (const device of this.devices) {
+      if (timingSafeTokenCompare(device.token, token)) {
+        match = device
+      }
+    }
+    return match
   }
 
   updateLastSeen(deviceId: string): void {

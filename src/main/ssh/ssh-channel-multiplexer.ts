@@ -37,6 +37,14 @@ const REQUEST_TIMEOUT_MS = 30_000
 // Why: a tick gap far beyond the interval means the process was paused
 // (system sleep, App Nap timer throttling) — not that the link is dead (#7773).
 const WAKE_GAP_MS = KEEPALIVE_SEND_MS * 3
+// Why: unackedTimestamps is pruned only when the peer's ack advances. A peer
+// that stays live (its inbound frames keep lastReceivedAt fresh, so the
+// no-data half of dead-link detection never trips) but never advances ack would
+// grow this map unbounded (~1 entry per keepalive, ~17k/day). Cap the tracked
+// set far above any realistic in-flight window; past it, newer sends go
+// untracked. Dead-link detection needs only the OLDEST unacked timestamp, which
+// the retained entries preserve, and ack-deleting an untracked seq is a no-op.
+export const MAX_UNACKED_TIMESTAMPS = 50_000
 
 export class SshChannelMultiplexer {
   private decoder: FrameDecoder
@@ -321,10 +329,20 @@ export class SshChannelMultiplexer {
 
   // ── Private ───────────────────────────────────────────────────────
 
+  // Why: cap unackedTimestamps against a live-but-non-acking peer (see
+  // MAX_UNACKED_TIMESTAMPS). Once full we stop tracking newer seqs; the retained
+  // oldest entries keep dead-link staleness detection intact.
+  private recordUnacked(seq: number): void {
+    if (this.unackedTimestamps.size >= MAX_UNACKED_TIMESTAMPS) {
+      return
+    }
+    this.unackedTimestamps.set(seq, Date.now())
+  }
+
   private sendMessage(msg: JsonRpcMessage): void {
     const seq = this.nextOutgoingSeq++
     const frame = encodeJsonRpcFrame(msg, seq, this.highestReceivedSeq)
-    this.unackedTimestamps.set(seq, Date.now())
+    this.recordUnacked(seq)
     try {
       this.transport.write(frame)
     } catch (err) {
@@ -341,7 +359,7 @@ export class SshChannelMultiplexer {
     }
     const seq = this.nextOutgoingSeq++
     const frame = encodeKeepAliveFrame(seq, this.highestReceivedSeq)
-    this.unackedTimestamps.set(seq, Date.now())
+    this.recordUnacked(seq)
     try {
       this.transport.write(frame)
     } catch (err) {

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { SshChannelMultiplexer, type MultiplexerTransport } from './ssh-channel-multiplexer'
+import {
+  SshChannelMultiplexer,
+  MAX_UNACKED_TIMESTAMPS,
+  type MultiplexerTransport
+} from './ssh-channel-multiplexer'
 import { encodeFrame, MessageType, HEADER_LENGTH, encodeKeepAliveFrame } from './relay-protocol'
 
 function createMockTransport(): MultiplexerTransport & {
@@ -67,6 +71,7 @@ type MuxInternals = {
   notificationHandlers: unknown[]
   methodNotificationHandlers: Map<string, Set<unknown>>
   disposeHandlers: unknown[]
+  unackedTimestamps: Map<number, number>
 }
 
 function getMuxInternals(instance: SshChannelMultiplexer): MuxInternals {
@@ -320,6 +325,24 @@ describe('SshChannelMultiplexer', () => {
 
       // Check half: with no inbound frames or acks, the same interval declares
       // the link dead (no-data + oldest-unacked both exceed the 20s window).
+      expect(mux.isDisposed()).toBe(false)
+      vi.advanceTimersByTime(25_000)
+      expect(mux.isDisposed()).toBe(true)
+    })
+  })
+
+  describe('unacked timestamp bounding', () => {
+    it('caps unackedTimestamps against a non-acking peer while preserving dead-link detection', () => {
+      const internals = getMuxInternals(mux)
+      // Peer never acks (no inbound frames); every outbound send would otherwise
+      // accumulate forever. The map must stop growing at the cap.
+      for (let i = 0; i < MAX_UNACKED_TIMESTAMPS + 50; i++) {
+        mux.notify('pty.data', { id: 'p', data: 'x' })
+      }
+      expect(internals.unackedTimestamps.size).toBe(MAX_UNACKED_TIMESTAMPS)
+
+      // The retained (oldest) entries still let the health check declare the
+      // link dead once no inbound frame refreshes lastReceivedAt.
       expect(mux.isDisposed()).toBe(false)
       vi.advanceTimersByTime(25_000)
       expect(mux.isDisposed()).toBe(true)

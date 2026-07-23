@@ -3,6 +3,7 @@ import {
   assertNoEmbeddedLocalBuildPaths,
   containsLocalCargoSourcePath,
   localWasmBuildPaths,
+  wasmCratePathRemapRustflags,
   wasmPathRemapRustflags
 } from './wasm-build-paths.mjs'
 
@@ -26,6 +27,22 @@ describe('WASM build path portability', () => {
       '/Users/example/work/orc',
       '/Users/example/.cargo',
       '/Users/example'
+    ])
+  })
+
+  it('remaps the in-repo wasm crates (crypto/git) with a neutral /crate label', () => {
+    expect(
+      wasmCratePathRemapRustflags({
+        root: '/Users/example/work/orc',
+        crateSource: '/Users/example/work/orc/rust/orca-crypto-wasm',
+        env: {},
+        home: '/Users/example'
+      })
+    ).toEqual([
+      '--remap-path-prefix=/Users/example/work/orc/rust/orca-crypto-wasm=/crate',
+      '--remap-path-prefix=/Users/example/work/orc=/orca',
+      '--remap-path-prefix=/Users/example/.cargo=/cargo',
+      '--remap-path-prefix=/Users/example=/builder-home'
     ])
   })
 

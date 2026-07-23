@@ -29,6 +29,11 @@ import {
   writeFileSync
 } from 'node:fs'
 import { join, delimiter } from 'node:path'
+import {
+  assertNoEmbeddedLocalBuildPaths,
+  wasmCratePathRemapRustflags
+} from './wasm-build-paths.mjs'
+import { writeCratePin } from './wasm-crate-artifact-pin.mjs'
 
 const ROOT = join(import.meta.dirname, '..', '..')
 const CRATE_DIR = 'rust/orca-crypto-wasm'
@@ -90,7 +95,15 @@ function resolveWasmBindgen() {
     return cached
   }
   console.log(`[orca-crypto-wasm] bootstrapping wasm-bindgen-cli ${WB_VERSION} → ${WB_DIR}`)
-  run('cargo', ['install', 'wasm-bindgen-cli', '--version', WB_VERSION, '--root', WB_DIR, '--locked'])
+  run('cargo', [
+    'install',
+    'wasm-bindgen-cli',
+    '--version',
+    WB_VERSION,
+    '--root',
+    WB_DIR,
+    '--locked'
+  ])
   return cached
 }
 
@@ -109,7 +122,21 @@ runWasmCargo(
     '--manifest-path',
     join(CRATE_DIR, 'Cargo.toml')
   ],
-  { env: { ...process.env, CARGO_NET_OFFLINE: 'false', RUSTUP_TOOLCHAIN: 'stable' } }
+  {
+    env: {
+      ...process.env,
+      CARGO_NET_OFFLINE: 'false',
+      RUSTUP_TOOLCHAIN: 'stable',
+      // Remap builder paths so release panic/source strings can't leak the
+      // builder's home/username into the crypto wasm embedded in the desktop app.
+      CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: [
+        process.env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS,
+        ...wasmCratePathRemapRustflags({ root: ROOT, crateSource: join(ROOT, CRATE_DIR) })
+      ]
+        .filter(Boolean)
+        .join(' ')
+    }
+  }
 )
 
 const wasm = join(WASM_TARGET_DIR, `${STEM}.wasm`)
@@ -131,6 +158,14 @@ if (which('wasm-opt')) {
     '[orca-crypto-wasm] wasm-opt not found on PATH — shipping un-optimised wasm (install binaryen to shrink it)'
   )
 }
+
+// Hard-fail before embedding if any builder path survived the remap above — the
+// _bg.wasm here is the single source for every copy/base64 embed below.
+assertNoEmbeddedLocalBuildPaths(readFileSync(bg), {
+  root: ROOT,
+  atermSource: join(ROOT, CRATE_DIR),
+  label: `${STEM}_bg.wasm`
+})
 
 // Node processes (main + CLI): base64-embedded module + initSync, so the crypto
 // loads identically under electron-vite (main), the CLI bundle, and Node tests
@@ -160,4 +195,9 @@ for (const ext of ['.js', '.d.ts', '_bg.wasm', '_bg.wasm.d.ts']) {
   copyFileSync(join(GLUE_OUT, `${STEM}${ext}`), join(RENDERER_DEST, `${STEM}${ext}`))
 }
 console.log(`[orca-crypto-wasm] copied glue + raw wasm → src/renderer/src/lib/crypto-wasm/`)
+
+// Pin the committed artifacts to the crate source so a source edit without a
+// rebuild (or a half-regenerated base64/renderer pair) hard-fails check:wasm-pins.
+const pinPath = writeCratePin('crypto')
+console.log(`[orca-crypto-wasm] wrote ${pinPath}`)
 console.log('\n[orca-crypto-wasm] done.')

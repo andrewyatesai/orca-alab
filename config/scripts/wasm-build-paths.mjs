@@ -5,18 +5,42 @@ export function resolveCargoHome(env = process.env, home = homedir()) {
   return resolve(env.CARGO_HOME || join(home, '.cargo'))
 }
 
-export function wasmPathRemapRustflags({ root, atermSource, env = process.env, home = homedir() }) {
-  const remaps = [
-    [resolveCargoHome(env, home), '/cargo'],
-    [resolve(atermSource), '/aterm'],
-    [resolve(root), '/orca'],
-    [resolve(home), '/builder-home']
-  ]
+// Longest-prefix-first so a nested source (e.g. a crate under the repo root) is
+// remapped before its parent; drops '/' and de-dups equal roots.
+function remapRustflags(pairs) {
   const seen = new Set()
-  return remaps
+  return pairs
+    .map(([source, replacement]) => [resolve(source), replacement])
     .sort(([left], [right]) => right.length - left.length)
     .filter(([source]) => source !== resolve('/') && !seen.has(source) && seen.add(source))
     .map(([source, replacement]) => `--remap-path-prefix=${source}=${replacement}`)
+}
+
+export function wasmPathRemapRustflags({ root, atermSource, env = process.env, home = homedir() }) {
+  return remapRustflags([
+    [resolveCargoHome(env, home), '/cargo'],
+    [atermSource, '/aterm'],
+    [root, '/orca'],
+    [home, '/builder-home']
+  ])
+}
+
+// Same defense for the in-repo wasm crates (orca-crypto-wasm / orca-git-wasm):
+// remap the crate source, repo root, cargo home, and builder home so release
+// panic/source strings can't leak the builder's filesystem into the shipped
+// desktop app or the relay bundle uploaded to remote hosts.
+export function wasmCratePathRemapRustflags({
+  root,
+  crateSource,
+  env = process.env,
+  home = homedir()
+}) {
+  return remapRustflags([
+    [resolveCargoHome(env, home), '/cargo'],
+    [crateSource, '/crate'],
+    [root, '/orca'],
+    [home, '/builder-home']
+  ])
 }
 
 export function localWasmBuildPaths({ root, atermSource, env = process.env, home = homedir() }) {

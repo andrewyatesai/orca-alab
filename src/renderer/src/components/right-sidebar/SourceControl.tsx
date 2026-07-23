@@ -232,6 +232,13 @@ import {
   loadSessionCommitDrafts,
   saveSessionCommitDrafts
 } from '@/lib/source-control-commit-draft-session'
+import {
+  loadSessionDisclosureState,
+  readDisclosureStateForWorktree,
+  saveSessionDisclosureState,
+  writeDisclosureStateForWorktree,
+  type DisclosureStateByWorktree
+} from '@/lib/source-control-disclosure-session'
 import { hasExpandedCommitFailureDetails, summarizeCommitFailure } from './commit-failure-summary'
 import {
   isSourceControlSplitOpenModifier,
@@ -536,17 +543,12 @@ const SOURCE_CONTROL_TREE_INDENT_PX = 12
 const SOURCE_CONTROL_TREE_DIRECTORY_PADDING_PX = 8
 const SOURCE_CONTROL_TREE_FILE_PADDING_PX = 20
 const EMPTY_GIT_HISTORY_STATE: GitHistoryPanelState = { status: 'idle' }
-const DEFAULT_COLLAPSED_SECTIONS = ['history'] as const
 const SUBMODULE_WORKTREE_ONLY_LABEL = 'Stage inside submodule'
 const SUBMODULE_WORKTREE_ONLY_TOOLTIP =
   'The parent repo (including Stage All) cannot stage file changes inside a submodule'
 const SUBMODULE_LOADING_LABEL = 'Loading submodule changes…'
 const SUBMODULE_EMPTY_LABEL = 'No changes in submodule'
 const SUBMODULE_ERROR_LABEL = 'Failed to load submodule changes'
-
-function createDefaultCollapsedSections(): Set<string> {
-  return new Set(DEFAULT_COLLAPSED_SECTIONS)
-}
 
 function useCopyFeedbackState<T>(resetValue: T): [T, (value: T) => void] {
   const [value, setValue] = useState(resetValue)
@@ -1040,16 +1042,32 @@ function SourceControlInner(): React.JSX.Element {
     pendingDiffCommentsClearCount
   ])
 
-  const [filterExpanded, setFilterExpanded] = useState(false)
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
-    createDefaultCollapsedSections
+  // Why: Source Control unmounts on tab switch (#9403); keep disclosure state in a session cache keyed
+  // by worktree so remount and worktree switches restore collapse/expand choices instead of resetting.
+  const [disclosureByWorktree, setDisclosureByWorktree] = useState<DisclosureStateByWorktree>(() =>
+    loadSessionDisclosureState()
+  )
+  const activeDisclosure = useMemo(
+    () => readDisclosureStateForWorktree(disclosureByWorktree, activeWorktreeId),
+    [disclosureByWorktree, activeWorktreeId]
+  )
+  const { collapsedSections, collapsedTreeDirs, filterExpanded } = activeDisclosure
+  const setFilterExpanded = useCallback(
+    (next: boolean) => {
+      if (!activeWorktreeId) {
+        return
+      }
+      setDisclosureByWorktree((prev) =>
+        writeDisclosureStateForWorktree(prev, activeWorktreeId, { filterExpanded: next })
+      )
+    },
+    [activeWorktreeId]
   )
   const persistedSourceControlViewMode = normalizeSourceControlViewMode(
     settings?.sourceControlViewMode
   )
   const sourceControlViewMode = persistedSourceControlViewMode
   const sourceControlGroupOrder = resolveSourceControlGroupOrder(settings?.sourceControlGroupOrder)
-  const [collapsedTreeDirs, setCollapsedTreeDirs] = useState<Set<string>>(new Set())
   const [baseRefDialogOpen, setBaseRefDialogOpen] = useState(false)
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscardConfirmation | null>(null)
   // Why: start null (not 'origin/main') so branch compare doesn't fire with a fabricated ref before the IPC resolves.
@@ -2012,6 +2030,10 @@ function SourceControlInner(): React.JSX.Element {
   }, [commitDrafts])
 
   useEffect(() => {
+    saveSessionDisclosureState(disclosureByWorktree)
+  }, [disclosureByWorktree])
+
+  useEffect(() => {
     // Why: conflicts are often resolved in a terminal; clear the stale failure banner once git status sees the operation end.
     const previousConflictOperations = previousConflictOperationsRef.current
     setRemoteActionErrors((prev) =>
@@ -2026,9 +2048,8 @@ function SourceControlInner(): React.JSX.Element {
 
   // Why: reset worktree-specific state manually instead of key-remounting on switch (which caused a Windows IPC storm).
   useEffect(() => {
-    setFilterExpanded(false)
-    setCollapsedSections(createDefaultCollapsedSections())
-    setCollapsedTreeDirs(new Set())
+    // Why: disclosure state (filter/collapsed sections/tree dirs) is now derived per-worktree from
+    // the session cache, so switching worktrees restores prior choices instead of resetting here.
     setBaseRefDialogOpen(false)
     setPendingDiscard(null)
     setPendingDiffCommentsClear(null)
@@ -5010,29 +5031,43 @@ function SourceControlInner(): React.JSX.Element {
     worktreePath
   ])
 
-  const toggleSection = useCallback((section: string) => {
-    setCollapsedSections((prev) => {
-      const next = new Set(prev)
-      if (next.has(section)) {
-        next.delete(section)
-      } else {
-        next.add(section)
+  const toggleSection = useCallback(
+    (section: string) => {
+      if (!activeWorktreeId) {
+        return
       }
-      return next
-    })
-  }, [])
+      setDisclosureByWorktree((prev) => {
+        const current = readDisclosureStateForWorktree(prev, activeWorktreeId)
+        const next = new Set(current.collapsedSections)
+        if (next.has(section)) {
+          next.delete(section)
+        } else {
+          next.add(section)
+        }
+        return writeDisclosureStateForWorktree(prev, activeWorktreeId, { collapsedSections: next })
+      })
+    },
+    [activeWorktreeId]
+  )
 
-  const toggleTreeDir = useCallback((key: string) => {
-    setCollapsedTreeDirs((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
+  const toggleTreeDir = useCallback(
+    (key: string) => {
+      if (!activeWorktreeId) {
+        return
       }
-      return next
-    })
-  }, [])
+      setDisclosureByWorktree((prev) => {
+        const current = readDisclosureStateForWorktree(prev, activeWorktreeId)
+        const next = new Set(current.collapsedTreeDirs)
+        if (next.has(key)) {
+          next.delete(key)
+        } else {
+          next.add(key)
+        }
+        return writeDisclosureStateForWorktree(prev, activeWorktreeId, { collapsedTreeDirs: next })
+      })
+    },
+    [activeWorktreeId]
+  )
 
   const openCommittedDiff = useCallback(
     (entry: GitBranchChangeEntry, event?: SourceControlRowOpenEvent) => {

@@ -624,6 +624,15 @@ class RemoteRuntimeTerminalMultiplexer {
       } else if (matchesPendingRequest) {
         pendingRequest.resolve(null)
         clearPendingSnapshotRequest(stream)
+      } else if (target === 'initial' || target === 'recovery') {
+        // Skew fallback (fed §2.4): a state-replacing snapshot that OVERFLOWED
+        // the client budget (or arrived truncated) is dropped here — the pane
+        // restores through the requested-snapshot path, whose anchor the client
+        // never adopts. The previously replayed anchor now describes a window the
+        // engine no longer holds; leaving it cached would make remote search
+        // remap match rows against a stale window (a wrong-row jump). Clear it so
+        // remote search degrades to inline context expansion instead.
+        stream.replayedHostAnchor = null
       }
       clearSnapshot(stream)
       // Why: the snapshot is the new authoritative output high-water; align the

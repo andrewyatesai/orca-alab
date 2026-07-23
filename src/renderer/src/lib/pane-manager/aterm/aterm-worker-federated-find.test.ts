@@ -151,6 +151,44 @@ describe('createWorkerFederatedFind', () => {
     })
   })
 
+  it('degrades an over-budget pane to the UNINDEXED linear scan when a reader is available (never silent)', async () => {
+    const overBudgetLines =
+      Math.ceil(FEDERATED_WORKER_INDEX_BUDGET_BYTES / FEDERATED_INDEX_BYTES_PER_LINE) + 1
+    const pane: FederatedFindPaneSource = {
+      engine: { searchBudgeted: vi.fn() },
+      baseY: () => overBudgetLines,
+      rows: () => 24,
+      linearScanReader: () => ({
+        oldestAbsRow: 0,
+        rowCount: 3,
+        read: (first, count) =>
+          ['alpha needle', 'beta', 'gamma needle'].slice(first, first + count)
+      })
+    }
+    const events: AtermWorkerFederatedEvent[] = []
+    const runner = createWorkerFederatedFind({ resolvePane: () => pane, post: (e) => events.push(e) })
+    runner.dispatch({
+      type: 'federatedFind',
+      gen: 1,
+      query: 'needle',
+      caseSensitive: false,
+      isRegex: false,
+      maxPerPane: 50,
+      panes: [{ paneId: 1, visible: false }]
+    })
+    await settle()
+    // The index path was NOT taken (no posting index built for the over-budget pane).
+    expect(pane.engine.searchBudgeted).not.toHaveBeenCalled()
+    const batch = events.find((e) => e.type === 'federatedBatch') as Extract<
+      AtermWorkerFederatedEvent,
+      { type: 'federatedBatch' }
+    >
+    expect(batch.degraded).toBe('linear-scan')
+    // Real matches (newest-first, raw-text snippets) — not a silent no-results.
+    expect(batch.matches.map((m) => m.absRow)).toEqual([2, 0])
+    expect(batch.matches[0].snippet).toBe('gamma needle')
+  })
+
   it('counts VISIBLE panes against the resident budget so later panes get refused', async () => {
     // Each visible pane estimates just over half the budget: the second one
     // (also visible) no longer fits and must be refused, not indexed.
@@ -331,6 +369,67 @@ describe('createWorkerFederatedFind', () => {
       { type: 'federatedBatch' }
     >
     expect(batch.matches).toEqual([{ absRow: 7, col: 0, len: 3, snippet: null }])
+  })
+
+  // §6 worker-memory instrumentation (admission control): N synthetic cold panes
+  // must never leave more than K resident indexes at once. A pane becomes
+  // "resident" when its budgeted scan first builds an index and stops being
+  // resident when its state is evicted; the serial + immediate-eviction rule
+  // holds the peak at 1 for non-visible panes and the design ceiling K=2 overall.
+  it('§6: N cold panes never exceed K resident indexes (peak-resident instrumentation)', async () => {
+    const FEDERATED_ADMISSION_K = 2
+    let resident = 0
+    let peakResident = 0
+    const makeInstrumentedPane = (): FederatedFindPaneSource => {
+      let isResident = false
+      const free = (): void => {
+        if (isResident) {
+          isResident = false
+          resident--
+        }
+      }
+      return {
+        engine: {
+          searchBudgeted: vi.fn(() => {
+            if (!isResident) {
+              isResident = true
+              resident++
+              peakResident = Math.max(peakResident, resident)
+            }
+            return completeStep([4, 0, 3])
+          }),
+          searchBudgetedCancel: free
+        },
+        baseY: () => 100,
+        rows: () => 24,
+        evictBudgetedState: free,
+        evictWarmIndex: () => undefined
+      }
+    }
+    const N = 12
+    const panes = new Map<number, FederatedFindPaneSource>()
+    for (let i = 1; i <= N; i++) {
+      panes.set(i, makeInstrumentedPane())
+    }
+    const runner = createWorkerFederatedFind({
+      resolvePane: (id) => panes.get(id) ?? null,
+      post: () => undefined
+    })
+    runner.dispatch({
+      type: 'federatedFind',
+      gen: 1,
+      query: 'foo',
+      caseSensitive: false,
+      isRegex: false,
+      maxPerPane: 50,
+      panes: Array.from({ length: N }, (_, i) => ({ paneId: i + 1, visible: false }))
+    })
+    await settle()
+    expect(peakResident).toBeLessThanOrEqual(FEDERATED_ADMISSION_K)
+    // Serial walk + immediate eviction: exactly one resident at a time here.
+    expect(peakResident).toBe(1)
+    // Every non-visible pane's index was released — nothing left resident.
+    expect(resident).toBe(0)
   })
 
   it("never perturbs a pane's active find-bar state (count/activeIndex unchanged)", async () => {

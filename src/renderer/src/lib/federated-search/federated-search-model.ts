@@ -42,8 +42,10 @@ export type FederatedPaneBatch = {
   /** Daemon rows older than the live window (§2.3): merges into the live group,
    *  badged as history depth, navigated via inline context expansion. */
   depthExtension?: boolean
-  /** '§4 over-budget': admission control refused to index the pane. */
-  degraded?: 'none' | 'over-budget'
+  /** §4 admission outcome: 'over-budget' = index refused, no unindexed reader
+   *  (honest empty); 'linear-scan' = degraded to the bounded unindexed scan
+   *  (real, possibly-incomplete matches — never a silent no-results). */
+  degraded?: 'none' | 'over-budget' | 'linear-scan'
 }
 
 export type FederatedQueryOpts = {

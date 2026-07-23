@@ -52,14 +52,15 @@ class FakeAnchorServer {
   sendSnapshot(
     data: string,
     anchor: { hostRowAnchor: number; anchorGen: number } | null,
-    requestId?: number
+    requestId?: number,
+    extra?: { truncated?: boolean }
   ): void {
     const send = (opcode: TerminalStreamOpcode, payload: Uint8Array): void => {
       this.toClient(encodeTerminalStreamFrame({ opcode, streamId: this.streamId, seq: 0, payload }))
     }
     send(
       TerminalStreamOpcode.SnapshotStart,
-      encodeTerminalStreamJson({ cols: 80, rows: 24, seq: 0, requestId, ...anchor })
+      encodeTerminalStreamJson({ cols: 80, rows: 24, seq: 0, requestId, ...anchor, ...extra })
     )
     send(TerminalStreamOpcode.SnapshotChunk, encodeTerminalStreamText(data))
     send(TerminalStreamOpcode.SnapshotEnd, new Uint8Array())
@@ -142,5 +143,29 @@ describe('remote terminal snapshot anchor recording', () => {
     server.sendSnapshot('RECOVERY2', { hostRowAnchor: 300, anchorGen: 55 })
     await Promise.resolve()
     expect(stream.getReplayedHostAnchor()).toEqual({ hostRowAnchor: 300, anchorGen: 55 })
+  })
+
+  // Skew fallback: a state-replacing snapshot the client drops (truncated or
+  // >2 MiB overflow) restores via the requested-snapshot path, whose anchor is
+  // never adopted — so the previously replayed anchor is now stale and MUST be
+  // cleared, or remote search remaps against a window the engine no longer holds.
+  it('clears the stale anchor when a TRUNCATED recovery replaces engine state (skew fallback)', async () => {
+    const { stream } = await subscribeClient()
+    expect(stream.getReplayedHostAnchor()).toEqual({ hostRowAnchor: 98, anchorGen: 41 })
+    // Recovery dropped as truncated (old host over the client budget): not applied.
+    server.sendSnapshot('TRUNC', { hostRowAnchor: 500, anchorGen: 60 }, undefined, {
+      truncated: true
+    })
+    await Promise.resolve()
+    expect(stream.getReplayedHostAnchor()).toBeNull()
+  })
+
+  it('clears the stale anchor when an OVERFLOWED recovery is dropped (>2 MiB skew fallback)', async () => {
+    const { stream } = await subscribeClient()
+    expect(stream.getReplayedHostAnchor()).toEqual({ hostRowAnchor: 98, anchorGen: 41 })
+    // A >2 MiB recovery snapshot overflows the client budget and is dropped.
+    server.sendSnapshot('X'.repeat(2 * 1024 * 1024 + 1), { hostRowAnchor: 500, anchorGen: 60 })
+    await Promise.resolve()
+    expect(stream.getReplayedHostAnchor()).toBeNull()
   })
 })

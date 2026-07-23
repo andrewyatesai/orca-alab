@@ -6,9 +6,11 @@
 
 import {
   FEDERATED_INDEX_BYTES_PER_LINE,
+  FEDERATED_LINEAR_SCAN_MAX_ROWS,
   FEDERATED_WORKER_INDEX_BUDGET_BYTES
 } from '../pane-manager/aterm/aterm-worker-federated-find'
 import { runFederatedPaneScan } from '../pane-manager/aterm/aterm-federated-budgeted-scan'
+import { runFederatedLinearScan } from '../pane-manager/aterm/aterm-federated-linear-scan'
 import type { AtermFederatedSearchTarget } from '../pane-manager/aterm/aterm-federated-search-target'
 import type {
   AtermWorkerFederatedCommand,
@@ -72,7 +74,7 @@ export function createLivePaneSearchAdapter(deps: {
       matches: FederatedPaneBatch['matches'],
       total: number,
       incomplete: boolean,
-      degraded: 'none' | 'over-budget'
+      degraded: 'none' | 'over-budget' | 'linear-scan'
     ): FederatedPaneBatch => ({
       paneRef: pane.paneRef,
       sessionId: pane.sessionId,
@@ -152,8 +154,33 @@ export function createLivePaneSearchAdapter(deps: {
         const target = pane.target
         const estimate = (target.baseY() + target.rows()) * FEDERATED_INDEX_BYTES_PER_LINE
         if (residentEstimateBytes + estimate > FEDERATED_WORKER_INDEX_BUDGET_BYTES) {
-          // Honest degradation: too deep to index within the remaining budget.
-          emit(toBatch(pane, [], 0, true, 'over-budget'))
+          // §4 admission denial on the main thread: degrade to the bounded
+          // UNINDEXED linear scan when the pin ships the reader (never a silent
+          // no-results), else an honest empty batch. No index is built, so
+          // nothing is added to the resident estimate here.
+          const reader = target.linearScanReader?.() ?? null
+          if (!reader) {
+            emit(toBatch(pane, [], 0, true, 'over-budget'))
+            continue
+          }
+          await new Promise<void>((resolve) => {
+            runFederatedLinearScan({
+              reader,
+              query: q,
+              caseSensitive: opts.caseSensitive,
+              isRegex: opts.isRegex,
+              maxMatches: maxPerPane,
+              maxRowsScanned: FEDERATED_LINEAR_SCAN_MAX_ROWS,
+              isCancelled,
+              yieldSlice: yieldIdle,
+              onDone: (result) => {
+                if (result && !isCancelled()) {
+                  emit(toBatch(pane, result.matches, result.total, result.incomplete, 'linear-scan'))
+                }
+                resolve()
+              }
+            })
+          })
           continue
         }
         await new Promise<void>((resolve) => {

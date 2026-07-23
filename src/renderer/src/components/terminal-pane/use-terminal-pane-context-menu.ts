@@ -42,6 +42,15 @@ import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
 import { copyTerminalHandleForPane } from './terminal-handle-copy'
+import {
+  captureTerminalMenuTargets,
+  copyTerminalMenuLastCommandOutput,
+  copyTerminalMenuLinkTarget,
+  isTerminalMenuRevealAvailable,
+  openTerminalMenuLinkTarget,
+  revealTerminalMenuFileTarget,
+  type AtermContextLinkTarget
+} from './terminal-context-menu-link-target'
 
 const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'orca-close-all-context-menus'
 
@@ -72,6 +81,8 @@ type UseTerminalPaneContextMenuDeps = {
   onPasteError: (message: string) => void
   onAgentSessionForkReady: (fork: PreparedAgentSessionFork) => void
   onOpenComposeBox: () => void
+  /** Seed + open the terminal search UI with the pane's selection (CM-A1). */
+  onSearchSelection: (selection: string) => void
   forceBracketedMultilineTextPaste: boolean
   rightClickToPaste: boolean
 }
@@ -83,8 +94,21 @@ type TerminalMenuState = {
   menuOpenedAtRef: React.RefObject<number>
   paneCount: number
   menuPaneId: number | null
+  /** Selection captured at the open EVENT (it can clear before menu paint). */
+  menuSelectionText: string
+  /** Link/path target resolved at the right-click point, once it lands. */
+  menuLinkTarget: AtermContextLinkTarget | null
+  /** True when the pane has a completed OSC-133 block (CM-A3 item visibility). */
+  menuHasCommandOutput: boolean
+  /** Reveal is local-only: hidden for SSH connections and remote runtimes. */
+  menuCanRevealLinkTarget: boolean
   onContextMenuCapture: (event: React.MouseEvent<HTMLDivElement>) => void
   onPaneTitleContextMenu: (event: React.MouseEvent<HTMLElement>, paneId: number) => void
+  onSearchSelection: () => void
+  onOpenLinkTarget: () => void
+  onCopyLinkTarget: () => Promise<void>
+  onRevealLinkTarget: () => Promise<void>
+  onCopyLastCommandOutput: () => Promise<void>
   onCopy: () => Promise<void>
   onCopyTerminalId: () => Promise<void>
   onCopyPaneId: () => Promise<void>
@@ -121,6 +145,7 @@ export function useTerminalPaneContextMenu({
   onPasteError,
   onAgentSessionForkReady,
   onOpenComposeBox,
+  onSearchSelection,
   forceBracketedMultilineTextPaste,
   rightClickToPaste
 }: UseTerminalPaneContextMenuDeps): TerminalMenuState {
@@ -128,6 +153,13 @@ export function useTerminalPaneContextMenu({
   const menuOpenedAtRef = useRef(0)
   const [open, setOpen] = useState(false)
   const [point, setPoint] = useState({ x: 0, y: 0 })
+  // Captured per menu OPEN (not per render): selection can clear before the menu
+  // paints, and the link/output reads resolve async — the sequence number drops
+  // a late resolve that belongs to a closed/reopened menu.
+  const menuOpenSeqRef = useRef(0)
+  const [menuSelectionText, setMenuSelectionText] = useState('')
+  const [menuLinkTarget, setMenuLinkTarget] = useState<AtermContextLinkTarget | null>(null)
+  const [menuHasCommandOutput, setMenuHasCommandOutput] = useState(false)
 
   useEffect(() => {
     const closeMenu = (): void => {
@@ -522,6 +554,26 @@ export function useTerminalPaneContextMenu({
     }
 
     menuOpenedAtRef.current = Date.now()
+    const seq = ++menuOpenSeqRef.current
+    setMenuLinkTarget(null)
+    setMenuHasCommandOutput(false)
+    const menuPane = clickedPane ?? manager.getActivePane() ?? manager.getPanes()[0] ?? null
+    const captured = captureTerminalMenuTargets(
+      menuPane,
+      { clientX: event.clientX, clientY: event.clientY },
+      (partial) => {
+        if (seq !== menuOpenSeqRef.current) {
+          return
+        }
+        if (partial.linkTarget !== undefined) {
+          setMenuLinkTarget(partial.linkTarget)
+        }
+        if (partial.hasCommandOutput !== undefined) {
+          setMenuHasCommandOutput(partial.hasCommandOutput)
+        }
+      }
+    )
+    setMenuSelectionText(captured.selectionText)
     const bounds = boundsElement.getBoundingClientRect()
     setPoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top })
     setOpen(true)
@@ -553,11 +605,28 @@ export function useTerminalPaneContextMenu({
     openContextMenu(event, paneId, boundsElement)
   }
 
+  // Context-menu link/path + command-output actions (#9279); bodies live in
+  // terminal-context-menu-link-target.ts so they stay unit-testable.
+  const handleSearchSelection = (): void => {
+    if (menuSelectionText) {
+      onSearchSelection(menuSelectionText)
+    }
+  }
+  const onOpenLinkTarget = (): void => openTerminalMenuLinkTarget(resolveMenuPane(), menuLinkTarget)
+  const onCopyLinkTarget = (): Promise<void> =>
+    copyTerminalMenuLinkTarget(resolveMenuPane(), menuLinkTarget)
+  const onRevealLinkTarget = (): Promise<void> =>
+    revealTerminalMenuFileTarget(resolveMenuPane(), menuLinkTarget)
+  const onCopyLastCommandOutput = (): Promise<void> =>
+    copyTerminalMenuLastCommandOutput(resolveMenuPane())
+
   // Why: PaneManager.getPanes() allocates public pane wrappers. Closed menus
   // do not need pane counts or target identity, so avoid that work on every
   // render across hundreds of mounted terminal tabs.
   const paneCount = open ? (managerRef.current?.getPanes().length ?? 1) : 1
   const menuPaneId = open ? (resolveMenuPane()?.id ?? null) : null
+  const menuCanRevealLinkTarget =
+    open && menuLinkTarget?.kind === 'file' && isTerminalMenuRevealAvailable(worktreeId)
 
   return {
     open,
@@ -566,8 +635,17 @@ export function useTerminalPaneContextMenu({
     menuOpenedAtRef,
     paneCount,
     menuPaneId,
+    menuSelectionText,
+    menuLinkTarget,
+    menuHasCommandOutput,
+    menuCanRevealLinkTarget,
     onContextMenuCapture,
     onPaneTitleContextMenu,
+    onSearchSelection: handleSearchSelection,
+    onOpenLinkTarget,
+    onCopyLinkTarget,
+    onRevealLinkTarget,
+    onCopyLastCommandOutput,
     onCopy,
     onCopyTerminalId,
     onCopyPaneId,

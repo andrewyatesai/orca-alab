@@ -10,8 +10,16 @@ import {
   type AtermLinkProviderSource
 } from './aterm-provider-link-hit'
 import type { AtermLinkTooltip, AtermLinkTooltipKind } from './aterm-link-tooltip'
+import {
+  atermLinkPointToCell,
+  openAtermContextLinkTarget,
+  resolveAtermContextLinkTarget,
+  type AtermContextLinkTarget,
+  type AtermContextTargetDeps
+} from './aterm-context-link-target'
 
 export type { AtermLinkProviderSource } from './aterm-provider-link-hit'
+export type { AtermContextLinkTarget } from './aterm-context-link-target'
 
 /** Opens a detected link target; the controller threads orca's URL opener here
  *  (forceSystemBrowser mirrors xterm's Shift+modifier "open in system browser"
@@ -65,6 +73,17 @@ export type AtermLinkInput = {
    *  links even when the pointer returns to the same cell (reveal recovery —
    *  buffer content may have changed while the pane was hidden). */
   resetHoverCache: () => void
+  /** Resolve the link/path target under a client point for the context menu:
+   *  engine hit first (fresh worker query when available), provider fallback;
+   *  null on alt-screen / mouse tracking (the app owns the pointer there). */
+  contextLinkTargetAt: (clientX: number, clientY: number) => Promise<AtermContextLinkTarget | null>
+  /** Open a previously resolved context target through the SAME routing the
+   *  modifier-click path uses (in-app preference, scheme-aware OSC-8, late-bound
+   *  file opener, provider activate). */
+  openContextTarget: (
+    target: AtermContextLinkTarget,
+    opts: { openWithSystemDefault: boolean }
+  ) => void
   dispose: () => void
 }
 
@@ -83,22 +102,6 @@ function tooltipKindForEngineLink(kind: number): AtermLinkTooltipKind | null {
     return 'url'
   }
   return kind === LINK_KIND_FILE_PATH ? 'file' : null
-}
-
-// Map a pointer position to a (col, display-row) grid cell. Identical mapping to
-// aterm-selection-input.ts: clientX/Y minus the canvas rect (not offsetX/Y) so
-// synthetic e2e events and real events agree, scaled to device pixels; the row
-// is already display-offset-inclusive.
-function pointToCell(event: MouseEvent, deps: AtermLinkDeps): { col: number; row: number } {
-  const rect = deps.canvas.getBoundingClientRect()
-  // Effects chrome shifts the canvas rect up-left of the grid (negative margins);
-  // subtract the grid's in-frame offset so link hit-testing stays grid-relative.
-  const chrome = deps.getChrome?.() ?? { pad: 0, head: 0 }
-  const deviceX = (event.clientX - rect.left) * deps.metrics.dpr - chrome.pad
-  const deviceY = (event.clientY - rect.top) * deps.metrics.dpr - chrome.pad - chrome.head
-  const col = Math.max(0, Math.floor(deviceX / deps.metrics.cellWidth))
-  const row = Math.max(0, Math.floor(deviceY / deps.metrics.cellHeight))
-  return { col, row }
 }
 
 // Two hovered link spans are equal when they cover the same cells; used to avoid
@@ -245,7 +248,7 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
       clearCursor()
       return
     }
-    const { col, row } = pointToCell(event, deps)
+    const { col, row } = atermLinkPointToCell(event, deps)
     if (col === lastCol && row === lastRow) {
       return
     }
@@ -349,7 +352,7 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
     if (term.is_alt_screen || shouldForwardMouse(term, event)) {
       return
     }
-    const { col, row } = pointToCell(event, deps)
+    const { col, row } = atermLinkPointToCell(event, deps)
     // preventDefault must land in THIS task (it is inert after an await); the
     // last hover hit already tells us synchronously that a link is here.
     if (hovered && hovered.row === row && col >= hovered.startCol && col < hovered.endCol) {
@@ -381,11 +384,29 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
     openHit(hit, event)
   }
 
+  // Context-menu target resolution/opening (#9279): the SAME closures the click
+  // path uses, so menu targets can't drift from modifier-click behavior.
+  const contextTargetDeps: AtermContextTargetDeps = {
+    term,
+    isDisposed,
+    openUrl,
+    openOscUrl,
+    getFileLinkOpener,
+    getLinkProviders,
+    asyncLinkAt,
+    pointToCell: (point) => atermLinkPointToCell(point, deps),
+    absoluteLineFor
+  }
+
   canvas.addEventListener('mousemove', onMouseMove)
   canvas.addEventListener('click', onClick)
 
   return {
     hoveredSpan: () => hovered,
+    contextLinkTargetAt: (clientX, clientY) =>
+      resolveAtermContextLinkTarget(contextTargetDeps, clientX, clientY),
+    openContextTarget: (target, opts) =>
+      openAtermContextLinkTarget(contextTargetDeps, target, opts),
     resetHoverCache: () => {
       // Only the same-cell short-circuit is dropped; the current hover/underline
       // stays until the next mousemove re-evaluates it (mirrors upstream #9061).

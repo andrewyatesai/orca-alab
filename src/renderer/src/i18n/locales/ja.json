@@ -2632,7 +2632,18 @@
             "cff67afad1": "コンテキストをコピー",
             "openLinkDefaultBrowser": "既定のブラウザで開く",
             "projectQuickCommandProvenance": "Defined in orca.yaml",
-            "reviewOrcaYamlTrust": "Review orca.yaml trust…"
+            "reviewOrcaYamlTrust": "Review orca.yaml trust…",
+            "revealInFinder": "Finder で表示",
+            "revealInFileExplorer": "エクスプローラーで表示",
+            "revealInFileManager": "ファイルマネージャーで表示",
+            "copyLastCommandOutput": "最後のコマンド出力をコピー",
+            "searchForSelection": "“{{selection}}” を検索",
+            "openFileTarget": "ファイルを開く",
+            "openLinkTarget": "リンクを開く",
+            "copyPathTarget": "パスをコピー",
+            "copyLinkTarget": "リンクをコピー",
+            "clearScreenAndScrollback": "画面とスクロールバックをクリア",
+            "terminalSettings": "ターミナル設定…"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "デーモンを再起動します",
@@ -2710,6 +2721,19 @@
                 "failureTitle": "Copy failed — clipboard unchanged",
                 "failureDescription": "The clipboard write could not be verified. Try copying again.",
                 "openSetting": "Open Setting"
+              }
+            },
+            "context": {
+              "menu": {
+                "link": {
+                  "target": {
+                    "pathCopied": "パスをコピーしました",
+                    "linkCopied": "リンクをコピーしました",
+                    "revealFailed": "ファイルを表示できません — 移動または削除された可能性があります",
+                    "outputEvicted": "コマンド出力はスクロールバックの上限を超えました",
+                    "outputCopied": "コマンド出力をコピーしました"
+                  }
+                }
               }
             }
           },

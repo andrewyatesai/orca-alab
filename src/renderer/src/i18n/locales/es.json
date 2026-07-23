@@ -2632,7 +2632,18 @@
             "cff67afad1": "Copiar contexto",
             "openLinkDefaultBrowser": "Abrir en el navegador predeterminado",
             "projectQuickCommandProvenance": "Defined in orca.yaml",
-            "reviewOrcaYamlTrust": "Review orca.yaml trust…"
+            "reviewOrcaYamlTrust": "Review orca.yaml trust…",
+            "revealInFinder": "Mostrar en Finder",
+            "revealInFileExplorer": "Mostrar en el Explorador de archivos",
+            "revealInFileManager": "Mostrar en el gestor de archivos",
+            "copyLastCommandOutput": "Copiar salida del último comando",
+            "searchForSelection": "Buscar “{{selection}}”",
+            "openFileTarget": "Abrir archivo",
+            "openLinkTarget": "Abrir enlace",
+            "copyPathTarget": "Copiar ruta",
+            "copyLinkTarget": "Copiar enlace",
+            "clearScreenAndScrollback": "Borrar pantalla e historial",
+            "terminalSettings": "Ajustes del terminal…"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "Reiniciar servicio",
@@ -2710,6 +2721,19 @@
                 "failureTitle": "Copy failed — clipboard unchanged",
                 "failureDescription": "The clipboard write could not be verified. Try copying again.",
                 "openSetting": "Open Setting"
+              }
+            },
+            "context": {
+              "menu": {
+                "link": {
+                  "target": {
+                    "pathCopied": "Ruta copiada",
+                    "linkCopied": "Enlace copiado",
+                    "revealFailed": "No se puede mostrar el archivo: puede haberse movido o eliminado",
+                    "outputEvicted": "La salida del comando quedó fuera del límite de historial",
+                    "outputCopied": "Salida del comando copiada"
+                  }
+                }
               }
             }
           },

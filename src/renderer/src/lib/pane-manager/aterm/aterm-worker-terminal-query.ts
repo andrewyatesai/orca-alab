@@ -40,6 +40,10 @@ export function answerWorkerTerminalQuery(
           })
         : null
     }
+    // Feature-detected: the GPU wasm module doesn't export the binding (CM-A3);
+    // absent → null, and the context-menu item stays hidden.
+    case 'lastCommandOutput':
+      return e.last_command_output?.() ?? null
     default:
       return null
   }

@@ -13,6 +13,7 @@ import {
   PanelRightClose,
   Pencil,
   PencilLine,
+  Settings2,
   SquareTerminal,
   X
 } from 'lucide-react'
@@ -25,6 +26,11 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { shouldIgnoreTerminalMenuPointerDownOutside } from './terminal-context-menu-dismiss'
+import {
+  TerminalMenuCommandOutputItem,
+  TerminalMenuLinkTargetItems,
+  TerminalMenuSearchSelectionItem
+} from './TerminalContextMenuTargetItems'
 import type { TerminalQuickCommand } from '../../../../shared/types'
 import { TerminalQuickCommandsSubmenu } from './TerminalQuickCommandsSubmenu'
 import { formatPrimaryShortcutLabel } from '@/hooks/useShortcutLabel'
@@ -42,6 +48,21 @@ type TerminalContextMenuProps = {
   menuPaneIsExpanded: boolean
   onCopy: () => void
   onPaste: () => void
+  // #9279 additions — all hidden (not disabled) when their target is absent:
+  /** Selection captured at menu open; empty hides the Search item. */
+  menuSelectionText: string
+  onSearchSelection: () => void
+  /** Kind of the link/path target resolved at the right-click point, or null. */
+  linkTargetKind: 'url' | 'osc8' | 'file' | 'provider' | null
+  onOpenLinkTarget: () => void
+  onCopyLinkTarget: () => void
+  /** Local panes with a file target only (SSH/remote runtimes have no local file). */
+  canRevealLinkTarget: boolean
+  onRevealLinkTarget: () => void
+  /** True when the pane has a completed OSC-133 block (CM-A3). */
+  canCopyLastCommandOutput: boolean
+  onCopyLastCommandOutput: () => void
+  onOpenTerminalSettings: () => void
   // Why: hidden (not disabled) when settings.terminalComposeBox === false — classic input mode shows no trace.
   canComposeBox: boolean
   onComposeBox: () => void
@@ -85,6 +106,16 @@ export default function TerminalContextMenu({
   menuPaneIsExpanded,
   onCopy,
   onPaste,
+  menuSelectionText,
+  onSearchSelection,
+  linkTargetKind,
+  onOpenLinkTarget,
+  onCopyLinkTarget,
+  canRevealLinkTarget,
+  onRevealLinkTarget,
+  canCopyLastCommandOutput,
+  onCopyLastCommandOutput,
+  onOpenTerminalSettings,
   canComposeBox,
   onComposeBox,
   onSplitRight,
@@ -136,6 +167,9 @@ export default function TerminalContextMenu({
   const showSetTitleShortcut = shortcuts.setTitle !== 'Unassigned'
   const showClearPaneTitleShortcut = shortcuts.clearPaneTitle !== 'Unassigned'
 
+  // First selection line — the action searches it in full; the item ellipsizes.
+  const selectionSnippet = menuSelectionText.split('\n', 1)[0].trim()
+
   return (
     <DropdownMenu
       open={open}
@@ -185,11 +219,29 @@ export default function TerminalContextMenu({
           {translate('auto.components.terminal.pane.TerminalContextMenu.f3eeb1de13', 'Copy')}
           <DropdownMenuShortcut>{shortcuts.copy}</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {canCopyLastCommandOutput ? (
+          <TerminalMenuCommandOutputItem onCopyLastCommandOutput={onCopyLastCommandOutput} />
+        ) : null}
         <DropdownMenuItem onSelect={onPaste}>
           <Clipboard />
           {translate('auto.components.terminal.pane.TerminalContextMenu.0a917b591a', 'Paste')}
           <DropdownMenuShortcut>{shortcuts.paste}</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {selectionSnippet ? (
+          <TerminalMenuSearchSelectionItem
+            selectionSnippet={selectionSnippet}
+            onSearchSelection={onSearchSelection}
+          />
+        ) : null}
+        {linkTargetKind ? (
+          <TerminalMenuLinkTargetItems
+            linkTargetKind={linkTargetKind}
+            onOpenLinkTarget={onOpenLinkTarget}
+            onCopyLinkTarget={onCopyLinkTarget}
+            canRevealLinkTarget={canRevealLinkTarget}
+            onRevealLinkTarget={onRevealLinkTarget}
+          />
+        ) : null}
         {canComposeBox ? (
           <DropdownMenuItem onSelect={onComposeBox}>
             <PencilLine />
@@ -338,9 +390,24 @@ export default function TerminalContextMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onClearScreen}>
           <Eraser />
+          {/* Honest relabel (CM-A4): the action always cleared screen AND scrollback. */}
           {translate(
-            'auto.components.terminal.pane.TerminalContextMenu.b4cdd9314e',
-            'Clear Screen'
+            'auto.components.terminal.pane.TerminalContextMenu.clearScreenAndScrollback',
+            'Clear Screen & Scrollback'
+          )}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            // Why: settings navigation swaps the whole view; force-close first so
+            // the menu's focus guards are not still active (Set Title pattern).
+            onOpenChange(false)
+            onOpenTerminalSettings()
+          }}
+        >
+          <Settings2 />
+          {translate(
+            'auto.components.terminal.pane.TerminalContextMenu.terminalSettings',
+            'Terminal Settings…'
           )}
         </DropdownMenuItem>
       </DropdownMenuContent>

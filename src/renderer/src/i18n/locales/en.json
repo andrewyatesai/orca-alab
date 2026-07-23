@@ -2632,7 +2632,18 @@
             "cff67afad1": "Copy Context",
             "openLinkDefaultBrowser": "Open in Default Browser",
             "projectQuickCommandProvenance": "Defined in orca.yaml",
-            "reviewOrcaYamlTrust": "Review orca.yaml trust…"
+            "reviewOrcaYamlTrust": "Review orca.yaml trust…",
+            "revealInFinder": "Reveal in Finder",
+            "revealInFileExplorer": "Reveal in File Explorer",
+            "revealInFileManager": "Reveal in File Manager",
+            "copyLastCommandOutput": "Copy Last Command Output",
+            "searchForSelection": "Search for “{{selection}}”",
+            "openFileTarget": "Open File",
+            "openLinkTarget": "Open Link",
+            "copyPathTarget": "Copy Path",
+            "copyLinkTarget": "Copy Link",
+            "clearScreenAndScrollback": "Clear Screen & Scrollback",
+            "terminalSettings": "Terminal Settings…"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "Restart daemon",
@@ -2710,6 +2721,19 @@
                 "failureTitle": "Copy failed — clipboard unchanged",
                 "failureDescription": "The clipboard write could not be verified. Try copying again.",
                 "openSetting": "Open Setting"
+              }
+            },
+            "context": {
+              "menu": {
+                "link": {
+                  "target": {
+                    "pathCopied": "Path copied",
+                    "linkCopied": "Link copied",
+                    "revealFailed": "Unable to reveal the file — it may have moved or been deleted",
+                    "outputEvicted": "Command output scrolled past the scrollback limit",
+                    "outputCopied": "Command output copied"
+                  }
+                }
               }
             }
           },

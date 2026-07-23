@@ -80,6 +80,8 @@ import { useSystemPrefersDark } from './use-system-prefers-dark'
 import { useTerminalPaneGlobalEffects } from './use-terminal-pane-global-effects'
 import { useTerminalPaneLifecycle } from './use-terminal-pane-lifecycle'
 import { useTerminalPaneContextMenu } from './use-terminal-pane-context-menu'
+import { openTerminalSettingsForRepo } from './terminal-settings-navigation'
+import { isFindQueryTooLarge } from '@/lib/find-query-bounds'
 import {
   detachTerminalPaneToTab,
   isTerminalTabStripDropTarget,
@@ -378,6 +380,9 @@ export default function TerminalPane({
   // Why: pane reorders can move panes without changing count or size, so overlay rects need an explicit layout-change render trigger.
   const [paneLayoutRevision, setPaneLayoutRevision] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
+  // One-shot search seed the context menu's "Search for …" writes before opening
+  // the search UI (consumed by TerminalSearch on the open transition).
+  const searchSeedRef = useRef<string | null>(null)
   const [composeOpen, setComposeOpen] = useState(false)
   // Why: a stable identity — an inline closure would re-run the window-listener effect every render.
   const handleToggleComposeBox = useCallback(() => setComposeOpen((prev) => !prev), [])
@@ -2649,6 +2654,20 @@ export default function TerminalPane({
     return () => cancelPendingRenameFrames()
   }, [cancelPendingRenameFrames, renamingPaneId])
 
+  const seedSearchFromSelection = useCallback((selection: string): void => {
+    // A find query is one line; take the selection's first line, trimmed.
+    let firstLine = selection.split('\n', 1)[0].trim()
+    // Why: the find query is byte-capped (2 KiB); 682 UTF-16 units can't exceed it (≤3 UTF-8 bytes each).
+    if (isFindQueryTooLarge(firstLine)) {
+      firstLine = firstLine.slice(0, 682)
+    }
+    if (!firstLine) {
+      return
+    }
+    searchSeedRef.current = firstLine
+    setSearchOpen(true)
+  }, [])
+
   const contextMenu = useTerminalPaneContextMenu({
     tabId,
     managerRef,
@@ -2666,6 +2685,7 @@ export default function TerminalPane({
     onPasteError: setTerminalError,
     onAgentSessionForkReady: setAgentSessionFork,
     onOpenComposeBox: () => setComposeOpen(true),
+    onSearchSelection: seedSearchFromSelection,
     forceBracketedMultilineTextPaste,
     rightClickToPaste
   })
@@ -3074,6 +3094,7 @@ export default function TerminalPane({
             // through the controller's search surface.
             atermSearch={activePane.atermController ?? null}
             searchStateRef={searchStateRef}
+            seedQueryRef={searchSeedRef}
           />,
           activePane.container
         )}
@@ -3155,6 +3176,16 @@ export default function TerminalPane({
         }
         onCopy={() => void contextMenu.onCopy()}
         onPaste={() => void contextMenu.onPaste()}
+        menuSelectionText={contextMenu.menuSelectionText}
+        onSearchSelection={contextMenu.onSearchSelection}
+        linkTargetKind={contextMenu.menuLinkTarget?.kind ?? null}
+        onOpenLinkTarget={contextMenu.onOpenLinkTarget}
+        onCopyLinkTarget={() => void contextMenu.onCopyLinkTarget()}
+        canRevealLinkTarget={contextMenu.menuCanRevealLinkTarget}
+        onRevealLinkTarget={() => void contextMenu.onRevealLinkTarget()}
+        canCopyLastCommandOutput={contextMenu.menuHasCommandOutput}
+        onCopyLastCommandOutput={() => void contextMenu.onCopyLastCommandOutput()}
+        onOpenTerminalSettings={() => openTerminalSettingsForRepo(quickCommandRepoId ?? null)}
         canComposeBox={settings?.terminalComposeBox !== false}
         onComposeBox={contextMenu.onComposeBox}
         onSplitRight={contextMenu.onSplitRight}

@@ -392,6 +392,7 @@ export function createWorkerBackedTerm(deps: {
     // handlers use these on the worker path and fall back to the sync engine in-process.
     selectionTextAsync: queryChannel.selectionTextAsync,
     linkAtAsync: queryChannel.linkAtAsync,
+    lastCommandOutputAsync: queryChannel.lastCommandOutputAsync,
     clearHover: () => post({ type: 'setHover', clear: true }),
     // Awaitable find with request-generation semantics (the search UI's pending state):
     // resolves the post-find count/active, or null when a newer find superseded it.

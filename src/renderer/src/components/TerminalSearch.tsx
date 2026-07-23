@@ -49,6 +49,10 @@ type TerminalSearchProps = {
   /** The active pane's aterm search surface (the canvas controller). */
   atermSearch?: AtermSearchSurface | null
   searchStateRef: React.RefObject<SearchState>
+  /** One-shot query seed consumed on open (context menu "Search for …", CM-A1):
+   *  the seed becomes the query and runs a debounce-bypassed find, then the ref
+   *  is nulled — typing afterwards behaves exactly as today. */
+  seedQueryRef?: React.RefObject<string | null>
 }
 
 // A ghost icon-button with a styleguide Tooltip (replaces native title= attrs).
@@ -88,7 +92,8 @@ export default function TerminalSearch({
   isOpen,
   onClose,
   atermSearch,
-  searchStateRef
+  searchStateRef,
+  seedQueryRef
 }: TerminalSearchProps): React.JSX.Element | null {
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
@@ -112,7 +117,24 @@ export default function TerminalSearch({
   const armedFindRef = useRef<{ query: string; caseSensitive: boolean; regex: boolean } | null>(
     null
   )
+  // Set when the query change came from the one-shot open seed: the next query
+  // effect runs the find immediately (same bypass as Enter) instead of debouncing.
+  const seedBypassRef = useRef(false)
   const requestQuery = getFindRequestQuery(query)
+
+  // Consume the one-shot seed on open (context menu "Search for …").
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+    const seed = seedQueryRef?.current
+    if (!seed) {
+      return
+    }
+    seedQueryRef.current = null
+    seedBypassRef.current = true
+    setQuery(seed)
+  }, [isOpen, seedQueryRef])
 
   // Reflect the aterm controller's exact match count ("active / total") + stale flag,
   // or an honest approximation while an issued find is still in flight on the worker
@@ -212,6 +234,13 @@ export default function TerminalSearch({
       setResultsIncomplete(false)
       atermSearch?.clearSearch()
       setMatchLabel('')
+      return
+    }
+    // Seeded query (menu "Search for …"): run NOW — the user already committed to
+    // this exact query, so the keystroke debounce would only add latency.
+    if (seedBypassRef.current) {
+      seedBypassRef.current = false
+      runFind(requestQuery, caseSensitive, regex)
       return
     }
     // Debounced find-as-you-type: one engine search per settled window, not one per

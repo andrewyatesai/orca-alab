@@ -9,6 +9,7 @@ import {
   createRendererChunkBudgetPlugin,
   createRendererWorkerChunkBudgetPlugin
 } from './build-plugins/renderer-chunk-budget'
+import { createRendererContentSecurityPolicyPlugin } from './build-plugins/renderer-content-security-policy'
 
 // Build provenance for the About section, baked in at build time (a packaged app
 // has no git repo / rust/aterm tree to read at runtime). Best-effort: any piece
@@ -301,7 +302,14 @@ export default defineConfig({
         '@': resolve('src/renderer/src')
       }
     },
-    plugins: [react(), tailwindcss(), createRendererChunkBudgetPlugin('desktop')],
+    plugins: [
+      react(),
+      tailwindcss(),
+      createRendererChunkBudgetPlugin('desktop'),
+      // Why: inject a strict enforcing CSP into the packaged renderer HTML (build-only, so
+      // dev HMR keeps its relaxed policy). See build-plugins/renderer-content-security-policy.ts.
+      createRendererContentSecurityPolicyPlugin()
+    ],
     worker: {
       format: 'es',
       // Worker builds are separate Rollup children and do not inherit renderer

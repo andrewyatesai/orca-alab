@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <title>Orca: ALab Edition</title>
-    <!-- CSP is relaxed during development; electron-vite injects a stricter policy for production builds -->
+    <!-- CSP is relaxed during development; the build-only orca-renderer-content-security-policy
+         Vite plugin injects a strict enforcing Content-Security-Policy meta tag here for
+         packaged builds (see build-plugins/renderer-content-security-policy.ts). -->
   </head>
 
   <body>

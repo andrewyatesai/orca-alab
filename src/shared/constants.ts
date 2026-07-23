@@ -271,7 +271,8 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     terminalWindowsShell: 'powershell.exe',
     terminalPosixShell: null,
     terminalWindowsWslDistro: null,
-    localAccountRuntime: 'host',
+    localAccountRuntime: 'auto',
+    localAccountRuntimeDefaultedToAutoForAllUsers: true,
     localAccountWslDistro: null,
     localWindowsRuntimeDefault: { kind: 'windows-host' },
     // Why: prefer modern PowerShell when installed, falling back to inbox Windows PowerShell.

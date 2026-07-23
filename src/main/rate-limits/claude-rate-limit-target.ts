@@ -1,4 +1,5 @@
 import type { GlobalSettings } from '../../shared/types'
+import { resolveLocalAccountRuntimeTarget } from '../../shared/local-account-runtime'
 import {
   getClaudeWslSelectionKey,
   normalizeClaudeRuntimeSelection,
@@ -29,12 +30,21 @@ export function getInitialClaudeRateLimitTarget(
     return { runtime: 'host' }
   }
   if (settings.localAccountRuntime === 'wsl') {
+    if (platform !== 'win32') {
+      return { runtime: 'host' }
+    }
     return {
       runtime: 'wsl',
       wslDistro:
         normalizeOptionalDistro(settings.localAccountWslDistro) ??
         getSingleSelectedWslDistro(settings)
     }
+  }
+  if (settings.localAccountRuntime === 'auto') {
+    const target = resolveLocalAccountRuntimeTarget(settings, platform)
+    return target.runtime === 'wsl'
+      ? { runtime: 'wsl', wslDistro: target.wslDistro }
+      : { runtime: 'host' }
   }
 
   const projectRuntimeTarget = getProjectRuntimeRateLimitTarget(settings, platform)

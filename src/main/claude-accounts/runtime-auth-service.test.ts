@@ -3590,6 +3590,73 @@ describe('ClaudeRuntimeAuthService', () => {
     })
   })
 
+  it('follows the WSL global runtime default for untargeted Claude preparation when account runtime is auto (#9537)', async () => {
+    setPlatform('win32')
+    vi.doMock('../wsl', () => ({
+      getDefaultWslDistro: () => 'Ubuntu',
+      getWslHome: () => null,
+      toWindowsWslPath: (value: string) => value
+    }))
+    const ubuntuAuthPath = createManagedClaudeAuth(
+      testState.userDataDir,
+      'ubuntu-account',
+      createClaudeCredentialsJson('ubuntu@example.com', 'ubuntu-token')
+    )
+    const settings = createSettings({
+      localAccountRuntime: 'auto',
+      localWindowsRuntimeDefault: { kind: 'wsl', distro: 'Ubuntu' },
+      claudeManagedAccounts: [
+        createClaudeAccount('ubuntu-account', ubuntuAuthPath, {
+          managedAuthRuntime: 'wsl',
+          wslDistro: 'Ubuntu',
+          wslLinuxAuthPath: '/home/alice/.local/share/orca/claude-accounts/ubuntu/auth'
+        })
+      ],
+      activeClaudeManagedAccountId: null,
+      activeClaudeManagedAccountIdsByRuntime: {
+        host: null,
+        wsl: { Ubuntu: 'ubuntu-account' }
+      }
+    })
+    const store = createStore(settings)
+
+    const { ClaudeRuntimeAuthService } = await import('./runtime-auth-service')
+    const service = new ClaudeRuntimeAuthService(store as never)
+    const preparation = await service.prepareForClaudeLaunch()
+
+    expect(preparation).toMatchObject({
+      runtime: 'wsl',
+      wslDistro: 'Ubuntu',
+      provenance: 'managed:ubuntu-account:wsl:Ubuntu',
+      stripAuthEnv: true
+    })
+  })
+
+  it('keeps auto account runtime on host when the global runtime default is host on win32 (#9537)', async () => {
+    setPlatform('win32')
+    vi.doMock('../wsl', () => ({
+      getDefaultWslDistro: () => 'Ubuntu',
+      getWslHome: () => null,
+      toWindowsWslPath: (value: string) => value
+    }))
+    const settings = createSettings({
+      localAccountRuntime: 'auto',
+      localWindowsRuntimeDefault: { kind: 'windows-host' }
+    })
+    const store = createStore(settings)
+
+    const { ClaudeRuntimeAuthService } = await import('./runtime-auth-service')
+    const service = new ClaudeRuntimeAuthService(store as never)
+    const preparation = await service.prepareForClaudeLaunch()
+
+    expect(preparation).toMatchObject({
+      runtime: 'host',
+      wslDistro: null,
+      provenance: 'system',
+      stripAuthEnv: false
+    })
+  })
+
   it('clears a selected WSL managed account when its credentials are missing', async () => {
     const managedAuthPath = join(testState.userDataDir, 'claude-accounts', 'account-1', 'auth')
     mkdirSync(managedAuthPath, { recursive: true })
@@ -3892,7 +3959,12 @@ describe('ClaudeRuntimeAuthService', () => {
 
   it('adopts a concurrent CLI token refresh instead of clobbering it mid-sync', async () => {
     const runtimeCredentialsPath = join(testState.fakeHomeDir, '.claude', '.credentials.json')
-    const managedOriginal = createClaudeCredentialsJson('one@example.com', 'one-managed', null, 1_000)
+    const managedOriginal = createClaudeCredentialsJson(
+      'one@example.com',
+      'one-managed',
+      null,
+      1_000
+    )
     const orcaRefreshed = createClaudeCredentialsJson('one@example.com', 'one-orca', null, 2_000)
     // A live external `claude` rotates its (single-use) refresh token while
     // Orca's own proactive refresh is in flight — the multi-writer race (#9582).
@@ -3931,7 +4003,12 @@ describe('ClaudeRuntimeAuthService', () => {
 
   it('preserves unattributable runtime credentials after losing the write race twice', async () => {
     const runtimeCredentialsPath = join(testState.fakeHomeDir, '.claude', '.credentials.json')
-    const managedOriginal = createClaudeCredentialsJson('one@example.com', 'one-managed', null, 1_000)
+    const managedOriginal = createClaudeCredentialsJson(
+      'one@example.com',
+      'one-managed',
+      null,
+      1_000
+    )
     const foreignWrites = [
       createClaudeCredentialsJson('intruder@example.com', 'foreign-1'),
       createClaudeCredentialsJson('intruder@example.com', 'foreign-2')

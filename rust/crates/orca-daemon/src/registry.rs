@@ -85,6 +85,10 @@ pub struct Registry {
     /// The daemon's socket path, so `shutdown` can unlink it (parity with the Node
     /// server.close→unlinkSync). `None` in the parity harness / standalone tests.
     socket_path: Mutex<Option<String>>,
+    /// v1021 federated search: the transient-replay cache for cold/parked
+    /// content, keyed by (sessionId, checkpoint generation). Its OWN lock —
+    /// a 5MB replay must never stall session routing under `inner`.
+    search_replay_cache: Arc<Mutex<crate::session_search::SearchReplayCache>>,
 }
 
 impl Registry {
@@ -313,6 +317,32 @@ impl Registry {
             .sessions
             .get(id)
             .and_then(|e| e.pid)
+    }
+
+    /// Engine handles for `searchSessions`: every live session, or only the
+    /// controller's allowlisted ids. Sorted by sessionId so the wire order is
+    /// deterministic (HashMap iteration is not). Engines are searched OFF the
+    /// registry lock — one slow regex must not wedge routing.
+    pub fn engines_for_search(
+        &self,
+        allowlist: Option<&[String]>,
+    ) -> Vec<(String, Arc<Mutex<SessionEngine>>)> {
+        let inner = self.inner.lock().unwrap();
+        let mut engines: Vec<(String, Arc<Mutex<SessionEngine>>)> = inner
+            .sessions
+            .iter()
+            .filter(|(sid, _)| allowlist.map_or(true, |ids| ids.iter().any(|a| a == *sid)))
+            .map(|(sid, e)| (sid.clone(), Arc::clone(&e.engine)))
+            .collect();
+        engines.sort_by(|a, b| a.0.cmp(&b.0));
+        engines
+    }
+
+    /// The federated-search transient-replay cache (see `session_search`).
+    pub fn search_replay_cache(
+        &self,
+    ) -> Arc<Mutex<crate::session_search::SearchReplayCache>> {
+        Arc::clone(&self.search_replay_cache)
     }
 
     /// Clone out the session's engine handle so a caller can query/feed it (snapshot,

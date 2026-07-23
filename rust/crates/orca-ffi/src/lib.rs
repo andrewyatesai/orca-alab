@@ -10,7 +10,8 @@
 //! here and each `unsafe fn` documents its contract.
 
 use orca_session::{PtyCommand, TerminalSession};
-use orca_terminal::{Color, HeadlessTerminal};
+use orca_terminal::{Color, HeadlessTerminal, SearchOptions};
+use serde_json::json;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
@@ -215,6 +216,68 @@ pub unsafe extern "C" fn orca_terminal_resize(
         return;
     }
     (*terminal).resize(rows, cols);
+}
+
+/// E-5 federated search over the terminal's scrollback + visible grid (fed
+/// design §3): newest-first match summaries as a JSON C string —
+/// `{"matches":[{"absRow","col","len","line"}],"total","incomplete"}` —
+/// because variable-length match lists don't fit a flat `#[repr(C)]` shape.
+/// `case_sensitive`/`is_regex` are 0/1; invalid regex yields zero matches
+/// (wasm find-bar parity). Free with [`orca_string_free`]. Null on bad input.
+///
+/// # Safety
+/// `terminal` must be valid and not concurrently mutated; `query` must be a
+/// valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn orca_terminal_search_scrollback(
+    terminal: *mut HeadlessTerminal,
+    query: *const c_char,
+    case_sensitive: u8,
+    is_regex: u8,
+    max_matches: usize,
+) -> *mut c_char {
+    if terminal.is_null() || query.is_null() {
+        return std::ptr::null_mut();
+    }
+    let query = CStr::from_ptr(query).to_string_lossy();
+    let opts = SearchOptions { case_sensitive: case_sensitive != 0, regex: is_regex != 0 };
+    let outcome = (*terminal).search_scrollback(&query, opts, max_matches, None);
+    let payload = json!({
+        "matches": outcome
+            .matches
+            .iter()
+            .map(|m| json!({ "absRow": m.abs_row, "col": m.col, "len": m.len, "line": m.line }))
+            .collect::<Vec<_>>(),
+        "total": outcome.total,
+        "incomplete": outcome.incomplete,
+    });
+    match CString::new(payload.to_string()) {
+        Ok(cstring) => cstring.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Context window around an absolute row (the `searchContext` contract):
+/// `{"lines":[…],"firstAbsRow":n}` as JSON. Free with [`orca_string_free`].
+///
+/// # Safety
+/// `terminal` must be valid and not concurrently mutated.
+#[no_mangle]
+pub unsafe extern "C" fn orca_terminal_search_context(
+    terminal: *mut HeadlessTerminal,
+    abs_row: usize,
+    before: usize,
+    after: usize,
+) -> *mut c_char {
+    if terminal.is_null() {
+        return std::ptr::null_mut();
+    }
+    let (lines, first) = (*terminal).search_context(abs_row, before, after);
+    let payload = json!({ "lines": lines, "firstAbsRow": first });
+    match CString::new(payload.to_string()) {
+        Ok(cstring) => cstring.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
 }
 
 /// Free a string returned by an `orca_*` function (e.g. row text).
@@ -466,6 +529,47 @@ mod tests {
             assert!(text.contains("live-ffi-session"), "got: {text:?}");
 
             orca_session_free(session);
+        }
+    }
+
+    #[test]
+    fn search_ffi_returns_json_summaries() {
+        unsafe {
+            let term = orca_terminal_new(4, 40);
+            let input = b"\x1b[31malpha needle\x1b[0m\r\nplain\r\nNEEDLE two";
+            orca_terminal_process(term, input.as_ptr(), input.len());
+
+            let query = CString::new("needle").unwrap();
+            let raw = orca_terminal_search_scrollback(term, query.as_ptr(), 0, 0, 10);
+            assert!(!raw.is_null());
+            let parsed: serde_json::Value =
+                serde_json::from_str(CStr::from_ptr(raw).to_str().unwrap()).unwrap();
+            orca_string_free(raw);
+            assert_eq!(parsed["total"], 2, "case-insensitive across ANSI-colored rows");
+            assert_eq!(parsed["incomplete"], false);
+            assert_eq!(parsed["matches"][0]["line"], "NEEDLE two", "newest first");
+
+            let ctx = orca_terminal_search_context(term, 1, 1, 1);
+            assert!(!ctx.is_null());
+            let ctx_parsed: serde_json::Value =
+                serde_json::from_str(CStr::from_ptr(ctx).to_str().unwrap()).unwrap();
+            orca_string_free(ctx);
+            assert_eq!(ctx_parsed["firstAbsRow"], 0);
+            assert_eq!(ctx_parsed["lines"][1], "plain");
+
+            // Null tolerance mirrors the rest of the ABI.
+            assert!(orca_terminal_search_scrollback(
+                std::ptr::null_mut(),
+                query.as_ptr(),
+                0,
+                0,
+                10
+            )
+            .is_null());
+            assert!(orca_terminal_search_scrollback(term, std::ptr::null(), 0, 0, 10).is_null());
+            assert!(orca_terminal_search_context(std::ptr::null_mut(), 0, 1, 1).is_null());
+
+            orca_terminal_free(term);
         }
     }
 

@@ -16,10 +16,11 @@ use serde_json::{json, Value};
 /// public Orca install — a public build (v18, or any future public bump) must
 /// never handshake with this daemon, and vice versa (see types.ts).
 ///
-/// 1019 added the read-only SUBSCRIBER role; 1020 adds the OPT-IN binary
-/// stream plane (`streamFormat:'binary'` in the stream hello) — both purely
-/// additive over 1018.
-pub const PROTOCOL_VERSION: u64 = 1020;
+/// 1019 added the read-only SUBSCRIBER role; 1020 added the OPT-IN binary
+/// stream plane (`streamFormat:'binary'` in the stream hello); 1021 adds the
+/// federated-search RPCs (`searchSessions`/`searchContext`/`searchReplay`/
+/// `searchReplayContext`, see session_search.rs) — all purely additive over 1018.
+pub const PROTOCOL_VERSION: u64 = 1021;
 
 /// Oldest hello still accepted. 1019/1020 only ADD behavior, so a 1018 client
 /// (an app build predating the subscriber rev, or the parity harness'
@@ -35,6 +36,13 @@ pub const BINARY_STREAM_PROTOCOL_VERSION: u64 = 1020;
 
 /// The `streamFormat` value requesting/granting binary stream frames.
 pub const STREAM_FORMAT_BINARY: &str = "binary";
+
+/// v1021: the protocol version at which the federated-search RPCs exist.
+/// Clients feature-detect on this (an older preserved daemon answers
+/// "unsupported request type" and the source degrades to unavailable). Must
+/// equal `SESSION_SEARCH_PROTOCOL_VERSION` in
+/// `src/main/daemon/daemon-protocol-versions.ts`.
+pub const SESSION_SEARCH_PROTOCOL_VERSION: u64 = 1021;
 
 /// Typed error-code prefix for subscriber write/resize denial (v1019).
 /// Clients match on this prefix; must equal `SUBSCRIBER_READ_ONLY_ERROR` in

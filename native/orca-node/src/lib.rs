@@ -23,6 +23,32 @@ pub struct JsOscLinkRange {
     pub uri: String,
 }
 
+/// One federated-search match summary (E-5). `absRow` is 0-based from the
+/// oldest retained history row; `col`/`len` are char offsets into `line`.
+#[napi(object)]
+pub struct JsSearchMatch {
+    pub abs_row: u32,
+    pub col: u32,
+    pub len: u32,
+    pub line: String,
+}
+
+/// Newest-first summaries plus the true total and the fed-design truncation
+/// honesty flag.
+#[napi(object)]
+pub struct JsSearchOutcome {
+    pub matches: Vec<JsSearchMatch>,
+    pub total: u32,
+    pub incomplete: bool,
+}
+
+/// Context window around an absolute row (`searchContext` contract).
+#[napi(object)]
+pub struct JsSearchContextWindow {
+    pub lines: Vec<String>,
+    pub first_abs_row: u32,
+}
+
 #[napi(js_name = "HeadlessTerminal")]
 pub struct JsHeadlessTerminal {
     // Option so dispose() can drop the engine (grid + tiered scrollback)
@@ -183,6 +209,59 @@ impl JsHeadlessTerminal {
     #[napi(catch_unwind)]
     pub fn application_cursor(&self) -> bool {
         self.inner.as_ref().is_some_and(|t| t.application_cursor())
+    }
+
+    /// E-5 federated search over history + visible grid (fed design §2.2: the
+    /// main-process entry for parked/stored content — ANSI is stripped by the
+    /// headless parse, never a TS regex). Invalid regex yields zero matches.
+    /// `&mut` because retention settles first (serialize_ansi's contract).
+    #[napi(catch_unwind)]
+    pub fn search_scrollback(
+        &mut self,
+        query: String,
+        case_sensitive: Option<bool>,
+        regex: Option<bool>,
+        max_matches: Option<u32>,
+        cutoff_row: Option<u32>,
+    ) -> JsSearchOutcome {
+        let Some(inner) = self.inner.as_mut() else {
+            return JsSearchOutcome { matches: Vec::new(), total: 0, incomplete: false };
+        };
+        let opts = orca_terminal::SearchOptions {
+            case_sensitive: case_sensitive.unwrap_or(false),
+            regex: regex.unwrap_or(false),
+        };
+        let outcome = inner.search_scrollback(
+            &query,
+            opts,
+            max_matches.unwrap_or(50) as usize,
+            cutoff_row.map(|c| c as usize),
+        );
+        JsSearchOutcome {
+            matches: outcome
+                .matches
+                .into_iter()
+                .map(|m| JsSearchMatch {
+                    abs_row: m.abs_row as u32,
+                    col: m.col as u32,
+                    len: m.len as u32,
+                    line: m.line,
+                })
+                .collect(),
+            total: outcome.total as u32,
+            incomplete: outcome.incomplete,
+        }
+    }
+
+    /// Context lines around an absolute row, clamped to retained content.
+    #[napi(catch_unwind)]
+    pub fn search_context(&mut self, abs_row: u32, before: u32, after: u32) -> JsSearchContextWindow {
+        let Some(inner) = self.inner.as_mut() else {
+            return JsSearchContextWindow { lines: Vec::new(), first_abs_row: 0 };
+        };
+        let (lines, first) =
+            inner.search_context(abs_row as usize, before as usize, after as usize);
+        JsSearchContextWindow { lines, first_abs_row: first as u32 }
     }
 
     /// Drop the engine now. The daemon churns through many sessions, so freeing

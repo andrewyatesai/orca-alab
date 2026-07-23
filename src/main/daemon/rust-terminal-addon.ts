@@ -33,6 +33,26 @@ export type RustHeadlessTerminalHandle = {
   /** OSC-8 hyperlink ranges over the serialized window (matches the renderer's
    *  `TerminalOscLinkRange`; `endCol` exclusive). */
   oscLinkRanges(scrollbackRows?: number): TerminalOscLinkRange[]
+  /** E-5 federated search over history + visible grid: newest-first summaries,
+   *  the true total, and the truncation honesty flag. Invalid regex = zero
+   *  matches. `cutoffRow` keeps only rows strictly older than it. */
+  searchScrollback(
+    query: string,
+    caseSensitive?: boolean,
+    regex?: boolean,
+    maxMatches?: number,
+    cutoffRow?: number
+  ): {
+    matches: { absRow: number; col: number; len: number; line: string }[]
+    total: number
+    incomplete: boolean
+  }
+  /** Context lines around an absolute row, clamped to retained content. */
+  searchContext(
+    absRow: number,
+    before: number,
+    after: number
+  ): { lines: string[]; firstAbsRow: number }
 }
 
 export type RustHeadlessTerminalCtor = new (

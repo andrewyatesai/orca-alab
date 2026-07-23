@@ -19,13 +19,23 @@
 // keeps NDJSON, and a preserved older daemon keeps working via the
 // legacy-adapter path (1018/1019 listed as previous versions below), so
 // nothing on the TS side requires 1020.
-export const PROTOCOL_VERSION = 1020
+// Why 1021: adds the federated-search RPCs (searchSessions/searchContext/
+// searchReplay/searchReplayContext; see daemon-session-search.ts). Additive
+// only — clients feature-detect via SESSION_SEARCH_PROTOCOL_VERSION and a
+// preserved older daemon degrades to "search unavailable" for its sessions.
+export const PROTOCOL_VERSION = 1021
 
 // The protocol version at which the binary stream plane exists. A client only
 // requests it when negotiating at >= this version; the daemon only grants at
 // >=. Must equal BINARY_STREAM_PROTOCOL_VERSION in
 // rust/crates/orca-daemon/src/protocol.rs.
 export const BINARY_STREAM_PROTOCOL_VERSION = 1020
+
+// The protocol version at which the daemon federated-search RPCs exist
+// (fed design §2.3, Wave-4 4E). An adapter below this version reports search
+// unavailable for its sessions instead of sending the RPC. Must equal
+// SESSION_SEARCH_PROTOCOL_VERSION in rust/crates/orca-daemon/src/protocol.rs.
+export const SESSION_SEARCH_PROTOCOL_VERSION = 1021
 
 // Fork daemon protocol versions live at 1000+; public Orca versions sit below.
 // Gates that mean "an attached PUBLIC daemon" (not just "not current") must
@@ -45,8 +55,8 @@ export const GIT_CREDENTIAL_GUARD_HOST_PROTOCOL_VERSION = 22
 // instead of being killed or impersonated, so installing the fork over public
 // Orca preserves in-flight terminals across the public protocol range (upstream
 // v1.4.147 ships public protocol 24).
-// Why 1018/1019 are listed: a fork daemon preserved across an app update to
-// 1020 keeps its sessions via the same legacy-adapter path (it lives at
-// daemon-v1018.* / daemon-v1019.*).
+// Why 1018/1019/1020 are listed: a fork daemon preserved across an app update
+// to 1021 keeps its sessions via the same legacy-adapter path (it lives at
+// daemon-v1018.* / daemon-v1019.* / daemon-v1020.*).
 // prettier-ignore
-export const PREVIOUS_DAEMON_PROTOCOL_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 1018, 1019] as const
+export const PREVIOUS_DAEMON_PROTOCOL_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 1018, 1019, 1020] as const

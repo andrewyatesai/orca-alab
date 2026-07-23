@@ -19,6 +19,7 @@ pub mod registry;
 pub mod resolver_health;
 pub mod rpc;
 pub mod scrollback_compress;
+pub mod session_search;
 pub mod shell_ready_barrier;
 pub mod stream_coalescing;
 #[cfg(unix)]

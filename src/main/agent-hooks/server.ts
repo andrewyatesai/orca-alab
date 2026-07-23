@@ -160,7 +160,7 @@ function dropHydratedIdleClaudeSubagents(
     return payload
   }
   const workingSubagents = payload.subagents.filter((subagent) => subagent.state === 'working')
-  // Why: older builds persisted finished Claude children as idle rows; prune them so restart can't resurrect the pile.
+  // Why: an idle teammate's liveness can't be proven across a restart (its TeammateIdle confirmation is in-memory); prune so a dead pile can't resurrect — a live teammate re-earns its row via SubagentStart.
   return {
     ...payload,
     subagents: workingSubagents.length > 0 ? workingSubagents : undefined
@@ -1380,11 +1380,7 @@ export class AgentHookServer {
       const parent = resolveClaudeForkParentSessionId(meta.sessionId, meta.transcriptPath)
       const parentBinding = parent ? this.providerSessionPanes.get(parent) : undefined
       if (parentBinding) {
-        this.registerProviderSessionPane(
-          meta.sessionId,
-          parentBinding.paneKey,
-          parentBinding.ptyId
-        )
+        this.registerProviderSessionPane(meta.sessionId, parentBinding.paneKey, parentBinding.ptyId)
       }
     }
     // Why: fleet-view/`/resume` attach swaps the session inside an existing
@@ -1395,10 +1391,7 @@ export class AgentHookServer {
     // Known ceiling: a headless prompt to an unbound session that lands
     // within the input window of unrelated typing can misbind until the next
     // interactive turn corrects it.
-    if (
-      meta.eventName === 'UserPromptSubmit' &&
-      !this.providerSessionPanes.has(meta.sessionId)
-    ) {
+    if (meta.eventName === 'UserPromptSubmit' && !this.providerSessionPanes.has(meta.sessionId)) {
       const pane = this.claudePaneInputProbe?.(CLAUDE_PANE_INPUT_REBIND_WINDOW_MS) ?? null
       if (pane) {
         this.registerProviderSessionPane(meta.sessionId, pane.paneKey, pane.ptyId)

@@ -9520,7 +9520,11 @@
           "rowTitle": "Default Shell",
           "searchDescription": "Choose the default shell for new terminal panes on macOS and Linux.",
           "systemOption": "System",
-          "systemOptionAria": "System login shell"
+          "systemOptionAria": "System login shell",
+          "customOption": "Custom…",
+          "customOptionAria": "Custom shell path",
+          "customPathLabel": "Shell Path",
+          "customPathDescription": "Absolute path to the shell executable. Takes effect for new terminals. SSH terminals keep the remote login shell."
         },
         "CustomAgentsSection": {
           "b4903769af": "Based on",
@@ -9620,6 +9624,19 @@
           "delete": "삭제",
           "empty": "아직 맞춤 단축키가 없습니다.",
           "noMatches": "검색어와 일치하는 맞춤 단축키가 없습니다."
+        },
+        "TerminalCustomShellPathInput": {
+          "notAbsolute": "Enter an absolute path to the shell executable.",
+          "notFound": "No file exists at this path.",
+          "isDirectory": "This path is a directory, not a shell executable.",
+          "aliasNotExecutable": "This is a Store app alias that terminals cannot launch. Try {{target}}.",
+          "notExecutable": "This file is not an executable shell."
+        },
+        "TerminalWindowsShellSection": {
+          "customOption": "Custom…",
+          "customOptionAria": "Custom shell path",
+          "customPathLabel": "Shell Path",
+          "customPathDescription": "Absolute path to the shell executable. Takes effect for new terminals."
         }
       },
       "right": {
@@ -13812,6 +13829,12 @@
             "indicatorDegradedTooltip": "New terminals are running without daemon persistence. Open Manage Sessions to restart the daemon.",
             "indicatorAriaLabel": "Terminal daemon status: persistence off"
           }
+        }
+      },
+      "terminal-pane": {
+        "SessionRestoredBanner": {
+          "lastRan": "session restored · last ran: {{command}}",
+          "typeItAgain": "Type it again"
         }
       }
     },

@@ -69,12 +69,14 @@ import { TerminalAgentSessionForkDialog } from './TerminalAgentSessionForkDialog
 import { SessionRestoredBannerPortals } from './SessionRestoredBannerPortals'
 import { useSessionRestoredBannerDismiss } from './useSessionRestoredBannerDismiss'
 import {
-  addSessionRestoredBannerPaneId,
-  dismissSessionRestoredBannerPaneIds,
-  pruneSessionRestoredBannerPaneIds,
-  removeSessionRestoredBannerPaneId,
+  addSessionRestoredBannerPane,
+  dismissSessionRestoredBannerPanes,
+  pruneSessionRestoredBannerPanes,
+  removeSessionRestoredBannerPane,
   syncSessionRestoredBannerTitleSpace,
-  type SessionRestoredBannerDismissEvent
+  type SessionRestoredBannerDismissEvent,
+  type SessionRestoredBannerPane,
+  type SessionRestoredBannerState
 } from './session-restored-banner-pane-state'
 import { useSystemPrefersDark } from './use-system-prefers-dark'
 import { useTerminalPaneGlobalEffects } from './use-terminal-pane-global-effects'
@@ -807,9 +809,9 @@ export default function TerminalPane({
   const [shouldMeasureHiddenStartup, setShouldMeasureHiddenStartup] = useState(
     () => startup !== undefined && !isVisible
   )
-  const [sessionRestoredBannerPaneIds, setSessionRestoredBannerPaneIds] = useState<Set<number>>(
-    () => new Set()
-  )
+  const [sessionRestoredBannerPanes, setSessionRestoredBannerPanes] = useState<
+    Map<number, SessionRestoredBannerState>
+  >(() => new Map())
   const consumeTabStartupCommand = useAppStore((store) => store.consumeTabStartupCommand)
   const [setupSplit] = useState(() => useAppStore.getState().pendingSetupSplitByTabId[tabId])
   const consumeTabSetupSplit = useAppStore((store) => store.consumeTabSetupSplit)
@@ -835,31 +837,46 @@ export default function TerminalPane({
   }, [isVisible, shouldMeasureHiddenStartup])
 
   const clearSessionRestoredBannerForPane = useCallback((paneId: number): void => {
-    setSessionRestoredBannerPaneIds((prev) => {
-      const next = removeSessionRestoredBannerPaneId(prev, paneId)
+    setSessionRestoredBannerPanes((prev) => {
+      const next = removeSessionRestoredBannerPane(prev, paneId)
       return next === prev ? prev : next
     })
   }, [])
 
-  const showRestoredSessionBanner = useCallback((paneId: number): void => {
-    setSessionRestoredBannerPaneIds((prev) => {
-      const next = addSessionRestoredBannerPaneId(prev, paneId)
-      return next === prev ? prev : next
-    })
-  }, [])
+  const showRestoredSessionBanner = useCallback(
+    (paneId: number, info?: { lastCommand?: string | null }): void => {
+      setSessionRestoredBannerPanes((prev) => {
+        const next = addSessionRestoredBannerPane(prev, paneId, info?.lastCommand ?? null)
+        return next === prev ? prev : next
+      })
+    },
+    []
+  )
 
   const dismissSessionRestoredBanner = useCallback(
     (event: SessionRestoredBannerDismissEvent): void => {
-      setSessionRestoredBannerPaneIds((prev) =>
-        dismissSessionRestoredBannerPaneIds(prev, event, managerRef.current?.getPanes() ?? [])
+      setSessionRestoredBannerPanes((prev) =>
+        dismissSessionRestoredBannerPanes(prev, event, managerRef.current?.getPanes() ?? [])
       )
     },
     []
   )
   useSessionRestoredBannerDismiss(
-    sessionRestoredBannerPaneIds.size > 0,
+    sessionRestoredBannerPanes.size > 0,
     containerRef,
     dismissSessionRestoredBanner
+  )
+
+  // Why (#7596): type WITHOUT executing — the paste seam is bracketed-paste-safe
+  // and no \r is appended, so the user confirms with Enter (the command can be
+  // stale or destructive). Typing then dismisses this pane's banner.
+  const typeRestoredCommandAgain = useCallback(
+    (pane: SessionRestoredBannerPane, command: string): void => {
+      pane.terminal.paste(command)
+      pane.terminal.focus()
+      clearSessionRestoredBannerForPane(pane.id)
+    },
+    [clearSessionRestoredBannerForPane]
   )
 
   const openDiskSpaceAnalyzer = useCallback(() => {
@@ -2374,7 +2391,7 @@ export default function TerminalPane({
       panes: manager.getPanes(),
       paneTitles,
       renamingPaneId,
-      sessionRestoredBannerPaneIds
+      sessionRestoredBannerPanes
     })
     if (needsFit && (isVisible || shouldMeasureHiddenStartup)) {
       // Why: fitting hidden geometry changes PTY rows and wakes TUIs via SIGWINCH; the visible resume path owns real layout correction.
@@ -2385,7 +2402,7 @@ export default function TerminalPane({
     paneLayoutRevision,
     paneTitles,
     renamingPaneId,
-    sessionRestoredBannerPaneIds,
+    sessionRestoredBannerPanes,
     isVisible,
     shouldMeasureHiddenStartup
   ])
@@ -2455,7 +2472,7 @@ export default function TerminalPane({
     paneLayoutRevision,
     paneTitles,
     renamingPaneId,
-    sessionRestoredBannerPaneIds,
+    sessionRestoredBannerPanes,
     syncPaneTitleOverlayRects
   ])
 
@@ -2464,8 +2481,8 @@ export default function TerminalPane({
     if (!manager) {
       return
     }
-    setSessionRestoredBannerPaneIds((prev) => {
-      const next = pruneSessionRestoredBannerPaneIds(prev, manager.getPanes())
+    setSessionRestoredBannerPanes((prev) => {
+      const next = pruneSessionRestoredBannerPanes(prev, manager.getPanes())
       return next === prev ? prev : next
     })
   }, [paneCount])
@@ -3103,7 +3120,8 @@ export default function TerminalPane({
         )}
       <SessionRestoredBannerPortals
         panes={managerRef.current?.getPanes() ?? []}
-        paneIds={sessionRestoredBannerPaneIds}
+        states={sessionRestoredBannerPanes}
+        onTypeItAgain={typeRestoredCommandAgain}
       />
       {effectiveChatViewMode && chatPane?.container
         ? createPortal(

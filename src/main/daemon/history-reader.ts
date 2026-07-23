@@ -6,6 +6,7 @@ import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges
 import { getHistorySessionDirName } from './history-paths'
 import { decodeTerminalHistoryLog } from './terminal-history-log'
 import { HeadlessEmulator } from './headless-emulator'
+import { createOsc633CommandlineScanner } from '../../shared/terminal-osc633-commandline'
 
 export type ColdRestoreInfo = {
   snapshotAnsi: string
@@ -16,6 +17,9 @@ export type ColdRestoreInfo = {
   cols: number
   rows: number
   modes: TerminalModes
+  /** Last OSC 633;E command line replayed from the raw log (#7596). Honest
+   *  degradation: a command older than the log window yields no value. */
+  lastCommand?: string
 }
 
 const ALT_SCREEN_ON = '\x1b[?1049h'
@@ -170,12 +174,16 @@ export class HistoryReader {
         }
         emulator.setRestoredOscLinks(checkpoint.oscLinks)
       }
+      // #7596: the raw log is the only place the shell hooks' 633;E bytes
+      // survive (serialized checkpoints drop OSC), so scan it during replay.
+      const commandlineScanner = createOsc633CommandlineScanner()
       for (const batch of log.batches) {
         for (const record of batch.records) {
           if (record.kind === 'output') {
             if (!emulator.writeSync(record.data)) {
               return null
             }
+            commandlineScanner.scan(record.data)
           } else if (record.kind === 'resize') {
             emulator.resize(record.cols, record.rows)
           } else {
@@ -184,11 +192,13 @@ export class HistoryReader {
         }
       }
       const snapshot = emulator.getSnapshot()
-      return this.coldRestoreInfoFromSnapshot(
-        snapshot,
-        snapshot.cwd ?? checkpoint?.cwd ?? meta.cwd,
-        meta
-      )
+      const lastCommand = commandlineScanner.lastCommandline()
+      return {
+        ...this.coldRestoreInfoFromSnapshot(snapshot, snapshot.cwd ?? checkpoint?.cwd ?? meta.cwd, meta),
+        // Why: only the raw-log replay carries shell-hook bytes; checkpoint-only
+        // and scrollback.bin restores never offer a re-run.
+        ...(lastCommand !== null ? { lastCommand } : {})
+      }
     } catch {
       // Why: a replay failure must degrade to checkpoint-only restore, never
       // surface as a failed spawn.

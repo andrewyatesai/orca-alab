@@ -161,6 +161,22 @@ fi
 `
 }
 
+// Why: both wrapper writers (local-pty-shell-ready.ts, daemon/shell-ready.ts)
+// emit the same 633;E command-line helper (#7596) so cold restore can recover
+// the last-ran command from the raw PTY log; one template keeps them identical.
+// Escaping is the VS Code convention (\ → \\, ; → \x3b, newline → \x0a) so the
+// engine's shell-mark parser reads it too; 2 KB truncation keeps prompts cheap.
+export function getPosixOsc633CommandlineEmitBlock(): string {
+  return `__orca_osc633_emit() {
+  local __orca_cmd="$1"
+  __orca_cmd="\${__orca_cmd:0:2048}"
+  __orca_cmd="\${__orca_cmd//\\\\/\\\\\\\\}"
+  __orca_cmd="\${__orca_cmd//;/\\\\x3b}"
+  __orca_cmd="\${__orca_cmd//$'\\n'/\\\\x0a}"
+  printf "\\033]633;E;%s\\007" "$__orca_cmd"
+}`
+}
+
 export function getZshFinalZdotdirRestoreBlock(homeExpression = '"${ORCA_ORIG_ZDOTDIR:-$HOME}"') {
   return `_orca_home=${homeExpression}
 case "\${_orca_home%/}" in

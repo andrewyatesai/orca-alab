@@ -27,6 +27,7 @@ import type {
 } from '../shared/terminal-render-desync-evidence'
 import type { MobileRelayStatus } from '../shared/mobile-relay-status'
 import type { PosixTerminalShellDetection } from '../shared/posix-terminal-shell'
+import type { ShellPathValidation } from '../shared/terminal-shell-path-validation'
 import type { MobilePairingConnectionMode } from '../shared/mobile-pairing-connection-mode'
 import type {
   CreateLocalOrcaProfileArgs,
@@ -1334,7 +1335,14 @@ export type PreloadApi = {
       isAlternateScreen?: boolean
       replay?: string
       sessionExpired?: boolean
-      coldRestore?: { scrollback: string; cwd: string; cols?: number; rows?: number }
+      coldRestore?: {
+        scrollback: string
+        cwd: string
+        cols?: number
+        rows?: number
+        /** Last command recovered from the crashed session's log (#7596). */
+        lastCommand?: string
+      }
       startupCwdFallback?: { kind: 'worktree'; cwd: string }
     }>
     write: (id: string, data: string) => void
@@ -3254,6 +3262,11 @@ export type PreloadApi = {
   posixShells: {
     /** Installed macOS/Linux default-shell choices on the local terminal host. */
     detect: () => Promise<PosixTerminalShellDetection>
+  }
+  terminalShell: {
+    /** Validate an explicit custom shell path on the local terminal host (#7467).
+     *  Null when the host cannot validate (web/mobile client) — hide inline feedback. */
+    validatePath: (path: string) => Promise<ShellPathValidation | null>
   }
   agentStatus: {
     /** Listen for agent status updates forwarded from native hook receivers. */

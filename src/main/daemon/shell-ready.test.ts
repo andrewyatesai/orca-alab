@@ -99,7 +99,11 @@ async function runInteractiveZshRc(args: {
   return output
 }
 
-function runInteractiveBashRcfile(rcfileContent: string, tempDir: string): string {
+function runInteractiveBashRcfile(
+  rcfileContent: string,
+  tempDir: string,
+  input = 'true\nfalse\nexit 0\n'
+): string {
   const rcfile = join(tempDir, 'bash-osc133-rcfile')
   writeFileSync(rcfile, rcfileContent)
 
@@ -107,7 +111,7 @@ function runInteractiveBashRcfile(rcfileContent: string, tempDir: string): strin
     'bash',
     ['-lc', 'bash --noprofile --rcfile "$1" -i 2>&1', 'bash', rcfile],
     {
-      input: 'true\nfalse\nexit 0\n',
+      input,
       encoding: 'utf8',
       env: {
         ...process.env,
@@ -518,6 +522,40 @@ describePosix('daemon shell-ready launch config', () => {
       expectBashOsc133Lifecycle(output)
     }
   )
+
+  // Why: #7596 — preexec must emit the escaped command line as 633;E before C,
+  // and the 133;C once-per-prompt guard must wrap 633;E too (Critic note:
+  // bash DEBUG fires per simple command, so a compound line would re-emit).
+  itWithBash('emits one escaped OSC 633;E per prompt, immediately before 133;C', async () => {
+    const { getDaemonBashShellReadyRcfileContent } = await importFreshShellReady()
+
+    const output = runInteractiveBashRcfile(
+      getDaemonBashShellReadyRcfileContent(),
+      userDataPath,
+      "true; false\necho 'x;y'\nexit 0\n"
+    )
+
+    const emissions = output
+      .split('\x1b]633;E;')
+      .slice(1)
+      .map((section) => section.slice(0, section.indexOf('\x07')))
+    // One per prompt (compound line, echo line, exit line) — never per simple command.
+    expect(emissions).toHaveLength(3)
+    // $BASH_COMMAND is the first simple command of the compound line.
+    expect(emissions[0]).toBe('true')
+    // The `;` inside the quoted argument round-trips via \x3b.
+    expect(emissions[1]).toBe("echo 'x\\x3by'")
+    expect(emissions[2]).toBe('exit 0')
+    // Every 133;C is directly preceded by its complete 633;E emission.
+    for (const section of output.split('\x1b]133;C\x07').slice(0, -1)) {
+      const emissionStart = section.lastIndexOf('\x1b]633;E;')
+      expect(emissionStart).toBeGreaterThanOrEqual(0)
+      const payload = section.slice(emissionStart + '\x1b]633;E;'.length)
+      expect(payload.endsWith('\x07')).toBe(true)
+      expect(payload.slice(0, -1)).not.toContain('\x07')
+      expect(payload.slice(0, -1)).not.toContain('\x1b')
+    }
+  })
 
   itWithBash(
     'preserves prompt hooks and existing DEBUG traps without fake command markers',

@@ -15,6 +15,8 @@ import { isGitBashAvailable } from '../git-bash'
 import { isNushellAvailable } from '../windows-nushell'
 import { detectPosixTerminalShells } from '../posix-default-shell'
 import type { PosixTerminalShellDetection } from '../../shared/posix-terminal-shell'
+import { validateTerminalShellPath } from '../terminal-shell-path-validation'
+import type { ShellPathValidation } from '../../shared/terminal-shell-path-validation'
 import { setUnreadDockBadgeCount } from '../dock/unread-badge'
 import { destroySystemTray } from '../tray/system-tray'
 import { authorizeExternalPath } from './filesystem-auth'
@@ -269,6 +271,12 @@ export function registerAppHandlers(store: Store, options: RegisterAppHandlersOp
   ipcMain.handle(
     'posixShells:detect',
     (): PosixTerminalShellDetection => detectPosixTerminalShells()
+  )
+  // Why: inline Settings validation for explicit custom shell paths (#7467); local host only — SSH keeps the remote login shell.
+  ipcMain.handle(
+    'terminal:validateShellPath',
+    (_event, rawPath: unknown): ShellPathValidation =>
+      validateTerminalShellPath(typeof rawPath === 'string' ? rawPath : '')
   )
 
   // Why: renderer layout fingerprint tags ABC/CJK-Roman as 'us', breaking Option+letter (#1205); HIToolbox prefs override it.

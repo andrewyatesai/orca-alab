@@ -300,7 +300,11 @@ const describePosix = process.platform === 'win32' ? describe.skip : describe
 const hasBash = process.platform !== 'win32' && spawnSync('bash', ['--version']).status === 0
 const itWithBash = hasBash ? it : it.skip
 
-function runInteractiveBashRcfile(rcfileContent: string, tempDir: string): string {
+function runInteractiveBashRcfile(
+  rcfileContent: string,
+  tempDir: string,
+  input = 'true\nfalse\nexit 0\n'
+): string {
   const rcfile = join(tempDir, 'bash-osc133-rcfile')
   writeFileSync(rcfile, rcfileContent)
 
@@ -308,7 +312,7 @@ function runInteractiveBashRcfile(rcfileContent: string, tempDir: string): strin
     'bash',
     ['-lc', 'bash --noprofile --rcfile "$1" -i 2>&1', 'bash', rcfile],
     {
-      input: 'true\nfalse\nexit 0\n',
+      input,
       encoding: 'utf8',
       env: {
         ...process.env,
@@ -561,6 +565,47 @@ describePosix('local PTY shell-ready launch config', () => {
     const output = runInteractiveBashRcfile(getBashShellReadyRcfileContent(), userDataPath)
 
     expectBashOsc133Lifecycle(output)
+  })
+
+  // Why: #7596 — the local wrappers must emit 633;E (escaped command line)
+  // before C, gated once-per-prompt exactly like the daemon copies.
+  it('emits OSC 633;E before 133;C in both bash and zsh wrappers', async () => {
+    const { getBashShellReadyRcfileContent, getZshShellReadyRcfileContent } =
+      await importFreshLocalPtyShellReady()
+
+    const bashRc = getBashShellReadyRcfileContent()
+    const zshRc = getZshShellReadyRcfileContent()
+
+    for (const rc of [bashRc, zshRc]) {
+      expect(rc).toContain('printf "\\033]633;E;%s\\007"')
+      expect(rc.indexOf('__orca_osc633_emit ')).toBeLessThan(rc.indexOf('printf "\\033]133;C\\007"'))
+    }
+    expect(bashRc).toContain('__orca_osc633_emit "$BASH_COMMAND"')
+    expect(zshRc).toContain('__orca_osc633_emit "$1"')
+    // Critic note: the once-per-prompt C gate must wrap the 633;E emission too.
+    expect(bashRc.indexOf('[[ -z "${__orca_in_command:-}" ]] || return')).toBeLessThan(
+      bashRc.indexOf('__orca_osc633_emit "$BASH_COMMAND"')
+    )
+  })
+
+  itWithBash('emits one escaped OSC 633;E per prompt in the local bash wrapper', async () => {
+    const { getBashShellReadyRcfileContent } = await importFreshLocalPtyShellReady()
+
+    const output = runInteractiveBashRcfile(
+      getBashShellReadyRcfileContent(),
+      userDataPath,
+      "true; false\necho 'x;y'\nexit 0\n"
+    )
+
+    const emissions = output
+      .split('\x1b]633;E;')
+      .slice(1)
+      .map((section) => section.slice(0, section.indexOf('\x07')))
+    // Once per prompt even for the compound line (the __orca_in_command gate).
+    expect(emissions).toHaveLength(3)
+    expect(emissions[0]).toBe('true')
+    expect(emissions[1]).toBe("echo 'x\\x3by'")
+    expect(emissions[2]).toBe('exit 0')
   })
 
   itWithBash(

@@ -47,6 +47,17 @@ function snapshotOf(writes: string[], cols = 80, rows = 24) {
 }
 
 describe('incremental terminal history restore', () => {
+  // #7596: the full manager→log→reader restore carries the last 633;E command.
+  it('end-to-end cold restore carries lastCommand from shell-hook bytes', async () => {
+    await manager.appendIncrements(SESSION_ID, 1, [
+      { kind: 'output', data: '$ \x1b]633;E;npm run dev\x07\x1b]133;C\x07dev server up\r\n' }
+    ])
+
+    const restore = reader.detectColdRestore(SESSION_ID)
+    expect(restore).not.toBeNull()
+    expect(restore!.lastCommand).toBe('npm run dev')
+  })
+
   it('replays appended output with no checkpoint base', async () => {
     await manager.appendIncrements(SESSION_ID, 1, [
       { kind: 'output', data: 'first line\r\n' },

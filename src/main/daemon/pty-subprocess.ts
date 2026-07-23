@@ -22,6 +22,7 @@ import { resolveWindowsShellLaunchArgs } from '../providers/windows-shell-args'
 import {
   resolveEffectiveWindowsPowerShell,
   shouldProbeWindowsPowerShellAvailability,
+  shouldResolveWindowsPowerShellFamily,
   type WindowsPowerShellShellFamily
 } from '../providers/windows-powershell'
 import {
@@ -597,9 +598,10 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
       shellFamily: resolvedShellFamily,
       implementation: opts.terminalWindowsPowerShellImplementation
     })
-    const shouldResolvePowerShellFamily =
-      opts.terminalWindowsPowerShellImplementation !== undefined ||
-      pathWin32.basename(shellPath) === shellPath
+    const shouldResolvePowerShellFamily = shouldResolveWindowsPowerShellFamily({
+      shellSetting: shellPath,
+      implementation: opts.terminalWindowsPowerShellImplementation
+    })
     if (resolvedGitBashPath) {
       shellPath = resolvedGitBashPath
     } else if (shellPath === WINDOWS_GIT_BASH_SHELL) {

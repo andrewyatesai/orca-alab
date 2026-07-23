@@ -1,5 +1,50 @@
 import { describe, expect, it } from 'vitest'
-import { resolveEffectiveWindowsPowerShell } from './windows-powershell'
+import {
+  resolveEffectiveWindowsPowerShell,
+  shouldResolveWindowsPowerShellFamily
+} from './windows-powershell'
+
+describe('shouldResolveWindowsPowerShellFamily', () => {
+  it('never re-resolves an absolute custom path, even with an implementation preference (#7467)', () => {
+    expect(
+      shouldResolveWindowsPowerShellFamily({
+        shellSetting: 'D:\\tools\\pwsh-daily\\pwsh.exe',
+        implementation: 'powershell.exe'
+      })
+    ).toBe(false)
+    expect(
+      shouldResolveWindowsPowerShellFamily({
+        shellSetting: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+        implementation: 'auto'
+      })
+    ).toBe(false)
+  })
+
+  it('keeps bare-name resolution rules unchanged', () => {
+    expect(
+      shouldResolveWindowsPowerShellFamily({ shellSetting: 'pwsh.exe', implementation: undefined })
+    ).toBe(true)
+    expect(
+      shouldResolveWindowsPowerShellFamily({
+        shellSetting: 'powershell.exe',
+        implementation: 'pwsh.exe'
+      })
+    ).toBe(true)
+    // Relative non-bare paths resolve only under an explicit implementation preference (pre-#7467 behavior).
+    expect(
+      shouldResolveWindowsPowerShellFamily({
+        shellSetting: '.\\tools\\pwsh.exe',
+        implementation: undefined
+      })
+    ).toBe(false)
+    expect(
+      shouldResolveWindowsPowerShellFamily({
+        shellSetting: '.\\tools\\pwsh.exe',
+        implementation: 'auto'
+      })
+    ).toBe(true)
+  })
+})
 
 describe('resolveEffectiveWindowsPowerShell', () => {
   it('returns null for non-PowerShell shell families', () => {

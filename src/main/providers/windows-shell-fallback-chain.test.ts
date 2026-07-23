@@ -55,6 +55,73 @@ describe('buildWindowsPowerShellSpawnAttempts', () => {
     expect(attempts[2].shellArgs[0]).toBe('/K')
   })
 
+  it('keeps an absolute custom shellPath as attempt 0, not replaced by the discovered install (#7467)', () => {
+    restorePlatform = setPlatform('win32')
+    const customPwsh = 'D:\\tools\\pwsh-daily\\pwsh.exe'
+    const attempts = buildWindowsPowerShellSpawnAttempts({
+      shellPath: customPwsh,
+      cwd: 'C:\\repo',
+      defaultCwd: 'C:\\Users\\dev',
+      resolveOptions: {
+        platform: 'win32',
+        env: WIN_ENV,
+        isRealExecutable: (p) => p === customPwsh || p === PWSH7 || p === WINDOWS_POWERSHELL
+      }
+    })
+    expect(attempts.map((a) => a.shellPath)).toEqual([customPwsh, PWSH7, WINDOWS_POWERSHELL, CMD])
+    expect(attempts[0].shellArgs).toContain('-EncodedCommand')
+  })
+
+  it('de-dups a custom path that equals a discovered chain link (#7467)', () => {
+    restorePlatform = setPlatform('win32')
+    const attempts = buildWindowsPowerShellSpawnAttempts({
+      // Case-insensitive match against the discovered pwsh install must not double it.
+      shellPath: 'c:\\program files\\powershell\\7\\PWSH.EXE',
+      cwd: 'C:\\repo',
+      defaultCwd: 'C:\\Users\\dev',
+      resolveOptions: {
+        platform: 'win32',
+        env: WIN_ENV,
+        isRealExecutable: (p) => p.toLowerCase() === PWSH7.toLowerCase() || p === WINDOWS_POWERSHELL
+      }
+    })
+    expect(attempts.map((a) => a.shellPath.toLowerCase())).toEqual(
+      [PWSH7, WINDOWS_POWERSHELL, CMD].map((p) => p.toLowerCase())
+    )
+  })
+
+  it('drops a non-executable absolute custom path to the discovered chain (#7467)', () => {
+    restorePlatform = setPlatform('win32')
+    const attempts = buildWindowsPowerShellSpawnAttempts({
+      shellPath: 'D:\\removed\\pwsh.exe',
+      cwd: 'C:\\repo',
+      defaultCwd: 'C:\\Users\\dev',
+      resolveOptions: {
+        platform: 'win32',
+        env: WIN_ENV,
+        isRealExecutable: (p) => p === PWSH7 || p === WINDOWS_POWERSHELL
+      }
+    })
+    expect(attempts.map((a) => a.shellPath)).toEqual([PWSH7, WINDOWS_POWERSHELL, CMD])
+  })
+
+  it('never promotes an absolute Store-alias custom path to attempt 0 (#7467)', () => {
+    restorePlatform = setPlatform('win32')
+    const aliasStub = 'C:\\Users\\dev\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe'
+    const attempts = buildWindowsPowerShellSpawnAttempts({
+      shellPath: aliasStub,
+      cwd: 'C:\\repo',
+      defaultCwd: 'C:\\Users\\dev',
+      resolveOptions: {
+        platform: 'win32',
+        env: WIN_ENV,
+        // Even a permissive probe must not resurrect the alias — ConPTY cannot launch it.
+        isRealExecutable: (p) => p === aliasStub || p === PWSH7 || p === WINDOWS_POWERSHELL
+      }
+    })
+    expect(attempts.map((a) => a.shellPath)).toEqual([PWSH7, WINDOWS_POWERSHELL, CMD])
+  })
+
   it('repro: when pwsh is only a Store alias, the primary attempt is the real Windows PowerShell', () => {
     restorePlatform = setPlatform('win32')
     const aliasStub = 'C:\\Users\\dev\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe'

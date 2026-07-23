@@ -36,4 +36,18 @@ describe('PowerShell OSC 133 bootstrap', () => {
       Buffer.from('Write-Output ok', 'utf16le').toString('base64')
     )
   })
+
+  // Why: #7596 — the readline hook must emit the escaped command line as 633;E
+  // before 133;C so cold restore can offer a re-run of the last command.
+  it('emits escaped OSC 633;E before 133;C in the readline hook', () => {
+    const script = getPowerShellOsc133Bootstrap()
+
+    expect(script).toContain(')]633;E;$orcaCl$(')
+    // VS Code escaping: \ → \\, ; → \x3b, CRLF/LF/CR → \x0a; 2 KB truncation.
+    expect(script).toContain(".Replace('\\', '\\\\').Replace(';', '\\x3b')")
+    expect(script).toContain(".Replace(\"`r`n\", '\\x0a').Replace(\"`n\", '\\x0a').Replace(\"`r\", '\\x0a')")
+    expect(script).toContain('$orcaCl.Substring(0, 2048)')
+    const readlineHook = script.slice(script.indexOf('function Global:PSConsoleHostReadLine'))
+    expect(readlineHook.indexOf(']633;E;')).toBeLessThan(readlineHook.indexOf(']133;C$('))
+  })
 })

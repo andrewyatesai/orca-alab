@@ -234,9 +234,9 @@ export function createProductionFederatedSearchController(): FederatedSearchCont
         subscribeFederated: subscribeAtermSharedWorkerFederatedEvents
       }),
       // Remote/SSH source over the landed 5B wire (§2.4). Streams in behind the
-      // local results; inert until remote-pane enumeration lands (see
-      // remote-pane-discovery). Its host-row → client-row remap and same-session
-      // dedup already compose with the controller's merge.
+      // local results; enumerates live remote panes from the transport-populated
+      // registry (see remote-pane-discovery). Its host-row → client-row remap and
+      // same-session dedup already compose with the controller's merge.
       createRemotePaneSearchAdapter({
         discoverRemotePanes: discoverRemoteFederatedPanes,
         searchRemote: productionRemoteSearchCall

@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-export const ATERM_WASM_SOURCE_PATCH_PATH = 'config/patches/aterm-gpu-wasm-clock.patch'
+export const ATERM_WASM_SOURCE_PATCH_PATH = 'config/patches/aterm-wasm-source-fixes.patch'
 
 export function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')

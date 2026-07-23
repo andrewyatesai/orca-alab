@@ -3644,6 +3644,10 @@ export function connectPanePty(
   const terminalColorQueryReplies = terminalTheme
     ? { foreground: terminalTheme.foreground, background: terminalTheme.background }
     : undefined
+  // Fed §2.4: bridges the transport's post-replay geometry read to the async
+  // replay-write queue, which is set up per-connection inside runDeferredConnect.
+  // Default resolves immediately (no snapshot can arrive before connect).
+  let awaitSnapshotReplayApplied: () => Promise<void> = () => Promise.resolve()
   const transportOptions = {
     cwd: deps.cwd,
     // Why: only fresh local IPC spawns may recover from a saved startup cwd
@@ -3664,6 +3668,24 @@ export function connectPanePty(
     tabId: deps.tabId,
     leafId: pane.leafId,
     activate: deps.isActiveRef.current && deps.isVisibleRef.current,
+    // Fed §2.4 client side: lets the remote transport freeze this pane's replay
+    // geometry (base_y + grid) against each engine-replayed snapshot anchor, so
+    // federated remote search can remap host rows into this engine's row space.
+    // Read live from the pane's aterm controller; IPC transports ignore it.
+    readClientReplayGeometry: () => {
+      const controller = pane.atermController
+      if (!controller) {
+        return null
+      }
+      const grid = controller.gridSize()
+      return { baseY: controller.baseY(), rows: grid.rows, cols: grid.cols }
+    },
+    // Fed §2.4: the snapshot replay drains off the replay-write queue and parses
+    // in xterm asynchronously; the transport must read the geometry above only
+    // after both settle, or it freezes the PRE-replay buffer. The queue lives in
+    // runDeferredConnect, so bridge to it through awaitSnapshotReplayApplied
+    // (populated once the connection sets the queue up).
+    awaitReplayApplied: () => awaitSnapshotReplayApplied(),
     ...(shellOverride ? { shellOverride } : {}),
     ...(projectRuntime ? { projectRuntime } : {}),
     ...(terminalColorQueryReplies ? { terminalColorQueryReplies } : {}),
@@ -4603,6 +4625,12 @@ export function connectPanePty(
     }
 
     let replayWriteQueue = Promise.resolve()
+    // Fed §2.4: expose the live replay-write queue to the transport's post-replay
+    // geometry read. Reads replayWriteQueue at call time so it awaits the drain
+    // the CURRENT snapshot just scheduled, then joins xterm's parser — the same
+    // drain-settled idiom reportRemoteRendererSerializerReady uses.
+    awaitSnapshotReplayApplied = () =>
+      replayWriteQueue.then(() => waitForTerminalOutputParsed(pane.terminal))
     const settlePaneSerializerAfterReplay = async (
       ptyId: string,
       generation: number

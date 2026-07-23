@@ -13,7 +13,10 @@ import { createAtermSearchSummaryReader } from './aterm-worker-search-summary'
 import { createAtermRowRangeReader } from './aterm-worker-row-range-export'
 import { detectEngineSearchIndexRelease } from './aterm-engine-search-index-release'
 import { createFederatedLinearScanReader } from './aterm-federated-linear-scan-reader'
-import { runFederatedLinearScan, type FederatedLinearScanResult } from './aterm-federated-linear-scan'
+import {
+  runFederatedLinearScan,
+  type FederatedLinearScanResult
+} from './aterm-federated-linear-scan'
 
 const ATERM_DIR = new URL('./', import.meta.url)
 const FONT_URL = new URL('../../../assets/fonts/jetbrains-mono.ttf', import.meta.url)
@@ -34,7 +37,16 @@ afterEach(() => {
 })
 
 function open(rows: number, cols: number): AtermTerminal {
-  const t = new AtermTerminal(rows, cols, fontBytes, ATERM_RENDERER_FONT_PX, 0xffffff, 0x000000, 0xffffff, 0x334455)
+  const t = new AtermTerminal(
+    rows,
+    cols,
+    fontBytes,
+    ATERM_RENDERER_FONT_PX,
+    0xffffff,
+    0x000000,
+    0xffffff,
+    0x334455
+  )
   openTerms.push(t)
   return t
 }
@@ -179,6 +191,7 @@ describe('§4 unindexed linear-scan degradation — real engine', () => {
     // Real matches came out of the real viewport rows — not an empty batch.
     expect(result!.matches.length).toBeGreaterThan(0)
     for (const m of result!.matches) {
+      // The linear-scan path always carries a real snippet (rows[i]); only the index path yields null.
       expect(m.snippet).not.toBeNull()
       expect(m.snippet).toContain('needle')
       expect(m.snippet!.slice(m.col, m.col + m.len)).toBe('needle')

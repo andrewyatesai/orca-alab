@@ -28,7 +28,7 @@ beforeAll(() => {
 
 const openTerms: AtermTerminal[] = []
 afterEach(() => {
-  for (const t of openTerms.splice(0)) t.free()
+  for (const t of openTerms.splice(0)) {t.free()}
 })
 
 function open(rows: number, cols: number): AtermTerminal {
@@ -102,7 +102,7 @@ describe('fed E-1 search_summary consumer — real engine', () => {
 describe('4B mirror row_range_json consumer — real engine', () => {
   it('reads the REAL viewport text in one crossing; all-narrow rows omit widths', () => {
     const t = open(4, 40)
-    for (let i = 0; i < 20; i += 1) t.process_str(`row-${i}-narrow\r\n`)
+    for (let i = 0; i < 20; i += 1) {t.process_str(`row-${i}-narrow\r\n`)}
     const rows = createAtermRowRangeReader(t).read(0, 4, 40)
     expect(rows).not.toBeNull()
     expect(rows!.length).toBe(4)
@@ -130,7 +130,7 @@ describe('4B mirror row_range_json consumer — real engine', () => {
 
   it('returns null for a range outside the live viewport (scrollback is unavailable here)', () => {
     const t = open(4, 40)
-    for (let i = 0; i < 20; i += 1) t.process_str(`row-${i}\r\n`)
+    for (let i = 0; i < 20; i += 1) {t.process_str(`row-${i}\r\n`)}
     // Negative display row (into scrollback) → engine yields undefined → null.
     expect(createAtermRowRangeReader(t).read(-5, 3, 40)).toBeNull()
   })
@@ -173,8 +173,10 @@ describe('§4 unindexed linear-scan degradation — real engine', () => {
     // Real matches came out of the real viewport rows — not an empty batch.
     expect(result!.matches.length).toBeGreaterThan(0)
     for (const m of result!.matches) {
+      // The linear-scan path always carries a real snippet (rows[i]); only the index path yields null.
+      expect(m.snippet).not.toBeNull()
       expect(m.snippet).toContain('needle')
-      expect(m.snippet.slice(m.col, m.col + m.len)).toBe('needle')
+      expect(m.snippet!.slice(m.col, m.col + m.len)).toBe('needle')
     }
     // Deep scrollback is un-indexable on this path → honestly incomplete.
     expect(result!.incomplete).toBe(true)
@@ -184,7 +186,7 @@ describe('§4 unindexed linear-scan degradation — real engine', () => {
     const t = open(6, 40)
     // Unique token only on an early (scrolled-off) line; viewport has none.
     t.process_str('UNIQTOKEN only here\r\n')
-    for (let i = 0; i < 60; i += 1) t.process_str(`filler line ${i}\r\n`)
+    for (let i = 0; i < 60; i += 1) {t.process_str(`filler line ${i}\r\n`)}
     const reader = createFederatedLinearScanReader(t, 6, 40)!
     const result = runScanSync({
       reader,

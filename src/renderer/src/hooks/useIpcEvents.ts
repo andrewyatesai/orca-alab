@@ -6,7 +6,8 @@ import { shouldRetryPaneSpawnOnSshReconnect } from './ssh-reconnect-pane-retry'
 import { applyWorktreeHeadIdentities } from './worktree-head-identity-apply'
 import { getWorktreeMapFromState, getRepoMapFromState } from '@/store/selectors'
 import { applyUIZoom } from '@/lib/ui-zoom'
-import { handleDeepLinkUiEvent } from '@/lib/deep-link-ui-notices'
+import { handleDeepLinkUiEvent } from '@/lib/deep-link-renderer-dispatch'
+import { runOrDeferDeepLinkNavigation } from '@/lib/deep-link-consent-gate'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { buildLinearIssueLinkedWorkItem } from '@/lib/linear-linked-work-item'
 import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
@@ -1394,18 +1395,21 @@ export function useIpcEvents(): void {
 
     unsubs.push(
       window.api.ui.onActivateWorktree(({ repoId, worktreeId, setup, startup, defaultTabs }) => {
-        void activateNotifiedWorktree(
-          {
-            type: 'activateWorktree',
-            repoId,
-            worktreeId,
-            ...(setup ? { setup } : {}),
-            ...(startup ? { startup } : {}),
-            ...(defaultTabs ? { defaultTabs } : {})
-          },
-          { allowRuntimeEnvironment: false }
-        ).catch((error) => {
-          console.error('Failed to activate CLI-created worktree:', error)
+        // Why: held while a deep-link consent dialog is open — navigation must not re-target the UI mid-decision (#4384 §6.3).
+        runOrDeferDeepLinkNavigation(() => {
+          void activateNotifiedWorktree(
+            {
+              type: 'activateWorktree',
+              repoId,
+              worktreeId,
+              ...(setup ? { setup } : {}),
+              ...(startup ? { startup } : {}),
+              ...(defaultTabs ? { defaultTabs } : {})
+            },
+            { allowRuntimeEnvironment: false }
+          ).catch((error) => {
+            console.error('Failed to activate CLI-created worktree:', error)
+          })
         })
       })
     )
@@ -1806,21 +1810,24 @@ export function useIpcEvents(): void {
           flashFocusedPane,
           scrollToBottomIfOutputSinceLastView
         }) => {
-          const store = useAppStore.getState()
-          activateTerminalInitiatedWorktree(store, worktreeId)
-          store.setActiveTab(tabId)
-          store.revealWorktreeInSidebar(worktreeId)
-          if (ackPaneKeyOnSuccess || flashFocusedPane || scrollToBottomIfOutputSinceLastView) {
-            activateTabAndFocusPane(tabId, leafId ?? null, {
-              ...(ackPaneKeyOnSuccess ? { ackPaneKeyOnSuccess } : {}),
-              ...(flashFocusedPane ? { flashFocusedPane: true } : {}),
-              ...(scrollToBottomIfOutputSinceLastView
-                ? { scrollToBottomIfOutputSinceLastView: true }
-                : {})
-            })
-            return
-          }
-          focusTerminalInitiatedTab(tabId, leafId)
+          // Why: held while a deep-link consent dialog is open — a focus link must not re-target the UI mid-decision (#4384 §6.3).
+          runOrDeferDeepLinkNavigation(() => {
+            const store = useAppStore.getState()
+            activateTerminalInitiatedWorktree(store, worktreeId)
+            store.setActiveTab(tabId)
+            store.revealWorktreeInSidebar(worktreeId)
+            if (ackPaneKeyOnSuccess || flashFocusedPane || scrollToBottomIfOutputSinceLastView) {
+              activateTabAndFocusPane(tabId, leafId ?? null, {
+                ...(ackPaneKeyOnSuccess ? { ackPaneKeyOnSuccess } : {}),
+                ...(flashFocusedPane ? { flashFocusedPane: true } : {}),
+                ...(scrollToBottomIfOutputSinceLastView
+                  ? { scrollToBottomIfOutputSinceLastView: true }
+                  : {})
+              })
+              return
+            }
+            focusTerminalInitiatedTab(tabId, leafId)
+          })
         }
       )
     )

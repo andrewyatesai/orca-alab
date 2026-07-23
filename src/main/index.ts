@@ -607,6 +607,20 @@ const deepLinkDispatcher = createMainDeepLinkDispatcher({
     mainWindow.webContents.send(DEEP_LINK_UI_CHANNEL, event)
     return true
   },
+  sendActivateWorktree: (payload) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return false
+    }
+    mainWindow.webContents.send('ui:activateWorktree', payload)
+    return true
+  },
+  sendFocusTerminal: (payload) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return false
+    }
+    mainWindow.webContents.send('ui:focusTerminal', payload)
+    return true
+  },
   focusMainWindow: focusExistingWindow
 })
 const deepLinkRouter = createDeepLinkRouter({

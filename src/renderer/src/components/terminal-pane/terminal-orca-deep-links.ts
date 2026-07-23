@@ -1,9 +1,9 @@
 import { parseOrcaDeepLink } from '../../../../shared/orca-deep-link'
 import {
   showDeepLinkTerminalGoneToast,
-  showDeepLinkUnrecognizedToast,
-  showDeepLinkUnsupportedToast
+  showDeepLinkUnrecognizedToast
 } from '@/lib/deep-link-ui-notices'
+import { dispatchDeepLinkInRenderer } from '@/lib/deep-link-renderer-dispatch'
 import { focusRendererTerminalHandle, focusRuntimeTerminalHandle } from './terminal-handle-links'
 
 export type TerminalOrcaDeepLinkContext = {
@@ -37,9 +37,8 @@ export function routeTerminalOrcaDeepLink(
     }
     return true
   }
-  // PR1 (#4384 §10): worktree/pair/run are parsed but not yet dispatched; PR2
-  // adds navigation + the consent surface with origin
-  // { source: 'terminal', worktreeId: context.worktreeId }.
-  showDeepLinkUnsupportedToast()
+  // Why: the origin worktree is the pane the link was CLICKED in — stamped by this
+  // transport, never taken from the URL — so consent can label untrusted output (§6.2).
+  dispatchDeepLinkInRenderer(link, { source: 'terminal', worktreeId: context.worktreeId })
   return true
 }

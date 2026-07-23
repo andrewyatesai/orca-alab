@@ -276,6 +276,7 @@ import {
 } from '../../shared/worktree-ownership'
 import {
   createAgentScratchWorktreePathMatcher,
+  isAgentScratchRepoRootPath,
   type AgentScratchWorktreePathMatcher
 } from '../../shared/agent-scratch-worktrees'
 import {
@@ -362,7 +363,7 @@ import type {
 import type { AutomationService } from '../automations/service'
 import { RuntimeBrowserCommands } from './orca-runtime-browser'
 import { buildHeadlessTerminalSplitLayout } from './headless-terminal-split-layout'
-import { RecentPtyOutputBuffer } from './recent-pty-output-buffer'
+import { RECENT_PTY_OUTPUT_LIMIT, RecentPtyOutputBuffer } from './recent-pty-output-buffer'
 import {
   buildHeadlessTabGroupMove,
   buildHeadlessTabGroupSplit
@@ -2469,6 +2470,10 @@ export class OrcaRuntimeService {
   private ptyLifecycleGenerationById = new Map<string, number>()
   private nextPtyLifecycleGeneration = 1
   private recentPtyPathCandidatesById = new Map<string, string[]>()
+  // Why: candidates only feed mobile file-tap provenance; desktop-only
+  // sessions skip the 3-regex extraction on every PTY chunk until a
+  // mobile/remote client authenticates (sticky, backfilled on activation) (#9422).
+  private recentPtyPathCandidateTrackingActive = false
   // Why: OSC 9999 status can span PTY chunks. Keeping parser state in the
   // runtime lets hidden/model-owned terminals observe agent state without a
   // mounted xterm view.
@@ -3350,9 +3355,9 @@ export class OrcaRuntimeService {
   }
 
   private emitClientEvent(event: RuntimeClientEvent): void {
-    for (const listener of this.clientEventListeners) {
-      listener(event)
-    }
+    // Why: a throwing subscriber here once escaped acquireWorktreeTerminalSpawn after it took the
+    // per-worktree terminal mutation, leaking it and wedging that worktree's sleep until restart (#10052).
+    notifyRuntimeListeners(this.clientEventListeners, (listener) => listener(event), 'client-event')
   }
 
   private notifyWorktreesChanged(repoId: string): void {
@@ -8732,14 +8737,60 @@ export class OrcaRuntimeService {
   private recordRecentPtyOutputForPathProvenance(ptyId: string, data: string): void {
     let recentOutputBuffer = this.recentPtyOutputById.get(ptyId)
     if (!recentOutputBuffer) {
-      recentOutputBuffer = new RecentPtyOutputBuffer()
+      // Boundaries are only owed to the one-time activation backfill; once
+      // tracking is live, new buffers keep the read-collapsing hot path.
+      recentOutputBuffer = new RecentPtyOutputBuffer({
+        preserveChunkBoundaries: !this.recentPtyPathCandidateTrackingActive
+      })
       this.recentPtyOutputById.set(ptyId, recentOutputBuffer)
     }
     recentOutputBuffer.append(data)
-    this.recentPtyPathCandidatesById.set(
-      ptyId,
-      appendRecentPtyPathCandidates(this.recentPtyPathCandidatesById.get(ptyId), data)
-    )
+    if (
+      this.recentPtyPathCandidateTrackingActive ||
+      // Why: an over-window chunk is stored pre-sliced, so activation backfill
+      // could never replay its original text. Extract while intact; oversized
+      // chunks are rare, so the desktop-only gate still skips the hot path.
+      data.length > RECENT_PTY_OUTPUT_LIMIT
+    ) {
+      this.recentPtyPathCandidatesById.set(
+        ptyId,
+        appendRecentPtyPathCandidates(this.recentPtyPathCandidatesById.get(ptyId), data)
+      )
+    }
+  }
+
+  activateRecentPtyPathCandidateTracking(): void {
+    if (this.recentPtyPathCandidateTrackingActive) {
+      return
+    }
+    this.recentPtyPathCandidateTrackingActive = true
+    // Why: synchronous backfill from the retained raw windows so a file tap
+    // right after first mobile connect resolves exactly as before the gate.
+    // Replay each retained chunk in its original full form: joining or
+    // trimming chunks would change the candidate set (e.g. a window cut can
+    // shorten an over-4KiB line under the extractor's line guard, minting
+    // candidates the eager extractor rejected).
+    // Accepted best-effort loss: output that scrolled past the raw window
+    // before the first-ever connect no longer yields candidates.
+    for (const [ptyId, buffer] of this.recentPtyOutputById) {
+      let candidates = this.recentPtyPathCandidatesById.get(ptyId)
+      const { chunks, headChunkIsPartial } = buffer.retainedChunks()
+      for (let index = 0; index < chunks.length; index += 1) {
+        if (index === 0 && headChunkIsPartial) {
+          // A pre-sliced over-window chunk was already extracted eagerly at
+          // append time (while its original text was intact); replaying its
+          // truncated remainder would mint or drop candidates spuriously.
+          continue
+        }
+        candidates = appendRecentPtyPathCandidates(candidates, chunks[index]!)
+      }
+      if (candidates) {
+        this.recentPtyPathCandidatesById.set(ptyId, candidates)
+      }
+      // Chunk boundaries were owed only to this one-time backfill; return
+      // the buffer to the compact read-collapsing steady state.
+      buffer.compact()
+    }
   }
 
   resolveTerminalContext(
@@ -8782,6 +8833,11 @@ export class OrcaRuntimeService {
   }
 
   hasRecentTerminalOutputPath(handle: string, pathText: string, absolutePath: string): boolean {
+    // Why: safety net for any query path that never saw a mobile onReady —
+    // lazily backfill so the answer matches pre-gate behavior (#9422).
+    if (!this.recentPtyPathCandidateTrackingActive) {
+      this.activateRecentPtyPathCandidateTracking()
+    }
     const ptyId = this.resolveLeafForHandle(handle)?.ptyId
     const recentOutput = ptyId ? this.recentPtyOutputById.get(ptyId)?.read() : null
     if (recentOutput && recentTerminalOutputIncludesPath(recentOutput, pathText, absolutePath)) {
@@ -8956,12 +9012,14 @@ export class OrcaRuntimeService {
 
   dispatchMobileNotification(event: MobileNotificationEvent): void {
     const seq = this.mobileNotificationReplay.record(event)
-    for (const listener of this.notificationListeners) {
-      // Why: surface the desktop-assigned seq to live listeners so they can
-      // watermark the last event delivered and feed it back to getMissedSince
-      // on reconnect (idempotent catch-up, no duplicate local pushes).
-      listener({ ...event, notificationSeq: seq })
-    }
+    // Why: surface the desktop-assigned seq to live listeners so they can watermark the last event
+    // delivered and feed it back to getMissedSince on reconnect (idempotent catch-up, no dupes).
+    // Isolated so one throwing paired-client listener can't drop the durable dispatch (#10052).
+    notifyRuntimeListeners(
+      this.notificationListeners,
+      (listener) => listener({ ...event, notificationSeq: seq }),
+      'mobile-notification'
+    )
   }
 
   // Returns notifications dispatched after lastSeenSeq. Idempotent: the same
@@ -22260,7 +22318,7 @@ export class OrcaRuntimeService {
           generation,
           runtimeKey,
           result,
-          expiresAt: Date.now() + WORKTREE_SCAN_CACHE_TTL_MS
+          expiresAt: Date.now() + resolveWorktreeScanCacheTtlMs(repo)
         })
       }
       return result
@@ -23448,6 +23506,13 @@ export class OrcaRuntimeService {
     | undefined {
     const db = this.getOrchestrationDbIfAvailable()
     if (!db) {
+      return undefined
+    }
+    // Why: runs on every 16ms graph publish; with no dispatch rows (the
+    // never-orchestrate majority) the per-terminal fan-out below can only yield
+    // an empty result, so skip it via the DB's cached emptiness probe (#9694).
+    // Optional call so partial test-injected DBs without the probe fall through.
+    if (db.hasAnyDispatchContexts?.() === false) {
       return undefined
     }
     const contexts: Record<string, AgentStatusOrchestrationContext> = {}
@@ -27344,7 +27409,17 @@ const DEFAULT_WORKTREE_PS_LIMIT = 200
 const DISCONNECTED_PTY_RECORD_MAX = 128
 const RESOLVED_WORKTREE_CACHE_TTL_MS = 1000
 const WORKTREE_SCAN_CACHE_TTL_MS = 30_000
+// Why: agent-scratch repos don't need 30s freshness — the steady-state scan
+// fan-out was measured at ~128 git execs/min on real installs, mostly against
+// these (crash-cluster diagnostics, 2026-07).
+const WORKTREE_SCAN_AGENT_SCRATCH_TTL_MS = 5 * 60_000
 const RESOLVED_WORKTREE_REPO_TIMEOUT_MS = 5000
+
+export function resolveWorktreeScanCacheTtlMs(repo: Pick<Repo, 'path' | 'connectionId'>): number {
+  return !repo.connectionId && isAgentScratchRepoRootPath(repo.path)
+    ? WORKTREE_SCAN_AGENT_SCRATCH_TTL_MS
+    : WORKTREE_SCAN_CACHE_TTL_MS
+}
 const PTY_CONTROLLER_LIST_TIMEOUT_MS = 3000
 // Why (§3.3): 30s freshness window reuses a recent fetch for repeat create/dispatch on the same repo+remote; short enough a changed remote is seen next action.
 const FETCH_FRESHNESS_MS = 30_000
@@ -29525,4 +29600,21 @@ function compareWorktreePs(
     return right.liveTerminalCount - left.liveTerminalCount
   }
   return left.path.localeCompare(right.path)
+}
+
+// Why: listener fan-out is best-effort delivery. One subscriber throwing synchronously — e.g. a
+// paired-client relay whose stream is closed — must never abort the emitting operation or leak
+// state (a lock/mutation) the caller holds across the emit. Isolate every listener and log (#10052).
+function notifyRuntimeListeners<L>(
+  listeners: Iterable<L>,
+  deliver: (listener: L) => void,
+  context: string
+): void {
+  for (const listener of listeners) {
+    try {
+      deliver(listener)
+    } catch (error) {
+      console.error(`[runtime] ${context} listener threw`, error)
+    }
+  }
 }

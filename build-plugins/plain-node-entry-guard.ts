@@ -78,11 +78,24 @@ export function createPlainNodeEntryGuardPlugin(): Plugin {
         }
       }
 
+      // Why: a renamed/removed plain-Node input key would make the electron-require
+      // check skip that entry silently, re-enabling the v1.4.129-rc.1 daemon outage;
+      // hard-fail so a missing guarded entry breaks the build instead of passing vacuously.
+      const unresolved = PLAIN_NODE_ENTRY_NAMES.filter((name) => !entryByName.has(name))
+      if (unresolved.length > 0) {
+        throw new Error(
+          `[plain-node-entry-guard] no emitted entry chunk for ${unresolved
+            .map((name) => `"${name}"`)
+            .join(', ')}. A plain-Node entry was renamed or removed without updating ` +
+            `PLAIN_NODE_ENTRY_NAMES, which would silently disable the electron-require guard ` +
+            `(the v1.4.129-rc.1 daemon outage). Update PLAIN_NODE_ENTRY_NAMES to match the ` +
+            `build's entry names.`
+        )
+      }
+
       for (const entryName of PLAIN_NODE_ENTRY_NAMES) {
-        const entry = entryByName.get(entryName)
-        if (entry) {
-          assertNoElectronRequire(entryName, entry, byFileName)
-        }
+        const entry = entryByName.get(entryName) as OutputChunk
+        assertNoElectronRequire(entryName, entry, byFileName)
       }
     }
   }

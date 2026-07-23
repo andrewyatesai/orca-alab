@@ -2,7 +2,12 @@
 import { z } from 'zod'
 import { defineMethod, type RpcMethod } from '../core'
 import { OptionalFiniteNumber, OptionalString, OptionalBoolean, requiredString } from '../schemas'
-import type { MessageType, MessagePriority, TaskStatus } from '../../orchestration/db'
+import type {
+  MessageType,
+  MessagePriority,
+  TaskStatus,
+  OrchestrationDb
+} from '../../orchestration/db'
 import { buildDispatchPreamble } from '../../orchestration/preamble'
 import { formatMessageBanner } from '../../orchestration/formatter'
 import { isGroupAddress, resolveGroupAddress } from '../../orchestration/groups'
@@ -32,6 +37,16 @@ const TASK_STATUSES: TaskStatus[] = [
 
 function getLifecycleGroupRecipientError(type: 'worker_done' | 'heartbeat'): string {
   return `${type} messages must be sent to a concrete coordinator terminal handle, not a group address.`
+}
+
+// Why: a reminted-away handle no longer resolves a pane in the runtime, but the
+// pane key persisted on earlier rows to the same handle still names the live
+// pane — the DB is the durable handle→pane memory (#9163 delivery-follows-identity).
+function lastPersistedRecipientPaneKey(db: OrchestrationDb, toHandle: string): string | undefined {
+  return (
+    db.getAllMessagesForHandle(toHandle, 20).find((m) => m.recipient_pane_key)
+      ?.recipient_pane_key ?? undefined
+  )
 }
 
 const SendParams = z
@@ -202,6 +217,10 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       const senderPaneKey = params.senderPaneKey ?? runtime.getTerminalPaneKey(from) ?? undefined
 
       if (!isGroupAddress(params.to)) {
+        // Why: the pane key is the remint-stable recipient identity — persisted so
+        // delivery can follow the pane when the addressed handle goes stale (#9163).
+        const recipientPaneKey =
+          runtime.getTerminalPaneKey(params.to) ?? lastPersistedRecipientPaneKey(db, params.to)
         // Point-to-point — existing single-recipient behavior
         const msg = db.insertMessage({
           from,
@@ -212,7 +231,8 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           priority: params.priority as MessagePriority,
           threadId: params.threadId,
           payload: params.payload,
-          senderPaneKey
+          senderPaneKey,
+          recipientPaneKey
         })
         // Why: reconcile releases the dispatch lock before waking recipients, else a woken coordinator re-dispatches while the lock is still held.
         if (msg.type === 'worker_done' || msg.type === 'heartbeat') {
@@ -223,13 +243,13 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           }
           if (reconciled.action === 'rejected') {
             const rejection = db.getMessageById(msg.id) ?? msg
-            runtime.deliverPendingMessagesForHandle(params.to)
-            runtime.notifyMessageArrived(params.to, rejection.type)
+            runtime.deliverPendingMessagesForHandle(params.to, recipientPaneKey)
+            runtime.notifyMessageArrived(params.to, rejection.type, recipientPaneKey)
             return { message: rejection, lifecycle: reconciled }
           }
         }
-        runtime.deliverPendingMessagesForHandle(params.to)
-        runtime.notifyMessageArrived(params.to, msg.type)
+        runtime.deliverPendingMessagesForHandle(params.to, recipientPaneKey)
+        runtime.notifyMessageArrived(params.to, msg.type, recipientPaneKey)
         return { message: msg }
       }
 
@@ -254,12 +274,20 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           priority: params.priority as MessagePriority,
           threadId,
           payload: params.payload,
-          senderPaneKey
+          senderPaneKey,
+          recipientPaneKey: runtime.getTerminalPaneKey(handle) ?? undefined
         })
       )
       for (const message of messages) {
-        runtime.deliverPendingMessagesForHandle(message.to_handle)
-        runtime.notifyMessageArrived(message.to_handle, message.type)
+        runtime.deliverPendingMessagesForHandle(
+          message.to_handle,
+          message.recipient_pane_key ?? undefined
+        )
+        runtime.notifyMessageArrived(
+          message.to_handle,
+          message.type,
+          message.recipient_pane_key ?? undefined
+        )
       }
 
       return { messages, recipients: handles.length }
@@ -580,16 +608,21 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           .filter(Boolean) ?? []
 
       const payload = JSON.stringify({ question: params.question, options })
+      // Why: same remint-stable recipient identity as send — a decision gate must
+      // still reach the pane if the addressed handle goes stale mid-ask (#9163).
+      const recipientPaneKey =
+        runtime.getTerminalPaneKey(params.to) ?? lastPersistedRecipientPaneKey(db, params.to)
       const outbound = db.insertMessage({
         from,
         to: params.to,
         subject: 'Question',
         body: params.question,
         type: 'decision_gate',
-        payload
+        payload,
+        recipientPaneKey
       })
-      runtime.deliverPendingMessagesForHandle(params.to)
-      runtime.notifyMessageArrived(params.to, outbound.type)
+      runtime.deliverPendingMessagesForHandle(params.to, recipientPaneKey)
+      runtime.notifyMessageArrived(params.to, outbound.type, recipientPaneKey)
 
       const threadId = outbound.id
       const deadline = Date.now() + timeoutMs

@@ -69,7 +69,9 @@ function runOpSequence(input: { ops: Op[] }): unknown {
             type: op.type as never,
             priority: op.priority as never,
             threadId: op.threadId as string | undefined,
-            payload: op.payload as string | undefined
+            payload: op.payload as string | undefined,
+            senderPaneKey: op.senderPaneKey as string | undefined,
+            recipientPaneKey: op.recipientPaneKey as string | undefined
           })
           created = row.id
           result = { ok: true }

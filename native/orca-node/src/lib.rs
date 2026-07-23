@@ -690,8 +690,9 @@ impl JsOrchestrationStore {
         thread_id: Option<String>,
         payload: Option<String>,
         sender_pane_key: Option<String>,
+        recipient_pane_key: Option<String>,
     ) -> napi::Result<String> {
-        let message = NewMessage { id, from_handle, to_handle, subject, body, message_type, priority, thread_id, payload, sender_pane_key };
+        let message = NewMessage { id, from_handle, to_handle, subject, body, message_type, priority, thread_id, payload, sender_pane_key, recipient_pane_key };
         self.store()?.send_message(&message).map(|m| row_json(&m)).map_err(napi_err)
     }
 

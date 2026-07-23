@@ -87,7 +87,7 @@ describe('orchestration RPC methods', () => {
 
       expect(result.message.id).toMatch(/^msg_/)
       expect(result.message.from_handle).toBe('term_a')
-      expect(runtime.deliverPendingMessagesForHandle).toHaveBeenCalledWith('term_b')
+      expect(runtime.deliverPendingMessagesForHandle).toHaveBeenCalledWith('term_b', undefined)
     })
 
     it('stores the sender pane key on the message row', async () => {
@@ -196,7 +196,13 @@ describe('orchestration RPC methods', () => {
       expect(db.getUnreadMessages('term_coord')).toEqual([
         expect.objectContaining({ id: result.message.id, type: 'worker_done' })
       ])
-      expect(runtime.notifyMessageArrived).toHaveBeenCalledWith('term_coord', 'worker_done')
+      // Why: the mocked pane resolver answers for every handle, so the recipient
+      // pane key rides along on the notify (v7 delivery-follows-identity).
+      expect(runtime.notifyMessageArrived).toHaveBeenCalledWith(
+        'term_coord',
+        'worker_done',
+        'tab_worker:leaf_worker'
+      )
     })
 
     it('does not wake waiters for a heartbeat suppressed at send time', async () => {
@@ -234,7 +240,147 @@ describe('orchestration RPC methods', () => {
         payload: JSON.stringify({ dispatchId: dispatch.id })
       })
 
-      expect(notify).toHaveBeenCalledWith('term_coord', 'heartbeat')
+      expect(notify).toHaveBeenCalledWith('term_coord', 'heartbeat', undefined)
+    })
+
+    // RD-9163 delivery-follows-identity: pane keys survive handle remints.
+    const REMINT_LEAF_ID = '11111111-1111-4111-8111-111111111111'
+    const REMINT_PANE_KEY = `tab-1:${REMINT_LEAF_ID}`
+
+    function syncRemintPane(ptyId: string): void {
+      runtime.attachWindow(1)
+      runtime.syncWindowGraph(1, {
+        tabs: [
+          {
+            tabId: 'tab-1',
+            worktreeId: 'repo-1::/tmp/worktree-a',
+            title: 'Codex',
+            activeLeafId: REMINT_LEAF_ID,
+            layout: null
+          }
+        ],
+        leaves: [
+          {
+            tabId: 'tab-1',
+            worktreeId: 'repo-1::/tmp/worktree-a',
+            leafId: REMINT_LEAF_ID,
+            paneRuntimeId: 1,
+            ptyId,
+            paneTitle: null
+          }
+        ]
+      })
+    }
+
+    it('message addressed to a stale handle injects into the current handle of the same pane', async () => {
+      vi.useFakeTimers()
+      try {
+        setup()
+        const write = vi.fn().mockReturnValue(true)
+        runtime.setPtyController({
+          write,
+          kill: vi.fn(),
+          getForegroundProcess: async () => null
+        })
+        syncRemintPane('pty-1')
+        const stale = runtime.resolveTerminalPane(REMINT_PANE_KEY).handle
+
+        // The pane's PTY is replaced (agent relaunch): the addressed handle goes
+        // stale while the pane key keeps naming the live pane.
+        syncRemintPane('pty-2')
+        runtime.onPtyData('pty-2', '\x1b]0;Codex working\x07', 100)
+        runtime.onPtyData('pty-2', '\x1b]0;Codex done\x07', 101)
+        expect(runtime.resolveTerminalPane(REMINT_PANE_KEY).handle).not.toBe(stale)
+
+        const result = (await call('orchestration.send', {
+          from: 'term_x',
+          to: stale,
+          subject: 'follow me'
+        })) as { message: { recipient_pane_key: string | null } }
+
+        expect(result.message.recipient_pane_key).toBe(REMINT_PANE_KEY)
+        expect(write).toHaveBeenCalledWith('pty-2', expect.stringContaining('Subject: follow me'))
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('wakes a check --wait opened under the reminted handle of the addressed pane', async () => {
+      setup()
+      const write = vi.fn().mockReturnValue(true)
+      runtime.setPtyController({
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+      syncRemintPane('pty-1')
+      const stale = runtime.resolveTerminalPane(REMINT_PANE_KEY).handle
+      syncRemintPane('pty-2')
+      const current = runtime.resolveTerminalPane(REMINT_PANE_KEY).handle
+      expect(current).not.toBe(stale)
+
+      const pendingCheck = call('orchestration.check', {
+        terminal: current,
+        wait: true,
+        timeoutMs: 4000
+      })
+      await new Promise((resolve) => setImmediate(resolve))
+
+      await call('orchestration.send', { from: 'term_x', to: stale, subject: 'wake up' })
+      // Why: the waiter is keyed by the reminted handle; without the pane-key
+      // re-resolution this await would hang until the 4s timeout.
+      const started = Date.now()
+      await pendingCheck
+      expect(Date.now() - started).toBeLessThan(3000)
+    })
+
+    it('inbox-only fallback still applies when the pane is gone', async () => {
+      setup()
+      const write = vi.fn().mockReturnValue(true)
+      runtime.setPtyController({
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+      vi.spyOn(runtime, 'getTerminalPaneKey').mockReturnValue(
+        'tab-gone:22222222-2222-4222-8222-222222222222'
+      )
+
+      const result = (await call('orchestration.send', {
+        from: 'term_x',
+        to: 'term_gone',
+        subject: 'nobody home'
+      })) as { message: { id: string; recipient_pane_key: string | null } }
+
+      expect(result.message.recipient_pane_key).toBe('tab-gone:22222222-2222-4222-8222-222222222222')
+      // No pane resolves the key: nothing injects, the row stays queued for explicit check.
+      expect(write).not.toHaveBeenCalled()
+      const queued = db.getUndeliveredUnreadMessages('term_gone')
+      expect(queued.map((m) => m.id)).toEqual([result.message.id])
+    })
+
+    it('recovers the recipient pane key from earlier rows when the handle no longer resolves', async () => {
+      setup()
+      vi.spyOn(runtime, 'deliverPendingMessagesForHandle').mockImplementation(() => {})
+      vi.spyOn(runtime, 'notifyMessageArrived').mockImplementation(() => {})
+      const paneKeySpy = vi
+        .spyOn(runtime, 'getTerminalPaneKey')
+        .mockReturnValue('tab-1:11111111-1111-4111-8111-111111111111')
+
+      await call('orchestration.send', { from: 'term_x', to: 'term_w', subject: 'while live' })
+      // The runtime later forgets the handle entirely (restart remint).
+      paneKeySpy.mockReturnValue(null)
+
+      const result = (await call('orchestration.send', {
+        from: 'term_x',
+        to: 'term_w',
+        subject: 'after remint'
+      })) as { message: { recipient_pane_key: string | null } }
+
+      // Why: the DB rows are the durable handle→pane memory once the runtime map is gone.
+      expect(result.message.recipient_pane_key).toBe(
+        'tab-1:11111111-1111-4111-8111-111111111111'
+      )
     })
 
     it('rejects missing --to', () => {

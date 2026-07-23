@@ -941,6 +941,23 @@ describe('OrchestrationDb', () => {
       expect(d.getMessageById(msg.id)?.sender_pane_key).toBe('tab_1:leaf_1')
     })
 
+    it('adds the recipient pane-identity column (v7) and persists it', () => {
+      const path = createV1Snapshot()
+      const d = new OrchestrationDb(path)
+      db = d
+
+      const msg = d.insertMessage({
+        from: 'coord',
+        to: 'term_w',
+        subject: 'go',
+        recipientPaneKey: 'tab_1:leaf_1'
+      })
+      expect(d.getMessageById(msg.id)?.recipient_pane_key).toBe('tab_1:leaf_1')
+      // Omitted stays NULL — the column is best-effort identity, not required routing.
+      const bare = d.insertMessage({ from: 'coord', to: 'term_w', subject: 'plain' })
+      expect(d.getMessageById(bare.id)?.recipient_pane_key).toBeNull()
+    })
+
     it('is idempotent: opening an already-migrated DB is a no-op', () => {
       const path = createV1Snapshot()
       const first = new OrchestrationDb(path)

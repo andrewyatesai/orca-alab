@@ -12,6 +12,7 @@ import type { StartupCommandDelivery } from '../shared/codex-startup-delivery'
 import type { SleepingAgentLaunchConfig } from '../shared/agent-session-resume'
 import type { MobileRelayStatus } from '../shared/mobile-relay-status'
 import type { PosixTerminalShellDetection } from '../shared/posix-terminal-shell'
+import type { ShellPathValidation } from '../shared/terminal-shell-path-validation'
 import type { MobilePairingConnectionMode } from '../shared/mobile-pairing-connection-mode'
 import type {
   BaseRefSearchResult,
@@ -511,6 +512,11 @@ const api = {
 
   posixShells: {
     detect: (): Promise<PosixTerminalShellDetection> => ipcRenderer.invoke('posixShells:detect')
+  },
+
+  terminalShell: {
+    validatePath: (path: string): Promise<ShellPathValidation> =>
+      ipcRenderer.invoke('terminal:validateShellPath', path)
   },
 
   repos: {

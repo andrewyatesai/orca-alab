@@ -62,6 +62,15 @@ if ($Global:__OrcaOsc133State.HasPSReadLine -and
     $null -ne $Global:__OrcaOsc133State.OriginalReadLine) {
     function Global:PSConsoleHostReadLine {
         $commandLine = $Global:__OrcaOsc133State.OriginalReadLine.Invoke()
+        # Why (#7596): emit the typed line as 633;E (VS Code escaping, 2 KB cap)
+        # before C so cold restore can offer a re-run of the last command.
+        if ($commandLine -is [string] -and $commandLine.Length -gt 0) {
+            $orcaCl = $commandLine
+            if ($orcaCl.Length -gt 2048) { $orcaCl = $orcaCl.Substring(0, 2048) }
+            $orcaCl = $orcaCl.Replace('\\', '\\\\').Replace(';', '\\x3b')
+            $orcaCl = $orcaCl.Replace("\`r\`n", '\\x0a').Replace("\`n", '\\x0a').Replace("\`r", '\\x0a')
+            [Console]::Write("$($Global:__OrcaOsc133State.Esc)]633;E;$orcaCl$($Global:__OrcaOsc133State.Bel)")
+        }
         [Console]::Write("$($Global:__OrcaOsc133State.Esc)]133;C$($Global:__OrcaOsc133State.Bel)")
         return $commandLine
     }

@@ -1,6 +1,6 @@
 import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
 
-export type SessionRestoredBannerPane = Pick<ManagedPane, 'id' | 'container'>
+export type SessionRestoredBannerPane = Pick<ManagedPane, 'id' | 'container' | 'terminal'>
 
 export type SessionRestoredBannerStartup =
   | {
@@ -9,39 +9,64 @@ export type SessionRestoredBannerStartup =
   | null
   | undefined
 
-export type SessionRestoredBannerDismissEvent = KeyboardEvent | PointerEvent
-
-export function addSessionRestoredBannerPaneId(
-  paneIds: ReadonlySet<number>,
-  paneId: number
-): Set<number> {
-  if (paneIds.has(paneId)) {
-    return paneIds instanceof Set ? paneIds : new Set(paneIds)
-  }
-  return new Set(paneIds).add(paneId)
+/** Per-pane banner payload: lastCommand powers the re-run affordance (#7596). */
+export type SessionRestoredBannerState = {
+  lastCommand: string | null
 }
 
-export function removeSessionRestoredBannerPaneId(
-  paneIds: ReadonlySet<number>,
-  paneId: number
-): Set<number> {
-  if (!paneIds.has(paneId)) {
-    return paneIds instanceof Set ? paneIds : new Set(paneIds)
+export type SessionRestoredBannerDismissEvent = KeyboardEvent | PointerEvent
+
+// Why: pointerdown on this element must activate the affordance, not dismiss
+// the banner out from under its own click (the dismiss listener is capture-phase).
+export const SESSION_RESTORED_BANNER_ACTION_ATTRIBUTE = 'data-session-restored-banner-action'
+
+/** #7596 offer gate: single-line, ≤200 chars — the banner ellipsis is not a shell. */
+export function offerableRestoredLastCommand(lastCommand: string | null | undefined): string | null {
+  if (typeof lastCommand !== 'string') {
+    return null
   }
-  const next = new Set(paneIds)
+  const trimmed = lastCommand.trim()
+  if (!trimmed || trimmed.length > 200 || /[\r\n]/.test(trimmed)) {
+    return null
+  }
+  return trimmed
+}
+
+export function addSessionRestoredBannerPane(
+  states: ReadonlyMap<number, SessionRestoredBannerState>,
+  paneId: number,
+  lastCommand: string | null = null
+): Map<number, SessionRestoredBannerState> {
+  const existing = states.get(paneId)
+  // Why: an agent-resume trigger (null) must not clobber a lastCommand already
+  // recorded for the pane; identical state returns the same reference.
+  if (existing && (existing.lastCommand === lastCommand || lastCommand === null)) {
+    return states instanceof Map ? states : new Map(states)
+  }
+  return new Map(states).set(paneId, { lastCommand })
+}
+
+export function removeSessionRestoredBannerPane(
+  states: ReadonlyMap<number, SessionRestoredBannerState>,
+  paneId: number
+): Map<number, SessionRestoredBannerState> {
+  if (!states.has(paneId)) {
+    return states instanceof Map ? states : new Map(states)
+  }
+  const next = new Map(states)
   next.delete(paneId)
   return next
 }
 
-export function pruneSessionRestoredBannerPaneIds(
-  paneIds: ReadonlySet<number>,
+export function pruneSessionRestoredBannerPanes(
+  states: ReadonlyMap<number, SessionRestoredBannerState>,
   panes: readonly SessionRestoredBannerPane[]
-): Set<number> {
+): Map<number, SessionRestoredBannerState> {
   const livePaneIds = new Set(panes.map((pane) => pane.id))
-  if ([...paneIds].every((paneId) => livePaneIds.has(paneId))) {
-    return paneIds instanceof Set ? paneIds : new Set(paneIds)
+  if ([...states.keys()].every((paneId) => livePaneIds.has(paneId))) {
+    return states instanceof Map ? states : new Map(states)
   }
-  return new Set([...paneIds].filter((paneId) => livePaneIds.has(paneId)))
+  return new Map([...states].filter(([paneId]) => livePaneIds.has(paneId)))
 }
 
 export function getSessionRestoredBannerDismissPaneId(
@@ -61,16 +86,20 @@ export function getSessionRestoredBannerDismissPaneId(
   return panes.find((pane) => pane.container === paneElement)?.id ?? null
 }
 
-export function dismissSessionRestoredBannerPaneIds(
-  paneIds: ReadonlySet<number>,
+export function dismissSessionRestoredBannerPanes(
+  states: ReadonlyMap<number, SessionRestoredBannerState>,
   event: SessionRestoredBannerDismissEvent,
   panes: readonly SessionRestoredBannerPane[]
-): Set<number> {
+): Map<number, SessionRestoredBannerState> {
+  const targetElement = event.target instanceof Element ? event.target : null
+  if (targetElement?.closest(`[${SESSION_RESTORED_BANNER_ACTION_ATTRIBUTE}]`)) {
+    return states instanceof Map ? states : new Map(states)
+  }
   const paneId = getSessionRestoredBannerDismissPaneId(event, panes)
   if (paneId === null) {
-    return new Set()
+    return new Map()
   }
-  return removeSessionRestoredBannerPaneId(paneIds, paneId)
+  return removeSessionRestoredBannerPane(states, paneId)
 }
 
 export function seedStartupSessionRestoredBanner(
@@ -87,14 +116,14 @@ export function syncSessionRestoredBannerTitleSpace(args: {
   panes: readonly SessionRestoredBannerPane[]
   paneTitles: Readonly<Record<number, string>>
   renamingPaneId: number | null
-  sessionRestoredBannerPaneIds: ReadonlySet<number>
+  sessionRestoredBannerPanes: ReadonlyMap<number, SessionRestoredBannerState>
 }): boolean {
   let needsFit = false
   for (const pane of args.panes) {
     const shouldShow =
       !!args.paneTitles[pane.id] ||
       args.renamingPaneId === pane.id ||
-      args.sessionRestoredBannerPaneIds.has(pane.id)
+      args.sessionRestoredBannerPanes.has(pane.id)
     const hadTitle = pane.container.hasAttribute('data-has-title')
     if (shouldShow && !hadTitle) {
       pane.container.setAttribute('data-has-title', '')

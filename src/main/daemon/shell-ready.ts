@@ -13,6 +13,7 @@ import {
 import { getPosixOmpShellWrapper } from '../pty/omp-shell-wrapper'
 import {
   getNuShellReadyIntegrationContent,
+  getPosixOsc633CommandlineEmitBlock,
   getZshEnvTemplate,
   getZshFinalZdotdirRestoreBlock,
   getZshShellReadyMarkerRegistrationBlock,
@@ -152,6 +153,7 @@ __orca_run_user_debug_trap() {
     eval "$__orca_user_debug_trap" || true
   fi
 }
+${getPosixOsc633CommandlineEmitBlock()}
 __orca_osc133_preexec() {
   __orca_run_user_debug_trap
   # Why: a framework (bash-preexec/starship) may replace our DEBUG trap at the
@@ -164,11 +166,13 @@ __orca_osc133_preexec() {
   [[ -z "\${__orca_in_prompt_command:-}" ]] || return
   # Why: a chained trap can invoke us more than once for a single command, so
   # emit C only on the first fire (the __orca_in_command gate), and never for a
-  # prompt-time hook — ours or bash-preexec's __bp_* helpers.
+  # prompt-time hook — ours or bash-preexec's __bp_* helpers. The same gate
+  # keeps 633;E once-per-prompt (#7596 Critic note: DEBUG fires per simple command).
   [[ -z "\${__orca_in_command:-}" ]] || return
   case "$BASH_COMMAND" in
-    *__orca_osc133_*|*__bp_*) return ;;
+    *__orca_osc133_*|*__orca_osc633_*|*__bp_*) return ;;
   esac
+  __orca_osc633_emit "$BASH_COMMAND"
   printf "\\033]133;C\\007"
   __orca_in_command=1
 }
@@ -259,7 +263,11 @@ __orca_osc133_precmd() {
   fi
   printf "\\033]133;A\\007"
 }
+${getPosixOsc633CommandlineEmitBlock()}
 __orca_osc133_preexec() {
+  # Why (#7596): zsh preexec receives the full typed command as $1; emit it
+  # before C so cold restore can offer a re-run of the last command.
+  __orca_osc633_emit "$1"
   printf "\\033]133;C\\007"
   __orca_in_command=1
 }

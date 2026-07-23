@@ -27,6 +27,7 @@ import { takeCurrentPtyDeliveryAckCredit } from './terminal-pty-ack-gate'
 import { isTerminalQueryReply } from '../../../../shared/terminal-query-reply'
 import type { PtyBufferSnapshot, PtyConnectResult } from './pty-transport'
 import { createIpcPtyTransport } from './pty-transport'
+import { offerableRestoredLastCommand } from './session-restored-banner-pane-state'
 import { createRemoteRuntimePtyTransport } from './remote-runtime-pty-transport'
 import { getConnectionId } from '@/lib/connection-context'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
@@ -4813,12 +4814,16 @@ export function connectPanePty(
       armStartupDraftReadinessObservation()
     }
     let sessionRestoredBannerShown = false
-    const showSessionRestoredBanner = (): void => {
+    const showSessionRestoredBanner = (info?: { lastCommand?: string | null }): void => {
       if (sessionRestoredBannerShown) {
         return
       }
       sessionRestoredBannerShown = true
-      deps.onShowSessionRestoredBanner(pane.id)
+      if (info === undefined) {
+        deps.onShowSessionRestoredBanner(pane.id)
+      } else {
+        deps.onShowSessionRestoredBanner(pane.id, info)
+      }
     }
     const getColdRestoreAgentResumePlatform = (): NodeJS.Platform => {
       if (projectRuntime?.status === 'repair-required') {
@@ -7765,6 +7770,16 @@ export function connectPanePty(
               showSessionRestoredBanner()
             }
             clearSleepingRecordAfterColdRestoreSpawn(preparedStartup)
+          } else {
+            // Why (#7596): offer type-it-again only for plain terminals — agent
+            // panes relaunch their own CLIs; the gate drops multiline/oversized
+            // commands (the banner ellipsis is not a shell).
+            const offerableLastCommand = offerableRestoredLastCommand(
+              connectResult.coldRestore.lastCommand
+            )
+            if (offerableLastCommand !== null && !connectResult.launchAgent) {
+              showSessionRestoredBanner({ lastCommand: offerableLastCommand })
+            }
           }
           // Why: cold-restore spawned a fresh shell; reset mode bytes a crashed TUI (e.g. Claude's \e[?1004h) left in scrollback that no live TUI now consumes.
           writeReplayData(POST_REPLAY_MODE_RESET)

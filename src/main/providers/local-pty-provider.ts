@@ -5,6 +5,7 @@ import { resolveWindowsShellLaunchArgs } from './windows-shell-args'
 import {
   resolveEffectiveWindowsPowerShell,
   shouldProbeWindowsPowerShellAvailability,
+  shouldResolveWindowsPowerShellFamily,
   type WindowsPowerShellShellFamily
 } from './windows-powershell'
 import { buildWindowsPowerShellSpawnAttempts } from './windows-shell-fallback-chain'
@@ -628,8 +629,10 @@ export class LocalPtyProvider implements IPtyProvider {
         shellFamily: resolvedShellFamily,
         implementation: powerShellImplementation
       })
-      const shouldResolvePowerShellFamily =
-        powerShellImplementation !== undefined || pathWin32.basename(shellFamily) === shellFamily
+      const shouldResolvePowerShellFamily = shouldResolveWindowsPowerShellFamily({
+        shellSetting: shellFamily,
+        implementation: powerShellImplementation
+      })
       if (resolvedGitBashPath) {
         shellPath = resolvedGitBashPath
       } else if (shellFamily === WINDOWS_GIT_BASH_SHELL) {

@@ -302,6 +302,39 @@
   pointer-events: none;
 }
 
+/* #7596 re-run affordance: the banner stays click-through except its action. */
+.session-restored-banner--with-command {
+  right: 8px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.session-restored-banner-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.session-restored-banner-action {
+  pointer-events: auto;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.session-restored-banner-action:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
 .pane-title-text {
   align-self: stretch;
   display: block;

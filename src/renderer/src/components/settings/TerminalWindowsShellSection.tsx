@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { GlobalSettings } from '../../../../shared/types'
 import {
   WINDOWS_GIT_BASH_SHELL,
@@ -9,8 +10,18 @@ import {
   SettingsSubsectionHeader
 } from './SettingsFormControls'
 import { SearchableSetting } from './SearchableSetting'
+import { TerminalCustomShellPathInput } from './TerminalCustomShellPathInput'
 import { translate } from '@/i18n/i18n'
 import { ShellIcon } from '../tab-bar/shell-icons'
+
+const CUSTOM_SHELL_OPTION_VALUE = 'custom-shell-path'
+// Why: a JS string, not a JSX attribute literal — backslash pairs must collapse.
+const CUSTOM_SHELL_PATH_PLACEHOLDER = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+
+// Why (#7467): terminalWindowsShell holds either a built-in choice or an explicit path; a separator marks the path form.
+function isCustomWindowsShellPath(shell: string): boolean {
+  return shell.includes('\\') || shell.includes('/')
+}
 
 type TerminalWindowsShellSectionProps = {
   updateSettings: (updates: Partial<GlobalSettings>) => void
@@ -34,6 +45,9 @@ export function TerminalWindowsShellSection({
   gitBashAvailable,
   nushellAvailable
 }: TerminalWindowsShellSectionProps): React.JSX.Element {
+  const [customSelected, setCustomSelected] = useState(false)
+  const hasCustomShellPath = isCustomWindowsShellPath(windowsShell)
+  const showCustomInput = customSelected || hasCustomShellPath
   const showGitBashOption = gitBashAvailable || windowsShell === WINDOWS_GIT_BASH_SHELL
   // Why: keep a selected-but-missing shell visible (disabled) so the setting is never silently hidden — same rule as Git Bash.
   const showNushellOption = nushellAvailable || windowsShell === WINDOWS_NUSHELL_SHELL
@@ -81,8 +95,16 @@ export function TerminalWindowsShellSection({
                   'auto.components.settings.TerminalPane.27e301f22c',
                   'Default Shell'
                 )}
-                value={windowsShell}
-                onChange={(value) => updateSettings({ terminalWindowsShell: value })}
+                value={showCustomInput ? CUSTOM_SHELL_OPTION_VALUE : windowsShell}
+                onChange={(value) => {
+                  if (value === CUSTOM_SHELL_OPTION_VALUE) {
+                    // Why: selecting Custom… reveals the input but keeps the setting until a path is committed.
+                    setCustomSelected(true)
+                    return
+                  }
+                  setCustomSelected(false)
+                  updateSettings({ terminalWindowsShell: value })
+                }}
                 options={[
                   {
                     value: 'powershell.exe',
@@ -143,11 +165,45 @@ export function TerminalWindowsShellSection({
                           disabled: !nushellAvailable
                         }
                       ]
-                    : [])
+                    : []),
+                  {
+                    value: CUSTOM_SHELL_OPTION_VALUE,
+                    label: translate(
+                      'auto.components.settings.TerminalWindowsShellSection.customOption',
+                      'Custom…'
+                    ),
+                    ariaLabel: translate(
+                      'auto.components.settings.TerminalWindowsShellSection.customOptionAria',
+                      'Custom shell path'
+                    )
+                  }
                 ]}
               />
             }
           />
+          {showCustomInput ? (
+            <SettingsRow
+              label={translate(
+                'auto.components.settings.TerminalWindowsShellSection.customPathLabel',
+                'Shell Path'
+              )}
+              description={translate(
+                'auto.components.settings.TerminalWindowsShellSection.customPathDescription',
+                'Absolute path to the shell executable. Takes effect for new terminals.'
+              )}
+              alignTop
+              control={
+                <div className="w-64">
+                  <TerminalCustomShellPathInput
+                    inputId="settings-terminal-windows-shell-path"
+                    value={hasCustomShellPath ? windowsShell : ''}
+                    placeholder={CUSTOM_SHELL_PATH_PLACEHOLDER}
+                    onCommit={(path) => updateSettings({ terminalWindowsShell: path })}
+                  />
+                </div>
+              }
+            />
+          ) : null}
         </SearchableSetting>
       </div>
     </section>

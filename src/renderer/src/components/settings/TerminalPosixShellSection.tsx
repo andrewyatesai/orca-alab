@@ -12,9 +12,13 @@ import {
   SettingsSubsectionHeader
 } from './SettingsFormControls'
 import { SearchableSetting } from './SearchableSetting'
+import { TerminalCustomShellPathInput } from './TerminalCustomShellPathInput'
 import { translate } from '@/i18n/i18n'
 
 const SYSTEM_SHELL_OPTION_VALUE = 'system'
+const CUSTOM_SHELL_OPTION_VALUE = 'custom-shell-path'
+// Why: an example path, not translatable copy — a const keeps it out of the localization audit.
+const CUSTOM_SHELL_PATH_PLACEHOLDER = '/usr/local/bin/fish'
 
 type TerminalPosixShellSectionProps = {
   updateSettings: (updates: Partial<GlobalSettings>) => void
@@ -26,6 +30,7 @@ export function TerminalPosixShellSection({
   posixShell
 }: TerminalPosixShellSectionProps): React.JSX.Element {
   const [detection, setDetection] = useState<PosixTerminalShellDetection | null>(null)
+  const [customSelected, setCustomSelected] = useState(false)
   useEffect(() => {
     let cancelled = false
     window.api.posixShells
@@ -47,9 +52,14 @@ export function TerminalPosixShellSection({
   const knownChoices = POSIX_TERMINAL_SHELL_CHOICES.filter(
     (shell) => shell === selectedShell || (availableShells?.has(shell) ?? false)
   )
-  // Why: a hand-edited settings value (e.g. an explicit path) must stay visible and deselectable.
+  // Why (#7467): an explicit path selects the Custom… option (with input); resolvePosixShellSettingPath already accepts it verbatim.
+  const hasCustomShellPath = selectedShell?.includes('/') === true
+  const showCustomInput = customSelected || hasCustomShellPath
+  // Why: a hand-edited bare name outside the catalog must stay visible and deselectable.
   const customChoice =
-    selectedShell && !POSIX_TERMINAL_SHELL_CHOICES.some((shell) => shell === selectedShell)
+    selectedShell &&
+    !hasCustomShellPath &&
+    !POSIX_TERMINAL_SHELL_CHOICES.some((shell) => shell === selectedShell)
       ? selectedShell
       : null
 
@@ -108,12 +118,22 @@ export function TerminalPosixShellSection({
                   'auto.components.settings.TerminalPosixShellSection.rowTitle',
                   'Default Shell'
                 )}
-                value={selectedShell ?? SYSTEM_SHELL_OPTION_VALUE}
-                onChange={(value) =>
+                value={
+                  showCustomInput
+                    ? CUSTOM_SHELL_OPTION_VALUE
+                    : (selectedShell ?? SYSTEM_SHELL_OPTION_VALUE)
+                }
+                onChange={(value) => {
+                  if (value === CUSTOM_SHELL_OPTION_VALUE) {
+                    // Why: selecting Custom… reveals the input but keeps the setting until a path is committed.
+                    setCustomSelected(true)
+                    return
+                  }
+                  setCustomSelected(false)
                   updateSettings({
                     terminalPosixShell: value === SYSTEM_SHELL_OPTION_VALUE ? null : value
                   })
-                }
+                }}
                 options={[
                   {
                     value: SYSTEM_SHELL_OPTION_VALUE,
@@ -140,11 +160,45 @@ export function TerminalPosixShellSection({
                           ariaLabel: posixShellDisplayName(customChoice)
                         }
                       ]
-                    : [])
+                    : []),
+                  {
+                    value: CUSTOM_SHELL_OPTION_VALUE,
+                    label: translate(
+                      'auto.components.settings.TerminalPosixShellSection.customOption',
+                      'Custom…'
+                    ),
+                    ariaLabel: translate(
+                      'auto.components.settings.TerminalPosixShellSection.customOptionAria',
+                      'Custom shell path'
+                    )
+                  }
                 ]}
               />
             }
           />
+          {showCustomInput ? (
+            <SettingsRow
+              label={translate(
+                'auto.components.settings.TerminalPosixShellSection.customPathLabel',
+                'Shell Path'
+              )}
+              description={translate(
+                'auto.components.settings.TerminalPosixShellSection.customPathDescription',
+                'Absolute path to the shell executable. Takes effect for new terminals. SSH terminals keep the remote login shell.'
+              )}
+              alignTop
+              control={
+                <div className="w-64">
+                  <TerminalCustomShellPathInput
+                    inputId="settings-terminal-posix-shell-path"
+                    value={hasCustomShellPath ? (selectedShell ?? '') : ''}
+                    placeholder={CUSTOM_SHELL_PATH_PLACEHOLDER}
+                    onCommit={(path) => updateSettings({ terminalPosixShell: path })}
+                  />
+                </div>
+              }
+            />
+          ) : null}
         </SearchableSetting>
       </div>
     </section>

@@ -18,6 +18,7 @@ import { getPosixOmpShellWrapper } from '../pty/omp-shell-wrapper'
 import { buildStartupCommandSubmission } from '../../shared/startup-command-submission'
 import {
   getNuShellReadyIntegrationContent,
+  getPosixOsc633CommandlineEmitBlock,
   getZshEnvTemplate,
   getZshFinalZdotdirRestoreBlock,
   getZshShellReadyMarkerRegistrationBlock,
@@ -167,15 +168,20 @@ __orca_run_user_debug_trap() {
     eval "$__orca_user_debug_trap" || true
   fi
 }
+${getPosixOsc633CommandlineEmitBlock()}
 __orca_osc133_preexec() {
   __orca_run_user_debug_trap
   [[ -z "\${__orca_in_prompt_command:-}" ]] || return
+  # Why: emit C/633;E only on the first DEBUG fire per prompt (#7596 Critic
+  # note) — DEBUG fires per simple command, so a compound line would re-emit.
+  [[ -z "\${__orca_in_command:-}" ]] || return
   # Why: bash DEBUG fires for every simple command, including PROMPT_COMMAND
   # bodies. Skip our own prompt-time helpers so they don't mark the shell as
   # "in command" before the prompt has even drawn.
   case "$BASH_COMMAND" in
-    *__orca_osc133_precmd*|*__orca_osc133_prompt_done*|*__orca_prompt_mark*) return ;;
+    *__orca_osc133_precmd*|*__orca_osc133_prompt_done*|*__orca_osc633_*|*__orca_prompt_mark*) return ;;
   esac
+  __orca_osc633_emit "$BASH_COMMAND"
   printf "\\033]133;C\\007"
   __orca_in_command=1
 }
@@ -270,7 +276,11 @@ __orca_osc133_precmd() {
   fi
   printf "\\033]133;A\\007"
 }
+${getPosixOsc633CommandlineEmitBlock()}
 __orca_osc133_preexec() {
+  # Why (#7596): zsh preexec receives the full typed command as $1; emit it
+  # before C so cold restore can offer a re-run of the last command.
+  __orca_osc633_emit "$1"
   printf "\\033]133;C\\007"
   __orca_in_command=1
 }

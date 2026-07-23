@@ -55,5 +55,8 @@ export type PtySpawnResult = {
     cols?: number
     rows?: number
     oscLinks?: TerminalOscLinkRange[]
+    /** Last shell command recovered from the crashed session's log (#7596);
+     *  the renderer offers a type-it-again affordance for plain terminals. */
+    lastCommand?: string
   }
 }

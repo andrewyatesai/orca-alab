@@ -17,14 +17,14 @@ export type WindowsPowerShellResolveOptions = {
  *  execFileSync can launch (PATH lookup follows the alias) but ConPTY's
  *  CreateProcessW(lpApplicationName=<abs stub>) rejects with ERROR_ACCESS_DENIED
  *  (error code 5). Never resolve a shell to a path inside this directory. */
-function isWindowsAppExecutionAliasPath(candidate: string): boolean {
+export function isWindowsAppExecutionAliasPath(candidate: string): boolean {
   return /[\\/]Microsoft[\\/]WindowsApps[\\/]/i.test(pathWin32.normalize(candidate))
 }
 
 /** A real executable is a regular file with non-zero size. The App Execution
  *  Alias stubs report size 0, so the size check rejects them even if a future
  *  Windows build relocates them outside WindowsApps. */
-function defaultIsRealExecutable(candidate: string): boolean {
+export function isWindowsRealExecutable(candidate: string): boolean {
   if (isWindowsAppExecutionAliasPath(candidate)) {
     return false
   }
@@ -39,7 +39,10 @@ function defaultIsRealExecutable(candidate: string): boolean {
   }
 }
 
-function defaultResolveAppExecutionAlias(candidate: string): string | null {
+/** Resolve a Store App Execution Alias reparse point to its package target
+ *  (null when unreadable). Shared with the shell-path validation IPC so a
+ *  pasted alias path can be reported with its recoverable real target. */
+export function resolveWindowsAppExecutionAliasTarget(candidate: string): string | null {
   try {
     const target = readlinkSync(candidate)
     return pathWin32.resolve(pathWin32.dirname(candidate), target)
@@ -163,9 +166,9 @@ export function resolveWindowsPowerShellExecutablePath(
     return null
   }
   const env = options.env ?? process.env
-  const isRealExecutable = options.isRealExecutable ?? defaultIsRealExecutable
+  const isRealExecutable = options.isRealExecutable ?? isWindowsRealExecutable
   const resolveAppExecutionAlias =
-    options.resolveAppExecutionAlias ?? defaultResolveAppExecutionAlias
+    options.resolveAppExecutionAlias ?? resolveWindowsAppExecutionAliasTarget
 
   if (family === 'powershell.exe') {
     const windowsPowerShell = getWindowsPowerShellPath(env)

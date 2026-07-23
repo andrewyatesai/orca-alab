@@ -165,6 +165,57 @@ describe('HistoryReader', () => {
     })
   })
 
+  // #7596: the re-run affordance sources its command from the replayed raw log.
+  describe('cold restore lastCommand (#7596)', () => {
+    function writeIncrementalLog(sessionId: string, chunks: string[]): void {
+      writeSessionWithCheckpoint(dir, sessionId, makeMeta(), makeCheckpoint({ generation: 3 }))
+      const sessionDir = join(dir, getHistorySessionDirName(sessionId))
+      writeFileSync(
+        join(sessionDir, 'output.log'),
+        Buffer.concat([
+          encodeLogHeader(3),
+          encodeLogBatch(
+            1,
+            chunks.map((data) => ({ kind: 'output' as const, data }))
+          )
+        ])
+      )
+    }
+
+    it('surfaces the last 633;E command from the replayed log, unescaped', () => {
+      writeIncrementalLog('with-cmd', [
+        '$ \x1b]633;E;npm install\x07npm output\r\n',
+        '$ \x1b]633;E;echo a\\x3bb\x07a;b\r\n'
+      ])
+
+      const info = reader.detectColdRestore('with-cmd')
+      expect(info?.lastCommand).toBe('echo a;b')
+    })
+
+    it('reassembles a 633;E split across log records', () => {
+      writeIncrementalLog('split-cmd', ['$ \x1b]633;E;cargo bu', 'ild --release\x07building\r\n'])
+
+      const info = reader.detectColdRestore('split-cmd')
+      expect(info?.lastCommand).toBe('cargo build --release')
+    })
+
+    it('leaves lastCommand undefined when the log has no 633;E', () => {
+      writeIncrementalLog('no-cmd', ['plain output, no shell hooks\r\n'])
+
+      const info = reader.detectColdRestore('no-cmd')
+      expect(info).not.toBeNull()
+      expect(info?.lastCommand).toBeUndefined()
+    })
+
+    it('leaves lastCommand undefined on checkpoint-only restore (no log window)', () => {
+      writeSessionWithCheckpoint(dir, 'cp-only', makeMeta(), makeCheckpoint())
+
+      const info = reader.detectColdRestore('cp-only')
+      expect(info).not.toBeNull()
+      expect(info?.lastCommand).toBeUndefined()
+    })
+  })
+
   it('replays incremental hostname OSC-7 with the same WSL context', () => {
     writeSessionWithCheckpoint(dir, 'wsl-log', makeMeta(), makeCheckpoint({ generation: 7 }))
     const sessionDir = join(dir, getHistorySessionDirName('wsl-log'))

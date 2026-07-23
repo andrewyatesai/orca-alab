@@ -2,6 +2,8 @@ import { win32 as pathWin32 } from 'node:path'
 import { resolveWindowsShellLaunchArgs } from './windows-shell-args'
 import type { WindowsShellWslContext } from './windows-shell-args'
 import {
+  isWindowsAppExecutionAliasPath,
+  isWindowsRealExecutable,
   resolveWindowsPowerShellSpawnChain,
   type WindowsPowerShellResolveOptions
 } from './windows-powershell-executable'
@@ -64,7 +66,18 @@ export function buildWindowsPowerShellSpawnAttempts(args: {
   if (basename !== 'pwsh.exe' && basename !== 'powershell.exe') {
     return []
   }
-  const chain = resolveWindowsPowerShellSpawnChain(basename, args.resolveOptions)
+  let chain = resolveWindowsPowerShellSpawnChain(basename, args.resolveOptions)
+  // Why (#7467): an explicit absolute custom PowerShell path must spawn verbatim
+  // as attempt 0 instead of being replaced by the discovered install; a stale or
+  // alias path drops to the discovered chain so a terminal still opens.
+  if (pathWin32.isAbsolute(args.shellPath) && !isWindowsAppExecutionAliasPath(args.shellPath)) {
+    const isRealExecutable = args.resolveOptions?.isRealExecutable ?? isWindowsRealExecutable
+    if (isRealExecutable(args.shellPath)) {
+      const custom = pathWin32.normalize(args.shellPath)
+      const customKey = custom.toLowerCase()
+      chain = [custom, ...chain.filter((candidate) => candidate.toLowerCase() !== customKey)]
+    }
+  }
   return chain.map((candidate) =>
     toAttempt(candidate, args.cwd, args.defaultCwd, args.wslContext, args.startupCommand)
   )

@@ -765,6 +765,10 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       // Why: no catch — callers treat a rejection as "availability unknown", which degrades better than an empty catalog.
       detect: () => callRuntimeResult<PosixTerminalShellDetection>('host.posixShells.detect')
     },
+    terminalShell: {
+      // Why: the web client has no local terminal host to stat; null hides inline validation (#7467).
+      validatePath: () => Promise.resolve(null)
+    },
     agentStatus: {
       onSet: () => noopUnsubscribe,
       onClear: () => noopUnsubscribe,

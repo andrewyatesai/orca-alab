@@ -68,7 +68,9 @@ export type PtyConnectionDeps = {
   clearWorktreeUnread: (worktreeId: string) => void
   clearTerminalTabUnread: (tabId: string) => void
   clearTerminalPaneUnread: (paneKey: string) => void
-  onShowSessionRestoredBanner: (paneId: number) => void
+  // Why: lastCommand (#7596) powers the restored banner's type-it-again
+  // affordance; absent/null keeps the plain "session restored" marker.
+  onShowSessionRestoredBanner: (paneId: number, info?: { lastCommand?: string | null }) => void
   // Why: the renderer dispatches four notification sources — BEL from the PTY
   // byte stream, agent-task-complete on the working→idle title transition,
   // long-command-complete on OSC 133 C→D past the settings threshold, and

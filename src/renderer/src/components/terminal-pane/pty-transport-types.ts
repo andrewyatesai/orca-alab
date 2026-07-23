@@ -49,7 +49,14 @@ export type PtyConnectResult = {
   snapshotRows?: number
   isAlternateScreen?: boolean
   sessionExpired?: boolean
-  coldRestore?: { scrollback: string; cwd: string; cols?: number; rows?: number }
+  coldRestore?: {
+    scrollback: string
+    cwd: string
+    cols?: number
+    rows?: number
+    /** Last command recovered from the crashed session's log (#7596). */
+    lastCommand?: string
+  }
   replay?: string
   startupCwdFallback?: { kind: 'worktree'; cwd: string }
   /** Trailing partial escape the daemon emulator held mid-parse; the reattach

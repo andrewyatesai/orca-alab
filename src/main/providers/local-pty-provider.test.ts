@@ -66,6 +66,8 @@ vi.mock('../pty-descendant-termination', () => ({
 const WINDOWS_POWERSHELL_ABS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 const PWSH7_ABS = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
 const CMD_ABS = 'C:\\Windows\\System32\\cmd.exe'
+// A user-entered custom PowerShell install (#7467) the discovery chain does not know about.
+const CUSTOM_PWSH_ABS = 'D:\\tools\\pwsh-daily\\pwsh.exe'
 vi.mock('./windows-powershell-executable', () => ({
   resolveWindowsPowerShellExecutablePath: (family: 'pwsh.exe' | 'powershell.exe') =>
     family === 'pwsh.exe' ? PWSH7_ABS : WINDOWS_POWERSHELL_ABS,
@@ -73,7 +75,10 @@ vi.mock('./windows-powershell-executable', () => ({
     family === 'pwsh.exe'
       ? [PWSH7_ABS, WINDOWS_POWERSHELL_ABS, CMD_ABS]
       : [WINDOWS_POWERSHELL_ABS, CMD_ABS],
-  getWindowsCmdPath: () => CMD_ABS
+  getWindowsCmdPath: () => CMD_ABS,
+  isWindowsAppExecutionAliasPath: (candidate: string) => /WindowsApps/i.test(candidate),
+  isWindowsRealExecutable: (candidate: string) =>
+    [PWSH7_ABS, WINDOWS_POWERSHELL_ABS, CMD_ABS, CUSTOM_PWSH_ABS].includes(candidate)
 }))
 
 vi.mock('./agent-foreground-process', () => ({
@@ -954,6 +959,46 @@ describe('LocalPtyProvider', () => {
       expect(spawnCall[0]).toBe(PWSH7_ABS)
       expect(spawnCall[1]).toContain('-EncodedCommand')
       expect(pwshAvailable).not.toHaveBeenCalled()
+    })
+
+    it('spawns an absolute custom terminalWindowsShell verbatim even with a PowerShell implementation preference set (#7467)', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      provider.configure({
+        getWindowsShell: () => CUSTOM_PWSH_ABS,
+        // Why: the implementation preference used to force family re-resolution, clobbering the custom path.
+        getWindowsPowerShellImplementation: () => 'powershell.exe',
+        pwshAvailable: () => true
+      })
+
+      await provider.spawn({
+        cols: 80,
+        rows: 24,
+        cwd: 'C:\\Users\\jin\\repo'
+      })
+
+      const spawnCall = spawnMock.mock.calls.at(-1)!
+      expect(spawnCall[0]).toBe(CUSTOM_PWSH_ABS)
+      expect(spawnCall[1]).toContain('-EncodedCommand')
+    })
+
+    it('falls back to the discovered chain when the custom absolute path is missing (#7467)', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      const stalePath = 'D:\\removed\\pwsh.exe'
+      provider.configure({
+        getWindowsShell: () => stalePath,
+        getWindowsPowerShellImplementation: () => 'pwsh.exe'
+      })
+
+      await provider.spawn({
+        cols: 80,
+        rows: 24,
+        cwd: 'C:\\Users\\jin\\repo'
+      })
+
+      const spawnCall = spawnMock.mock.calls.at(-1)!
+      // Why: a stale custom path must still open a terminal via discovered installs, never a dead pane.
+      expect(spawnCall[0]).toBe(PWSH7_ABS)
+      expect(spawnCall[0]).not.toBe(stalePath)
     })
 
     it('marks Orca terminal handle for WSL import when buildSpawnEnv opts in', async () => {

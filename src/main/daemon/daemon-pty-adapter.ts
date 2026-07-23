@@ -50,6 +50,8 @@ type ColdRestorePayload = {
   cols: number
   rows: number
   oscLinks?: TerminalOscLinkRange[]
+  /** Last shell command replayed from the raw log (#7596 re-run affordance). */
+  lastCommand?: string
 }
 
 function getRecoveredHistorySeed(restoreInfo: ColdRestoreInfo): string | null {
@@ -737,7 +739,8 @@ export class DaemonPtyAdapter implements IPtyProvider {
       cwd: restoreInfo.cwd,
       cols: restoreInfo.cols,
       rows: restoreInfo.rows,
-      oscLinks: restoreInfo.oscLinks
+      oscLinks: restoreInfo.oscLinks,
+      ...(restoreInfo.lastCommand !== undefined ? { lastCommand: restoreInfo.lastCommand } : {})
     }
   }
 

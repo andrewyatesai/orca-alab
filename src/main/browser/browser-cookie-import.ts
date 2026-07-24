@@ -102,7 +102,6 @@ import {
   type ChromiumCookieSnapshot
 } from './chromium-cookie-snapshot'
 import { resolveChromiumCookiesPath } from './chromium-cookie-path'
-import { cookieImportStagingDir } from './cookie-import-staging-path'
 
 // ---------------------------------------------------------------------------
 // Browser detection
@@ -1457,7 +1456,9 @@ export async function importCookiesFromBrowser(
     return { ok: false, reason: 'Target cookie database not found. Open a browser tab first.' }
   }
 
-  const stagingDir = cookieImportStagingDir()
+  // Why: stage into the active Orca profile's namespaced subdir so the registry's
+  // per-profile startup sweep reclaims exactly these files and never another profile's.
+  const stagingDir = browserSessionRegistry.getCookieStagingDir()
   const partitionSegment = partitionName.replace(/[^a-zA-Z0-9_-]/g, '_')
   const stagingCookiesPath = join(
     stagingDir,

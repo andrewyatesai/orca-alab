@@ -102,24 +102,46 @@ describe('CdpWsProxy', () => {
     client.close()
   })
 
-  it('drops forwarded events once the client send buffer is saturated', async () => {
+  it('sheds only high-volume noise events once the client send buffer is saturated', async () => {
     const sent: string[] = []
     const fakeClient = {
       readyState: WebSocket.OPEN,
       bufferedAmount: 32 * 1024 * 1024,
       send: (data: string) => sent.push(data),
-      close: () => {}
+      close: vi.fn()
     }
     ;(proxy as unknown as { client: unknown }).client = fakeClient
 
-    mock.emit('message', {}, 'Network.responseReceived', { requestId: '1' })
-    mock.emit('message', {}, 'Network.responseReceived', { requestId: '2' })
+    // Network.dataReceived is a pure progress delta — safe to drop under pressure.
+    mock.emit('message', {}, 'Network.dataReceived', { requestId: '1', dataLength: 10 })
+    mock.emit('message', {}, 'Network.dataReceived', { requestId: '2', dataLength: 10 })
     expect(sent).toHaveLength(0)
+    expect(fakeClient.close).not.toHaveBeenCalled()
 
-    // With the buffer drained, forwarding resumes.
+    // With the buffer drained, forwarding resumes on the same client.
     fakeClient.bufferedAmount = 0
-    mock.emit('message', {}, 'Network.responseReceived', { requestId: '3' })
+    mock.emit('message', {}, 'Network.dataReceived', { requestId: '3', dataLength: 10 })
     expect(sent).toHaveLength(1)
+  })
+
+  it('closes the client instead of silently dropping a state-bearing event under overflow', async () => {
+    const sent: string[] = []
+    const fakeClient = {
+      readyState: WebSocket.OPEN,
+      bufferedAmount: 32 * 1024 * 1024,
+      send: (data: string) => sent.push(data),
+      close: vi.fn()
+    }
+    ;(proxy as unknown as { client: unknown }).client = fakeClient
+
+    // Page.loadEventFired is a lifecycle event a command may be awaiting; it must
+    // never be silently dropped. Under overflow the client is closed so the gap
+    // is signalled and it can re-sync, rather than proceeding on stale state.
+    mock.emit('message', {}, 'Page.loadEventFired', { timestamp: 1 })
+
+    expect(sent).toHaveLength(0)
+    expect(fakeClient.close).toHaveBeenCalledTimes(1)
+    expect(fakeClient.close).toHaveBeenCalledWith(1013, expect.any(String))
   })
 
   // ── CDP message ID correlation ──

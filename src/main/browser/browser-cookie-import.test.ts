@@ -50,6 +50,19 @@ import {
 import { existsSync, writeFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import {
+  DEFAULT_LOCAL_ORCA_PROFILE_ID,
+  getOrcaProfileBrowserPartitionSegment
+} from '../../shared/orca-profiles'
+
+// Why: cookie staging is namespaced per active Orca profile (local-default here).
+function activeStagingDir(userDataDir: string): string {
+  return join(
+    userDataDir,
+    'cookie-import-staging',
+    getOrcaProfileBrowserPartitionSegment(DEFAULT_LOCAL_ORCA_PROFILE_ID)
+  )
+}
 
 function chromeBrowser(cookiesPath: string): DetectedBrowser {
   return {
@@ -509,7 +522,7 @@ describe('importCookiesFromBrowser Chromium', () => {
       )
 
       expect(result.ok).toBe(false)
-      expect(readdirSync(join(tmpDir, 'userData', 'cookie-import-staging'))).toEqual([])
+      expect(readdirSync(activeStagingDir(join(tmpDir, 'userData')))).toEqual([])
     } finally {
       platformSpy.mockRestore()
     }
@@ -528,7 +541,7 @@ describe('importCookiesFromBrowser Chromium', () => {
     const result = await importCookiesFromBrowser(chromeBrowser(sourceCookiesPath), 'persist:test')
 
     expect(result).toEqual({ ok: false, reason: 'Could not create staging cookie database.' })
-    expect(readdirSync(join(tmpDir, 'userData', 'cookie-import-staging'))).toEqual([])
+    expect(readdirSync(activeStagingDir(join(tmpDir, 'userData')))).toEqual([])
   })
 })
 

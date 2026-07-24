@@ -49,6 +49,10 @@ import type {
 } from '../../shared/runtime-types'
 import { assertClipboardTextWriteWithinLimitWithYield } from '../../shared/clipboard-text'
 import { iterateBrowserTextInsertionChunks } from './browser-text-insertion'
+import {
+  beginTrustedClipboardRead,
+  endTrustedClipboardRead
+} from './browser-session-permission-policy'
 
 // Why: must exceed agent-browser's internal timeouts (goto 30s, wait 60s) so the bridge never kills a command before its own timeout fires.
 const EXEC_TIMEOUT_MS = 90_000
@@ -1122,8 +1126,16 @@ export class AgentBrowserBridge {
   // ── Clipboard commands ──
 
   async clipboardRead(worktreeId?: string, browserPageId?: string): Promise<unknown> {
-    return this.enqueueTargetedCommand(worktreeId, browserPageId, async (sessionName) => {
-      return await this.execAgentBrowser(sessionName, ['clipboard', 'read'])
+    return this.enqueueTargetedCommand(worktreeId, browserPageId, async (sessionName, target) => {
+      // Why: clipboard-read is denied for page-initiated reads; grant it only for this
+      // trusted command, scoped to the target page's webContents and reverted immediately
+      // after so an arbitrary page can never read the clipboard outside this window.
+      beginTrustedClipboardRead(target.webContentsId)
+      try {
+        return await this.execAgentBrowser(sessionName, ['clipboard', 'read'])
+      } finally {
+        endTrustedClipboardRead(target.webContentsId)
+      }
     })
   }
 

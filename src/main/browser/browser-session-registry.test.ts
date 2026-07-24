@@ -28,6 +28,10 @@ vi.mock('./browser-manager', () => ({
 }))
 
 import { browserSessionRegistry } from './browser-session-registry'
+import {
+  beginTrustedClipboardRead,
+  endTrustedClipboardRead
+} from './browser-session-permission-policy'
 import { setupClientHintsOverride } from './browser-session-ua'
 import { ORCA_BROWSER_PARTITION } from '../../shared/constants'
 import {
@@ -220,6 +224,48 @@ describe('BrowserSessionRegistry', () => {
 
     expect(callback).toHaveBeenCalledWith(true)
     expect(checkHandler(null, 'pointerLock', '', {})).toBe(true)
+  })
+
+  it('denies page-initiated clipboard-read but grants it command-scoped while a trusted read is in flight', () => {
+    // Regression (Codex cxb1): removing 'clipboard-read' from the blanket auto-grant
+    // set stopped page-initiated exfiltration but also broke the trusted
+    // `orca clipboard read` command, whose CDP Runtime.evaluate of
+    // navigator.clipboard.readText() still hits this session permission handler.
+    // The fix grants clipboard-read only while AgentBrowserBridge.clipboardRead has an
+    // in-flight grant for the exact target webContents.
+    browserSessionRegistry.createProfile('isolated', 'Clipboard Read Test')
+    const mockSession = sessionFromPartitionMock.mock.results[0]?.value
+    const requestHandler = mockSession.setPermissionRequestHandler.mock.calls[0][0]
+    const checkHandler = mockSession.setPermissionCheckHandler.mock.calls[0][0]
+    const trustedWc = { id: 11, getURL: vi.fn(() => 'https://example.com/') }
+    const otherWc = { id: 22, getURL: vi.fn(() => 'https://evil.example/') }
+
+    // Ordinary page-initiated read is denied.
+    const denyCb = vi.fn()
+    requestHandler(trustedWc, 'clipboard-read', denyCb, {})
+    expect(denyCb).toHaveBeenCalledWith(false)
+    expect(checkHandler(trustedWc, 'clipboard-read', 'https://example.com', {})).toBe(false)
+
+    // While the trusted command is in flight for this webContents, it is granted —
+    // but only for that exact page, never a different one sharing the partition.
+    beginTrustedClipboardRead(trustedWc.id)
+    try {
+      const grantCb = vi.fn()
+      requestHandler(trustedWc, 'clipboard-read', grantCb, {})
+      expect(grantCb).toHaveBeenCalledWith(true)
+      expect(checkHandler(trustedWc, 'clipboard-read', 'https://example.com', {})).toBe(true)
+
+      const otherCb = vi.fn()
+      requestHandler(otherWc, 'clipboard-read', otherCb, {})
+      expect(otherCb).toHaveBeenCalledWith(false)
+    } finally {
+      endTrustedClipboardRead(trustedWc.id)
+    }
+
+    // Grant reverts immediately after the command completes.
+    const afterCb = vi.fn()
+    requestHandler(trustedWc, 'clipboard-read', afterCb, {})
+    expect(afterCb).toHaveBeenCalledWith(false)
   })
 
   it('routes media permission requests through macOS TCC for isolated partitions', async () => {

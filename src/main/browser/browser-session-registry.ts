@@ -25,8 +25,8 @@ import { browserManager } from './browser-manager'
 import { hasSystemMediaAccess, requestSystemMediaAccess } from './browser-media-access'
 import { cleanElectronUserAgent, setupClientHintsOverride } from './browser-session-ua'
 import { resolveChromiumCookiesPath } from './chromium-cookie-path'
-import { isAutoGrantedBrowserSessionPermission } from './browser-session-permission-policy'
-import { cookieImportStagingDir } from './cookie-import-staging-path'
+import { isBrowserSessionPermissionAllowed } from './browser-session-permission-policy'
+import { cookieImportStagingRoot, orcaProfileCookieStagingDir } from './cookie-import-staging-path'
 import {
   allowsBrowserWebAuthnPermission,
   clearBrowserWebAuthnAccessHandlers,
@@ -113,7 +113,7 @@ class BrowserSessionRegistry {
     }
     let stagingRoot: string
     try {
-      stagingRoot = resolve(cookieImportStagingDir())
+      stagingRoot = resolve(cookieImportStagingRoot())
     } catch {
       return
     }
@@ -130,17 +130,40 @@ class BrowserSessionRegistry {
     }
   }
 
+  // Why: the staging root is shared across Orca profiles but pendingCookieImports
+  // is per-profile; scope the sweep (and the writer, via getCookieStagingDir) to
+  // the ACTIVE profile's subdir so it can never delete another profile's staged DB.
+  private cookieStagingDir(): string {
+    return orcaProfileCookieStagingDir(this.activeOrcaProfileId)
+  }
+
+  // Why: the cookie-import writer must stage into the same per-profile subdir the
+  // sweep reclaims from, or staged files would be orphaned (writer) or never
+  // cleaned (sweep). Single source of truth for the active profile's staging dir.
+  getCookieStagingDir(): string {
+    return this.cookieStagingDir()
+  }
+
   // Why: crash-orphaned staged DBs (import interrupted before the metadata entry
   // was cleared, or after it was dropped) would otherwise accumulate decrypted
   // cookies forever; sweep any staged file no live import still references.
   private sweepOrphanedCookieStaging(referenced: Set<string>): void {
     let stagingRoot: string
     try {
-      stagingRoot = resolve(cookieImportStagingDir())
+      stagingRoot = resolve(this.cookieStagingDir())
     } catch {
       return
     }
-    const keep = new Set([...referenced].map((path) => resolve(path)))
+    // Why: fail-closed — a non-string/malformed reference (tampered meta) must not
+    // throw out of app init; skip it rather than resolve() it. See loadPersistedMeta.
+    const keep = new Set<string>()
+    for (const path of referenced) {
+      try {
+        keep.add(resolve(path as string))
+      } catch {
+        /* skip malformed reference */
+      }
+    }
     let entries: string[]
     try {
       entries = readdirSync(stagingRoot)
@@ -205,10 +228,18 @@ class BrowserSessionRegistry {
 
       const legacyPendingCookieDbPath =
         typeof data?.pendingCookieDbPath === 'string' ? data.pendingCookieDbPath : null
-      const pendingCookieImports: Record<string, string> =
-        data && typeof data.pendingCookieImports === 'object' && data.pendingCookieImports
-          ? { ...data.pendingCookieImports }
-          : {}
+      // Why: fail-closed — a well-formed JSON meta whose pendingCookieImports holds
+      // a NON-STRING value (tampered/corrupt) reaches the startup sweep, where
+      // resolve()/path ops would throw OUTSIDE any try/catch during app init and
+      // brick launch. Drop non-string values so only real staged paths survive.
+      const pendingCookieImports: Record<string, string> = {}
+      if (data && typeof data.pendingCookieImports === 'object' && data.pendingCookieImports) {
+        for (const [partition, stagedPath] of Object.entries(data.pendingCookieImports)) {
+          if (typeof stagedPath === 'string') {
+            pendingCookieImports[partition] = stagedPath
+          }
+        }
+      }
       if (legacyPendingCookieDbPath && !pendingCookieImports[this.defaultPartition]) {
         pendingCookieImports[this.defaultPartition] = legacyPendingCookieDbPath
       }
@@ -596,7 +627,7 @@ class BrowserSessionRegistry {
         )
         return
       }
-      const allowed = isAutoGrantedBrowserSessionPermission(permission)
+      const allowed = isBrowserSessionPermissionAllowed(permission, webContents?.id)
       if (!allowed) {
         browserManager.notifyPermissionDenied({
           guestWebContentsId: webContents.id,
@@ -606,7 +637,7 @@ class BrowserSessionRegistry {
       }
       callback(allowed)
     })
-    sess.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
+    sess.setPermissionCheckHandler((checkWebContents, permission, requestingOrigin, details) => {
       if (permission === 'media') {
         // Why: an OS-level media grant is not per-origin consent; only report a
         // media permission as held for an origin that actually went through the
@@ -621,7 +652,7 @@ class BrowserSessionRegistry {
       if (allowsBrowserWebAuthnPermission(permission, details)) {
         return true
       }
-      return isAutoGrantedBrowserSessionPermission(permission)
+      return isBrowserSessionPermissionAllowed(permission, checkWebContents?.id)
     })
     installBrowserWebAuthnAccessHandlers(sess)
     sess.setDisplayMediaRequestHandler((_request, callback) => {

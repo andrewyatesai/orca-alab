@@ -57,6 +57,7 @@ import {
   AgentBrowserBridge
 } from './agent-browser-bridge'
 import type { BrowserManager } from './browser-manager'
+import { isTrustedClipboardReadInFlight } from './browser-session-permission-policy'
 import {
   CLIPBOARD_TEXT_MEASURE_YIELD_CODE_UNITS,
   CLIPBOARD_TEXT_WRITE_MAX_BYTES,
@@ -337,6 +338,44 @@ describe('AgentBrowserBridge', () => {
       (c[1] as string[]).includes('click')
     )
     expect(clickCall![1]).not.toContain('--cdp')
+  })
+
+  // Regression (Codex cxb1): `orca clipboard read` drives navigator.clipboard.readText()
+  // in the page via CDP, which hits Electron's session permission handler. clipboard-read
+  // is no longer blanket auto-granted, so clipboardRead must open a command-scoped grant
+  // for the target webContents around its evaluate and close it immediately after.
+  it('brackets the trusted clipboard read with a command-scoped grant for the target page', async () => {
+    let inFlightDuringExec: boolean | undefined
+    execFileMock.mockImplementation(
+      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
+        if (args.includes('clipboard') && args.includes('read')) {
+          inFlightDuringExec = isTrustedClipboardReadInFlight(100)
+        }
+        cb(null, JSON.stringify({ success: true, data: { text: 'secret' } }), '')
+        return { stdin: { on: vi.fn(), end: (text: string) => stdinWrites.push(text) } }
+      }
+    )
+
+    // Not granted before the command runs.
+    expect(isTrustedClipboardReadInFlight(100)).toBe(false)
+    await bridge.clipboardRead()
+
+    // Granted for the exact target webContents while the evaluate is in flight...
+    expect(inFlightDuringExec).toBe(true)
+    // ...and reverted immediately after (also on the throwing path).
+    expect(isTrustedClipboardReadInFlight(100)).toBe(false)
+  })
+
+  it('reverts the clipboard-read grant even when the trusted read fails', async () => {
+    execFileMock.mockImplementation(
+      (_bin: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
+        cb(null, JSON.stringify({ success: false, error: 'boom' }), '')
+        return { stdin: { on: vi.fn(), end: (text: string) => stdinWrites.push(text) } }
+      }
+    )
+
+    await expect(bridge.clipboardRead()).rejects.toThrow()
+    expect(isTrustedClipboardReadInFlight(100)).toBe(false)
   })
 
   it('continues when stale agent-browser session close hangs during session creation', async () => {

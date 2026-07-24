@@ -14,6 +14,22 @@ const MAX_OUTBOUND_BUFFERED_BYTES = 8 * 1024 * 1024
 // Why: refuse frames larger than any real CDP command so a hostile local
 // process cannot force unbounded inbound allocation.
 const MAX_INBOUND_FRAME_BYTES = 256 * 1024 * 1024
+// Why: under outbound overflow these are the only events safe to silently
+// drop — high-frequency streaming/progress deltas that carry no protocol
+// state (each is superseded by a later terminal event, so a gap can't strand
+// a command). Every other event may be state-bearing (lifecycle, target
+// attach/detach), so it is NEVER silently dropped: overflow closes the client
+// to SIGNAL the gap instead of corrupting protocol state. See finding cxb4.
+const HIGH_VOLUME_SHEDDABLE_EVENTS = new Set([
+  'Network.dataReceived',
+  'Network.webSocketFrameReceived',
+  'Network.webSocketFrameSent',
+  'Network.eventSourceMessageReceived',
+  'Page.screencastFrame'
+])
+// Why: WebSocket "Try Again Later" — tells the client the drop was capacity
+// pressure, not a protocol fault, so it reconnects and re-syncs.
+const CLOSE_CODE_BACKPRESSURE = 1013
 
 export class CdpWsProxy {
   // Why: holds each session's last DOM.focus params to replay right before the next
@@ -289,11 +305,18 @@ export class CdpWsProxy {
       if (!this.client || this.client.readyState !== WebSocket.OPEN) {
         return
       }
-      // Why: drop unsolicited events (not command responses) once the client's
-      // send buffer is already saturated — a flooding page must not grow the
-      // main-process heap without bound while the consumer lags. Command
-      // responses go through send() and are never dropped here.
+      // Why: under outbound saturation a flooding page must not grow the
+      // main-process heap without bound. But silently dropping an arbitrary
+      // event corrupts protocol state (a command awaiting a lifecycle/attach
+      // event hangs or proceeds on stale target state — finding cxb4). So shed
+      // only known high-volume noise; for any other (possibly state-bearing)
+      // event, close so the gap is SIGNALLED and the client can re-sync.
+      // Command responses go through send() and are never affected here.
       if (this.client.bufferedAmount > MAX_OUTBOUND_BUFFERED_BYTES) {
+        if (HIGH_VOLUME_SHEDDABLE_EVENTS.has(method)) {
+          return
+        }
+        this.client.close(CLOSE_CODE_BACKPRESSURE, 'CDP outbound backpressure')
         return
       }
       // Why: Electron passes empty string (not undefined) for root-session events, but

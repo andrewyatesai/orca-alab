@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import { GitCapabilityCache } from '../shared/git-capability-cache'
 import type { GitExec } from './git-handler-ops'
 import { addWorktreeOp, removeWorktreeOp } from './git-handler-worktree-ops'
+import { WORKTREE_ADD_TIMEOUT_MS } from '../shared/worktree-add-timeout'
 
 function removeWorktreeWithCapabilityCache(
   git: GitExec,
@@ -72,6 +73,22 @@ describe('addWorktreeOp', () => {
       'branch.feature/test.merge',
       'refs/heads/main'
     ])
+  })
+
+  it('bounds the SSH `git worktree add` with a timeout so a cloud-placeholder stall fails fast into rollback', async () => {
+    const git = vi.fn<GitExec>(async () => ({ stdout: '', stderr: '' }))
+
+    await addWorktreeOp(git, {
+      repoPath: '/repo',
+      branchName: 'feature/test',
+      targetDir: '/repo-feature'
+    })
+
+    const addCall = git.mock.calls.find(
+      ([args]) => args.includes('worktree') && args.includes('add')
+    )
+    expect(addCall?.[2]).toMatchObject({ timeout: WORKTREE_ADD_TIMEOUT_MS })
+    expect(WORKTREE_ADD_TIMEOUT_MS).toBeGreaterThan(0)
   })
 
   it('does not write branch base config when checking out an existing SSH branch', async () => {

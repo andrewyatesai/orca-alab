@@ -4,6 +4,7 @@ import { join, posix, win32 } from 'node:path'
 import { branchIsSafeToDeleteNative } from './rust-branch-cleanup'
 import type { RunGit } from './rust-git-executor'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
+import { WORKTREE_ADD_TIMEOUT_MS } from '../../shared/worktree-add-timeout'
 import type {
   GitWorktreeInfo,
   LocalBaseRefRefreshResult,
@@ -90,8 +91,8 @@ const PRUNABLE_EXISTENCE_PROBE_CONCURRENCY = 8
 // versions safely ignore the unknown config and keep their serial path.
 const PARALLEL_CHECKOUT_GIT_ARGS = ['-c', 'checkout.workers=0'] as const
 
-// Why: bound `git worktree add` so a OneDrive cloud-placeholder stall fails fast (STA-1292); generous enough for a legit large checkout (#7225).
-export const WORKTREE_ADD_TIMEOUT_MS = 180_000
+// Why: shared with the relay twin so both transports bound the add identically.
+export { WORKTREE_ADD_TIMEOUT_MS }
 export const WORKTREE_REMOVAL_PREFLIGHT_TIMEOUT_MS = 30_000
 // Why: one wedged shared scan otherwise hangs every later list, including create's post-add re-list (#9786).
 export const WORKTREE_LIST_TIMEOUT_MS = 30_000

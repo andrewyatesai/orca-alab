@@ -103,7 +103,14 @@ export const ACCOUNT_METHODS: readonly RpcAnyMethod[] = [
   defineMethod({
     name: 'accounts.unsubscribe',
     params: AccountsUnsubscribeParams,
-    handler: async (params, { runtime }) => {
+    handler: async (params, { runtime, connectionId }) => {
+      // Why: authorize teardown to the owning socket — refuse ids that don't
+      // carry this connection's prefix so one client can't kill another's
+      // account-usage stream (mirrors runtime.clientEvents.unsubscribe).
+      const expectedPrefix = `accounts-${connectionId ?? 'inproc'}-`
+      if (!params.subscriptionId.startsWith(expectedPrefix)) {
+        return { unsubscribed: false }
+      }
       runtime.cleanupSubscription(params.subscriptionId)
       return { unsubscribed: true }
     }

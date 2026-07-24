@@ -55,4 +55,29 @@ describe('account RPC methods', () => {
     cleanup?.()
     await running
   })
+
+  it('refuses accounts.unsubscribe for a subscription owned by another connection', async () => {
+    const cleanupSubscription = vi.fn()
+    const runtime = { cleanupSubscription } as unknown as OrcaRuntimeService
+    const unsubscribe = method('accounts.unsubscribe')
+    if (isStreamingMethod(unsubscribe)) {
+      throw new Error('accounts.unsubscribe must be a request method')
+    }
+
+    // Connection B must not tear down connection A's account stream by id.
+    const foreign = await unsubscribe.handler(
+      { subscriptionId: 'accounts-connA-2' },
+      { runtime, connectionId: 'connB' }
+    )
+    expect(foreign).toEqual({ unsubscribed: false })
+    expect(cleanupSubscription).not.toHaveBeenCalled()
+
+    // The owning connection can still tear its own subscription down.
+    const own = await unsubscribe.handler(
+      { subscriptionId: 'accounts-connA-2' },
+      { runtime, connectionId: 'connA' }
+    )
+    expect(own).toEqual({ unsubscribed: true })
+    expect(cleanupSubscription).toHaveBeenCalledWith('accounts-connA-2')
+  })
 })

@@ -4103,4 +4103,117 @@ describe('ClaudeRuntimeAuthService', () => {
     vi.mocked(isOauthTokenExpiring).mockReturnValue(false)
     vi.mocked(refreshClaudeOauthCredentials).mockResolvedValue(null)
   })
+
+  it('does not clobber a concurrent legacy Keychain refresh when only scoped matches (cx5)', async () => {
+    setPlatform('darwin')
+    const managedOriginal = createClaudeCredentialsJson(
+      'user@example.com',
+      'one-managed',
+      null,
+      1_000
+    )
+    const managedRefreshed = createClaudeCredentialsJson(
+      'user@example.com',
+      'one-refreshed',
+      null,
+      2_000
+    )
+    // A pre-2.1 Claude Code writes its rotation to the legacy unsuffixed Keychain
+    // item only; the rotated blob commonly lacks email/org identity.
+    const cliLegacyRefresh = createClaudeCredentialsWithoutEmail('one-cli-legacy', null, {
+      refreshToken: 'one-cli-legacy-refresh'
+    })
+    const managedAuthPath = createManagedClaudeAuth(
+      testState.userDataDir,
+      'account-1',
+      managedOriginal
+    )
+    const settings = createSettings({
+      claudeManagedAccounts: [
+        createClaudeAccount('account-1', managedAuthPath, { email: 'user@example.com' })
+      ],
+      activeClaudeManagedAccountId: 'account-1'
+    })
+    const store = createStore(settings)
+
+    const { ClaudeRuntimeAuthService } = await import('./runtime-auth-service')
+    const service = new ClaudeRuntimeAuthService(store as never)
+    await service.syncForCurrentSelection()
+    expect(testState.scopedKeychainCredentials).toBe(managedOriginal)
+    expect(testState.legacyKeychainCredentials).toBe(managedOriginal)
+
+    // Orca's proactive refresh materializes a new managed token; mid-sync a
+    // concurrent pre-2.1 Claude rotates ONLY the legacy Keychain item. The scoped
+    // item still matches Orca's baseline, so a scoped-only CAS would wrongly wave
+    // the write through and clobber the legacy rotation (#9582).
+    vi.mocked(isOauthTokenExpiring).mockReturnValueOnce(true)
+    vi.mocked(refreshClaudeOauthCredentials).mockImplementationOnce(async () => {
+      testState.legacyKeychainCredentials = cliLegacyRefresh
+      return managedRefreshed
+    })
+    await service.syncForCurrentSelection()
+
+    // Per-item compare-and-swap must preserve the legacy rotation; only the
+    // scoped item (unchanged from Orca's baseline) may move forward.
+    expect(testState.legacyKeychainCredentials).toBe(cliLegacyRefresh)
+
+    vi.mocked(isOauthTokenExpiring).mockReturnValue(false)
+    vi.mocked(refreshClaudeOauthCredentials).mockResolvedValue(null)
+  })
+
+  it('refuses the Keychain write when the scoped read fails instead of treating it as absent (cx6)', async () => {
+    setPlatform('darwin')
+    const managedOriginal = createClaudeCredentialsJson(
+      'user@example.com',
+      'one-managed',
+      null,
+      1_000
+    )
+    const managedRefreshed = createClaudeCredentialsJson(
+      'user@example.com',
+      'one-refreshed',
+      null,
+      2_000
+    )
+    // A concurrent Claude wrote an unobserved rotation to the scoped item; the
+    // subsequent read is denied/timed out (transient), hiding that value.
+    const cliScopedRefresh = createClaudeCredentialsWithoutEmail('one-cli-scoped', null, {
+      refreshToken: 'one-cli-scoped-refresh'
+    })
+    const managedAuthPath = createManagedClaudeAuth(
+      testState.userDataDir,
+      'account-1',
+      managedOriginal
+    )
+    const settings = createSettings({
+      claudeManagedAccounts: [
+        createClaudeAccount('account-1', managedAuthPath, { email: 'user@example.com' })
+      ],
+      activeClaudeManagedAccountId: 'account-1'
+    })
+    const store = createStore(settings)
+
+    const { ClaudeRuntimeAuthService } = await import('./runtime-auth-service')
+    const service = new ClaudeRuntimeAuthService(store as never)
+    await service.syncForCurrentSelection()
+    expect(testState.scopedKeychainCredentials).toBe(managedOriginal)
+
+    vi.mocked(isOauthTokenExpiring).mockReturnValueOnce(true)
+    vi.mocked(refreshClaudeOauthCredentials).mockImplementationOnce(async () => {
+      // Concurrent write lands in the scoped item, then the write-time read fails.
+      testState.scopedKeychainCredentials = cliScopedRefresh
+      testState.legacyKeychainCredentials = managedRefreshed
+      testState.throwScopedKeychainRead = true
+      return managedRefreshed
+    })
+    await service.syncForCurrentSelection()
+
+    // A failed read must fail closed: the scoped item Orca never observed must be
+    // preserved, not overwritten as if the item were absent (#9582).
+    expect(testState.scopedKeychainCredentials).toBe(cliScopedRefresh)
+
+    testState.throwScopedKeychainRead = false
+    vi.mocked(isOauthTokenExpiring).mockReturnValue(false)
+    vi.mocked(refreshClaudeOauthCredentials).mockResolvedValue(null)
+  })
 })

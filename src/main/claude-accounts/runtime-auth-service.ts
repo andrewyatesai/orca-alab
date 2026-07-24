@@ -112,6 +112,11 @@ export class ClaudeRuntimeAuthService {
   // Sampled once per top-level sync so a materialize can't clobber a concurrent
   // Claude refresh whose rotated single-use token would otherwise be lost.
   private observedActiveKeychainCredentialsJson: string | null = null
+  // Why: #9582 (cx5) — writeActiveClaudeKeychainCredentialsForRuntime writes the
+  // scoped AND the legacy unsuffixed item, so the legacy item needs its own CAS
+  // baseline; without it a pre-2.1 Claude rotating only the legacy item slips
+  // past the scoped-only check and gets clobbered.
+  private observedLegacyActiveKeychainCredentialsJson: string | null = null
   private lastWrittenActiveKeychainCredentialsJson: string | null = null
   private hasMaterializedRuntimeAuth = false
   private hasLastWrittenOauthAccount = false
@@ -1874,11 +1879,16 @@ export class ClaudeRuntimeAuthService {
   private async observeActiveClaudeKeychainCredentials(): Promise<void> {
     if (process.platform !== 'darwin') {
       this.observedActiveKeychainCredentialsJson = null
+      this.observedLegacyActiveKeychainCredentialsJson = null
       return
     }
     const configDir = this.pathResolver.getRuntimePaths().configDir
     this.observedActiveKeychainCredentialsJson =
       await this.readActiveClaudeKeychainCredentialsBestEffort(configDir)
+    // Why: #9582 (cx5) — sample the legacy unsuffixed item too so its own CAS can
+    // tell an Orca-owned value from a concurrent pre-2.1 Claude refresh.
+    this.observedLegacyActiveKeychainCredentialsJson =
+      await this.readActiveClaudeKeychainCredentialsBestEffort()
   }
 
   // Why: #9582 — on darwin the Keychain is authoritative, so only overwrite it
@@ -1888,19 +1898,47 @@ export class ClaudeRuntimeAuthService {
     credentialsJson: string,
     configDir: string
   ): Promise<boolean> {
-    const current = await this.readActiveClaudeKeychainCredentialsBestEffort(configDir)
-    const safeToOverwrite =
-      current === null ||
-      current === credentialsJson ||
-      current === this.lastWrittenActiveKeychainCredentialsJson ||
-      current === this.observedActiveKeychainCredentialsJson ||
-      !this.isValidCredentialsJsonObject(current)
-    if (!safeToOverwrite) {
+    // Why: #9582 (cx5) — writeActiveClaudeKeychainCredentialsForRuntime writes BOTH
+    // the scoped and the legacy unsuffixed item, so compare-and-swap EACH item; a
+    // rotation on whichever item a single-item check ignored would be clobbered.
+    // Why: #9582 (cx6) — a failed/denied/timed-out read hides whether a concurrent
+    // Claude refresh owns the item, so fail closed (refuse) instead of treating the
+    // read failure as an absent item that is safe to overwrite.
+    const scoped = await this.readActiveClaudeKeychainCredentialsForSnapshot(configDir)
+    const legacy = await this.readActiveClaudeKeychainCredentialsForSnapshot()
+    if (scoped.status === 'failed' || legacy.status === 'failed') {
+      return false
+    }
+    const scopedSafe = this.activeKeychainItemSafeToOverwrite(
+      scoped.credentialsJson,
+      credentialsJson,
+      this.observedActiveKeychainCredentialsJson
+    )
+    const legacySafe = this.activeKeychainItemSafeToOverwrite(
+      legacy.credentialsJson,
+      credentialsJson,
+      this.observedLegacyActiveKeychainCredentialsJson
+    )
+    if (!scopedSafe || !legacySafe) {
       return false
     }
     await writeActiveClaudeKeychainCredentialsForRuntime(credentialsJson, configDir)
     this.lastWrittenActiveKeychainCredentialsJson = credentialsJson
     return true
+  }
+
+  private activeKeychainItemSafeToOverwrite(
+    current: string | null,
+    credentialsJson: string,
+    observedBaseline: string | null
+  ): boolean {
+    return (
+      current === null ||
+      current === credentialsJson ||
+      current === this.lastWrittenActiveKeychainCredentialsJson ||
+      current === observedBaseline ||
+      !this.isValidCredentialsJsonObject(current)
+    )
   }
 
   private writeJson(targetPath: string, value: unknown): void {

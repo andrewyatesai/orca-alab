@@ -1037,7 +1037,7 @@ describe('addWorktree', () => {
     ])
   })
 
-  it('fast-forwards with reset --hard when localBranch is checked out in primary worktree', async () => {
+  it('fast-forwards with reset --keep when localBranch is checked out in primary worktree', async () => {
     const worktreeListOutput =
       'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /repo-other\nHEAD def456\nbranch refs/heads/feature\n'
     gitExecFileAsyncMock
@@ -1050,7 +1050,7 @@ describe('addWorktree', () => {
       .mockResolvedValueOnce({ stdout: '' }) // status --porcelain (in /repo)
       .mockResolvedValueOnce({ stdout: worktreeListOutput }) // worktree list recheck
       .mockResolvedValueOnce({ stdout: '' }) // status --porcelain recheck (in /repo)
-      .mockResolvedValueOnce({ stdout: '' }) // reset --hard (in /repo)
+      .mockResolvedValueOnce({ stdout: '' }) // reset --keep (in /repo)
       .mockResolvedValueOnce({ stdout: '' }) // worktree add
       .mockResolvedValueOnce({ stdout: '' }) // config --local --replace-all branch.<branch>.base
       .mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
@@ -1071,7 +1071,7 @@ describe('addWorktree', () => {
       [['status', '--porcelain', '--untracked-files=no'], { cwd: '/repo' }],
       [['worktree', 'list', '--porcelain'], { cwd: '/repo' }],
       [['status', '--porcelain', '--untracked-files=no'], { cwd: '/repo' }],
-      [['reset', '--hard', 'remote-main'], { cwd: '/repo' }],
+      [['reset', '--keep', 'remote-main'], { cwd: '/repo' }],
       [
         [
           ...PARALLEL_CHECKOUT_GIT_ARGS,
@@ -1100,7 +1100,7 @@ describe('addWorktree', () => {
     ])
   })
 
-  it('fast-forwards with reset --hard in sibling worktree when localBranch is checked out there', async () => {
+  it('fast-forwards with reset --keep in sibling worktree when localBranch is checked out there', async () => {
     const worktreeListOutput =
       'worktree /repo\nHEAD abc123\nbranch refs/heads/develop\n\nworktree /repo-main-wt\nHEAD def456\nbranch refs/heads/main\n'
     gitExecFileAsyncMock
@@ -1113,7 +1113,7 @@ describe('addWorktree', () => {
       .mockResolvedValueOnce({ stdout: '' }) // status --porcelain (in /repo-main-wt)
       .mockResolvedValueOnce({ stdout: worktreeListOutput }) // worktree list recheck
       .mockResolvedValueOnce({ stdout: '' }) // status --porcelain recheck (in /repo-main-wt)
-      .mockResolvedValueOnce({ stdout: '' }) // reset --hard (in /repo-main-wt)
+      .mockResolvedValueOnce({ stdout: '' }) // reset --keep (in /repo-main-wt)
       .mockResolvedValueOnce({ stdout: '' }) // worktree add
       .mockResolvedValueOnce({ stdout: '' }) // config --local --replace-all branch.<branch>.base
       .mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
@@ -1130,8 +1130,50 @@ describe('addWorktree', () => {
       expect.objectContaining({ cwd: '/repo-main-wt' })
     ])
     expect(gitExecFileAsyncMock.mock.calls[9]).toEqual([
-      ['reset', '--hard', 'remote-main'],
+      ['reset', '--keep', 'remote-main'],
       expect.objectContaining({ cwd: '/repo-main-wt' })
+    ])
+  })
+
+  it('reports skipped_dirty_worktree (fail-closed) when reset --keep aborts on a raced-in edit', async () => {
+    const worktreeListOutput = 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n'
+    gitExecFileAsyncMock
+      .mockResolvedValueOnce({ stdout: 'abc123\n' }) // rev-parse refs/remotes/origin/main^{commit}
+      .mockResolvedValueOnce({ stdout: '0\t3\n' }) // rev-list --left-right --count
+      .mockResolvedValueOnce({ stdout: 'old-main\n' }) // rev-parse refs/heads/main^{commit}
+      .mockResolvedValueOnce({ stdout: 'remote-main\n' }) // rev-parse remote tracking ref^{commit}
+      .mockResolvedValueOnce({ stdout: '' }) // merge-base captured OIDs
+      .mockResolvedValueOnce({ stdout: worktreeListOutput }) // worktree list --porcelain
+      .mockResolvedValueOnce({ stdout: '' }) // status --porcelain during evaluation
+      .mockResolvedValueOnce({ stdout: worktreeListOutput }) // worktree list recheck
+      .mockResolvedValueOnce({ stdout: '' }) // status --porcelain recheck (clean-check passes)
+      // Why: a tracked edit races in after the clean-check; `reset --keep` aborts rather than destroying it.
+      .mockRejectedValueOnce(
+        Object.assign(new Error('error: Entry differs from index; cannot reset'), { code: 1 })
+      ) // reset --keep aborts
+      .mockResolvedValueOnce({ stdout: '' }) // worktree add
+      .mockResolvedValueOnce({ stdout: '' }) // config --local --replace-all branch.<branch>.base
+      .mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
+      .mockResolvedValueOnce({ stdout: '' }) // config --local set push.autoSetupRemote
+
+    const result = await addWorktree('/repo', '/repo-feature', 'feature/test', 'origin/main', true)
+
+    // Fail-closed: the aborted reset is classified as a dirty worktree, not swallowed as a generic error, and creation still proceeds.
+    expect(result.localBaseRefRefresh).toEqual({
+      status: 'skipped_dirty_worktree',
+      baseRef: 'origin/main',
+      localBranch: 'main',
+      ownerWorktreePath: '/repo'
+    })
+    expect(gitExecFileAsyncMock.mock.calls.map((call) => call[0])).toContainEqual([
+      'reset',
+      '--keep',
+      'remote-main'
+    ])
+    expect(gitExecFileAsyncMock.mock.calls.map((call) => call[0])).not.toContainEqual([
+      'reset',
+      '--hard',
+      'remote-main'
     ])
   })
 
@@ -1167,7 +1209,7 @@ describe('addWorktree', () => {
     // No worktree owns the branch, so no working tree is reset.
     expect(gitExecFileAsyncMock.mock.calls.map((call) => call[0])).not.toContainEqual([
       'reset',
-      '--hard',
+      '--keep',
       'remote-main'
     ])
   })
@@ -1205,7 +1247,7 @@ describe('addWorktree', () => {
     ])
     expect(gitExecFileAsyncMock.mock.calls.map((call) => call[0])).not.toContainEqual([
       'reset',
-      '--hard',
+      '--keep',
       'refs/heads/main'
     ])
   })
@@ -1242,7 +1284,7 @@ describe('addWorktree', () => {
     ])
     expect(gitExecFileAsyncMock.mock.calls.map((call) => call[0])).not.toContainEqual([
       'reset',
-      '--hard',
+      '--keep',
       'refs/heads/main'
     ])
   })
@@ -1302,7 +1344,7 @@ describe('addWorktree', () => {
       ownerWorktreePath: '/repo'
     })
 
-    // No reset --hard or update-ref — just base resolution, drift check, local/remote
+    // No reset --keep or update-ref — just base resolution, drift check, local/remote
     // OIDs, ancestry check, worktree list, status, worktree add, and config writes.
     expect(gitExecFileAsyncMock.mock.calls).toHaveLength(11)
     expect(gitExecFileAsyncMock.mock.calls[0]?.[0]).toEqual([
@@ -1732,7 +1774,7 @@ describe('addWorktree', () => {
       .mockResolvedValueOnce({ stdout: '' }) // status --porcelain
       .mockResolvedValueOnce({ stdout: worktreeListOutput }) // worktree list recheck
       .mockResolvedValueOnce({ stdout: '' }) // status --porcelain recheck
-      .mockResolvedValueOnce({ stdout: '' }) // reset --hard
+      .mockResolvedValueOnce({ stdout: '' }) // reset --keep
       .mockResolvedValueOnce({ stdout: '' }) // worktree add
       .mockResolvedValueOnce({ stdout: '' }) // config --local --replace-all branch.<branch>.base
       .mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
@@ -1748,7 +1790,7 @@ describe('addWorktree', () => {
     ])
     expect(gitExecFileAsyncMock.mock.calls[9]?.[0]).toEqual([
       'reset',
-      '--hard',
+      '--keep',
       'remote-upstream-main'
     ])
   })

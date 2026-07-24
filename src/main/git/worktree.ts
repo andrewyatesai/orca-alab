@@ -792,10 +792,22 @@ async function refreshLocalBaseRefForWorktreeCreate(
           ownerWorktreePath: currentOwner.path
         }
       }
-      await gitExecFileAsync(
-        ['reset', '--hard', evaluation.remoteOid],
-        gitExecOptions(currentOwner.path, options)
-      )
+      // Why: --keep (git 1.7.1) fast-forwards the clean tree exactly like --hard,
+      // but ABORTS if a file differing between HEAD and target gained local edits
+      // in the TOCTOU window after the clean-check — fail closed (report dirty)
+      // rather than letting --hard silently destroy the racing edit.
+      try {
+        await gitExecFileAsync(
+          ['reset', '--keep', evaluation.remoteOid],
+          gitExecOptions(currentOwner.path, options)
+        )
+      } catch {
+        return {
+          ...resultBase,
+          status: 'skipped_dirty_worktree',
+          ownerWorktreePath: currentOwner.path
+        }
+      }
       return { ...resultBase, status: 'updated', ownerWorktreePath: currentOwner.path }
     }
 

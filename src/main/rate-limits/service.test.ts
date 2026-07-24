@@ -118,6 +118,21 @@ function rateLimitedClaude(retryAtMs: number): ProviderRateLimits {
   }
 }
 
+function rateLimitedProvider(
+  provider: ProviderRateLimits['provider'],
+  retryAtMs: number
+): ProviderRateLimits {
+  return {
+    provider,
+    session: null,
+    weekly: null,
+    updatedAt: Date.now(),
+    error: `${provider} usage is rate limited right now.`,
+    status: 'error',
+    usageMetadata: { failureKind: 'rate-limited', retryAtMs }
+  }
+}
+
 function unavailableProvider(
   provider: ProviderRateLimits['provider'],
   message = 'Not configured'
@@ -483,6 +498,81 @@ describe('RateLimitService', () => {
       await service.refresh()
       expect(fetchClaudeRateLimits).toHaveBeenCalledTimes(2)
       expect(service.getState().claude?.status).toBe('ok')
+
+      service.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gates the full-fetch Gemini refetch inside a Retry-After window but honors a user-directed refresh (#9617)', async () => {
+    vi.useFakeTimers()
+    try {
+      // Retry-After ~50 min out — outlasts the 5-minute full-fetch staleness threshold.
+      const retryAtMs = Date.now() + 3000 * 1000
+      vi.mocked(fetchClaudeRateLimits).mockResolvedValue(okProvider('claude', 12))
+      vi.mocked(fetchCodexRateLimits).mockResolvedValue(okProvider('codex', 24))
+      vi.mocked(fetchGeminiRateLimits)
+        .mockResolvedValueOnce(rateLimitedProvider('gemini', retryAtMs))
+        .mockResolvedValue(okProvider('gemini', 30))
+
+      const service = new RateLimitService()
+      const window = new FakeRateLimitWindow()
+      service.attach(asRateLimitWindow(window))
+      service.start({ fetchImmediately: false })
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(fetchGeminiRateLimits).toHaveBeenCalledTimes(1)
+      expect(service.getState().gemini?.status).toBe('error')
+
+      // A full fetch after everything goes stale must not re-hit Gemini while Retry-After is open.
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+      window.emit('show')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fetchClaudeRateLimits).toHaveBeenCalledTimes(2)
+      expect(fetchGeminiRateLimits).toHaveBeenCalledTimes(1)
+      expect(service.getState().gemini?.status).toBe('error')
+
+      // A user-directed (force) refresh bypasses the gate and recovers.
+      await service.refresh()
+      expect(fetchGeminiRateLimits).toHaveBeenCalledTimes(2)
+      expect(service.getState().gemini?.status).toBe('ok')
+
+      service.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gates the full-fetch Grok refetch inside a Retry-After window but honors a user-directed refresh (#9617)', async () => {
+    vi.useFakeTimers()
+    try {
+      const retryAtMs = Date.now() + 3000 * 1000
+      vi.mocked(fetchClaudeRateLimits).mockResolvedValue(okProvider('claude', 12))
+      vi.mocked(fetchCodexRateLimits).mockResolvedValue(okProvider('codex', 24))
+      vi.mocked(fetchGrokRateLimits)
+        .mockResolvedValueOnce(rateLimitedProvider('grok', retryAtMs))
+        .mockResolvedValue(okProvider('grok', 30))
+
+      const service = new RateLimitService()
+      const window = new FakeRateLimitWindow()
+      service.attach(asRateLimitWindow(window))
+      service.start({ fetchImmediately: false })
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(fetchGrokRateLimits).toHaveBeenCalledTimes(1)
+      expect(service.getState().grok?.status).toBe('error')
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+      window.emit('show')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fetchClaudeRateLimits).toHaveBeenCalledTimes(2)
+      expect(fetchGrokRateLimits).toHaveBeenCalledTimes(1)
+      expect(service.getState().grok?.status).toBe('error')
+
+      await service.refresh()
+      expect(fetchGrokRateLimits).toHaveBeenCalledTimes(2)
+      expect(service.getState().grok?.status).toBe('ok')
 
       service.stop()
     } finally {

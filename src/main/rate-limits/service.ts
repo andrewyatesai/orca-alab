@@ -1308,16 +1308,24 @@ export class RateLimitService {
     const missingWslCodexHome = codexHomePath
       ? null
       : this.getMissingWslCodexHomeResult(codexTarget)
-    const grokResultPromise = fetchGrokRateLimits({
-      signal,
-      authReadResult: grokAuthReadResult
-    }).then(
-      (value) => ({ status: 'fulfilled', value }) as const,
-      (reason) => ({ status: 'rejected', reason }) as const
-    )
 
-    // Why: skip automated Claude fetches while a Retry-After window is open; a user-directed (force) fetch still bypasses (#9617).
+    // Why: skip automated fetches while a provider's Retry-After window is open; a user-directed (force) fetch still bypasses (#9617).
     const claudeFetchGated = !options?.force && this.isRetryAfterActive(previousState.claude)
+    const geminiFetchGated = !options?.force && this.isRetryAfterActive(previousState.gemini)
+    const grokFetchGated = !options?.force && this.isRetryAfterActive(previousState.grok)
+
+    const grokResultPromise = grokFetchGated
+      ? Promise.resolve({
+          status: 'fulfilled',
+          value: previousState.grok as ProviderRateLimits
+        } as const)
+      : fetchGrokRateLimits({
+          signal,
+          authReadResult: grokAuthReadResult
+        }).then(
+          (value) => ({ status: 'fulfilled', value }) as const,
+          (reason) => ({ status: 'rejected', reason }) as const
+        )
 
     const [claudeResult, codexResult, geminiResult, opencodeGoResult, kimiResult, miniMaxResult] =
       await Promise.allSettled([
@@ -1340,7 +1348,9 @@ export class RateLimitService {
             allowPtyFallback: this.shouldAllowCodexPtyFallback(),
             signal
           }),
-        fetchGeminiRateLimits(geminiCliOAuthEnabled),
+        geminiFetchGated
+          ? Promise.resolve(previousState.gemini as ProviderRateLimits)
+          : fetchGeminiRateLimits(geminiCliOAuthEnabled),
         fetchOpenCodeGoRateLimits(
           cookie,
           workspaceIdOverride || undefined,
@@ -1465,6 +1475,8 @@ export class RateLimitService {
       this.isSameClaudeTarget(claudeTarget, this.claudeFetchTarget)
     const shouldApplyOpencode = opencodeGeneration === this.opencodeFetchGeneration
     const shouldApplyMiniMax = miniMaxGeneration === this.minimaxFetchGeneration
+    // Why: a gated cycle made no Gemini attempt (Antigravity shares its snapshot); applying the passthrough would grow the failure streak and reset stale clocks for free (#9617).
+    const shouldApplyGemini = !geminiFetchGated
 
     if (shouldApplyClaude) {
       this.trackActiveFailureStreak('claude', claude)
@@ -1472,8 +1484,10 @@ export class RateLimitService {
     if (shouldApplyCodex) {
       this.trackActiveFailureStreak('codex', codex)
     }
-    this.trackActiveFailureStreak('gemini', gemini)
-    this.trackActiveFailureStreak('antigravity', antigravity)
+    if (shouldApplyGemini) {
+      this.trackActiveFailureStreak('gemini', gemini)
+      this.trackActiveFailureStreak('antigravity', antigravity)
+    }
     if (shouldApplyOpencode) {
       this.trackActiveFailureStreak('opencode-go', opencodeGo)
     }
@@ -1491,14 +1505,18 @@ export class RateLimitService {
       codex: shouldApplyCodex
         ? this.applyStalePolicy(codex, previousState.codex)
         : this.state.codex,
-      gemini: this.applyStalePolicy(gemini, previousState.gemini),
+      gemini: shouldApplyGemini
+        ? this.applyStalePolicy(gemini, previousState.gemini)
+        : this.state.gemini,
       opencodeGo: shouldApplyOpencode
         ? opencodeConfigChanged
           ? opencodeGo
           : this.applyStalePolicy(opencodeGo, previousState.opencodeGo)
         : this.state.opencodeGo,
       kimi: this.applyStalePolicy(kimi, previousState.kimi),
-      antigravity: this.applyStalePolicy(antigravity, previousState.antigravity),
+      antigravity: shouldApplyGemini
+        ? this.applyStalePolicy(antigravity, previousState.antigravity)
+        : this.state.antigravity,
       minimax: shouldApplyMiniMax
         ? miniMaxConfigChanged
           ? miniMax
@@ -1521,10 +1539,13 @@ export class RateLimitService {
             error: grokResult.reason instanceof Error ? grokResult.reason.message : 'Unknown error',
             status: 'error'
           } satisfies ProviderRateLimits)
-    this.trackActiveFailureStreak('grok', grok)
+    // Why: a gated cycle made no Grok attempt; applying the passthrough would grow the failure streak and reset stale clocks for free (#9617).
+    if (!grokFetchGated) {
+      this.trackActiveFailureStreak('grok', grok)
+    }
     this.updateState({
       ...this.state,
-      grok: this.applyStalePolicy(grok, previousState.grok)
+      grok: grokFetchGated ? this.state.grok : this.applyStalePolicy(grok, previousState.grok)
     })
   }
 

@@ -233,6 +233,28 @@ describe('fs:importExternalPaths — SSH operations', () => {
     expect(provider.deletePath).not.toHaveBeenCalled()
   })
 
+  it('never deletes the file destination when a mid-transfer upload fails', async () => {
+    // Why: a single-file upload failure must NOT trigger a caller-side unlink of
+    // destPath. Over SFTP an exclusive-create refusal (foreign file already
+    // there) and our own truncated partial both surface as the ambiguous
+    // SSH_FX_FAILURE (code 4), so the caller cannot prove ownership. Cleanup of
+    // any partial is the atomic temp+rename primitive's job; the caller must
+    // stay fail-closed and never risk removing a racing foreign file.
+    mockFile('/tmp/dropped/report.txt')
+    vi.mocked(uploadSession.uploadFile).mockRejectedValue(
+      Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })
+    )
+
+    const { results } = await invoke({
+      sourcePaths: ['/tmp/dropped/report.txt'],
+      destDir,
+      connectionId: connId
+    })
+
+    expect(results[0]).toMatchObject({ status: 'failed', reason: 'read ECONNRESET' })
+    expect(provider.deletePath).not.toHaveBeenCalled()
+  })
+
   it('uploads directories via provider createDirNoClobber and binary writes', async () => {
     const root = path.resolve('/tmp/dropped/assets')
     const child = path.join(root, 'logo.png')

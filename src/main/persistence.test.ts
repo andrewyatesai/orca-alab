@@ -6906,19 +6906,19 @@ describe('Store', () => {
     safeStorageControl.available = false
     try {
       const store = await createStore()
-      store.updateSettings({ opencodeSessionCookie: cookie, tabScrollPosition: 42 })
+      store.updateSettings({ opencodeSessionCookie: cookie, editorAutoSave: true })
       store.flush()
 
       // The on-disk file must be valid JSON (readDataFile JSON.parses it).
       const persisted = readDataFile() as {
-        settings: { opencodeSessionCookie: string; tabScrollPosition: number }
+        settings: { opencodeSessionCookie: string; editorAutoSave: boolean }
       }
       expect(persisted.settings.opencodeSessionCookie).toBe(`orca-plaintext-v1:${cookie}`)
 
       // The whole store reloads — the sibling setting is not lost to a parse throw.
       const reloaded = await createStore()
       expect(reloaded.getSettings().opencodeSessionCookie).toBe(cookie)
-      expect(reloaded.getSettings().tabScrollPosition).toBe(42)
+      expect(reloaded.getSettings().editorAutoSave).toBe(true)
     } finally {
       delete process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS
       safeStorageControl.available = true

@@ -234,6 +234,38 @@ describe('E2EEChannel', () => {
       expect(ctx.onError).toHaveBeenCalledWith(4003, 'Too many decryption failures')
     })
 
+    // Why: v1 framing has no replay counter, so an on-path attacker who
+    // captures an authenticated, encrypted state-changing frame could inject
+    // it verbatim and have the desktop re-run the method. The channel must
+    // reject a byte-identical replay (same random nonce) rather than dispatch.
+    it('does not re-invoke the handler for a replayed v1 frame', () => {
+      const ctx = setup()
+      const sharedKey = doHandshake(ctx)
+      const received: string[] = []
+      ctx.channel.onMessage((plaintext) => received.push(plaintext))
+
+      const frame = encrypt('{"id":"rpc-1","method":"terminal.send"}', sharedKey)
+      ctx.channel.handleRawMessage(frame)
+      // Byte-identical replay of the same ciphertext must be dropped.
+      ctx.channel.handleRawMessage(frame)
+
+      expect(received).toEqual(['{"id":"rpc-1","method":"terminal.send"}'])
+    })
+
+    it('does not re-forward a replayed v1 binary frame', () => {
+      const ctx = setup()
+      const sharedKey = doHandshake(ctx)
+      const received: Uint8Array<ArrayBufferLike>[] = []
+      ctx.channel.onBinaryMessage((bytes) => received.push(bytes))
+
+      const frame = encryptBytes(new Uint8Array([4, 5, 6]), sharedKey)
+      ctx.channel.handleRawMessage(frame)
+      ctx.channel.handleRawMessage(frame)
+
+      expect(received).toHaveLength(1)
+      expect([...received[0]!]).toEqual([4, 5, 6])
+    })
+
     it('resets failure count on successful decrypt', () => {
       const ctx = setup()
       const sharedKey = doHandshake(ctx)

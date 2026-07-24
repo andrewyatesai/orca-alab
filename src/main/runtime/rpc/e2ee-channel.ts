@@ -2,7 +2,7 @@
 // It owns the handshake state machine and transparent encrypt/decrypt so the RPC
 // handler only sees plaintext JSON, identical to the Unix socket path.
 import type { WebSocket } from 'ws'
-import { deriveSharedKey, encrypt, decrypt, encryptBytes, decryptBytes } from './e2ee-crypto'
+import { deriveSharedKey, encrypt, encryptBytes } from './e2ee-crypto'
 import {
   createWsOutboundBackpressureQueue,
   type WsOutboundBackpressureQueue
@@ -17,6 +17,8 @@ import {
 } from './mobile-e2ee-v2-desktop-outbound'
 import { handleDesktopMobileE2EEV2Inbound } from './mobile-e2ee-v2-desktop-inbound'
 import { isValidMobileE2EEAuthVersion, type MobileE2EEAuth } from './mobile-e2ee-auth-validation'
+import { MobileE2EEV1ReplayGuard } from './mobile-e2ee-v1-replay-guard'
+import { handleMobileE2EEV1Inbound } from './mobile-e2ee-v1-inbound'
 
 type ChannelState = 'awaiting_hello' | 'awaiting_auth' | 'ready'
 
@@ -53,6 +55,9 @@ export class E2EEChannel {
   private readonly requireV2: boolean
   private v2Session: DesktopMobileE2EEV2Session | null = null
   private v2OutboundQueue: WsOutboundBackpressureQueue<V2OutboundItem> | null = null
+  // Why: v1 framing has no replay counter; reject frames whose random nonce
+  // was already accepted so a captured ciphertext cannot be re-dispatched.
+  private readonly v1ReplayGuard = new MobileE2EEV1ReplayGuard()
   // Why: the RPC handler is set after the channel is ready, so the channel
   // can forward decrypted messages. Kept as a callback rather than constructor
   // param because the handler needs the encrypt function for replies.
@@ -120,33 +125,22 @@ export class E2EEChannel {
       return
     }
 
-    if (typeof raw !== 'string') {
-      const plaintextBytes = decryptBytes(raw, sharedKey)
-      if (plaintextBytes === null) {
-        this.trackDecryptFailure()
-        return
-      }
-      this.consecutiveFailures = 0
-      if (this.state !== 'ready') {
-        this.onError(4001, 'Invalid binary message before authentication')
-        return
-      }
-      this.binaryMessageHandler?.(plaintextBytes)
-      return
-    }
+    handleMobileE2EEV1Inbound({
+      raw,
+      sharedKey,
+      replayGuard: this.v1ReplayGuard,
+      awaitingAuth: this.state === 'awaiting_auth',
+      ready: this.state === 'ready',
+      onDecryptFailure: () => this.trackDecryptFailure(),
+      onDecryptSuccess: () => (this.consecutiveFailures = 0),
+      onAuth: (plaintext) => this.handleAuth(plaintext),
+      onBinary: (plaintext) => this.binaryMessageHandler?.(plaintext),
+      onText: (plaintext) => this.dispatchV1Text(plaintext),
+      onProtocolError: () => this.onError(4001, 'Invalid binary message before authentication')
+    })
+  }
 
-    const plaintext = decrypt(raw, sharedKey)
-    if (plaintext === null) {
-      this.trackDecryptFailure()
-      return
-    }
-
-    this.consecutiveFailures = 0
-    if (this.state === 'awaiting_auth') {
-      this.handleAuth(plaintext)
-      return
-    }
-
+  private dispatchV1Text(plaintext: string): void {
     // Why: streaming RPC handlers (e.g. terminal.subscribe) retain this
     // closure and may fire emits long after the inbound message handled
     // here. If destroy() runs in between (mobile disconnect, handshake
@@ -347,6 +341,7 @@ export class E2EEChannel {
     }
     this.sharedKey = null
     this.authenticatedDevice = null
+    this.v1ReplayGuard.clear()
     this.v2Session = null
     this.messageHandler = null
     this.binaryMessageHandler = null

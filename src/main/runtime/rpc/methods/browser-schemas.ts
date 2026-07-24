@@ -282,10 +282,12 @@ export const Viewport = BrowserTarget.extend({
 })
 
 export const Geolocation = BrowserTarget.extend({
-  latitude: z.custom<number>((v) => typeof v === 'number', {
+  // Why: NaN is typeof 'number' but serializes to null over JSON-RPC into the CDP
+  // Emulation domain (protocol error, not a clean invalid_argument); require finite.
+  latitude: z.custom<number>((v) => Number.isFinite(v), {
     message: 'Missing latitude or longitude'
   }),
-  longitude: z.custom<number>((v) => typeof v === 'number', {
+  longitude: z.custom<number>((v) => Number.isFinite(v), {
     message: 'Missing latitude or longitude'
   }),
   accuracy: OptionalFiniteNumber
@@ -300,10 +302,12 @@ export const InterceptEnable = BrowserTarget.extend({
 })
 
 export const MouseXY = BrowserTarget.extend({
-  x: z.custom<number>((v) => typeof v === 'number', {
+  // Why: NaN is typeof 'number' but serializes to null into the CDP Input domain
+  // (protocol error, not a clean invalid_argument); require finite coordinates.
+  x: z.custom<number>((v) => Number.isFinite(v), {
     message: 'Missing required x and y coordinates'
   }),
-  y: z.custom<number>((v) => typeof v === 'number', {
+  y: z.custom<number>((v) => Number.isFinite(v), {
     message: 'Missing required x and y coordinates'
   })
 })
@@ -313,7 +317,9 @@ export const MouseButton = BrowserTarget.extend({
 })
 
 export const MouseWheel = BrowserTarget.extend({
-  dy: z.custom<number>((v) => typeof v === 'number', {
+  // Why: NaN is typeof 'number' but serializes to null into the CDP Input domain
+  // (protocol error, not a clean invalid_argument); require a finite delta.
+  dy: z.custom<number>((v) => Number.isFinite(v), {
     message: 'Missing required --dy'
   }),
   dx: OptionalFiniteNumber

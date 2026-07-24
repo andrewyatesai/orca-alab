@@ -352,4 +352,59 @@ describe('browser RPC methods', () => {
     expect(runtime.browserType).not.toHaveBeenCalled()
     expect(runtime.browserKeyboardInsertText).not.toHaveBeenCalled()
   })
+
+  // Why: Number.NaN is typeof 'number' but serializes to null into the CDP Input/Emulation
+  // domains (protocol error, not a clean invalid_argument). The mouse/geolocation
+  // schemas must reject it at the RPC boundary before it reaches the bridge.
+  it.each([
+    [
+      'browser.mouseMove',
+      { worktree: 'id:wt-1', page: 'page-1', x: Number.NaN, y: 10 },
+      'browserMouseMove'
+    ],
+    [
+      'browser.mouseClick',
+      { worktree: 'id:wt-1', page: 'page-1', x: Number.NaN, y: Number.NaN },
+      'browserMouseClick'
+    ],
+    [
+      'browser.mouseWheel',
+      { worktree: 'id:wt-1', page: 'page-1', dy: Number.NaN },
+      'browserMouseWheel'
+    ],
+    [
+      'browser.geolocation',
+      { worktree: 'id:wt-1', page: 'page-1', latitude: Number.NaN, longitude: 0 },
+      'browserSetGeolocation'
+    ]
+  ])('rejects %s with a NaN coordinate as invalid_argument', async (method, params, runtimeFn) => {
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      browserMouseMove: vi.fn().mockResolvedValue({ ok: true }),
+      browserMouseClick: vi.fn().mockResolvedValue({ ok: true }),
+      browserMouseWheel: vi.fn().mockResolvedValue({ ok: true }),
+      browserSetGeolocation: vi.fn().mockResolvedValue({ ok: true })
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: BROWSER_EXTRA_METHODS })
+
+    const response = await dispatcher.dispatch(makeRequest(method, params))
+
+    expect(response).toMatchObject({ ok: false, error: { code: 'invalid_argument' } })
+    expect(runtime[runtimeFn as keyof OrcaRuntimeService]).not.toHaveBeenCalled()
+  })
+
+  it('accepts finite mouse coordinates (guard is finiteness, not truthiness)', async () => {
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      browserMouseMove: vi.fn().mockResolvedValue({ ok: true })
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: BROWSER_EXTRA_METHODS })
+
+    const response = await dispatcher.dispatch(
+      makeRequest('browser.mouseMove', { worktree: 'id:wt-1', page: 'page-1', x: 0, y: 0 })
+    )
+
+    expect(response).toMatchObject({ ok: true })
+    expect(runtime.browserMouseMove).toHaveBeenCalled()
+  })
 })

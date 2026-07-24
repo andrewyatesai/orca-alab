@@ -334,6 +334,26 @@ describe('orchestration RPC methods', () => {
       expect(Date.now() - started).toBeLessThan(3000)
     })
 
+    it('recovers the pane key for a handle reminted away twice, with no persisted rows', async () => {
+      // Why: the durable handle->paneKey memory must survive record eviction even
+      // across multiple remints, so an oldest-generation stale handle still names
+      // its pane without any DB fallback (#9163).
+      setup()
+      runtime.setPtyController({
+        write: vi.fn().mockReturnValue(true),
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+      syncRemintPane('pty-1')
+      const oldest = runtime.resolveTerminalPane(REMINT_PANE_KEY).handle
+      syncRemintPane('pty-2')
+      syncRemintPane('pty-3')
+      const current = runtime.resolveTerminalPane(REMINT_PANE_KEY).handle
+      expect(current).not.toBe(oldest)
+
+      expect(runtime.getTerminalPaneKey(oldest)).toBe(REMINT_PANE_KEY)
+    })
+
     it('inbox-only fallback still applies when the pane is gone', async () => {
       setup()
       const write = vi.fn().mockReturnValue(true)
@@ -352,7 +372,9 @@ describe('orchestration RPC methods', () => {
         subject: 'nobody home'
       })) as { message: { id: string; recipient_pane_key: string | null } }
 
-      expect(result.message.recipient_pane_key).toBe('tab-gone:22222222-2222-4222-8222-222222222222')
+      expect(result.message.recipient_pane_key).toBe(
+        'tab-gone:22222222-2222-4222-8222-222222222222'
+      )
       // No pane resolves the key: nothing injects, the row stays queued for explicit check.
       expect(write).not.toHaveBeenCalled()
       const queued = db.getUndeliveredUnreadMessages('term_gone')
@@ -378,9 +400,7 @@ describe('orchestration RPC methods', () => {
       })) as { message: { recipient_pane_key: string | null } }
 
       // Why: the DB rows are the durable handle→pane memory once the runtime map is gone.
-      expect(result.message.recipient_pane_key).toBe(
-        'tab-1:11111111-1111-4111-8111-111111111111'
-      )
+      expect(result.message.recipient_pane_key).toBe('tab-1:11111111-1111-4111-8111-111111111111')
     })
 
     it('rejects missing --to', () => {

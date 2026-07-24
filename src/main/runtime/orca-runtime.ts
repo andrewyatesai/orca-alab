@@ -2397,6 +2397,9 @@ export class OrcaRuntimeService {
   private ptyDelayedForegroundSnapshotTitleObservations = new Map<string, number>()
   private _orchestrationDb: OrchestrationDb | null = null
   private messageWaitersByHandle = new Map<string, Set<MessageWaiter>>()
+  // Why: durable handle→paneKey memory so a reminted-away (stale) handle still
+  // resolves the pane it once named, for delivery-follows-identity (#9163).
+  private paneKeyByHandleMemory = new Map<string, string>()
   // Why: mobile clients subscribe to terminal output via terminal.subscribe.
   // These listeners fire on every onPtyData call, enabling real-time streaming
   // without polling. Keyed by ptyId for O(1) lookup per data event.
@@ -14797,11 +14800,14 @@ export class OrcaRuntimeService {
     query?: string
   ): Promise<Awaited<ReturnType<typeof listGitLabWorkItems>>> {
     const repo = await this.resolveRepoSelector(repoSelector)
+    // Why: RPC/relay callers can supply negative/fractional/huge page/perPage
+    // (schema is OptionalFiniteNumber); clamp exactly like listGitLabRepoMRs and
+    // the IPC path so glab never receives out-of-range argv.
     return listGitLabWorkItems(
       repo.path,
-      state ?? 'opened',
-      page ?? 1,
-      perPage ?? 20,
+      normalizeGitLabMRListState(state),
+      normalizeGitLabPositiveInteger(page, 1, 10_000),
+      normalizeGitLabPositiveInteger(perPage, 20, 100),
       repo.issueSourcePreference,
       query,
       repo.connectionId ?? null,
@@ -23605,12 +23611,18 @@ export class OrcaRuntimeService {
     if (parsed) {
       const leaf = this.leaves.get(this.getLeafKey(parsed.tabId, parsed.leafId))
       if (leaf?.ptyId) {
-        return this.issueHandle(leaf)
+        const handle = this.issueHandle(leaf)
+        // Why: remember at mint time so this handle still resolves the pane
+        // after it is reminted away (#9163 delivery-follows-identity).
+        this.rememberHandlePaneKey(handle, paneKey)
+        return handle
       }
     }
     for (const pty of this.ptysById.values()) {
       if (pty.paneKey === paneKey) {
-        return this.issuePtyHandle(pty)
+        const handle = this.issuePtyHandle(pty)
+        this.rememberHandlePaneKey(handle, paneKey)
+        return handle
       }
     }
     return null
@@ -23636,16 +23648,35 @@ export class OrcaRuntimeService {
   private getPaneKeyForTerminalHandle(handle: string): string | null {
     const livePty = this.getLivePtyForHandle(handle)
     if (livePty?.pty.paneKey) {
+      this.rememberHandlePaneKey(handle, livePty.pty.paneKey)
       return livePty.pty.paneKey
     }
     const record = this.handles.get(handle)
-    if (!record || record.runtimeId !== this.runtimeId) {
-      return null
+    if (record && record.runtimeId === this.runtimeId && isTerminalLeafId(record.leafId)) {
+      const paneKey = makePaneKey(record.tabId, record.leafId)
+      this.rememberHandlePaneKey(handle, paneKey)
+      return paneKey
     }
-    if (!isTerminalLeafId(record.leafId)) {
-      return null
+    // Why: a reminted-away handle no longer resolves a live pane or a handle
+    // record, but a message may still address it; recover the pane key it last
+    // named so orchestration delivery/wake follows the pane (#9163).
+    return this.paneKeyByHandleMemory.get(handle) ?? null
+  }
+
+  // Why: handle UUIDs are never reused, so a handle names exactly one pane for
+  // its whole life; retaining that mapping past record eviction lets stale
+  // handles still resolve their pane. Bounded FIFO so it can't grow unbounded.
+  private rememberHandlePaneKey(handle: string, paneKey: string): void {
+    if (this.paneKeyByHandleMemory.get(handle) === paneKey) {
+      return
     }
-    return makePaneKey(record.tabId, record.leafId)
+    this.paneKeyByHandleMemory.set(handle, paneKey)
+    if (this.paneKeyByHandleMemory.size > HANDLE_PANE_KEY_MEMORY_MAX) {
+      const oldest = this.paneKeyByHandleMemory.keys().next().value
+      if (oldest !== undefined) {
+        this.paneKeyByHandleMemory.delete(oldest)
+      }
+    }
   }
 
   private setPtyManagementTitleFromObservedTitle(
@@ -24252,6 +24283,14 @@ export class OrcaRuntimeService {
     const handle = this.handleByLeafKey.get(leafKey)
     if (!handle) {
       return
+    }
+    // Why: record the evicted handle's pane key before deleting so a message
+    // later addressed to this now-stale handle can still recover the pane it
+    // named and follow the remint (#9163 delivery-follows-identity). Without
+    // this, a first message to a just-stale handle resolves no pane key.
+    const record = this.handles.get(handle)
+    if (record && record.runtimeId === this.runtimeId && isTerminalLeafId(record.leafId)) {
+      this.rememberHandlePaneKey(handle, makePaneKey(record.tabId, record.leafId))
     }
     this.handleByLeafKey.delete(leafKey)
     this.handles.delete(handle)
@@ -28812,6 +28851,9 @@ const TUI_IDLE_DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
 const TUI_IDLE_POLL_INTERVAL_MS = 2000
 const TUI_IDLE_QUIESCENCE_MS = 3000
 const MESSAGE_WAIT_DEFAULT_TIMEOUT_MS = 2 * 60 * 1000
+// Why: cap retained stale-handle→paneKey mappings; a single window rarely holds
+// more than a few hundred live panes, so this bounds memory while covering remints.
+const HANDLE_PANE_KEY_MEMORY_MAX = 4096
 const EXPLICIT_IDLE_TITLE_RE = /(^|\s)(ready|idle|done)(\s|$|[.!?])/i
 const CLAUDE_IDLE_PREFIX = '\u2733'
 const GEMINI_IDLE_PREFIX = '\u25c7'

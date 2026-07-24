@@ -46,9 +46,17 @@ function normalizedUserText(message: NativeChatMessage): string | null {
 // captured tail (prepended history has index <= tail) and not already claimed by
 // another entry. Shared by the unconfirmed-send hold and the optimistic-pending
 // clear so paged-in identical turns can never satisfy either path.
-function findLandedByBaselineTail<
+//
+// Returns the landed entries and the survivors with their baselines advanced past
+// every echo this pass consumed. Persisting the claim in the survivor's baseline is
+// what stops a later transcript change (e.g. an assistant append) from recomputing
+// claims fresh and re-matching an already-consumed echo to a surviving duplicate
+// before that survivor's own echo lands (cx2). A survivor is a duplicate whose own
+// echo has not arrived yet, so it can never match anything at or below the max
+// consumed index; advancing only-forward loses no legitimate future match.
+function reconcileLandedEchoes<
   T extends { normalizedText: string; baselineTailMessageId: string | null }
->(messages: readonly NativeChatMessage[], entries: readonly T[]): T[] {
+>(messages: readonly NativeChatMessage[], entries: readonly T[]): { landed: T[]; survivors: T[] } {
   const messageIndexById = new Map<string, number>()
   const userMessagesByText = new Map<string, Array<{ id: string; index: number }>>()
   for (const [index, message] of messages.entries()) {
@@ -61,13 +69,18 @@ function findLandedByBaselineTail<
     }
   }
 
+  const tailIndexOf = (entry: T): number | undefined =>
+    entry.baselineTailMessageId ? messageIndexById.get(entry.baselineTailMessageId) : -1
+
   const claimedMessageIds = new Set<string>()
   const landed: T[] = []
+  const nonLanded: T[] = []
+  let maxConsumedIndex = -1
   for (const entry of entries) {
-    const tailIndex = entry.baselineTailMessageId
-      ? messageIndexById.get(entry.baselineTailMessageId)
-      : -1
+    const tailIndex = tailIndexOf(entry)
+    // Baseline message paged out of the transcript: can't validate an echo, so hold.
     if (tailIndex === undefined) {
+      nonLanded.push(entry)
       continue
     }
     const echo = userMessagesByText
@@ -75,10 +88,26 @@ function findLandedByBaselineTail<
       ?.find((message) => message.index > tailIndex && !claimedMessageIds.has(message.id))
     if (echo) {
       claimedMessageIds.add(echo.id)
+      maxConsumedIndex = Math.max(maxConsumedIndex, echo.index)
       landed.push(entry)
+    } else {
+      nonLanded.push(entry)
     }
   }
-  return landed
+
+  const consumedBaselineId = maxConsumedIndex >= 0 ? messages[maxConsumedIndex].id : null
+  const survivors =
+    consumedBaselineId === null
+      ? nonLanded
+      : nonLanded.map((entry) => {
+          const tailIndex = tailIndexOf(entry)
+          // Advance only-forward: never regress a survivor whose baseline already sits
+          // past this pass's consumed echoes (its echo is further ahead still).
+          return tailIndex !== undefined && tailIndex < maxConsumedIndex
+            ? { ...entry, baselineTailMessageId: consumedBaselineId }
+            : entry
+        })
+  return { landed, survivors }
 }
 
 export function useMobileNativeChatDrafts(args: {
@@ -196,7 +225,10 @@ export function useMobileNativeChatDrafts(args: {
         deadline: null
       }
       // Why: the transcript event can beat the lost RPC acknowledgement.
-      if (isActiveTranscript && findLandedByBaselineTail(messagesRef.current, [entry]).length > 0) {
+      if (
+        isActiveTranscript &&
+        reconcileLandedEchoes(messagesRef.current, [entry]).landed.length > 0
+      ) {
         setDrafts((previous) =>
           (previous[origin.draftKey] ?? '').trim() === text.trim()
             ? { ...previous, [origin.draftKey]: '' }
@@ -217,17 +249,23 @@ export function useMobileNativeChatDrafts(args: {
     if (!draftKey || unconfirmedRef.current.length === 0) {
       return
     }
-    const relevant = unconfirmedRef.current.filter(
-      (entry) =>
-        entry.draftKey === draftKey &&
-        (entry.pendingKey === null || entry.pendingKey === pendingKey)
+    const relevantSet = new Set(
+      unconfirmedRef.current.filter(
+        (entry) =>
+          entry.draftKey === draftKey &&
+          (entry.pendingKey === null || entry.pendingKey === pendingKey)
+      )
     )
-    const landed = findLandedByBaselineTail(messages, relevant)
+    const { landed, survivors } = reconcileLandedEchoes(messages, [...relevantSet])
     if (landed.length === 0) {
       return
     }
-    const landedSet = new Set(landed)
-    unconfirmedRef.current = unconfirmedRef.current.filter((entry) => !landedSet.has(entry))
+    // Keep untouched entries as-is; replace the relevant slice with its survivors,
+    // whose baselines are advanced past this pass's consumed echoes (cx2).
+    unconfirmedRef.current = [
+      ...unconfirmedRef.current.filter((entry) => !relevantSet.has(entry)),
+      ...survivors
+    ]
     for (const entry of landed) {
       if (entry.deadline !== null) {
         clearTimeout(entry.deadline)
@@ -272,15 +310,15 @@ export function useMobileNativeChatDrafts(args: {
       // Clear a bubble only when a NEW echo lands after its captured tail; paged-in
       // older identical turns (index <= tail) must not drop it — the real echo may
       // not have arrived yet. One echo is claimed per bubble (duplicate sends each
-      // need their own). Same guard as the unconfirmed-send hold.
-      const landed = findLandedByBaselineTail(messages, current)
+      // need their own). Same guard as the unconfirmed-send hold. Surviving bubbles
+      // keep their baselines advanced past the consumed echoes so a later transcript
+      // change can't re-consume one of them (cx2).
+      const { landed, survivors } = reconcileLandedEchoes(messages, current)
       if (landed.length === 0) {
         return previous
       }
-      const landedSet = new Set(landed)
-      const next = current.filter((item) => !landedSet.has(item))
-      if (next.length > 0) {
-        return { ...previous, [pendingKey]: next }
+      if (survivors.length > 0) {
+        return { ...previous, [pendingKey]: survivors }
       }
       const remaining = { ...previous }
       delete remaining[pendingKey]

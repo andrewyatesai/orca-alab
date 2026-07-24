@@ -159,6 +159,53 @@ describe('useMobileNativeChatDrafts', () => {
     expect(state?.pending).toEqual([])
   })
 
+  it('does not re-consume a landed echo for a surviving duplicate on a later transcript change', async () => {
+    await mount('a')
+    const origin = state?.captureSendOrigin('ping')
+    act(() => {
+      if (origin) {
+        state?.acceptSend(origin, 'ping')
+        state?.acceptSend(origin, 'ping')
+      }
+    })
+    expect(state?.pending.map((pending) => pending.text)).toEqual(['ping', 'ping'])
+
+    // First echo lands: exactly one bubble clears, the duplicate survives.
+    await act(async () =>
+      renderer?.update(
+        createElement(Harness, { tabId: 'a', messages: [userTextMessage('m1', 'ping')] })
+      )
+    )
+    expect(state?.pending.map((pending) => pending.text)).toEqual(['ping'])
+
+    // A later transcript change that is NOT a new echo (assistant append) must not let
+    // the already-consumed echo m1 be re-matched to the surviving duplicate.
+    await act(async () =>
+      renderer?.update(
+        createElement(Harness, {
+          tabId: 'a',
+          messages: [userTextMessage('m1', 'ping'), assistantTextMessage('a1', 'working')]
+        })
+      )
+    )
+    expect(state?.pending.map((pending) => pending.text)).toEqual(['ping'])
+
+    // The duplicate's own echo finally lands and clears it.
+    await act(async () =>
+      renderer?.update(
+        createElement(Harness, {
+          tabId: 'a',
+          messages: [
+            userTextMessage('m1', 'ping'),
+            assistantTextMessage('a1', 'working'),
+            userTextMessage('m2', 'ping')
+          ]
+        })
+      )
+    )
+    expect(state?.pending).toEqual([])
+  })
+
   it('keeps the optimistic bubble when pagination prepends an older identical turn', async () => {
     await mount('a')
     const anchor = assistantTextMessage('anchor', 'working')
@@ -374,6 +421,47 @@ describe('useMobileNativeChatDrafts', () => {
       await act(async () =>
         renderer?.update(
           createElement(Harness, { tabId: 'a', messages: [userTextMessage('echo-1', 'ping')] })
+        )
+      )
+      act(() => vi.advanceTimersByTime(30_000))
+
+      expect(firstUnconfirmed).not.toHaveBeenCalled()
+      expect(secondUnconfirmed).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('holds a surviving unconfirmed duplicate when a later transcript change follows one echo', async () => {
+    vi.useFakeTimers()
+    try {
+      await mount('a')
+      act(() => state?.setComposerText('ping'))
+      const origin = state?.captureSendOrigin('ping')
+      const firstUnconfirmed = vi.fn()
+      const secondUnconfirmed = vi.fn()
+      act(() => {
+        if (origin) {
+          state?.holdUnconfirmedSend(origin, 'ping', firstUnconfirmed)
+          state?.holdUnconfirmedSend(origin, 'ping', secondUnconfirmed)
+        }
+      })
+
+      // One echo lands: the first hold resolves, the duplicate stays held.
+      await act(async () =>
+        renderer?.update(
+          createElement(Harness, { tabId: 'a', messages: [userTextMessage('echo-1', 'ping')] })
+        )
+      )
+
+      // A later transcript change (assistant append) must not re-consume echo-1 for the
+      // surviving duplicate; its deadline must still fire.
+      await act(async () =>
+        renderer?.update(
+          createElement(Harness, {
+            tabId: 'a',
+            messages: [userTextMessage('echo-1', 'ping'), assistantTextMessage('a1', 'working')]
+          })
         )
       )
       act(() => vi.advanceTimersByTime(30_000))

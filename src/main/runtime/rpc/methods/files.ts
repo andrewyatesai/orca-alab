@@ -101,8 +101,16 @@ const FileWriteBase64 = FileOpen.extend({
     .refine(isValidRuntimeFileBase64, 'File content must be base64')
 })
 
+// Why: each chunk is decoded independently (Buffer.from(chunk,'base64') then
+// appended with flag:'a'), so a non-4-aligned chunk drops/garbles the bits that
+// straddle the quantum boundary and silently corrupts the file while still
+// returning ok:true. Require 4-aligned chunks so per-chunk decode is lossless;
+// '' (explicit empty chunk) stays valid since 0 % 4 === 0.
 const FileWriteBase64Chunk = FileWriteBase64.extend({
   append: z.boolean().optional()
+}).refine((v) => typeof v.contentBase64 === 'string' && v.contentBase64.length % 4 === 0, {
+  message: 'Chunked base64 content length must be a multiple of 4',
+  path: ['contentBase64']
 })
 
 const FileReadChunk = FileOpen.extend({
@@ -410,7 +418,14 @@ export const FILE_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'files.unwatch',
     params: FileUnwatch,
-    handler: async (params, { runtime }) => {
+    handler: async (params, { runtime, connectionId }) => {
+      // Why: authorize teardown to the owning socket — refuse ids that don't
+      // carry this connection's prefix so one client can't stop another's file
+      // watch stream (mirrors runtime.clientEvents.unsubscribe).
+      const expectedPrefix = `files-watch-${connectionId ?? 'inproc'}-`
+      if (!params.subscriptionId.startsWith(expectedPrefix)) {
+        return { unsubscribed: false }
+      }
       await runtime.cleanupSubscriptionAndWait(params.subscriptionId)
       return { unsubscribed: true }
     }

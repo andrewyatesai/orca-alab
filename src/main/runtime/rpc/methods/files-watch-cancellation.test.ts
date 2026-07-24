@@ -53,10 +53,19 @@ describe('file watch RPC cancellation', () => {
     const subscriptionId = replies[0]?.result?.subscriptionId
     expect(subscriptionId).toBeTruthy()
 
-    const response = await dispatcher.dispatch(makeRequest('files.unwatch', { subscriptionId }))
+    // Dispatch on the owning connection so the connection-ownership guard in
+    // files.unwatch (files-watch-${connectionId}- prefix) authorizes the teardown.
+    let unwatchResponse: unknown
+    await dispatcher.dispatchStreaming(
+      makeRequest('files.unwatch', { subscriptionId }),
+      (response) => {
+        unwatchResponse = JSON.parse(response)
+      },
+      { connectionId: 'conn-1' }
+    )
     await stream
 
-    expect(response).toMatchObject({ ok: true, result: { unsubscribed: true } })
+    expect(unwatchResponse).toMatchObject({ ok: true, result: { unsubscribed: true } })
     expect(setupSignal?.aborted).toBe(true)
     expect(replies.map((reply) => reply.result?.type)).toEqual(['starting', 'end'])
     expect(cleanups.size).toBe(0)

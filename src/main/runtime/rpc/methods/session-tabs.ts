@@ -116,20 +116,23 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
   defineStreamingMethod({
     name: 'session.tabs.subscribe',
     params: WorktreeTabSelector,
-    handler: async (params, { runtime, connectionId, requestId }, emit) => {
+    handler: async (params, { runtime, connectionId, requestId, signal }, emit) => {
+      // Why: a socket that already closed must not allocate a cleanup entry the
+      // connection sweep already ran past and will never revisit (leaked listener).
+      if (signal?.aborted) {
+        return
+      }
       let subscribedWorktree: string | null = null
       let unsubscribe = (): void => {}
       let closed = false
       let initialized = false
-      const initial = await runtime.listMobileSessionTabs(params.worktree)
-      if (closed) {
-        return
-      }
-      subscribedWorktree = initial.worktree
-      const cleanupPrefix = `session.tabs:${connectionId ?? 'local'}:${subscribedWorktree}`
+      // Why: key on the raw params.worktree (available pre-await) and register the
+      // teardown BEFORE the async initial-list await so a socket close mid-load is
+      // swept by the connection index instead of leaking the tab-change listener
+      // installed after the await (mirrors subscribeAll). Include the RPC id so one
+      // shared-control subscriber cannot evict another on the same socket.
+      const cleanupPrefix = `session.tabs:${connectionId ?? 'local'}:${params.worktree}`
       const subscriptionId = requestId ? `${cleanupPrefix}:${requestId}` : cleanupPrefix
-      // Why: shared-control can carry multiple subscribers for one worktree on
-      // one socket; include the RPC id so one subscriber cannot evict another.
       runtime.registerSubscriptionCleanup(
         subscriptionId,
         () => {
@@ -141,9 +144,12 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
         },
         connectionId
       )
-      if (closed) {
+      const initial = await runtime.listMobileSessionTabs(params.worktree)
+      if (closed || signal?.aborted) {
+        runtime.cleanupSubscription(subscriptionId)
         return
       }
+      subscribedWorktree = initial.worktree
       emit({ type: 'snapshot', ...initial })
       initialized = true
       if (closed) {
@@ -167,6 +173,11 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
       const snapshot = await runtime.listMobileSessionTabs(params.worktree)
       const connection = connectionId ?? 'local'
       if (params.subscriptionId) {
+        // Why: subscribe registers under the raw params.worktree key (before the
+        // resolve await), so clean that first; keep the resolved key for back-compat.
+        runtime.cleanupSubscription(
+          `session.tabs:${connection}:${params.worktree}:${params.subscriptionId}`
+        )
         runtime.cleanupSubscription(
           `session.tabs:${connection}:${snapshot.worktree}:${params.subscriptionId}`
         )
@@ -174,6 +185,7 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
       }
       runtime.cleanupSubscription(`session.tabs:${connection}:${params.worktree}`)
       runtime.cleanupSubscription(`session.tabs:${connection}:${snapshot.worktree}`)
+      runtime.cleanupSubscriptionsByPrefix(`session.tabs:${connection}:${params.worktree}:`)
       runtime.cleanupSubscriptionsByPrefix(`session.tabs:${connection}:${snapshot.worktree}:`)
       return { unsubscribed: true }
     }

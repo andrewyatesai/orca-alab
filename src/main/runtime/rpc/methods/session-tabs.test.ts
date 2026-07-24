@@ -393,7 +393,7 @@ describe('session tab RPC methods', () => {
     )
   })
 
-  it('registers session tab subscription cleanup with the resolved worktree id', async () => {
+  it('registers session tab subscription cleanup on the raw selector before the resolve await', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
       listMobileSessionTabs: vi.fn().mockResolvedValue({
@@ -416,13 +416,10 @@ describe('session tab RPC methods', () => {
       { connectionId: 'conn-1' }
     )
 
+    // Why: the teardown must register before the async initial list resolves, so
+    // the key uses the pre-await raw selector, not the post-await resolved id.
     expect(runtime.registerSubscriptionCleanup).toHaveBeenCalledWith(
-      'session.tabs:conn-1:wt-1:req-1',
-      expect.any(Function),
-      'conn-1'
-    )
-    expect(runtime.registerSubscriptionCleanup).not.toHaveBeenCalledWith(
-      'session.tabs:conn-1:id:wt-1',
+      'session.tabs:conn-1:id:wt-1:req-1',
       expect.any(Function),
       'conn-1'
     )
@@ -457,7 +454,7 @@ describe('session tab RPC methods', () => {
     )
 
     expect(runtime.registerSubscriptionCleanup).toHaveBeenCalledWith(
-      'session.tabs:conn-1:wt-1:sub-1',
+      'session.tabs:conn-1:id:wt-1:sub-1',
       expect.any(Function),
       'conn-1'
     )
@@ -466,6 +463,88 @@ describe('session tab RPC methods', () => {
       expect.any(Function),
       'conn-1'
     )
+  })
+
+  it('does not leak the tab-change listener when the socket closes during the initial list', async () => {
+    const registered = new Map<string, () => void | Promise<void>>()
+    const byConnection = new Map<string, Set<string>>()
+    let resolveList: (value: unknown) => void = () => {}
+    const listDeferred = new Promise<unknown>((resolve) => {
+      resolveList = resolve
+    })
+    const changeListeners: ((snapshot: unknown) => void)[] = []
+    const unsubscribe = vi.fn()
+    // Why: mimic the real registry — cleanupSubscriptionsForConnection only tears
+    // down ids registered at call time, so a subscribe still awaiting the list has
+    // nothing to sweep and would leak its post-await listener without the fix.
+    const cleanupSubscriptionsForConnection = (connectionId: string): void => {
+      const set = byConnection.get(connectionId)
+      if (!set) {
+        return
+      }
+      for (const id of Array.from(set)) {
+        const cleanup = registered.get(id)
+        registered.delete(id)
+        set.delete(id)
+        void cleanup?.()
+      }
+    }
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn(() => listDeferred),
+      onMobileSessionTabsChanged: vi.fn((listener: (snapshot: unknown) => void) => {
+        changeListeners.push(listener)
+        return unsubscribe
+      }),
+      registerSubscriptionCleanup: vi.fn(
+        (id: string, cleanup: () => void | Promise<void>, connectionId: string) => {
+          registered.set(id, cleanup)
+          let set = byConnection.get(connectionId)
+          if (!set) {
+            set = new Set()
+            byConnection.set(connectionId, set)
+          }
+          set.add(id)
+        }
+      ),
+      cleanupSubscription: vi.fn((id: string) => {
+        const cleanup = registered.get(id)
+        registered.delete(id)
+        for (const set of byConnection.values()) {
+          set.delete(id)
+        }
+        void cleanup?.()
+      })
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
+    const emitted: string[] = []
+
+    const streaming = dispatcher.dispatchStreaming(
+      makeRequest('session.tabs.subscribe', { worktree: 'id:wt-1' }),
+      (message) => emitted.push(message),
+      { connectionId: 'c1' }
+    )
+
+    // The socket closes while the initial list is still pending.
+    await Promise.resolve()
+    cleanupSubscriptionsForConnection('c1')
+
+    // The initial list finally resolves after the close.
+    resolveList({
+      worktree: 'wt-1',
+      publicationEpoch: 'epoch-1',
+      snapshotVersion: 1,
+      activeGroupId: null,
+      activeTabId: null,
+      activeTabType: null,
+      tabs: []
+    })
+    await streaming
+
+    // No live tab-change listener was installed for the dead connection.
+    expect(runtime.onMobileSessionTabsChanged).not.toHaveBeenCalled()
+    changeListeners.forEach((listener) => listener({ worktree: 'wt-1', snapshotVersion: 2 }))
+    expect(emitted.map((message) => JSON.parse(message).result?.type)).not.toContain('updated')
   })
 
   it('unsubscribes a session tabs stream using the resolved worktree id and connection id', async () => {

@@ -30,8 +30,13 @@ function createSftpMock(): SFTPWrapper {
   } as unknown as SFTPWrapper
 }
 
-const partialOf = (finalPath: string): RegExp =>
-  new RegExp(`^${finalPath.replace(/[.]/g, '\\.')}\\.orca-partial-`)
+// Why: the staged temp is a SHORT fixed-length sibling in the destination's
+// parent directory (`<dir>/.orca-tmp-<hex>`), NOT a suffix on the destination
+// basename — so it can't overflow NAME_MAX for long-but-valid destinations.
+const partialOf = (finalPath: string): RegExp => {
+  const dir = finalPath.slice(0, finalPath.lastIndexOf('/'))
+  return new RegExp(`^${dir.replace(/[.]/g, '\\.')}/\\.orca-tmp-[0-9a-f]+$`)
+}
 
 describe('sftp-upload', () => {
   it('can create the first binary upload chunk without clobbering an existing temp file', async () => {

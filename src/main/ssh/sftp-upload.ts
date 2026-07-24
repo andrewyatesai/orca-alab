@@ -34,7 +34,7 @@ export function uploadFile(
   // Why: stage to a unique temp sibling and rename into place only after the
   // stream fully flushes, so a mid-transfer disconnect/read-error never leaves
   // a truncated file at remotePath (fail-closed atomic upload).
-  const tempPath = `${remotePath}.orca-partial-${randomUUID()}`
+  const tempPath = stagingTempPath(remotePath)
   return new Promise((resolve, reject) => {
     let settled = false
     let readStream: ReadStream | null = null
@@ -55,10 +55,14 @@ export function uploadFile(
       readStream?.destroy()
       writeStream?.destroy()
       void fileHandle?.close().catch(() => {})
-      // Why: on failure discard the staged temp so a partial never lingers; the
-      // final path is untouched until a successful promoteTempToFinal below.
+      // Why: on failure discard the staged temp so a partial never lingers, and
+      // AWAIT the REMOVE before surfacing the error — the caller closes the SFTP
+      // channel (sftp.end()) right after we reject, which would cancel a still-
+      // pending unlink and orphan the `.orca-tmp-*` temp. The final path is
+      // untouched until a successful promoteTempToFinal below.
       if (fn === reject && writeStream) {
-        void unlinkQuietSftp(sftp, tempPath)
+        void unlinkQuietSftp(sftp, tempPath).then(() => fn(val as never))
+        return
       }
       fn(val as never)
     }
@@ -102,6 +106,19 @@ export function uploadFile(
       })
       .catch((err: unknown) => settle(reject, err))
   })
+}
+
+// Why: stage under a SHORT fixed-length sibling name in the destination's parent
+// directory, derived independently of the destination basename length. Appending
+// a suffix to remotePath (the old scheme) inflated the final path COMPONENT and,
+// for a valid basename near the ~255-byte NAME_MAX, pushed the staged component
+// past the limit — regressing valid uploads. A short name in the same parent
+// stays well under NAME_MAX for any valid destination and keeps rename atomic.
+function stagingTempPath(remotePath: string): string {
+  const lastSlash = remotePath.lastIndexOf('/')
+  const shortId = randomUUID().replace(/-/g, '').slice(0, 20)
+  const base = `.orca-tmp-${shortId}`
+  return lastSlash >= 0 ? `${remotePath.slice(0, lastSlash + 1)}${base}` : base
 }
 
 // Why: promote a fully-written temp file to its destination. Exclusive uploads

@@ -345,6 +345,66 @@ describe('AgentExecHandler', () => {
     })
   })
 
+  it('does not let one client cancel or supersede another client identical cwd+operation job', async () => {
+    const clientAChild = createFakeChild()
+    const clientBChild = createFakeChild()
+    clientBChild.pid = 12346
+    spawnMock.mockReturnValueOnce(clientAChild as never).mockReturnValueOnce(clientBChild as never)
+    const handlers = createHandlers()
+
+    const clientA = handlers.get('agent.execNonInteractive')!(
+      {
+        binary: 'agent',
+        args: [],
+        cwd: '/repo',
+        stdin: null,
+        timeoutMs: 5_000,
+        operation: 'commit'
+      },
+      requestContext(1)
+    )
+    // Client B starts the same cwd+operation lane; it must NOT supersede/kill client A's child.
+    const clientB = handlers.get('agent.execNonInteractive')!(
+      {
+        binary: 'agent',
+        args: [],
+        cwd: '/repo',
+        stdin: null,
+        timeoutMs: 5_000,
+        operation: 'commit'
+      },
+      requestContext(2)
+    )
+
+    const assertNotKilled = (child: typeof clientAChild): void => {
+      if (process.platform === 'win32') {
+        expect(execMock).not.toHaveBeenCalledWith(
+          `taskkill /pid ${child.pid} /T /F`,
+          expect.any(Function)
+        )
+      } else {
+        expect(child.kill).not.toHaveBeenCalled()
+      }
+    }
+    assertNotKilled(clientAChild)
+
+    // A cancel from client B must resolve only client B's lane, leaving client A running.
+    await expect(
+      handlers.get('agent.cancelExec')!({ cwd: '/repo', operation: 'commit' }, requestContext(2))
+    ).resolves.toEqual({ canceled: true })
+    assertNotKilled(clientAChild)
+    if (process.platform === 'win32') {
+      expect(execMock).toHaveBeenCalledWith('taskkill /pid 12346 /T /F', expect.any(Function))
+    } else {
+      expect(clientBChild.kill).toHaveBeenCalledWith('SIGKILL')
+    }
+
+    clientAChild.emit('close', 0)
+    clientBChild.emit('close', null)
+    await expect(clientA).resolves.toMatchObject({ exitCode: 0, canceled: false })
+    await expect(clientB).resolves.toMatchObject({ canceled: true })
+  })
+
   it('kills the active command when the request aborts', async () => {
     const child = createFakeChild()
     spawnMock.mockReturnValue(child as never)

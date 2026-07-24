@@ -129,9 +129,10 @@ type CancelParams = {
   operation: unknown
 }
 
-function laneKeyFor(cwd: string, operation: unknown): string {
+function laneKeyFor(clientId: number | undefined, cwd: string, operation: unknown): string {
   const op = typeof operation === 'string' && operation ? operation : 'default'
-  return JSON.stringify([op, cwd])
+  // Why: scope the lane to the requesting client so one window's exec can't cancel/hijack another window's identical cwd+operation job (cross-session bleed).
+  return JSON.stringify([clientId ?? 0, op, cwd])
 }
 
 type InFlightExec = { child: ChildProcess; cancel: () => void }
@@ -159,20 +160,25 @@ export class AgentExecHandler {
   // operation lanes let cancel target only the user-visible job that stopped.
   private inFlightByLane = new Map<string, InFlightExec>()
 
-  private laneKey(cwd: string, operation: unknown): string {
-    return laneKeyFor(cwd, operation)
+  private laneKey(clientId: number | undefined, cwd: string, operation: unknown): string {
+    return laneKeyFor(clientId, cwd, operation)
   }
 
   constructor(dispatcher: RelayDispatcher) {
     dispatcher.onRequest('agent.execNonInteractive', (p, context) =>
       this.exec(p as ExecParams, context)
     )
-    dispatcher.onRequest('agent.cancelExec', (p) => this.cancel(p as CancelParams))
+    dispatcher.onRequest('agent.cancelExec', (p, context) =>
+      this.cancel(p as CancelParams, context)
+    )
   }
 
-  private async cancel(params: CancelParams): Promise<{ canceled: boolean }> {
+  private async cancel(
+    params: CancelParams,
+    context?: RequestContext
+  ): Promise<{ canceled: boolean }> {
     const cwd = typeof params.cwd === 'string' ? params.cwd : ''
-    const entry = this.inFlightByLane.get(this.laneKey(cwd, params.operation))
+    const entry = this.inFlightByLane.get(this.laneKey(context?.clientId, cwd, params.operation))
     if (!entry) {
       return { canceled: false }
     }
@@ -235,7 +241,8 @@ export class AgentExecHandler {
       let timedOut = false
       let canceled = false
       let settled = false
-      const laneKey = typeof cwd === 'string' ? this.laneKey(cwd, params.operation) : ''
+      const laneKey =
+        typeof cwd === 'string' ? this.laneKey(context?.clientId, cwd, params.operation) : ''
       let entry: InFlightExec | null = null
       let timer: ReturnType<typeof setTimeout> | null = null
       let detachChildListeners = (): void => {}

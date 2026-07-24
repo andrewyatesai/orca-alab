@@ -352,6 +352,48 @@ describe('clipboard RPC methods', () => {
     expect(saveClipboardImageBufferAsTempFile).toHaveBeenCalledTimes(1)
   })
 
+  it('is idempotent under a concurrent/retried commit and writes one temp file', async () => {
+    let resolveSave: (path: string) => void = () => {}
+    saveClipboardImageBufferAsTempFile.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    const dispatcher = makeDispatcher()
+    const contentBase64 = Buffer.from('png-bytes').toString('base64')
+    const start = await dispatcher.dispatch(
+      makeRequest('clipboard.startImageUpload', {
+        expectedBase64Length: contentBase64.length,
+        connectionId: 'ssh-1'
+      })
+    )
+    const uploadId = (start.ok ? start.result : null) as { uploadId: string }
+    await dispatcher.dispatch(
+      makeRequest('clipboard.appendImageUploadChunk', {
+        uploadId: uploadId.uploadId,
+        offset: 0,
+        contentBase64
+      })
+    )
+
+    // Two commits race for the same uploadId: the first suspends inside the
+    // (deferred) save while the second runs its synchronous claim prefix.
+    const first = dispatcher.dispatch(
+      makeRequest('clipboard.commitImageUpload', { uploadId: uploadId.uploadId })
+    )
+    const second = dispatcher.dispatch(
+      makeRequest('clipboard.commitImageUpload', { uploadId: uploadId.uploadId })
+    )
+    resolveSave('/tmp/orca-paste-image.png')
+    const [firstResult, secondResult] = await Promise.all([first, second])
+
+    // Exactly one temp file is written; the retry gets the not-found rejection.
+    expect(saveClipboardImageBufferAsTempFile).toHaveBeenCalledTimes(1)
+    expect(firstResult).toMatchObject({ ok: true, result: '/tmp/orca-paste-image.png' })
+    expect(secondResult).toMatchObject({ ok: false })
+  })
+
   it('bounds concurrent uploads and releases slots through TTL cleanup', async () => {
     vi.useFakeTimers()
     const dispatcher = makeDispatcher()

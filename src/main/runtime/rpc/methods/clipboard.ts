@@ -178,21 +178,21 @@ export const CLIPBOARD_METHODS: RpcMethod[] = [
     name: 'clipboard.commitImageUpload',
     params: CommitImageUpload,
     handler: async (params) => {
+      // Why: claim-then-run — capture the upload and delete it synchronously
+      // before the first await so a concurrent/retried commit for the same
+      // uploadId gets the not-found rejection instead of decoding and writing a
+      // second (orphaned) temp file. Also releases bounded upload memory on a
+      // failed SSH/filesystem commit without waiting for TTL cleanup.
       const upload = getUpload(params.uploadId)
-      try {
-        if (upload.receivedBase64Length !== upload.expectedBase64Length) {
-          throw new Error('Clipboard image upload is incomplete')
-        }
-        const contentBase64 = upload.chunks.join('')
-        assertValidBase64Content(contentBase64)
-        return await saveClipboardImageBufferAsTempFile(Buffer.from(contentBase64, 'base64'), {
-          connectionId: upload.connectionId
-        })
-      } finally {
-        // Why: failed SSH or filesystem commits must not leave bounded upload
-        // memory pinned until TTL cleanup.
-        deleteUpload(params.uploadId)
+      deleteUpload(params.uploadId)
+      if (upload.receivedBase64Length !== upload.expectedBase64Length) {
+        throw new Error('Clipboard image upload is incomplete')
       }
+      const contentBase64 = upload.chunks.join('')
+      assertValidBase64Content(contentBase64)
+      return await saveClipboardImageBufferAsTempFile(Buffer.from(contentBase64, 'base64'), {
+        connectionId: upload.connectionId
+      })
     }
   }),
   defineMethod({

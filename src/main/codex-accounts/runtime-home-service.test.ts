@@ -1101,6 +1101,69 @@ describe('CodexRuntimeHomeService', () => {
     expect(readFileSync(runtimeAuthPath, 'utf-8')).toBe(account2Auth)
   })
 
+  it('adopts, not clobbers, a concurrent Codex PTY refresh that lands between read-back and the runtime write (#9582)', async () => {
+    const runtimeAuthPath = getRuntimeCodexAuthPath()
+    const staleAuth = createCodexAuthJson('one@example.com', 'acct-1', 'stale', 1)
+    // Why: a live Codex PTY sharing the runtime CODEX_HOME rotates the token to a fresher, same-identity blob.
+    const refreshedAuth = createCodexAuthJson('one@example.com', 'acct-1', 'refreshed', 2)
+    const managedHomePath = createManagedAuth(testState.userDataDir, 'account-1', staleAuth)
+    const managedAuthPath = join(managedHomePath, 'auth.json')
+    const settings = createSettings({
+      codexManagedAccounts: [
+        {
+          id: 'account-1',
+          email: 'one@example.com',
+          managedHomePath,
+          providerAccountId: 'acct-1',
+          workspaceLabel: null,
+          workspaceAccountId: 'acct-1',
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        }
+      ],
+      activeCodexManagedAccountId: 'account-1',
+      activeCodexManagedAccountIdsByRuntime: { host: 'account-1', wsl: {} }
+    })
+    const store = createStore(settings)
+
+    // Wrap node:fs so that exactly once — while armed — reading the managed auth.json
+    // (the forward write's source, evaluated just before writeRuntimeAuth re-reads the
+    // runtime file) simulates a live PTY rewriting the shared runtime auth.json.
+    const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs') // eslint-disable-line @typescript-eslint/consistent-type-imports -- vi.importActual requires inline import()
+    let armInjection = false
+    let injectionFired = false
+    vi.doMock('node:fs', () => ({
+      ...actualFs,
+      readFileSync: (path: Parameters<typeof actualFs.readFileSync>[0], ...rest: unknown[]) => {
+        const result = (actualFs.readFileSync as (...args: unknown[]) => unknown)(path, ...rest)
+        if (armInjection && !injectionFired && path === managedAuthPath) {
+          injectionFired = true
+          actualFs.writeFileSync(runtimeAuthPath, refreshedAuth, 'utf-8')
+        }
+        return result
+      }
+    }))
+
+    try {
+      const { CodexRuntimeHomeService } = await import('./runtime-home-service')
+      const service = new CodexRuntimeHomeService(store as never)
+
+      // Steady state: runtime + managed both hold the stale token, CAS baseline recorded.
+      expect(readFileSync(runtimeAuthPath, 'utf-8')).toBe(staleAuth)
+
+      armInjection = true
+      service.syncForCurrentSelection()
+
+      expect(injectionFired).toBe(true)
+      // The concurrent refresh is read back into managed storage, never overwritten with the stale token.
+      expect(readFileSync(managedAuthPath, 'utf-8')).toBe(refreshedAuth)
+      expect(readFileSync(runtimeAuthPath, 'utf-8')).toBe(refreshedAuth)
+    } finally {
+      vi.doUnmock('node:fs')
+    }
+  })
+
   it('reads back selected-account refreshes without ambiguity from duplicate identities', async () => {
     const runtimeAuthPath = getRuntimeCodexAuthPath()
     const account1Auth = createCodexAuthJson('same@example.com', 'acct-same', 'one', 1)

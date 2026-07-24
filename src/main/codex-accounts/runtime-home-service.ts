@@ -88,6 +88,10 @@ type CodexReadBackMatch =
     }
   | { kind: 'none' | 'ambiguous' }
 
+// Why: #9582 CAS sentinel — an unreadable runtime auth.json (permission error, not "absent")
+// must not be mistaken for "no concurrent writer"; only the legacy atomic-replace fallback applies.
+const RUNTIME_AUTH_FILE_UNREADABLE = Symbol('codex-runtime-auth-file-unreadable')
+
 export class CodexRuntimeHomeService {
   // Which managed account runtime auth.json mirrors; null means it follows system-default ~/.codex instead of a managed account.
   private lastSyncedAccountId: string | null = null
@@ -98,6 +102,10 @@ export class CodexRuntimeHomeService {
   private readonly lastSyncedWslAccountIdByDistro = new Map<string, string | null>()
   private readonly wslRuntimeHomePathByDistro = new Map<string, string>()
   private skipNextReadBackForAccountId: string | null = null
+  // Why: compare-and-swap baseline (#9582) — the shared runtime auth.json seen at the start of a
+  // sync pass; the forward write only lands over this, our own last write, or absence, never over a
+  // concurrent Codex PTY refresh whose fresh token would otherwise be clobbered.
+  private observedRuntimeAuthJson: string | null | typeof RUNTIME_AUTH_FILE_UNREADABLE = null
 
   constructor(private readonly store: Store) {
     this.safeMigrateLegacyManagedState()
@@ -238,7 +246,10 @@ export class CodexRuntimeHomeService {
     return this.getRuntimeHomePath()
   }
 
-  syncForCurrentSelection(target?: CodexAccountSelectionTarget): void {
+  syncForCurrentSelection(
+    target?: CodexAccountSelectionTarget,
+    isRetryAfterConcurrentAuthWrite = false
+  ): void {
     if (target?.runtime === 'wsl') {
       this.syncWslRuntimeForCurrentSelection(target)
       return
@@ -346,6 +357,9 @@ export class CodexRuntimeHomeService {
       this.captureSystemDefaultSnapshot({ force: true })
     }
 
+    // Why: #9582 CAS baseline — snapshot the shared runtime auth.json before read-back so a live Codex PTY that refreshes it before our write is detected and adopted, not clobbered.
+    this.observeRuntimeAuthFile()
+
     // Why: Codex refreshes OAuth tokens in the runtime auth.json; if it differs from Orca's last write, read those back to managed storage before overwriting.
     if (this.lastSyncedAccountId === activeAccount.id) {
       if (this.skipNextReadBackForAccountId === activeAccount.id) {
@@ -360,8 +374,24 @@ export class CodexRuntimeHomeService {
     if (this.lastSyncedAccountId !== activeAccount.id) {
       this.skipNextReadBackForAccountId = null
     }
+    // Why: keep lastSyncedAccountId at its prior value until the write lands so a CAS-fail re-run replays the outgoing/read-back logic and adopts the concurrent refresh.
+    if (
+      !this.writeRuntimeAuth(readFileSync(activeAuthPath, 'utf-8'), {
+        requireObservedRuntimeFile: true
+      })
+    ) {
+      if (!isRetryAfterConcurrentAuthWrite) {
+        // Why: #9582 — a live Codex PTY refreshed the shared runtime auth.json mid-sync; re-run so read-back adopts that refresh instead of clobbering it.
+        this.syncForCurrentSelection(target, true)
+        return
+      }
+      console.warn(
+        '[codex-runtime-home] Preserving concurrently rewritten Codex runtime auth after losing the write race'
+      )
+      this.lastSyncedAccountId = activeAccount.id
+      return
+    }
     this.lastSyncedAccountId = activeAccount.id
-    this.writeRuntimeAuth(readFileSync(activeAuthPath, 'utf-8'))
   }
 
   // Why: re-auth/add-account write fresh managed tokens, so skip the next read-back to avoid clobbering them with stale runtime tokens.
@@ -1456,16 +1486,54 @@ export class CodexRuntimeHomeService {
     return existsSync(systemDefaultAuthPath) ? readFileSync(systemDefaultAuthPath, 'utf-8') : null
   }
 
-  private writeRuntimeAuth(contents: string): void {
+  private writeRuntimeAuth(
+    contents: string,
+    options?: { requireObservedRuntimeFile: boolean }
+  ): boolean {
     // Why: auth.json holds credentials; restrict to owner-only so other users on a shared machine cannot read it.
     this.clearRuntimeLogoutMarker()
-    if (this.fileContentsEqual(this.getRuntimeAuthPath(), contents)) {
-      this.ensureOwnerOnlyMode(this.getRuntimeAuthPath())
+    const runtimeAuthPath = this.getRuntimeAuthPath()
+    if (this.fileContentsEqual(runtimeAuthPath, contents)) {
+      this.ensureOwnerOnlyMode(runtimeAuthPath)
       this.lastWrittenAuthJson = contents
-      return
+      return true
     }
-    writeFileAtomically(this.getRuntimeAuthPath(), contents, { mode: 0o600 })
+    // Why: #9582 CAS — a live Codex PTY may refresh the shared runtime auth.json between this pass's read-back and the write; bail so the caller re-runs and read-back adopts the refresh instead of clobbering it.
+    if (options?.requireObservedRuntimeFile && !this.runtimeAuthFileWasObserved()) {
+      return false
+    }
+    writeFileAtomically(runtimeAuthPath, contents, { mode: 0o600 })
     this.lastWrittenAuthJson = contents
+    return true
+  }
+
+  // Why: #9582 swap guard — exact contents beat mtime (coarse on FAT/HFS+); a runtime auth.json that no longer matches what we observed this pass or last wrote means a concurrent Codex refresh owns it right now.
+  private runtimeAuthFileWasObserved(): boolean {
+    const runtimeAuthPath = this.getRuntimeAuthPath()
+    let currentContents: string | null
+    try {
+      currentContents = existsSync(runtimeAuthPath) ? readFileSync(runtimeAuthPath, 'utf-8') : null
+    } catch {
+      // Why: an unreadable target keeps the legacy atomic-replace fallback only when this pass already saw it unreadable.
+      return this.observedRuntimeAuthJson === RUNTIME_AUTH_FILE_UNREADABLE
+    }
+    return (
+      currentContents === null ||
+      currentContents === this.lastWrittenAuthJson ||
+      currentContents === this.observedRuntimeAuthJson
+    )
+  }
+
+  private observeRuntimeAuthFile(): void {
+    const runtimeAuthPath = this.getRuntimeAuthPath()
+    try {
+      this.observedRuntimeAuthJson = existsSync(runtimeAuthPath)
+        ? readFileSync(runtimeAuthPath, 'utf-8')
+        : null
+    } catch (error) {
+      console.warn('[codex-runtime-home] Cannot read runtime Codex auth for CAS baseline:', error)
+      this.observedRuntimeAuthJson = RUNTIME_AUTH_FILE_UNREADABLE
+    }
   }
 
   private writeRuntimeAuthAtPath(authPath: string, contents: string): void {

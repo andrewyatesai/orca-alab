@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "19d7cc57acfdf55761741b82522ca6c8cb3eb13e",
+  "sourceCommit": "9d1ce1d22813ae238934581eb099255414d47b2f",
   "sourcePatch": {
     "path": "config/patches/aterm-wasm-source-fixes.patch",
     "sha256": "6001ce35c1da8a9d0b0e74c986a309a2d802ec8fb1f49aad920598f5c67f1ba9"

@@ -322,9 +322,11 @@ describe('BrowserSessionRegistry persistence', () => {
     requestHandler(guestWc, 'media', permissionCallback, { mediaTypes: ['video'] })
 
     await vi.waitFor(() =>
+      // clipboard-read is no longer auto-granted (2nd call is now denied) so a
+      // loaded origin can't silently read the system clipboard.
       expect(permissionCallback.mock.calls).toEqual([
         [true],
-        [true],
+        [false],
         [true],
         [true],
         [true],
@@ -339,14 +341,16 @@ describe('BrowserSessionRegistry persistence', () => {
     })
     expect(
       browserManagerNotifyPermissionDeniedMock.mock.calls.map(([args]) => args.permission)
-    ).toEqual(['geolocation'])
+    ).toEqual(['clipboard-read', 'geolocation'])
     expect(checkHandler(null, 'fullscreen', '')).toBe(true)
-    expect(checkHandler(null, 'clipboard-read', '')).toBe(true)
+    expect(checkHandler(null, 'clipboard-read', '')).toBe(false)
     expect(checkHandler(null, 'clipboard-sanitized-write', '')).toBe(true)
     expect(checkHandler(null, 'notifications', '')).toBe(true)
     expect(checkHandler(null, 'persistent-storage', '')).toBe(true)
     expect(checkHandler(null, 'geolocation', '')).toBe(false)
-    expect(checkHandler(null, 'media', '', { mediaType: 'video' })).toBe(true)
+    // Media is granted for the origin that requested it (webContents URL origin).
+    expect(checkHandler(null, 'media', 'https://example.com', { mediaType: 'video' })).toBe(true)
+    expect(checkHandler(null, 'media', '', { mediaType: 'video' })).toBe(false)
     expect(defaultSession.setDisplayMediaRequestHandler).toHaveBeenCalled()
     const displayMediaHandler = defaultSession.setDisplayMediaRequestHandler.mock.calls[0][0]
     const displayMediaCallback = vi.fn()

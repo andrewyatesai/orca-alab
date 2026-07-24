@@ -7,11 +7,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   unlinkSync,
   writeFileSync
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { ORCA_BROWSER_PARTITION } from '../../shared/constants'
 import {
   DEFAULT_LOCAL_ORCA_PROFILE_ID,
@@ -25,6 +26,7 @@ import { hasSystemMediaAccess, requestSystemMediaAccess } from './browser-media-
 import { cleanElectronUserAgent, setupClientHintsOverride } from './browser-session-ua'
 import { resolveChromiumCookiesPath } from './chromium-cookie-path'
 import { isAutoGrantedBrowserSessionPermission } from './browser-session-permission-policy'
+import { cookieImportStagingDir } from './cookie-import-staging-path'
 import {
   allowsBrowserWebAuthnPermission,
   clearBrowserWebAuthnAccessHandlers,
@@ -56,6 +58,9 @@ class BrowserSessionRegistry {
   private activeOrcaProfileId = DEFAULT_LOCAL_ORCA_PROFILE_ID
   private metadataPathOverride: string | null = null
   private defaultPartition = ORCA_BROWSER_PARTITION
+  // Why: media (camera/mic) must be granted per requesting origin, not blanket
+  // per session — an app-level OS grant is not consent for every page.
+  private readonly grantedMediaOriginsByPartition = new Map<string, Set<string>>()
 
   constructor() {
     this.resetDefaultProfile()
@@ -96,6 +101,67 @@ class BrowserSessionRegistry {
     const partitionDir = join(app.getPath('userData'), 'Partitions', partitionName)
     // Why: replay must overwrite the same (modern or legacy) DB the importing partition already uses.
     return resolveChromiumCookiesPath(partitionDir) ?? join(partitionDir, 'Cookies')
+  }
+
+  // Why: the staged cookie DB holds DECRYPTED cookies; reclaim it (plus WAL/SHM
+  // sidecars) when an import is undone/deleted so plaintext session cookies can't
+  // linger on disk. Containment-guard the path so tampered metadata can't point
+  // the unlink at an arbitrary file outside the staging dir.
+  private unlinkStagedCookieDb(stagedPath: string | undefined | null): void {
+    if (!stagedPath) {
+      return
+    }
+    let stagingRoot: string
+    try {
+      stagingRoot = resolve(cookieImportStagingDir())
+    } catch {
+      return
+    }
+    const resolved = resolve(stagedPath)
+    if (resolved !== stagingRoot && !resolved.startsWith(stagingRoot + sep)) {
+      return
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      try {
+        unlinkSync(`${resolved}${suffix}`)
+      } catch {
+        /* best-effort — file may not exist */
+      }
+    }
+  }
+
+  // Why: crash-orphaned staged DBs (import interrupted before the metadata entry
+  // was cleared, or after it was dropped) would otherwise accumulate decrypted
+  // cookies forever; sweep any staged file no live import still references.
+  private sweepOrphanedCookieStaging(referenced: Set<string>): void {
+    let stagingRoot: string
+    try {
+      stagingRoot = resolve(cookieImportStagingDir())
+    } catch {
+      return
+    }
+    const keep = new Set([...referenced].map((path) => resolve(path)))
+    let entries: string[]
+    try {
+      entries = readdirSync(stagingRoot)
+    } catch {
+      return // dir may not exist yet
+    }
+    for (const entry of entries) {
+      if (!entry.startsWith('Cookies-')) {
+        continue
+      }
+      const full = join(stagingRoot, entry)
+      const base = full.replace(/-(wal|shm)$/, '')
+      if (keep.has(base)) {
+        continue
+      }
+      try {
+        unlinkSync(full)
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 
   // Why: write-temp-then-rename is atomic, so a crash mid-write can't corrupt the live file.
@@ -170,6 +236,9 @@ class BrowserSessionRegistry {
   // Why re-read defaultSource: the constructor may run before app.isReady() (userData path unavailable), so loadPersistedSource() returned null.
   initializeBrowserSessionsFromPersistedState(): void {
     const meta = this.loadPersistedMeta()
+    // Why: reclaim any staged plaintext cookie DB no live import references,
+    // including crash-orphans that predate this metadata snapshot.
+    this.sweepOrphanedCookieStaging(new Set(Object.values(meta.pendingCookieImports)))
     if (meta.defaultSource) {
       const current = this.profiles.get('default')
       if (current && current.source === null) {
@@ -226,6 +295,9 @@ class BrowserSessionRegistry {
 
       for (const [partition, stagedPath] of pendingEntries) {
         if (!knownPartitions.has(partition)) {
+          // Why: dropping the entry for an unknown/invalid partition must also
+          // unlink the plaintext staged DB, or it becomes an unreachable orphan.
+          this.unlinkStagedCookieDb(stagedPath)
           delete remainingEntries[partition]
           continue
         }
@@ -384,8 +456,12 @@ class BrowserSessionRegistry {
     }
     this.profiles.delete(profileId)
     this.persistProfiles()
+    this.grantedMediaOriginsByPartition.delete(profile.partition)
     const meta = this.loadPersistedMeta()
     const pendingCookieImports = { ...meta.pendingCookieImports }
+    // Why: deleting the profile must reclaim its staged plaintext cookie DB, not
+    // just drop the metadata pointer (which would orphan it forever).
+    this.unlinkStagedCookieDb(pendingCookieImports[profile.partition])
     delete pendingCookieImports[profile.partition]
     const userAgentByPartition = { ...meta.userAgentByPartition }
     delete userAgentByPartition[profile.partition]
@@ -418,6 +494,11 @@ class BrowserSessionRegistry {
       }
       const meta = this.loadPersistedMeta()
       const pendingCookieImports = { ...meta.pendingCookieImports }
+      // Why: "undo import" must delete the staged plaintext cookie DB, not just
+      // the metadata entry — otherwise the exact action to remove the cookies
+      // leaves a permanent decrypted copy on disk.
+      this.unlinkStagedCookieDb(pendingCookieImports[this.defaultPartition])
+      this.grantedMediaOriginsByPartition.delete(this.defaultPartition)
       delete pendingCookieImports[this.defaultPartition]
       const userAgentByPartition = { ...meta.userAgentByPartition }
       delete userAgentByPartition[this.defaultPartition]
@@ -507,28 +588,11 @@ class BrowserSessionRegistry {
     sess.setPermissionRequestHandler((webContents, permission, callback, details) => {
       // Why: defer media to macOS TCC; denying at the session layer throws NotAllowedError even after the user granted Camera/Mic to the OS.
       if (permission === 'media') {
-        void requestSystemMediaAccess(
+        this.handleMediaPermissionRequest(
+          partition,
+          webContents,
+          callback,
           details as Electron.MediaAccessPermissionRequest | undefined
-        ).then(
-          (granted) => {
-            if (!granted) {
-              browserManager.notifyPermissionDenied({
-                guestWebContentsId: webContents.id,
-                permission,
-                rawUrl: webContents.getURL()
-              })
-            }
-            callback(granted)
-          },
-          (error: unknown) => {
-            console.error('[permissions] Browser media access failed:', error)
-            browserManager.notifyPermissionDenied({
-              guestWebContentsId: webContents.id,
-              permission,
-              rawUrl: webContents.getURL()
-            })
-            callback(false)
-          }
         )
         return
       }
@@ -542,9 +606,17 @@ class BrowserSessionRegistry {
       }
       callback(allowed)
     })
-    sess.setPermissionCheckHandler((_webContents, permission, _origin, details) => {
+    sess.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
       if (permission === 'media') {
-        return hasSystemMediaAccess(details?.mediaType)
+        // Why: an OS-level media grant is not per-origin consent; only report a
+        // media permission as held for an origin that actually went through the
+        // request handler and was granted.
+        const origin = this.mediaOriginKey(requestingOrigin)
+        return (
+          !!origin &&
+          (this.grantedMediaOriginsByPartition.get(partition)?.has(origin) ?? false) &&
+          hasSystemMediaAccess(details?.mediaType)
+        )
       }
       if (allowsBrowserWebAuthnPermission(permission, details)) {
         return true
@@ -560,9 +632,82 @@ class BrowserSessionRegistry {
     this.configuredPartitions.add(partition)
   }
 
+  // Why: keep id/origin captured synchronously — the guest can be destroyed
+  // while the OS TCC prompt is showing; reading webContents.id/getURL() after the
+  // await would throw and leave the Electron permission callback unresolved (a
+  // permanently pending request). Fail closed on any error path instead.
+  private handleMediaPermissionRequest(
+    partition: string,
+    webContents: Electron.WebContents,
+    callback: (granted: boolean) => void,
+    details: Electron.MediaAccessPermissionRequest | undefined
+  ): void {
+    let guestWebContentsId: number
+    let rawUrl: string
+    try {
+      guestWebContentsId = webContents.id
+      rawUrl = webContents.getURL()
+    } catch {
+      callback(false)
+      return
+    }
+    const origin = this.mediaOriginKey((details?.securityOrigin as string | undefined) ?? rawUrl)
+    if (!origin) {
+      this.notifyMediaDenied(guestWebContentsId, rawUrl)
+      callback(false)
+      return
+    }
+    void requestSystemMediaAccess(details).then(
+      (granted) => {
+        if (granted) {
+          this.recordMediaGrant(partition, origin)
+        } else {
+          this.notifyMediaDenied(guestWebContentsId, rawUrl)
+        }
+        callback(granted)
+      },
+      (error: unknown) => {
+        console.error('[permissions] Browser media access failed:', error)
+        this.notifyMediaDenied(guestWebContentsId, rawUrl)
+        callback(false)
+      }
+    )
+  }
+
+  private notifyMediaDenied(guestWebContentsId: number, rawUrl: string): void {
+    try {
+      browserManager.notifyPermissionDenied({
+        guestWebContentsId,
+        permission: 'media',
+        rawUrl
+      })
+    } catch {
+      /* best-effort — the guest may already be gone */
+    }
+  }
+
+  private recordMediaGrant(partition: string, origin: string): void {
+    const origins = this.grantedMediaOriginsByPartition.get(partition) ?? new Set<string>()
+    origins.add(origin)
+    this.grantedMediaOriginsByPartition.set(partition, origins)
+  }
+
+  private mediaOriginKey(rawUrl: string | undefined | null): string | null {
+    if (!rawUrl) {
+      return null
+    }
+    try {
+      const origin = new URL(rawUrl).origin
+      return origin && origin !== 'null' ? origin : null
+    } catch {
+      return null
+    }
+  }
+
   private clearSessionPolicies(partition: string, sess: Session): void {
     // Why: the Electron Session survives partition deletion; clear callbacks/listeners so removed profiles don't retain closures.
     this.configuredPartitions.delete(partition)
+    this.grantedMediaOriginsByPartition.delete(partition)
     browserManager.removeCertificateRequestGuard(sess)
     sess.removeListener('will-download', this.handleWillDownload)
     clearBrowserWebAuthnAccessHandlers(sess)

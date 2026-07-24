@@ -22,7 +22,10 @@ export function requestedMediaTypes(
 
 export function hasSystemMediaAccess(mediaType: string | undefined): boolean {
   if (process.platform !== 'darwin') {
-    return true
+    // Why: off-darwin there is no OS-level TCC consent gate, so a blanket true
+    // fails open — every origin would silently hold camera/mic with no prompt.
+    // Deny until a real per-origin consent path exists.
+    return false
   }
   if (mediaType === 'audio') {
     return systemPreferences.getMediaAccessStatus('microphone') === 'granted'
@@ -37,7 +40,9 @@ export async function requestSystemMediaAccess(
   details: MediaAccessPermissionRequest | undefined
 ): Promise<boolean> {
   if (process.platform !== 'darwin') {
-    return true
+    // Why: fail closed — off-darwin there is no OS TCC prompt to serve as the
+    // user's consent, so auto-granting would hand camera/mic to any page.
+    return false
   }
 
   const mediaTypes = requestedMediaTypes(details)

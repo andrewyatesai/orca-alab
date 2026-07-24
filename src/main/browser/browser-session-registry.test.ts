@@ -237,10 +237,38 @@ describe('BrowserSessionRegistry', () => {
     requestHandler(guestWc, 'media', cb, { mediaTypes: ['video'] })
     await vi.waitFor(() => expect(cb).toHaveBeenCalledWith(true))
 
-    expect(checkHandler(null, 'media', '', { mediaType: 'video' })).toBe(true)
+    // Media is granted only for the origin that actually requested it, never
+    // blanket per-session: the requesting origin passes, others do not.
+    expect(checkHandler(null, 'media', 'https://example.com', { mediaType: 'video' })).toBe(true)
+    expect(checkHandler(null, 'media', 'https://evil.example', { mediaType: 'video' })).toBe(false)
+    expect(checkHandler(null, 'media', '', { mediaType: 'video' })).toBe(false)
     expect(checkHandler(null, 'notifications', '', {})).toBe(true)
     expect(checkHandler(null, 'persistent-storage', '', {})).toBe(true)
     expect(checkHandler(null, 'geolocation', '', {})).toBe(false)
+  })
+
+  it('fails media closed without throwing when the guest is already destroyed', () => {
+    // Regression: reading webContents.id/getURL() after the async TCC prompt
+    // threw on a destroyed guest, leaving the Electron callback unresolved.
+    browserSessionRegistry.createProfile('isolated', 'Destroyed Guest Media')
+    const mockSession = sessionFromPartitionMock.mock.results[0]?.value
+    const requestHandler = mockSession.setPermissionRequestHandler.mock.calls[0][0]
+    const cb = vi.fn()
+    const destroyedGuest = {
+      get id(): number {
+        throw new Error('Object has been destroyed')
+      },
+      getURL(): string {
+        throw new Error('Object has been destroyed')
+      }
+    }
+
+    expect(() =>
+      requestHandler(destroyedGuest, 'media', cb, { mediaTypes: ['video'] })
+    ).not.toThrow()
+    // Captured synchronously and failed closed — the callback resolves at once
+    // rather than hanging on a throw inside the promise.
+    expect(cb).toHaveBeenCalledWith(false)
   })
 
   it('wires WebAuthn device selection for isolated partitions', () => {

@@ -61,7 +61,7 @@ describe('WSL git pathspecs', () => {
 
       expect(gitExecFileAsyncMock.mock.calls.map(([args]) => args)).toEqual([
         ['ls-files', '--error-unmatch', '--', ':(literal)tests/breakgit'],
-        ['clean', '-ffdx', '--', ':(literal)tests/breakgit']
+        ['clean', '-fdx', '--', ':(literal)tests/breakgit']
       ])
 
       gitExecFileAsyncMock.mockReset()
@@ -70,7 +70,7 @@ describe('WSL git pathspecs', () => {
 
       expect(gitExecFileAsyncMock.mock.calls.map(([args]) => args)).toEqual([
         ['ls-files', '-z', '--', ':(literal)tests/breakgit'],
-        ['clean', '-ffdx', '--', ':(literal)tests/breakgit']
+        ['clean', '-fdx', '--', ':(literal)tests/breakgit']
       ])
     } finally {
       await rm(repo, { recursive: true, force: true })

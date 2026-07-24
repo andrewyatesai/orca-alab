@@ -2182,8 +2182,10 @@ async function cleanUntrackedPaths(
     const chunk = filePaths.slice(i, i + BULK_CHUNK_SIZE)
     if (chunk.length > 0) {
       // Why: Git pathspec cleanup avoids raw recursive deletion through symlinked parents.
+      // Single `-f` (not `-ff`) so git fail-safe SKIPS a nested/embedded git repo rather
+      // than recursively deleting its unpushed commits when a user discards the folder.
       await gitExecFileAsync(
-        ['clean', '-ffdx', '--', ...chunk.map((filePath) => literalPathspec(filePath, options))],
+        ['clean', '-fdx', '--', ...chunk.map((filePath) => literalPathspec(filePath, options))],
         {
           ...gitOptionsForWorktree(worktreePath, options)
         }

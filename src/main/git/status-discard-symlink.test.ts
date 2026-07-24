@@ -145,7 +145,10 @@ describe('discardChanges symlink safety', () => {
     await expect(access(path.join(repo, 'ignored.log'))).resolves.toBeUndefined()
   })
 
-  it('removes untracked nested git repos selected for discard', async () => {
+  it('preserves an untracked nested git repo rather than destroying its (possibly unpushed) work', async () => {
+    // Why: a nested/embedded git repo shows up as a single `?? nested/` entry, so discard
+    // routes it to `git clean`. With single `-f` git fail-safe SKIPS another repo instead
+    // of recursively deleting its .git + unpushed commits — the do-no-harm behavior.
     const { repo } = await createRepoWithOutsideDirectory()
     const nestedRepo = path.join(repo, 'nested')
     await mkdir(nestedRepo)
@@ -154,6 +157,7 @@ describe('discardChanges symlink safety', () => {
 
     await discardChanges(repo, 'nested')
 
-    await expect(access(nestedRepo)).rejects.toThrow()
+    await expect(access(path.join(nestedRepo, '.git'))).resolves.toBeUndefined()
+    await expect(readFile(path.join(nestedRepo, 'file.txt'), 'utf8')).resolves.toBe('nested')
   })
 })

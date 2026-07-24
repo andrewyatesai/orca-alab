@@ -195,7 +195,7 @@ describe('discardChanges', () => {
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(2)
     expect(gitExecFileAsyncMock).toHaveBeenNthCalledWith(
       2,
-      ['clean', '-ffdx', '--', ':(literal)src/new-file.ts'],
+      ['clean', '-fdx', '--', ':(literal)src/new-file.ts'],
       {
         cwd: '/repo'
       }
@@ -304,7 +304,7 @@ describe('bulk git helpers', () => {
     )
     expect(gitExecFileAsyncMock).toHaveBeenNthCalledWith(
       3,
-      ['clean', '-ffdx', '--', ':(literal)src/new-file.ts', ':(literal)scratch'],
+      ['clean', '-fdx', '--', ':(literal)src/new-file.ts', ':(literal)scratch'],
       {
         cwd: '/repo'
       }

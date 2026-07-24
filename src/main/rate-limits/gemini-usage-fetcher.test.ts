@@ -89,6 +89,35 @@ describe('fetchGeminiRateLimits', () => {
     expect(result.buckets).toHaveLength(2)
   })
 
+  it('classifies a 429 quota response as rate-limited and gates on Retry-After (#9617)', async () => {
+    setupAuthJsonValid()
+    const rateLimited = {
+      ok: false,
+      status: 429,
+      headers: { get: (name: string) => (name.toLowerCase() === 'retry-after' ? '120' : null) },
+      json: async () => ({}),
+      text: async () => ''
+    } as unknown as Response
+    netFetchMock.mockImplementation((url: string) => {
+      if (url.includes('retrieveUserQuota')) {
+        return Promise.resolve(rateLimited)
+      }
+      if (url.includes('loadCodeAssist')) {
+        return Promise.resolve(makeResponse({ cloudaicompanionProject: 'proj-123' }))
+      }
+      return Promise.resolve(makeResponse({}, 404))
+    })
+
+    const result = await fetchGeminiRateLimits(true)
+    expect(result.status).toBe('error')
+    expect(result.usageMetadata?.failureKind).toBe('rate-limited')
+    expect(result.usageMetadata?.source).toBe('oauth')
+    // Why: fixed clock in beforeEach makes the gate deterministic.
+    expect(result.usageMetadata?.retryAtMs).toBe(Date.now() + 120_000)
+    // Why: the status-bar copy keys off rate-limit wording to render 'Limited'.
+    expect(result.error).toMatch(/rate[- ]?limited/i)
+  })
+
   it('deduplicates buckets', async () => {
     setupAuthJsonValid()
     netFetchMock.mockImplementation((url: string) => {

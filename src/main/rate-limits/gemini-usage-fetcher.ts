@@ -14,6 +14,7 @@ import {
   deduplicateBuckets,
   deriveSessionSummary
 } from './gemini-bucket-formatting'
+import { parseRetryAfterMs } from './retry-after'
 
 const API_TIMEOUT_MS = 10_000
 const RETRIEVE_QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota'
@@ -53,6 +54,25 @@ async function fetchQuota(accessToken: string, projectId: string): Promise<Provi
       body: JSON.stringify({ project: projectId }),
       signal: controller.signal
     })
+    if (res.status === 429) {
+      // Why: a 429 must gate refetches (retryAtMs) and read as 'Limited' rather
+      // than a generic failure — same contract as Claude's OAuth path (#9617).
+      // Keep '(429)' in the message so the 401 refresh branch never mistakes it.
+      const retryAfterMs = parseRetryAfterMs(res.headers?.get('retry-after') ?? null)
+      return {
+        provider: 'gemini',
+        session: null,
+        weekly: null,
+        updatedAt: Date.now(),
+        error: 'Gemini usage is rate limited (429)',
+        status: 'error',
+        usageMetadata: {
+          failureKind: 'rate-limited',
+          source: 'oauth',
+          ...(retryAfterMs !== null ? { retryAtMs: Date.now() + retryAfterMs } : {})
+        }
+      }
+    }
     if (!res.ok) {
       return {
         provider: 'gemini',

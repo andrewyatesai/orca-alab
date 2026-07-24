@@ -21321,6 +21321,10 @@ export class OrcaRuntimeService {
     this.graphStatus = 'reloading'
     this.setTerminalSideEffectConsumerAvailable(false)
     this.rememberDetachedPreAllocatedLeaves()
+    // Why: preserve each handle->pane mapping before the bulk clear so a handle
+    // reminted after the graph rebuilds still resolves its pane (#9163); the
+    // per-leaf path does this in invalidateLeafHandle, the bulk path must too.
+    this.preserveAllHandlePaneKeys()
     this.handles.clear()
     this.handleByLeafKey.clear()
     // Why: handleByPtyId (pre-allocated CLI handles) survives reloads so CLI agents keep control; adoptPreAllocatedHandle re-links on the new graph.
@@ -21352,6 +21356,10 @@ export class OrcaRuntimeService {
     this.tabs.clear()
     this.leaves.clear()
     this.leavesByPtyId.clear()
+    // Why: preserve each handle->pane mapping before the bulk clear so a handle
+    // reminted after reconnect still resolves its pane (#9163), matching the
+    // per-leaf invalidateLeafHandle path.
+    this.preserveAllHandlePaneKeys()
     this.handles.clear()
     this.handleByLeafKey.clear()
     // Why: pre-allocated CLI handles must survive graph unavailability so they can be re-adopted on reconnect.
@@ -23663,6 +23671,25 @@ export class OrcaRuntimeService {
     return this.paneKeyByHandleMemory.get(handle) ?? null
   }
 
+  // Why: retain a handle's pane key past its record eviction (single or bulk)
+  // so a message later addressed to the now-stale handle still resolves the
+  // pane it named (#9163 delivery-follows-identity). Only local terminal-leaf
+  // records name a pane key.
+  private preserveHandlePaneKey(handle: string, record: TerminalHandleRecord): void {
+    if (record.runtimeId === this.runtimeId && isTerminalLeafId(record.leafId)) {
+      this.rememberHandlePaneKey(handle, makePaneKey(record.tabId, record.leafId))
+    }
+  }
+
+  // Why: bulk graph teardown (renderer reload / graph unavailable) clears the
+  // whole handles map at once; without preserving each mapping first, a handle
+  // reminted after the rebuild resolves no pane key on the common reload path.
+  private preserveAllHandlePaneKeys(): void {
+    for (const [handle, record] of this.handles) {
+      this.preserveHandlePaneKey(handle, record)
+    }
+  }
+
   // Why: handle UUIDs are never reused, so a handle names exactly one pane for
   // its whole life; retaining that mapping past record eviction lets stale
   // handles still resolve their pane. Bounded FIFO so it can't grow unbounded.
@@ -24289,8 +24316,8 @@ export class OrcaRuntimeService {
     // named and follow the remint (#9163 delivery-follows-identity). Without
     // this, a first message to a just-stale handle resolves no pane key.
     const record = this.handles.get(handle)
-    if (record && record.runtimeId === this.runtimeId && isTerminalLeafId(record.leafId)) {
-      this.rememberHandlePaneKey(handle, makePaneKey(record.tabId, record.leafId))
+    if (record) {
+      this.preserveHandlePaneKey(handle, record)
     }
     this.handleByLeafKey.delete(leafKey)
     this.handles.delete(handle)

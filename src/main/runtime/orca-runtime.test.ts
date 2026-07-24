@@ -15819,6 +15819,71 @@ describe('OrcaRuntimeService', () => {
     }
   })
 
+  // Codex cxr1: the per-leaf invalidateLeafHandle path preserves a handle's
+  // pane key, but the BULK-clear teardown paths (renderer reload / graph
+  // unavailable) cleared this.handles directly. On the common renderer-reload
+  // path a handle reminted after the rebuild resolved NO pane key, so
+  // delivery-follows-identity (#9163) still failed on reload.
+  const syncBulkClearUuidLeaf = (runtime: OrcaRuntimeService, leafId: string): void => {
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab-1',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'Codex',
+          activeLeafId: leafId,
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'tab-1',
+          worktreeId: TEST_WORKTREE_ID,
+          leafId,
+          paneRuntimeId: 1,
+          // Why: a not-yet-bound leaf handle is never adopted into the ptyId-keyed
+          // CLI map, so it is genuinely evicted by the bulk clear (a live-pty
+          // handle would survive as a CLI handle and never exercise the fallback).
+          ptyId: null,
+          paneTitle: null
+        }
+      ]
+    })
+  }
+
+  const expectPreservedPaneKeyAfterBulkClear = (
+    bulkClear: (runtime: OrcaRuntimeService) => void
+  ): void => {
+    const leafId = '22222222-2222-4222-8222-222222222222'
+    const paneKey = `tab-1:${leafId}`
+    const runtime = new OrcaRuntimeService(store)
+    const internals = runtime as unknown as { paneKeyByHandleMemory: Map<string, string> }
+
+    syncBulkClearUuidLeaf(runtime, leafId)
+
+    // Mint the leaf handle WITHOUT resolving its pane key first: listTerminals /
+    // getTerminalPaneKey would populate the memory via the live/record path and
+    // mask the fix. Only the bulk-clear preserve can save it here.
+    const staleHandle = issueHandleForLeafKey(runtime, `tab-1::${leafId}`)
+    expect(staleHandle).toBeTruthy()
+    expect(internals.paneKeyByHandleMemory.has(staleHandle)).toBe(false)
+
+    // The bulk teardown clears the handles map: the record that named the pane is
+    // gone, so a message addressed to this now-stale handle can only follow the
+    // pane if the mapping was preserved before the clear (#9163).
+    bulkClear(runtime)
+    expect(runtime.getTerminalPaneKey(staleHandle)).toBe(paneKey)
+  }
+
+  it('preserves the pane-key fallback across a renderer-reload bulk clear', () => {
+    expectPreservedPaneKeyAfterBulkClear((runtime) => runtime.markRendererReloading(1))
+  })
+
+  it('preserves the pane-key fallback across a graph-unavailable bulk clear', () => {
+    expectPreservedPaneKeyAfterBulkClear((runtime) => runtime.markGraphUnavailable(1))
+  })
+
   it('keeps runtime-created PTY handles valid after graph unavailable', async () => {
     const writes: string[] = []
     const runtime = new OrcaRuntimeService(store)

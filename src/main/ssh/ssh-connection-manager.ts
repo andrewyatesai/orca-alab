@@ -26,7 +26,10 @@ export class SshConnectionManager {
 
   async connect(target: SshTarget): Promise<SshConnection> {
     const existing = this.connections.get(target.id)
-    if (existing?.getState().status === 'connected') {
+    // Why: only reuse when the pooled connection is bound to the SAME endpoint;
+    // updateTarget() mutates host/port under a stable id, so a matching id with
+    // a changed endpoint must rebuild rather than serve the pre-edit host.
+    if (existing?.getState().status === 'connected' && existing.matchesTarget(target)) {
       return existing
     }
 
@@ -40,6 +43,12 @@ export class SshConnectionManager {
     try {
       if (existing) {
         await existing.disconnect()
+        // Why: a concurrent disconnect()/disconnectAll() invalidates this attempt
+        // (clearing connectingTargets); bail before re-inserting so the user's
+        // teardown is not silently resurrected as a zombie connection.
+        if (this.connectingTargets.get(target.id) !== attempt) {
+          throw this.createSupersededError(target)
+        }
       }
 
       const conn = new SshConnection(target, this.callbacks)
@@ -54,12 +63,27 @@ export class SshConnectionManager {
         throw err
       }
 
+      // Why: a disconnect that raced this connect() succeeding must win —
+      // tear the fresh connection down instead of leaving it live under a
+      // torn-down id.
+      if (this.connectingTargets.get(target.id) !== attempt) {
+        if (this.connections.get(target.id) === conn) {
+          this.connections.delete(target.id)
+        }
+        await conn.disconnect()
+        throw this.createSupersededError(target)
+      }
+
       return conn
     } finally {
       if (this.connectingTargets.get(target.id) === attempt) {
         this.connectingTargets.delete(target.id)
       }
     }
+  }
+
+  private createSupersededError(target: SshTarget): Error {
+    return new Error(`Connection to ${target.label} was superseded by a disconnect`)
   }
 
   async disconnect(targetId: string): Promise<void> {
@@ -101,6 +125,9 @@ export class SshConnectionManager {
   }
 
   async disconnectAll(): Promise<void> {
+    // Why: invalidate every in-flight connect() attempt so one suspended mid
+    // teardown cannot re-insert a live connection into the just-cleared pool.
+    this.connectingTargets.clear()
     const disconnects = Array.from(this.connections.values()).map((c) => c.disconnect())
     await Promise.allSettled(disconnects)
     this.connections.clear()

@@ -1,18 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SshTarget } from '../../shared/ssh-types'
 
+type MockStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
+
 const mockState = vi.hoisted(() => ({
   connectResults: [] as Promise<void>[],
   instances: [] as {
     connect: ReturnType<typeof vi.fn>
     disconnect: ReturnType<typeof vi.fn>
-    status: 'connecting' | 'connected' | 'disconnected'
+    status: 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
+    target?: { host?: string; port?: number; username?: string }
   }[]
 }))
 
 vi.mock('./ssh-connection', () => ({
   SshConnection: class MockSshConnection {
-    status: 'connecting' | 'connected' | 'disconnected' = 'connecting'
+    status: MockStatus = 'connecting'
+    target: { host?: string; port?: number; username?: string } | undefined
     connect = vi.fn(async () => {
       await (mockState.connectResults.shift() ?? Promise.resolve())
       this.status = 'connected'
@@ -21,12 +25,21 @@ vi.mock('./ssh-connection', () => ({
       this.status = 'disconnected'
     })
 
-    constructor() {
+    constructor(target?: { host?: string; port?: number; username?: string }) {
+      this.target = target
       mockState.instances.push(this)
     }
 
-    getState(): { status: 'connecting' | 'connected' | 'disconnected' } {
+    getState(): { status: MockStatus } {
       return { status: this.status }
+    }
+
+    matchesTarget(target: { host?: string; port?: number; username?: string }): boolean {
+      return (
+        this.target?.host === target.host &&
+        this.target?.port === target.port &&
+        this.target?.username === target.username
+      )
     }
 
     setCallbacks(): void {}
@@ -70,5 +83,33 @@ describe('SshConnectionManager', () => {
     await expect(firstConnect).rejects.toThrow('cancelled')
     expect(mockState.instances).toHaveLength(2)
     expect(manager.getConnection(target.id)).toBe(secondConnection)
+  })
+
+  it('does not resurrect a connection when disconnect races a reconnecting connect', async () => {
+    const manager = new SshConnectionManager({ onStateChange: vi.fn() })
+    await manager.connect(target)
+    // Simulate an auto-reconnect in progress so connect() skips the connected
+    // early-return and falls through to the disconnect+rebuild path.
+    mockState.instances[0].status = 'reconnecting'
+
+    const connectPromise = manager.connect(target).catch(() => undefined)
+    const disconnectPromise = manager.disconnect(target.id)
+    await Promise.all([connectPromise, disconnectPromise])
+
+    // The user's disconnect must win — no live connection may linger under the id.
+    expect(manager.getConnection(target.id)).toBeUndefined()
+    expect(mockState.instances).toHaveLength(1)
+  })
+
+  it('rebuilds instead of returning a pooled connection bound to a stale endpoint', async () => {
+    const manager = new SshConnectionManager({ onStateChange: vi.fn() })
+    const first = await manager.connect(target)
+
+    // Same id, edited host (as updateTarget mutates in place): must not reuse.
+    const second = await manager.connect({ ...target, host: 'new.host' } as SshTarget)
+
+    expect(second).not.toBe(first)
+    expect(mockState.instances).toHaveLength(2)
+    expect(manager.getConnection(target.id)).toBe(second)
   })
 })

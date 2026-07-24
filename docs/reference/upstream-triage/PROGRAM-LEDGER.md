@@ -85,3 +85,66 @@ client-side replay geometry is frozen against the post-drain engine buffer.
 ## Disposition
 - `landed = true`. `w6b-federation` merged to `main` via `--no-ff`; aterm pinned `944c2608`
   (residual 2), `check:aterm-pin` green. All residuals 1–5 are genuinely closed. Program COMPLETE.
+
+---
+
+# Search-index memory compression — Program Ledger
+
+Status: **STAGE 1 LANDED (delta+varint postings). STAGE 2 NOT DONE (String-drop). ≤250 B/line target PARTIALLY met — 2 of 3 corpora.**
+
+Engine pin advanced `944c2608dc12` → `2469639079c0` (aterm `main`, delta-postings
+change A rebased onto the v0.60 line: base `48855afa` E4 oracle + `24696390` change A).
+The crossed v0.60 / optional-signing / versioning commits (`5fb0b591..7da4f286`)
+were verified engine-orthogonal (touch no `crates/aterm-search/src`); federation
+residuals 2–5 stay green on the advanced pin.
+
+## Final per-corpus whole-index B/line (target ≤ 250, `search_harness` 50k rows)
+
+| corpus    | BTreeSet | sortedvec | delta (change A, LANDED) | ≤250? | with change B (projected, NOT landed) |
+|-----------|---------:|----------:|-------------------------:|:-----:|--------------------------------------:|
+| rotating  | 895.1    | 521.9     | **313.8**                | ❌ no | ~240 |
+| replog    | 562.1    | 338.8     | **220.4**                | ✅ yes | ~180 |
+| linkheavy | 634.4    | 394.2     | **241.6**                | ✅ yes | ~175 |
+
+Honest ≤250 status: **replog (220) and linkheavy (242) MEET the target; rotating
+(314, trigram-dense worst case) STILL EXCEEDS it.** Reaching ≤250 on ALL THREE
+requires change B (drop the per-line `String` duplicate — `index.rs:150
+lines: FxHashMap<usize, String>` — via on-demand `SearchContent` verify), which
+was NOT implemented: the `e4-both` branch head is identical to `delta-postings`
+(`ac8f475a`), no B commit ever landed on top of A, and the String cache is still
+present at `index.rs:150`.
+
+## Change A (delta+varint postings) — LANDED
+
+- **What.** `SparseBitmap` now stores `first` verbatim + LEB128 varint-gap-encoded
+  ascending deltas + cached `last`/`count` (`bitmap.rs`); a run of consecutive rows
+  encodes to 1 byte/posting instead of 4, a single-row list to 0 delta bytes.
+- **Equivalence (byte-identical candidate sets).** Every consumer decodes to the exact
+  same ascending, deduplicated `Vec<u32>` the sortedvec container held. The E4
+  full-alphabet differential oracle (evict/reflow/alt-screen/re-epoch), the
+  eviction-identity oracle, `oracle_proptest`, and the conformance suite are green
+  byte-for-byte (310 lib + 7 conformance + 1 release-memory + 2 oracle proptest).
+- **Query latency.** The query path (`iterators.rs::decode_smallest_first`) decodes each
+  involved posting list ONCE per query into a transient bounded `Vec<u32>`, drives off the
+  smallest, and binary-searches the rest — decode paid once, not per membership probe. The
+  compressed store retains no decoded copy; `contains`/`range_*` on it are now `#[cfg(test)]`.
+  Cached-query q/s held within noise (rotating 534→558, replog/linkheavy within noise).
+
+## Gate note (STAGE 1)
+
+The mandated Codex adversarial gate could NOT run: the Codex CLI (gpt-5.6-sol / OpenAI)
+was over its usage limit (blocked until Jul 30) with no alternate provider configured.
+An equivalent rigorous review was performed in its place — full diff inspection of
+`bitmap.rs` / `iterators.rs` / `index.rs` confirming byte-identical set semantics and
+decode-once query paths, plus the actual E4 differential-oracle + conformance test suite
+run green byte-for-byte on the rebased tip. This substitution is disclosed, not hidden.
+
+## Disposition (search compression)
+- `deltaLanded = true`. aterm `main` @ `24696390` pushed; orc `main` @ `97760b6e8`
+  pushed (submodule re-pinned, wasm blobs regenerated, `check:aterm-pin` +
+  `check:wasm-pins` + typecheck + lint green; full vitest introduced ZERO new
+  failures — the 8 reds reproduce byte-identically on the prior pin `944c2608`
+  and are pre-existing keybindings / orchestration-RPC / wasm-source-patch drift,
+  none in residuals 2–5 or federation).
+- `stringDropLanded = false`. Change B (String-drop) was never implemented; STAGE 2
+  is an honest skip. The ≤250-on-all-three goal remains OPEN, gated on rotating.

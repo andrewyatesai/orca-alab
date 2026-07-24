@@ -107,6 +107,12 @@ export class ClaudeRuntimeAuthService {
     | string
     | null
     | typeof RUNTIME_CREDENTIALS_FILE_UNREADABLE = null
+  // Why: #9582 keychain analogue (darwin) — compare-and-swap baseline for the
+  // scoped active Keychain, the store Claude Code 2.1+ actually reads/writes.
+  // Sampled once per top-level sync so a materialize can't clobber a concurrent
+  // Claude refresh whose rotated single-use token would otherwise be lost.
+  private observedActiveKeychainCredentialsJson: string | null = null
+  private lastWrittenActiveKeychainCredentialsJson: string | null = null
   private hasMaterializedRuntimeAuth = false
   private hasLastWrittenOauthAccount = false
   private lastWrittenOauthAccount: unknown = null
@@ -372,6 +378,12 @@ export class ClaudeRuntimeAuthService {
     }
 
     const runtimeCredentialsJson = this.observeRuntimeCredentialsFile()
+    // Why: #9582 keychain analogue — sample the authoritative darwin store once
+    // per top-level sync so the write-time CAS can detect a concurrent Claude
+    // refresh; hold the baseline across the bounded retry (don't re-observe).
+    if (!isRetryAfterConcurrentCredentialsWrite) {
+      await this.observeActiveClaudeKeychainCredentials()
+    }
     if (this.lastSyncedAccountId === null) {
       await this.captureSystemDefaultSnapshotForManagedEntry(
         runtimeCredentialsJson,
@@ -459,14 +471,30 @@ export class ClaudeRuntimeAuthService {
     }
     if (process.platform === 'darwin') {
       // Why: Claude Code 2.1+ reads the scoped service, older builds the legacy unsuffixed one; runtime switching must satisfy both.
+      let keychainWritten: boolean
       try {
-        await writeActiveClaudeKeychainCredentialsForRuntime(credentialsJson, paths.configDir)
+        keychainWritten = await this.writeRuntimeActiveClaudeKeychainCredentials(
+          credentialsJson,
+          paths.configDir
+        )
       } catch (error) {
         await this.restoreSystemDefaultSnapshot(
           credentialsJson,
           this.readManagedOauthAccount(activeAccount)
         )
         throw error
+      }
+      if (!keychainWritten) {
+        if (!isRetryAfterConcurrentCredentialsWrite) {
+          // Why: #9582 — a concurrent Claude refresh landed in the Keychain mid-sync; re-run so read-back can adopt it instead of clobbering.
+          return this.doSyncForCurrentSelection(target, true)
+        }
+        console.warn(
+          '[claude-runtime-auth] Preserving concurrently rewritten Claude Keychain credentials after losing the write race'
+        )
+        this.lastSyncedAccountId = activeAccount.id
+        this.hasMaterializedRuntimeAuth = true
+        return
       }
     }
     const managedOauthAccount = this.readManagedOauthAccount(activeAccount)
@@ -584,7 +612,17 @@ export class ClaudeRuntimeAuthService {
           this.lastWrittenCredentialsJson = runtimeContents
           if (process.platform === 'darwin') {
             const paths = this.pathResolver.getRuntimePaths()
-            await writeActiveClaudeKeychainCredentialsForRuntime(runtimeContents, paths.configDir)
+            if (
+              !(await this.writeRuntimeActiveClaudeKeychainCredentials(
+                runtimeContents,
+                paths.configDir
+              ))
+            ) {
+              // Why: #9582 — a concurrent Claude refresh owns the Keychain now; let the next sync reconcile instead of clobbering it.
+              console.warn(
+                '[claude-runtime-auth] Skipping Keychain credentials rewrite after concurrent external write'
+              )
+            }
           }
         } else {
           // Why: #9582 — the file changed after candidates were read; let the
@@ -1314,6 +1352,7 @@ export class ClaudeRuntimeAuthService {
     this.lastWrittenOauthAccount = null
     this.hasLastWrittenOauthAccount = false
     this.hasMaterializedRuntimeAuth = false
+    this.lastWrittenActiveKeychainCredentialsJson = null
   }
 
   private getOwnedRuntimeOauthBaseline(
@@ -1486,6 +1525,7 @@ export class ClaudeRuntimeAuthService {
     this.lastWrittenOauthAccount = null
     this.hasLastWrittenOauthAccount = false
     this.hasMaterializedRuntimeAuth = false
+    this.lastWrittenActiveKeychainCredentialsJson = null
   }
 
   private hasUnchangedRuntimeCredentials(previouslyWrittenCredentialsJson: string | null): boolean {
@@ -1826,6 +1866,41 @@ export class ClaudeRuntimeAuthService {
       this.observedRuntimeCredentialsFileJson = RUNTIME_CREDENTIALS_FILE_UNREADABLE
       return null
     }
+  }
+
+  // Why: #9582 keychain analogue — sample the scoped active Keychain (the store
+  // Claude Code 2.1+ reads/writes on darwin) so the write-time CAS can tell an
+  // Orca-owned value from a concurrent Claude refresh.
+  private async observeActiveClaudeKeychainCredentials(): Promise<void> {
+    if (process.platform !== 'darwin') {
+      this.observedActiveKeychainCredentialsJson = null
+      return
+    }
+    const configDir = this.pathResolver.getRuntimePaths().configDir
+    this.observedActiveKeychainCredentialsJson =
+      await this.readActiveClaudeKeychainCredentialsBestEffort(configDir)
+  }
+
+  // Why: #9582 — on darwin the Keychain is authoritative, so only overwrite it
+  // when its current contents are ones Orca observed or wrote; never clobber a
+  // concurrent Claude refresh whose rotated single-use token we can't recover.
+  private async writeRuntimeActiveClaudeKeychainCredentials(
+    credentialsJson: string,
+    configDir: string
+  ): Promise<boolean> {
+    const current = await this.readActiveClaudeKeychainCredentialsBestEffort(configDir)
+    const safeToOverwrite =
+      current === null ||
+      current === credentialsJson ||
+      current === this.lastWrittenActiveKeychainCredentialsJson ||
+      current === this.observedActiveKeychainCredentialsJson ||
+      !this.isValidCredentialsJsonObject(current)
+    if (!safeToOverwrite) {
+      return false
+    }
+    await writeActiveClaudeKeychainCredentialsForRuntime(credentialsJson, configDir)
+    this.lastWrittenActiveKeychainCredentialsJson = credentialsJson
+    return true
   }
 
   private writeJson(targetPath: string, value: unknown): void {

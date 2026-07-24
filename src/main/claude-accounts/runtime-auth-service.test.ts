@@ -4050,4 +4050,57 @@ describe('ClaudeRuntimeAuthService', () => {
       vi.mocked(refreshClaudeOauthCredentials).mockResolvedValue(null)
     }
   })
+
+  it('does not clobber a concurrent Claude Keychain refresh on darwin (#9582)', async () => {
+    setPlatform('darwin')
+    const managedOriginal = createClaudeCredentialsJson(
+      'user@example.com',
+      'one-managed',
+      null,
+      1_000
+    )
+    // Claude Code 2.1+ writes its refreshed credential to the macOS Keychain,
+    // and the rotated blob commonly lacks email/org identity — unattributable.
+    const cliKeychainRefresh = createClaudeCredentialsWithoutEmail('one-cli-keychain', null, {
+      refreshToken: 'one-cli-keychain-refresh'
+    })
+    const managedAuthPath = createManagedClaudeAuth(
+      testState.userDataDir,
+      'account-1',
+      managedOriginal
+    )
+    const settings = createSettings({
+      claudeManagedAccounts: [
+        createClaudeAccount('account-1', managedAuthPath, { email: 'user@example.com' })
+      ],
+      activeClaudeManagedAccountId: 'account-1'
+    })
+    const store = createStore(settings)
+
+    const { ClaudeRuntimeAuthService } = await import('./runtime-auth-service')
+    const service = new ClaudeRuntimeAuthService(store as never)
+    await service.syncForCurrentSelection()
+    expect(testState.scopedKeychainCredentials).toBe(managedOriginal)
+
+    // A live external `claude` rotates its Keychain credential after Orca has
+    // observed the Keychain but before Orca materializes — the #9582 race, but
+    // in the authoritative darwin store rather than the runtime file.
+    vi.mocked(isOauthTokenExpiring).mockReturnValueOnce(true)
+    vi.mocked(refreshClaudeOauthCredentials).mockImplementationOnce(async () => {
+      testState.scopedKeychainCredentials = cliKeychainRefresh
+      testState.legacyKeychainCredentials = cliKeychainRefresh
+      testState.activeKeychainCredentials = cliKeychainRefresh
+      return null
+    })
+    await service.syncForCurrentSelection()
+
+    // The Keychain compare-and-swap must preserve the CLI's rotated credential
+    // instead of overwriting it with Orca's now-stale managed copy (whose refresh
+    // token the CLI already consumed) — otherwise the next refresh 401s (#9582).
+    expect(testState.scopedKeychainCredentials).toBe(cliKeychainRefresh)
+    expect(readManagedCredentialsForTest('account-1', managedAuthPath)).toBe(managedOriginal)
+
+    vi.mocked(isOauthTokenExpiring).mockReturnValue(false)
+    vi.mocked(refreshClaudeOauthCredentials).mockResolvedValue(null)
+  })
 })

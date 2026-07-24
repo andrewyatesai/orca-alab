@@ -4,13 +4,15 @@ import { execFileSync } from 'node:child_process'
 import { createDecipheriv, pbkdf2Sync, randomUUID } from 'node:crypto'
 import {
   appendFileSync,
+  closeSync,
+  constants as fsConstants,
   copyFileSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
-  rmSync,
   unlinkSync
 } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -25,11 +27,20 @@ function getDiagLogPath(): string {
     try {
       _diagLog = join(app.getPath('userData'), 'cookie-import-diag.log')
     } catch {
-      _diagLog = join(tmpdir(), 'orca-cookie-import-diag.log')
+      // Why: userData unavailable — never a fixed world-writable name. A fresh
+      // 0700 temp dir (unpredictable) blocks both cross-user reads and a
+      // pre-planted symlink at the log path.
+      _diagLog = join(mkdtempSync(join(tmpdir(), 'orca-cookie-import-diag-')), 'diag.log')
     }
   }
   return _diagLog
 }
+// Why: O_NOFOLLOW refuses to append through a symlink (guards the userData path
+// too); unavailable on win32, where the append flag stays the default.
+const DIAG_APPEND_FLAG =
+  process.platform === 'win32'
+    ? 'a'
+    : fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW
 function reasonWithDiagLog(reason: string): string {
   return `${reason} Details were written to ${getDiagLogPath()}.`
 }
@@ -62,11 +73,22 @@ export function summarizeCookieImportError(err: unknown): string {
 function diag(msg: string): void {
   const line = `[${new Date().toISOString()}] ${msg}\n`
   try {
-    appendFileSync(getDiagLogPath(), line)
+    // Why: open with O_NOFOLLOW (posix) so an attacker-planted symlink at the log
+    // path is refused rather than followed; write via the fd, then close.
+    const fd = openSync(getDiagLogPath(), DIAG_APPEND_FLAG)
+    try {
+      appendFileSync(fd, line)
+    } finally {
+      closeSync(fd)
+    }
   } catch {
     /* best-effort */
   }
-  console.log('[cookie-import]', msg)
+  // Why: diag output carries cookie domains/names; keep it out of stdout unless
+  // explicitly debugging so console sinks never leak it.
+  if (process.env.ORCA_COOKIE_IMPORT_DEBUG) {
+    console.log('[cookie-import]', msg)
+  }
 }
 import type {
   BrowserCookieImportResult,
@@ -80,6 +102,7 @@ import {
   type ChromiumCookieSnapshot
 } from './chromium-cookie-snapshot'
 import { resolveChromiumCookiesPath } from './chromium-cookie-path'
+import { cookieImportStagingDir } from './cookie-import-staging-path'
 
 // ---------------------------------------------------------------------------
 // Browser detection
@@ -1251,23 +1274,14 @@ async function importCookiesFromFirefox(
 ): Promise<BrowserCookieImportResult> {
   diag(`importCookiesFromFirefox: partition="${targetPartition}"`)
 
-  const tmpDir = mkdtempSync(join(tmpdir(), 'orca-cookie-import-'))
-  const tmpCookiesPath = join(tmpDir, 'cookies.sqlite')
-
+  let snapshot: ChromiumCookieSnapshot
   try {
-    copyFileSync(browser.cookiesPath, tmpCookiesPath)
-    for (const suffix of ['-wal', '-shm'] as const) {
-      const sidecar = browser.cookiesPath + suffix
-      if (existsSync(sidecar)) {
-        try {
-          copyFileSync(sidecar, tmpCookiesPath + suffix)
-        } catch {
-          /* best-effort */
-        }
-      }
-    }
+    // Why: reuse the Chromium snapshot's before/after stat + bounded retry so an
+    // open Firefox cannot pair the main DB with a racing WAL (a temporally-torn
+    // read imported as success). The helper is DB-agnostic — it snapshots the
+    // path plus its -wal/-shm sidecars.
+    snapshot = createChromiumCookieSnapshot(browser.cookiesPath)
   } catch {
-    rmSync(tmpDir, { recursive: true, force: true })
     return {
       ok: false,
       reason: 'Could not copy Firefox cookies database. Try closing Firefox first.'
@@ -1275,7 +1289,7 @@ async function importCookiesFromFirefox(
   }
 
   try {
-    const db = new DatabaseSync(tmpCookiesPath, { readOnly: true })
+    const db = new DatabaseSync(snapshot.databasePath, { readOnly: true })
     type FirefoxRow = {
       name: string
       value: string
@@ -1295,7 +1309,7 @@ async function importCookiesFromFirefox(
 
     diag(`  Firefox source has ${rows.length} cookies`)
     if (rows.length === 0) {
-      rmSync(tmpDir, { recursive: true, force: true })
+      snapshot.cleanup()
       return { ok: false, reason: 'No cookies found in Firefox.' }
     }
 
@@ -1329,7 +1343,7 @@ async function importCookiesFromFirefox(
       })
     }
 
-    rmSync(tmpDir, { recursive: true, force: true })
+    snapshot.cleanup()
 
     if (validated.length === 0) {
       return { ok: false, reason: 'No valid cookies found in Firefox.' }
@@ -1337,7 +1351,7 @@ async function importCookiesFromFirefox(
 
     return importValidatedCookies(validated, rows.length, targetPartition)
   } catch (err) {
-    rmSync(tmpDir, { recursive: true, force: true })
+    snapshot.cleanup()
     diag(`  Firefox import failed: ${err}`)
     return {
       ok: false,
@@ -1443,7 +1457,7 @@ export async function importCookiesFromBrowser(
     return { ok: false, reason: 'Target cookie database not found. Open a browser tab first.' }
   }
 
-  const stagingDir = join(app.getPath('userData'), 'cookie-import-staging')
+  const stagingDir = cookieImportStagingDir()
   const partitionSegment = partitionName.replace(/[^a-zA-Z0-9_-]/g, '_')
   const stagingCookiesPath = join(
     stagingDir,

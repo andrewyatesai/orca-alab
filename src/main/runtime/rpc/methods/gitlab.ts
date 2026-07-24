@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import { defineMethod, type RpcMethod } from '../core'
 import { OptionalFiniteNumber, OptionalString, requiredString } from '../schemas'
-import { normalizeGitLabIssueListArgs } from '../../../gitlab/gitlab-preload-args'
+import {
+  normalizeGitLabIssueListArgs,
+  normalizeGitLabSearchQuery
+} from '../../../gitlab/gitlab-preload-args'
 
 const RepoSelector = z.object({
   repo: requiredString('Missing repo selector')
@@ -157,7 +160,10 @@ export const GITLAB_METHODS: RpcMethod[] = [
         params.state,
         params.page,
         params.perPage,
-        params.query
+        // Why: cap the free-text search at the RPC/relay boundary too — the IPC
+        // path already normalizes it, and this helper exists to stop callers
+        // other than the desktop input from pushing an unbounded glab &search=.
+        normalizeGitLabSearchQuery(params.query)
       )
   }),
   defineMethod({
@@ -169,7 +175,8 @@ export const GITLAB_METHODS: RpcMethod[] = [
         params.state,
         params.page,
         params.perPage,
-        params.query
+        // Why: same RPC/relay search cap as listMRs (see normalizeGitLabSearchQuery).
+        normalizeGitLabSearchQuery(params.query)
       )
   }),
   defineMethod({

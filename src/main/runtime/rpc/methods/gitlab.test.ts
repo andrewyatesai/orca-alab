@@ -313,4 +313,49 @@ describe('gitlab RPC methods', () => {
     )
     expect(runtime.listGitLabRepoIssues).toHaveBeenNthCalledWith(2, 'id:repo-1', 'opened', '@me', 1)
   })
+
+  it('caps the free-text MR/work-item search query at the RPC boundary', async () => {
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      listGitLabRepoMRs: vi.fn().mockResolvedValue({ items: [] }),
+      listGitLabRepoWorkItems: vi.fn().mockResolvedValue({ items: [] })
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: GITLAB_METHODS })
+    const oversized = 'a'.repeat(2049)
+
+    await dispatcher.dispatch(
+      makeRequest('gitlab.listMRs', { repo: 'id:repo-1', query: oversized })
+    )
+    await dispatcher.dispatch(
+      makeRequest('gitlab.listWorkItems', { repo: 'id:repo-1', query: oversized })
+    )
+    // A trimmed, in-bounds query still reaches the runtime unchanged.
+    await dispatcher.dispatch(makeRequest('gitlab.listMRs', { repo: 'id:repo-1', query: '  bug ' }))
+
+    // Why: over the 2048-byte cap the RPC path must forward undefined, matching
+    // the IPC path's normalizeGitLabSearchQuery contract, not the raw string.
+    expect(runtime.listGitLabRepoMRs).toHaveBeenNthCalledWith(
+      1,
+      'id:repo-1',
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    )
+    expect(runtime.listGitLabRepoWorkItems).toHaveBeenCalledWith(
+      'id:repo-1',
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    )
+    expect(runtime.listGitLabRepoMRs).toHaveBeenNthCalledWith(
+      2,
+      'id:repo-1',
+      undefined,
+      undefined,
+      undefined,
+      'bug'
+    )
+  })
 })

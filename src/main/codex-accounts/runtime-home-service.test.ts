@@ -1164,6 +1164,183 @@ describe('CodexRuntimeHomeService', () => {
     }
   })
 
+  it('does not clobber a concurrent refresh that lands during the atomic-write rename window (cx7 #9582)', async () => {
+    // Why: the CAS pre-check passes, then on Windows the rename retries for ~750ms; a Codex PTY
+    // refreshing the outgoing account's runtime auth in that window must be revalidated-and-adopted,
+    // not overwritten by the later rename. We simulate the mid-write refresh via the tmp-file write.
+    const runtimeAuthPath = getRuntimeCodexAuthPath()
+    const accountAAuth = createCodexAuthJson('a@example.com', 'acct-a', 'a', 1)
+    const accountARefreshed = createCodexAuthJson('a@example.com', 'acct-a', 'a-refreshed', 2)
+    const accountBAuth = createCodexAuthJson('b@example.com', 'acct-b', 'b', 1)
+    const managedHomePathA = createManagedAuth(testState.userDataDir, 'account-a', accountAAuth)
+    const managedHomePathB = createManagedAuth(testState.userDataDir, 'account-b', accountBAuth)
+    const managedAuthPathA = join(managedHomePathA, 'auth.json')
+    const settings = createSettings({
+      codexManagedAccounts: [
+        {
+          id: 'account-a',
+          email: 'a@example.com',
+          managedHomePath: managedHomePathA,
+          providerAccountId: 'acct-a',
+          workspaceLabel: null,
+          workspaceAccountId: 'acct-a',
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        },
+        {
+          id: 'account-b',
+          email: 'b@example.com',
+          managedHomePath: managedHomePathB,
+          providerAccountId: 'acct-b',
+          workspaceLabel: null,
+          workspaceAccountId: 'acct-b',
+          createdAt: 2,
+          updatedAt: 2,
+          lastAuthenticatedAt: 2
+        }
+      ],
+      activeCodexManagedAccountId: 'account-a',
+      activeCodexManagedAccountIdsByRuntime: { host: 'account-a', wsl: {} }
+    })
+    const store = createStore(settings)
+
+    // Wrap node:fs so the FIRST forward-write tmp file (the B materialization) triggers a live A PTY
+    // rewriting the shared runtime auth.json — mimicking a refresh landing inside the rename window.
+    const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs') // eslint-disable-line @typescript-eslint/consistent-type-imports -- vi.importActual requires inline import()
+    let armInjection = false
+    let injectionFired = false
+    vi.doMock('node:fs', () => ({
+      ...actualFs,
+      writeFileSync: (path: Parameters<typeof actualFs.writeFileSync>[0], ...rest: unknown[]) => {
+        const result = (actualFs.writeFileSync as (...args: unknown[]) => unknown)(path, ...rest)
+        if (
+          armInjection &&
+          !injectionFired &&
+          typeof path === 'string' &&
+          path.startsWith(`${runtimeAuthPath}.`) &&
+          path.endsWith('.tmp')
+        ) {
+          injectionFired = true
+          actualFs.writeFileSync(runtimeAuthPath, accountARefreshed, 'utf-8')
+        }
+        return result
+      }
+    }))
+
+    try {
+      const { CodexRuntimeHomeService } = await import('./runtime-home-service')
+      const service = new CodexRuntimeHomeService(store as never)
+
+      expect(readFileSync(runtimeAuthPath, 'utf-8')).toBe(accountAAuth)
+
+      settings.activeCodexManagedAccountId = 'account-b'
+      settings.activeCodexManagedAccountIdsByRuntime = { host: 'account-b', wsl: {} }
+      armInjection = true
+      service.syncForCurrentSelection()
+
+      expect(injectionFired).toBe(true)
+      // A's mid-write refresh is preserved into A's managed storage instead of being clobbered.
+      expect(readFileSync(managedAuthPathA, 'utf-8')).toBe(accountARefreshed)
+      // B's forward write still lands after the retry adopts A's refresh.
+      expect(readFileSync(runtimeAuthPath, 'utf-8')).toBe(accountBAuth)
+    } finally {
+      vi.doUnmock('node:fs')
+    }
+  })
+
+  it('keeps the prior sync identity when both CAS attempts lose an account switch (cx8 #9582)', async () => {
+    // Why: if the forward write to B never lands (a concurrent writer wins both attempts), recording
+    // B as synced would falsely mark the switch complete; the prior identity (A) must be kept so a
+    // later sync retries B's materialization instead of trusting stale creds under the new account.
+    const runtimeAuthPath = getRuntimeCodexAuthPath()
+    const accountAAuth = createCodexAuthJson('a@example.com', 'acct-a', 'a', 1)
+    const accountBAuth = createCodexAuthJson('b@example.com', 'acct-b', 'b', 1)
+    const managedHomePathA = createManagedAuth(testState.userDataDir, 'account-a', accountAAuth)
+    const managedHomePathB = createManagedAuth(testState.userDataDir, 'account-b', accountBAuth)
+    const settings = createSettings({
+      codexManagedAccounts: [
+        {
+          id: 'account-a',
+          email: 'a@example.com',
+          managedHomePath: managedHomePathA,
+          providerAccountId: 'acct-a',
+          workspaceLabel: null,
+          workspaceAccountId: 'acct-a',
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        },
+        {
+          id: 'account-b',
+          email: 'b@example.com',
+          managedHomePath: managedHomePathB,
+          providerAccountId: 'acct-b',
+          workspaceLabel: null,
+          workspaceAccountId: 'acct-b',
+          createdAt: 2,
+          updatedAt: 2,
+          lastAuthenticatedAt: 2
+        }
+      ],
+      activeCodexManagedAccountId: 'account-a',
+      activeCodexManagedAccountIdsByRuntime: { host: 'account-a', wsl: {} }
+    })
+    const store = createStore(settings)
+
+    // Wrap node:fs so EVERY forward-write tmp file triggers a fresh A PTY refresh, making both the
+    // first attempt and its retry lose the write race.
+    const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs') // eslint-disable-line @typescript-eslint/consistent-type-imports -- vi.importActual requires inline import()
+    let armInjection = false
+    let injectionCount = 0
+    vi.doMock('node:fs', () => ({
+      ...actualFs,
+      writeFileSync: (path: Parameters<typeof actualFs.writeFileSync>[0], ...rest: unknown[]) => {
+        const result = (actualFs.writeFileSync as (...args: unknown[]) => unknown)(path, ...rest)
+        if (
+          armInjection &&
+          typeof path === 'string' &&
+          path.startsWith(`${runtimeAuthPath}.`) &&
+          path.endsWith('.tmp')
+        ) {
+          injectionCount += 1
+          actualFs.writeFileSync(
+            runtimeAuthPath,
+            createCodexAuthJson('a@example.com', 'acct-a', `a-refresh-${injectionCount}`, 1),
+            'utf-8'
+          )
+        }
+        return result
+      }
+    }))
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      const { CodexRuntimeHomeService } = await import('./runtime-home-service')
+      const service = new CodexRuntimeHomeService(store as never)
+
+      settings.activeCodexManagedAccountId = 'account-b'
+      settings.activeCodexManagedAccountIdsByRuntime = { host: 'account-b', wsl: {} }
+      armInjection = true
+      service.syncForCurrentSelection()
+
+      // Both attempts lost the race (first attempt + one retry).
+      expect(injectionCount).toBe(2)
+      expect(
+        warnSpy.mock.calls.some((call) => String(call[0]).includes('losing the write race'))
+      ).toBe(true)
+      // B's forward write never landed, so the switch must NOT be recorded as synced to B.
+      expect(
+        (service as unknown as { lastSyncedAccountId: string | null }).lastSyncedAccountId
+      ).toBe('account-a')
+      // The runtime still holds A's creds, not B's — proving the materialization genuinely failed.
+      expect(readFileSync(runtimeAuthPath, 'utf-8')).not.toBe(accountBAuth)
+    } finally {
+      warnSpy.mockRestore()
+      vi.doUnmock('node:fs')
+    }
+  })
+
   it('reads back selected-account refreshes without ambiguity from duplicate identities', async () => {
     const runtimeAuthPath = getRuntimeCodexAuthPath()
     const account1Auth = createCodexAuthJson('same@example.com', 'acct-same', 'one', 1)

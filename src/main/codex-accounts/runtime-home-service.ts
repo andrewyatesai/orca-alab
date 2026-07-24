@@ -31,7 +31,7 @@ import { app } from 'electron'
 import type { CodexManagedAccount } from '../../shared/types'
 import type { Store } from '../persistence'
 import { WSL_CODEX_RUNTIME_HOME_SEGMENTS } from '../pty/codex-home-wsl-env'
-import { writeFileAtomically } from './fs-utils'
+import { ConcurrentReplaceConflictError, writeFileAtomically } from './fs-utils'
 import {
   getOrcaManagedCodexHomePath,
   getSystemCodexHomePath,
@@ -388,7 +388,10 @@ export class CodexRuntimeHomeService {
       console.warn(
         '[codex-runtime-home] Preserving concurrently rewritten Codex runtime auth after losing the write race'
       )
-      this.lastSyncedAccountId = activeAccount.id
+      // Why: #9582 — the forward write to the active account never landed, so the runtime auth.json
+      // still holds the concurrent writer's creds (the prior identity). Recording activeAccount as
+      // synced would falsely mark the switch complete and let a launch serve those creds under the
+      // new account; keep the prior identity so the next sync retries the failed materialization.
       return
     }
     this.lastSyncedAccountId = activeAccount.id
@@ -1499,8 +1502,25 @@ export class CodexRuntimeHomeService {
       return true
     }
     // Why: #9582 CAS — a live Codex PTY may refresh the shared runtime auth.json between this pass's read-back and the write; bail so the caller re-runs and read-back adopts the refresh instead of clobbering it.
-    if (options?.requireObservedRuntimeFile && !this.runtimeAuthFileWasObserved()) {
-      return false
+    if (options?.requireObservedRuntimeFile) {
+      if (!this.runtimeAuthFileWasObserved()) {
+        return false
+      }
+      try {
+        // Why: #9582 — the up-front CAS check races the ~750ms Windows rename-retry window; revalidate
+        // before every replace attempt so a refresh landing mid-backoff aborts the write instead of losing.
+        writeFileAtomically(runtimeAuthPath, contents, {
+          mode: 0o600,
+          revalidateBeforeReplace: () => this.runtimeAuthFileWasObserved()
+        })
+      } catch (error) {
+        if (error instanceof ConcurrentReplaceConflictError) {
+          return false
+        }
+        throw error
+      }
+      this.lastWrittenAuthJson = contents
+      return true
     }
     writeFileAtomically(runtimeAuthPath, contents, { mode: 0o600 })
     this.lastWrittenAuthJson = contents

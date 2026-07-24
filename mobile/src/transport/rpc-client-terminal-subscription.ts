@@ -64,6 +64,18 @@ export function buildStreamUnsubscribe(
   return null
 }
 
+/** Unsubscribe method name for a subscriptionId-keyed server subscription
+ *  (accounts, notifications, runtime.clientEvents, browser.screencast). Kept
+ *  explicit because browser.screencast has no `.subscribe` suffix, so a naive
+ *  `.replace(/\.subscribe$/, '.unsubscribe')` would re-emit `browser.screencast`
+ *  (a re-subscribe) instead of tearing the stream down. */
+export function serverSubscriptionUnsubscribeMethod(method: string): string {
+  if (method === 'browser.screencast') {
+    return 'browser.screencast.unsubscribe'
+  }
+  return method.replace(/\.subscribe$/, '.unsubscribe')
+}
+
 // Why: resolves a terminal handle to its live binary streamId from the rpc
 // client's per-connection routing maps, so callers never track raw streamIds.
 export function findRoutableTerminalStreamId(

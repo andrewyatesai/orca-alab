@@ -4,8 +4,10 @@ import {
   type TerminalSnapshotState
 } from './rpc-client-terminal-binary-frame'
 import {
+  buildStreamUnsubscribe,
   buildTerminalUnsubscribeParams,
   findRoutableTerminalStreamId,
+  serverSubscriptionUnsubscribeMethod,
   updateTerminalSubscriptionViewport
 } from './rpc-client-terminal-subscription'
 import type { RpcClient } from './rpc-client'
@@ -23,6 +25,9 @@ type StreamRecord = {
   streamIds: Set<number>
   subscriptionId?: string
   cancelled: boolean
+  // Why: the subscribe frame reached the host; a late `ready` may still arrive,
+  // so a cancel before the response must tombstone until we can unsubscribe.
+  sent: boolean
 }
 
 type StreamManagerOptions = {
@@ -52,13 +57,19 @@ export class MobileRelayRpcStreams {
       listener,
       onBinaryFrame: subscribeOptions?.onBinaryFrame,
       streamIds: new Set(),
-      cancelled: false
+      cancelled: false,
+      sent: false
     }
     this.streams.set(id, stream)
     void this.options
       .waitForConnected()
       .then(() => {
-        if (!stream.cancelled && !this.options.sendFrame({ id, method, params: stream.params })) {
+        if (stream.cancelled) {
+          return
+        }
+        if (this.options.sendFrame({ id, method, params: stream.params })) {
+          stream.sent = true
+        } else {
           this.remove(id)
         }
       })
@@ -98,6 +109,13 @@ export class MobileRelayRpcStreams {
       const metadata = result as { subscriptionId?: unknown; streamId?: unknown; type?: unknown }
       if (typeof metadata.subscriptionId === 'string') {
         stream.subscriptionId = metadata.subscriptionId
+        // Why: cancel arrived before this `ready`; now that the host has given us
+        // a subscriptionId we can finally tear the tombstoned subscription down.
+        if (stream.cancelled) {
+          this.sendServerUnsubscribe(stream.method, metadata.subscriptionId)
+          this.remove(response.id)
+          return true
+        }
       }
       if (typeof metadata.streamId === 'number') {
         stream.streamIds.add(metadata.streamId)
@@ -153,14 +171,44 @@ export class MobileRelayRpcStreams {
           params
         })
       }
-    } else if (stream.subscriptionId) {
+      this.remove(id)
+      return
+    }
+    // Why: worktree/agent-keyed subscriptions (session.tabs, nativeChat) carry
+    // their teardown key in the subscribe params, so the host can be told to
+    // unsubscribe without waiting for — or ever seeing — a subscriptionId.
+    const paramUnsub = buildStreamUnsubscribe(stream.method, stream.params)
+    if (paramUnsub) {
       this.options.sendFrame({
         id: this.options.nextId(),
-        method: stream.method.replace(/\.subscribe$/, '.unsubscribe'),
-        params: { subscriptionId: stream.subscriptionId }
+        method: paramUnsub.method,
+        params: paramUnsub.params
       })
+      this.remove(id)
+      return
     }
-    this.remove(id)
+    // subscriptionId-keyed server subscriptions (accounts, notifications,
+    // runtime.clientEvents, browser.screencast): the host keys teardown by the
+    // subscriptionId it returned in the subscribe response.
+    if (stream.subscriptionId) {
+      this.sendServerUnsubscribe(stream.method, stream.subscriptionId)
+      this.remove(id)
+      return
+    }
+    // Why: the subscribe frame was sent but no subscriptionId has arrived — keep
+    // a tombstone so the late `ready` fires the unsubscribe (handleResponse).
+    // Unsent (still-queued) streams never reached the host, so just drop them.
+    if (!stream.sent) {
+      this.remove(id)
+    }
+  }
+
+  private sendServerUnsubscribe(method: string, subscriptionId: string): void {
+    this.options.sendFrame({
+      id: this.options.nextId(),
+      method: serverSubscriptionUnsubscribeMethod(method),
+      params: { subscriptionId }
+    })
   }
 
   private remove(id: string): void {

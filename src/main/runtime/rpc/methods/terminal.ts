@@ -1702,6 +1702,14 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
       if (!sendBinary || !registerBinaryStreamHandler || !connectionId) {
         throw new Error('binary_terminal_stream_required')
       }
+      // Why: a frame dispatched from a queued batch after the socket closed enters
+      // with an already-aborted signal; bail before registering the control handler
+      // or subscription cleanup, which the connection sweep already ran past and
+      // would never reap (mirrors terminal.subscribe). Otherwise await multiplexClosed
+      // never settles for the dead connection.
+      if (signal?.aborted) {
+        return
+      }
 
       let closed = false
       let cursor = 0

@@ -14,6 +14,7 @@ import {
 } from './mobile-native-chat-ask'
 import { type MobileNativeChatTab, resolveMobileNativeChat } from './mobile-native-chat-eligibility'
 import { detectAgentPermission } from './mobile-native-chat-permission'
+import { mobileNativeChatSessionIdentity } from './mobile-native-chat-session-identity'
 import { parseAgentQuestion } from './mobile-native-chat-question'
 import { openMobileNativeChatFile } from './mobile-native-chat-open-file'
 import { useMobileNativeChatPermissionSend } from './mobile-native-chat-permission-send'
@@ -33,6 +34,9 @@ export type MobileNativeChatController = {
   isTabChatView: (tabId: string) => boolean
   toggleTabChatView: (tabId: string) => void
   showNativeChat: boolean
+  /** Remount key for the chat view so per-session UI state (scroll, atBottom,
+   *  expanded tools, send-failed banner) resets on a session/tab switch. */
+  nativeChatViewKey: string
   showNativeChatRef: MutableRefObject<boolean>
   /** Resolved agent for the active chat tab (names the empty-state copy). */
   nativeChatAgent: string | null
@@ -97,6 +101,10 @@ export function useMobileNativeChatController(args: {
   activeChatAgentRef.current = activeChatResolution?.agent ?? null
 
   const activeChatSessionId = activeChatResolution?.sessionId ?? null
+  // Identity of the visible chat surface (tab + provider session), excluding the
+  // terminal handle: remounts the view and resets the stream throttle on a switch,
+  // but not on a same-session reconnect.
+  const nativeChatViewKey = mobileNativeChatSessionIdentity(activeSessionTabId, activeChatSessionId)
   const streamIdentity = `${hostId}\0${worktreeId}\0${activeSessionTabId ?? ''}\0${activeChatSessionId ?? ''}\0${activeHandleRef.current ?? ''}`
 
   const nativeChatSession = useMobileNativeChatSession({
@@ -126,7 +134,10 @@ export function useMobileNativeChatController(args: {
   // part, and each one re-renders and re-parses the whole accumulated markdown.
   const nativeChatStreamingText = useThrottledLatestValue(
     nativeChatAgentWorking ? nativeChatStatus?.lastAssistantMessage : undefined,
-    NATIVE_CHAT_STREAM_THROTTLE_MS
+    NATIVE_CHAT_STREAM_THROTTLE_MS,
+    // Reset on a session/tab switch so the prior session's trailing frame cannot
+    // render as a synthetic streaming bubble over the newly-active chat.
+    nativeChatViewKey
   )
   const {
     permission: nativeChatPermission,
@@ -268,6 +279,7 @@ export function useMobileNativeChatController(args: {
     isTabChatView,
     toggleTabChatView,
     showNativeChat,
+    nativeChatViewKey,
     showNativeChatRef,
     nativeChatAgent: activeChatResolution?.agent ?? null,
     chatComposerText,

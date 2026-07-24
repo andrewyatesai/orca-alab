@@ -36,6 +36,7 @@ export function MobileNativeChatOverlay({
   return (
     <View style={styles.overlay}>
       <MobileNativeChatView
+        key={controller.nativeChatViewKey}
         messages={session.messages}
         status={session.status}
         error={session.error}

@@ -82,13 +82,33 @@ export const ANTI_DETECTION_SCRIPT = `(function() {
   ]);
   const origQuery = Permissions.prototype.query;
   Permissions.prototype.query = function(desc) {
-    if (desc.name === 'notifications') {
-      return Promise.resolve({ state: notificationPermissionState(), onchange: null });
+    // Why: only override the resolved state — a real PermissionStatus is an
+    // EventTarget with addEventListener/onchange, so fabricating a plain object
+    // crashes pages that subscribe to permission changes (and is itself a bot
+    // signal). Delegate to the native query and shadow only its state.
+    var overrideState = null;
+    if (desc && desc.name === 'notifications') {
+      overrideState = notificationPermissionState;
+    } else if (desc && promptPerms.has(desc.name)) {
+      overrideState = function() { return 'prompt'; };
     }
-    if (promptPerms.has(desc.name)) {
-      return Promise.resolve({ state: 'prompt', onchange: null });
+    if (!overrideState) {
+      return origQuery.call(this, desc);
     }
-    return origQuery.call(this, desc);
+    return origQuery.call(this, desc).then(function(status) {
+      try {
+        Object.defineProperty(status, 'state', {
+          configurable: true,
+          enumerable: true,
+          get: overrideState
+        });
+      } catch {}
+      return status;
+    }, function() {
+      // Why: some ungranted descriptors reject in Electron; fall back to a
+      // minimal stand-in so detection still reads a prompt/granted state.
+      return { state: overrideState(), onchange: null };
+    });
   };
   // Why: Electron may report Notification.permission as 'denied' by default
   // whereas real Chrome reports 'default' for sites that haven't been granted

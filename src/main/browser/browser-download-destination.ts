@@ -5,6 +5,17 @@ import { app } from 'electron'
 
 const MAX_BROWSER_DOWNLOAD_COLLISION_ATTEMPTS = 1_000
 const WINDOWS_RESERVED_FILENAME_CHARS = new Set(['<', '>', ':', '"', '|', '?', '*'])
+// Why: on win32 these names resolve to devices, not files, regardless of
+// directory or extension — a remote-controlled filename of NUL/CON/COM1 would
+// silently discard or misdirect the download. Compared lowercase.
+const WINDOWS_RESERVED_DEVICE_NAMES = new Set([
+  'con',
+  'prn',
+  'aux',
+  'nul',
+  ...Array.from({ length: 9 }, (_, index) => `com${index + 1}`),
+  ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`)
+])
 
 export type BrowserDownloadDestination = {
   filename: string
@@ -18,7 +29,14 @@ type BrowserDownloadDestinationOptions = {
   platform?: NodeJS.Platform
 }
 
-function normalizeFilename(filename: string): string {
+// Why: Windows matches a reserved device name on the segment before the first
+// dot, so guard NUL.pdf and CON.tar.gz alike by prefixing the whole name.
+function neutralizeWindowsReservedDeviceName(filename: string): string {
+  const firstSegment = filename.split('.')[0] ?? ''
+  return WINDOWS_RESERVED_DEVICE_NAMES.has(firstSegment.toLowerCase()) ? `_${filename}` : filename
+}
+
+function normalizeFilename(filename: string, platform: NodeJS.Platform): string {
   // Normalize separators first so basename strips paths from any platform.
   const normalizedSeparators = filename.replace(/\\/g, '/')
   const rawBasename = path.posix.basename(normalizedSeparators).trim()
@@ -32,7 +50,8 @@ function normalizeFilename(filename: string): string {
     .join('')
     .replace(/[. ]+$/g, '')
     .trim()
-  return safeName || 'download'
+  const cleaned = safeName || 'download'
+  return platform === 'win32' ? neutralizeWindowsReservedDeviceName(cleaned) : cleaned
 }
 
 function buildCollisionCandidate(filename: string, suffix: number): string {
@@ -65,7 +84,7 @@ export class BrowserDownloadDestinationReservations {
   }
 
   reserve(filename: string): BrowserDownloadDestination {
-    const safeFilename = normalizeFilename(filename)
+    const safeFilename = normalizeFilename(filename, this.platform)
     const downloadsPath = this.downloadsPath()
 
     for (let attempt = 0; attempt < MAX_BROWSER_DOWNLOAD_COLLISION_ATTEMPTS; attempt += 1) {

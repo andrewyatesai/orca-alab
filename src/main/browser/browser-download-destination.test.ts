@@ -86,6 +86,35 @@ describe('BrowserDownloadDestinationReservations', () => {
     expect(macReservations.reserve('report.csv').filename).toBe('report (1).csv')
   })
 
+  it('neutralizes Windows reserved device names so downloads cannot target a device', () => {
+    const windowsDownloads = 'C:\\Users\\orca\\Downloads'
+    const reservations = new BrowserDownloadDestinationReservations({
+      downloadsPath: windowsDownloads,
+      pathExists: vi.fn(() => false),
+      platform: 'win32'
+    })
+
+    // NUL/CON/COM1 resolve to devices on win32 regardless of extension; prefix
+    // them so setSavePath targets a real file instead of discarding the payload.
+    expect(reservations.reserve('NUL.pdf').filename).toBe('_NUL.pdf')
+    expect(reservations.reserve('CON').filename).toBe('_CON')
+    expect(reservations.reserve('com1.tar.gz').filename).toBe('_com1.tar.gz')
+    expect(reservations.reserve('lpt9.txt').filename).toBe('_lpt9.txt')
+    // A non-reserved lookalike is left untouched.
+    expect(reservations.reserve('console.log').filename).toBe('console.log')
+  })
+
+  it('leaves reserved device names untouched on non-Windows platforms', () => {
+    const reservations = new BrowserDownloadDestinationReservations({
+      downloadsPath,
+      pathExists: vi.fn(() => false),
+      platform: 'linux'
+    })
+
+    expect(reservations.reserve('NUL.pdf').filename).toBe('NUL.pdf')
+    expect(reservations.reserve('CON').filename).toBe('CON')
+  })
+
   it('fails after bounded collision attempts', () => {
     const reservations = new BrowserDownloadDestinationReservations({
       downloadsPath,

@@ -210,6 +210,13 @@ export function openPopupWithOriginBar(
       // pages often notify the opener from unload.
       contentWebContents.close()
     }
+    // Why: Electron does not auto-destroy a WebContentsView's WebContents when
+    // its window closes (JS-owned lifetime), so the origin-bar renderer leaks a
+    // process + WebContents per popup open/close cycle unless closed explicitly.
+    if (!originBarView.webContents.isDestroyed()) {
+      originBarView.webContents.off('did-finish-load', renderOrigin)
+      originBarView.webContents.close()
+    }
     for (const listener of closedListeners) {
       listener()
     }

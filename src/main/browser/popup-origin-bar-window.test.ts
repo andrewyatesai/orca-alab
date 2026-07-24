@@ -322,6 +322,18 @@ describe('openPopupWithOriginBar', () => {
     expect(html).toMatch(/#origin\s*{[^}]*direction:\s*ltr/)
   })
 
+  it('closes the origin-bar WebContents when the window closes so it cannot leak', () => {
+    const adopted = createFakeWebContents()
+    openPopupWithOriginBar({ webContents: adopted as never }, 'https://example.com/')
+    const { bar } = lastViews()
+
+    lastWindow().emit('closed')
+
+    // Electron does not auto-destroy a WebContentsView's contents on window
+    // close, so the bar renderer must be closed explicitly each cycle.
+    expect(bar.webContents.close).toHaveBeenCalledTimes(1)
+  })
+
   it('closes the popup content and notifies listeners when the window closes', () => {
     const adopted = createFakeWebContents()
     const onClosed = vi.fn()

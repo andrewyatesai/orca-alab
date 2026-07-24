@@ -83,6 +83,52 @@ describe('ANTI_DETECTION_SCRIPT', () => {
     })
   })
 
+  it('returns a real PermissionStatus (EventTarget) for prompt permissions, only overriding state', async () => {
+    // Regression: fabricating { state, onchange } dropped addEventListener, so a
+    // page doing query('camera').addEventListener('change', ...) threw TypeError.
+    const changeHandler = (): void => {}
+    class Permissions {
+      query(desc: { name: string }): Promise<Record<string, unknown>> {
+        // A faithful native result: an EventTarget-like object with the API.
+        return Promise.resolve({
+          name: desc.name,
+          state: 'denied',
+          onchange: null,
+          addEventListener: changeHandler,
+          removeEventListener: changeHandler,
+          dispatchEvent: () => true
+        })
+      }
+    }
+    const Notification = {} as Record<string, unknown>
+    Object.defineProperty(Notification, 'permission', { configurable: true, get: () => 'default' })
+    const context = {
+      Date,
+      Object,
+      Promise,
+      Set,
+      performance: { now: () => 0 },
+      window: {},
+      navigator: { plugins: [], languages: [], permissions: new Permissions() },
+      Permissions,
+      Notification
+    } as Record<string, unknown>
+
+    runInNewContext(ANTI_DETECTION_SCRIPT, context)
+
+    const status = (await (
+      context.navigator as {
+        permissions: { query: (d: { name: string }) => Promise<Record<string, unknown>> }
+      }
+    ).permissions.query({ name: 'camera' })) as Record<string, unknown>
+
+    expect(status.state).toBe('prompt')
+    expect(typeof status.addEventListener).toBe('function')
+    expect(() =>
+      (status.addEventListener as (t: string, cb: () => void) => void)('change', () => {})
+    ).not.toThrow()
+  })
+
   it('preserves notification permission when Electron already reports a grant', async () => {
     const context = createContext({
       nativeNotificationPermission: 'granted',

@@ -24,7 +24,6 @@ import {
   Plus,
   Moon,
   Filter,
-  Check,
   UserCircle,
   PanelLeftClose
 } from 'lucide-react-native'
@@ -60,6 +59,7 @@ import { ActionSheetContent } from '../../../src/components/ActionSheetModal'
 import { buildWorktreeNavigationActions } from '../../../src/agent-history/worktree-navigation-actions'
 import { ConfirmModal } from '../../../src/components/ConfirmModal'
 import { BottomDrawer } from '../../../src/components/BottomDrawer'
+import { WorktreeFilterDrawer } from '../../../src/components/WorktreeFilterDrawer'
 import { ProtocolBlockScreen } from '../../../src/components/ProtocolBlockScreen'
 import { AuthFailedBanner } from '../../../src/components/AuthFailedBanner'
 import { MobileSearchField } from '../../../src/components/MobileSearchField'
@@ -1244,51 +1244,17 @@ export function HostScreen({
         onClose={() => setShowGroupPicker(false)}
       />
 
-      <BottomDrawer visible={showFilterModal} onClose={() => setShowFilterModal(false)}>
-        <View style={styles.filterModalHeader}>
-          <Text style={styles.filterModalTitle}>Filter</Text>
-          {activeFilterCount > 0 && (
-            <Pressable onPress={clearFilters}>
-              <Text style={styles.clearFiltersText}>Clear filters</Text>
-            </Pressable>
-          )}
-        </View>
-
-        <Text style={styles.filterSectionLabel}>Workspaces</Text>
-        <View style={styles.filterGroup}>
-          <Pressable style={styles.filterRow} onPress={toggleHideSleeping}>
-            <Text style={styles.filterRowText}>Hide sleeping</Text>
-            {filters.hideSleeping && <Check size={14} color={colors.textPrimary} />}
-          </Pressable>
-          <View style={styles.filterSeparator} />
-          <Pressable style={styles.filterRow} onPress={toggleHideDefaultBranch}>
-            <Text style={styles.filterRowText}>Hide default branch</Text>
-            {filters.hideDefaultBranch && <Check size={14} color={colors.textPrimary} />}
-          </Pressable>
-        </View>
-
-        {uniqueRepos.length > 1 && (
-          <>
-            <Text style={styles.filterSectionLabel}>Repositories</Text>
-            <View style={styles.filterGroup}>
-              {uniqueRepos.map((repo, i) => (
-                <View key={repo.id}>
-                  {i > 0 && <View style={styles.filterSeparator} />}
-                  <Pressable style={styles.filterRow} onPress={() => toggleRepoFilter(repo.id)}>
-                    <View style={[styles.filterRepoDot, { backgroundColor: repo.color }]} />
-                    <Text style={styles.filterRowText} numberOfLines={1}>
-                      {repo.name}
-                    </Text>
-                    {filters.filterRepoIds.has(repo.id) && (
-                      <Check size={14} color={colors.textPrimary} />
-                    )}
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          </>
-        )}
-      </BottomDrawer>
+      <WorktreeFilterDrawer
+        visible={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={clearFilters}
+        filters={filters}
+        onToggleHideSleeping={toggleHideSleeping}
+        onToggleHideDefaultBranch={toggleHideDefaultBranch}
+        uniqueRepos={uniqueRepos}
+        onToggleRepoFilter={toggleRepoFilter}
+      />
 
       {/* Worktree long-press action sheet (inline confirm to avoid double-Modal lag) */}
       <BottomDrawer
@@ -1639,59 +1605,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.borderSubtle,
     marginLeft: spacing.lg + 24,
     marginRight: spacing.lg
-  },
-  filterModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.xs,
-    marginBottom: spacing.md
-  },
-  filterModalTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textPrimary
-  },
-  clearFiltersText: {
-    fontSize: 13,
-    color: colors.textSecondary
-  },
-  filterSectionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing.xs,
-    paddingHorizontal: spacing.xs
-  },
-  filterGroup: {
-    backgroundColor: colors.bgPanel,
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: spacing.md
-  },
-  filterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md + 2,
-    gap: spacing.sm
-  },
-  filterRowText: {
-    flex: 1,
-    fontSize: typography.bodySize,
-    color: colors.textPrimary
-  },
-  filterSeparator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.borderSubtle,
-    marginHorizontal: spacing.md
-  },
-  filterRepoDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4
   },
   confirmContent: {
     paddingBottom: spacing.lg

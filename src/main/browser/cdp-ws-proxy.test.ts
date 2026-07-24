@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { request as httpRequest } from 'node:http'
 import WebSocket from 'ws'
 import { CdpWsProxy } from './cdp-ws-proxy'
 import {
@@ -54,6 +55,71 @@ describe('CdpWsProxy', () => {
 
   it('attaches debugger on start', () => {
     expect(mock.webContents.debugger.attach).toHaveBeenCalledWith('1.3')
+  })
+
+  // ── DNS-rebinding / cross-origin trust boundary ──
+
+  function httpGet(pathname: string, host: string): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(
+        { host: '127.0.0.1', port: proxy.getPort(), path: pathname, headers: { host } },
+        (res) => {
+          let body = ''
+          res.on('data', (chunk) => {
+            body += chunk
+          })
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+        }
+      )
+      req.on('error', reject)
+      req.end()
+    })
+  }
+
+  it('rejects /json discovery when the Host header is not a loopback authority', async () => {
+    const spoofed = await httpGet('/json/version', 'evil.example.com')
+    expect(spoofed.status).toBe(403)
+    expect(spoofed.body).toBe('')
+
+    const legit = await httpGet('/json/version', `127.0.0.1:${proxy.getPort()}`)
+    expect(legit.status).toBe(200)
+    expect(legit.body).toContain('webSocketDebuggerUrl')
+  })
+
+  it('rejects a cross-origin WebSocket upgrade but accepts the Origin-less loopback client', async () => {
+    const evil = new WebSocket(endpoint, { origin: 'https://evil.example.com' })
+    await expect(
+      new Promise((_resolve, reject) => {
+        evil.on('open', () => reject(new Error('cross-origin upgrade was accepted')))
+        evil.on('error', () => reject(new Error('rejected')))
+        evil.on('unexpected-response', (_req, res) => reject(new Error(`http ${res.statusCode}`)))
+      })
+    ).rejects.toBeTruthy()
+
+    // The trusted node client sends no Origin header and still connects.
+    const client = await connect(endpoint)
+    expect(client.readyState).toBe(WebSocket.OPEN)
+    client.close()
+  })
+
+  it('drops forwarded events once the client send buffer is saturated', async () => {
+    const sent: string[] = []
+    const fakeClient = {
+      readyState: WebSocket.OPEN,
+      bufferedAmount: 32 * 1024 * 1024,
+      send: (data: string) => sent.push(data),
+      close: () => {}
+    }
+    ;(proxy as unknown as { client: unknown }).client = fakeClient
+
+    mock.emit('message', {}, 'Network.responseReceived', { requestId: '1' })
+    mock.emit('message', {}, 'Network.responseReceived', { requestId: '2' })
+    expect(sent).toHaveLength(0)
+
+    // With the buffer drained, forwarding resumes.
+    fakeClient.bufferedAmount = 0
+    mock.emit('message', {}, 'Network.responseReceived', { requestId: '3' })
+    expect(sent).toHaveLength(1)
   })
 
   // ── CDP message ID correlation ──

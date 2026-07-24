@@ -8,6 +8,12 @@ import { ANTI_DETECTION_SCRIPT } from './anti-detection'
 import { acquireElectronDebugger, type ElectronDebuggerLease } from './electron-debugger-lease'
 
 const LIFECYCLE_PRIMING_TIMEOUT_MS = 1_000
+// Why: bound outbound buffering so a flooding (untrusted) page's CDP event
+// stream cannot grow the main-process ws send buffer without limit (OOM DoS).
+const MAX_OUTBOUND_BUFFERED_BYTES = 8 * 1024 * 1024
+// Why: refuse frames larger than any real CDP command so a hostile local
+// process cannot force unbounded inbound allocation.
+const MAX_INBOUND_FRAME_BYTES = 256 * 1024 * 1024
 
 export class CdpWsProxy {
   // Why: holds each session's last DOM.focus params to replay right before the next
@@ -40,7 +46,17 @@ export class CdpWsProxy {
     await this.attachDebugger()
     return new Promise<string>((resolve, reject) => {
       this.httpServer = createServer((req, res) => this.handleHttpRequest(req, res))
-      this.wss = new WebSocketServer({ server: this.httpServer })
+      this.wss = new WebSocketServer({
+        server: this.httpServer,
+        maxPayload: MAX_INBOUND_FRAME_BYTES,
+        // Why: the `ws` library performs NO Origin/Host validation by default, so
+        // a DNS-rebinding page (attacker.com → 127.0.0.1) could open a CDP
+        // WebSocket and drive the authenticated browser. Accept only Origin-less
+        // (non-browser) upgrades whose Host is a loopback authority: the
+        // agent-browser node client sends no Origin; any browser-originated
+        // cross-origin connection always does.
+        verifyClient: (info) => this.isAllowedProxyUpgrade(info.req)
+      })
       const failStart = (error: Error): void => {
         this.httpServer?.removeListener('error', onListenError)
         this.wss?.close()
@@ -174,7 +190,38 @@ export class CdpWsProxy {
     }
   }
 
+  // Why: mirror Chrome DevTools' Host check — the discovery endpoints and the WS
+  // upgrade are reachable only via a loopback authority, which is what defeats
+  // DNS rebinding (a rebound page carries the attacker's Host header).
+  private isAllowedLoopbackHost(host: string | undefined): boolean {
+    if (!host) {
+      return false
+    }
+    return (
+      host === `127.0.0.1:${this.port}` ||
+      host === `localhost:${this.port}` ||
+      host === `[::1]:${this.port}`
+    )
+  }
+
+  private isAllowedProxyUpgrade(req: IncomingMessage): boolean {
+    // Why: a browser always sends Origin on a cross-context WebSocket; the
+    // trusted node client never does. Reject any Origin-bearing upgrade outright,
+    // then require a loopback Host so rebinding can't smuggle one through.
+    if (req.headers.origin != null) {
+      return false
+    }
+    return this.isAllowedLoopbackHost(req.headers.host)
+  }
+
   private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
+    // Why: fail closed on cross-origin discovery — never echo the ws URL to a
+    // request whose Host is not a loopback authority (DNS-rebinding defense).
+    if (!this.isAllowedLoopbackHost(req.headers.host)) {
+      res.writeHead(403)
+      res.end()
+      return
+    }
     const url = req.url ?? ''
     if (url === '/json/version' || url === '/json/version/') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -240,6 +287,13 @@ export class CdpWsProxy {
         string | undefined
       ]
       if (!this.client || this.client.readyState !== WebSocket.OPEN) {
+        return
+      }
+      // Why: drop unsolicited events (not command responses) once the client's
+      // send buffer is already saturated — a flooding page must not grow the
+      // main-process heap without bound while the consumer lags. Command
+      // responses go through send() and are never dropped here.
+      if (this.client.bufferedAmount > MAX_OUTBOUND_BUFFERED_BYTES) {
         return
       }
       // Why: Electron passes empty string (not undefined) for root-session events, but

@@ -79,16 +79,43 @@ export async function resolveUniqueBranchName(
   return null
 }
 
+async function readHead(exec: GitExec): Promise<string> {
+  return (await exec(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
+}
+
 /**
- * Rename `currentBranch` to `newBranch` (`git branch -m <currentBranch> <newBranch>`).
- * Why: the two-arg form pins the source by name so a concurrent checkout in the same
- * worktree between validation and exec can't make single-arg `branch -m` rename whatever
- * branch HEAD now points at; if HEAD moved, git fails closed instead of mislabeling it.
+ * Rename `currentBranch` to `newBranch`, but only while the user is still on it.
+ * Why: two-arg `git branch -m <currentBranch> <newBranch>` renames by name and exits 0
+ * even when currentBranch is NOT checked out, so a concurrent checkout in the same
+ * worktree between validation and exec would let the rename settle and the caller
+ * relabel a branch HEAD no longer points at (cxg2). Fail closed: refuse if HEAD already
+ * moved, and — since HEAD only follows the rename when currentBranch was the checked-out
+ * one — revert and throw if the post-rename HEAD isn't newBranch (a HEAD move that raced
+ * the exec itself). No relabel unless the user is still on the branch being renamed.
  */
 export async function renameCurrentBranch(
   exec: GitExec,
   currentBranch: string,
   newBranch: string
 ): Promise<void> {
+  const headBefore = await readHead(exec)
+  if (headBefore !== currentBranch) {
+    throw new Error(
+      `Refusing to rename "${currentBranch}": HEAD moved to "${headBefore}" before the rename.`
+    )
+  }
   await exec(['branch', '-m', currentBranch, newBranch])
+  const headAfter = await readHead(exec)
+  if (headAfter !== newBranch) {
+    // HEAD didn't follow the rename -> currentBranch wasn't checked out at exec time.
+    // Best-effort revert so the race leaves neither a stray rename nor a mislabel.
+    try {
+      await exec(['branch', '-m', newBranch, currentBranch])
+    } catch {
+      // Revert failed; the caller still fails closed below and re-validates on retry.
+    }
+    throw new Error(
+      `Refusing to rename "${currentBranch}": HEAD moved to "${headAfter}" during the rename.`
+    )
+  }
 }

@@ -127,10 +127,75 @@ describe('resolveUniqueBranchName', () => {
 })
 
 describe('renameCurrentBranch', () => {
-  it('pins the source branch by name so a concurrent checkout cannot redirect the rename', async () => {
-    const exec: GitExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' })
+  // Fake worktree whose HEAD follows a two-arg `branch -m` only when the renamed
+  // branch is the one currently checked out — mirroring real git semantics so the
+  // HEAD-move guard can be exercised. `head` starts on the branch under test.
+  const makeWorktree = (head: string) => {
+    const state = { head }
+    const exec: GitExec = vi.fn(async (args: string[]) => {
+      if (args[0] === 'rev-parse' && args.includes('HEAD')) {
+        return { stdout: `${state.head}\n`, stderr: '' }
+      }
+      if (args[0] === 'branch' && args[1] === '-m' && args.length === 4) {
+        const [, , from, to] = args
+        // git renames the ref by name regardless of HEAD; HEAD follows only if checked out.
+        if (state.head === from) {
+          state.head = to
+        }
+        return { stdout: '', stderr: '' }
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`)
+    })
+    return { exec, state }
+  }
+
+  it('renames when HEAD is still on the branch being renamed', async () => {
+    const { exec, state } = makeWorktree('you/Nautilus')
     await renameCurrentBranch(exec, 'you/Nautilus', 'you/fix-auth')
-    // Two-arg form: renames the validated branch, not "whatever HEAD points at now".
     expect(exec).toHaveBeenCalledWith(['branch', '-m', 'you/Nautilus', 'you/fix-auth'])
+    expect(state.head).toBe('you/fix-auth')
+  })
+
+  it('fails closed without renaming when HEAD already moved before the rename (cxg2)', async () => {
+    // User checked out another branch after validation; the two-arg rename would
+    // still succeed on the now-non-current branch and mislabel the worktree.
+    const { exec, state } = makeWorktree('you/experiment')
+    await expect(renameCurrentBranch(exec, 'you/Nautilus', 'you/fix-auth')).rejects.toThrow(
+      /HEAD moved to "you\/experiment" before the rename/
+    )
+    // No rename was attempted, so the branch is untouched and HEAD is unmoved.
+    expect(exec).not.toHaveBeenCalledWith(['branch', '-m', 'you/Nautilus', 'you/fix-auth'])
+    expect(state.head).toBe('you/experiment')
+  })
+
+  it('reverts and fails closed if HEAD moves during the rename', async () => {
+    // HEAD passes the pre-check on you/Nautilus but jumps away right as the rename
+    // runs, so the ref gets renamed while HEAD stays behind: revert + throw.
+    const state = { head: 'you/Nautilus' }
+    let renamed = false
+    const exec: GitExec = vi.fn(async (args: string[]) => {
+      if (args[0] === 'rev-parse' && args.includes('HEAD')) {
+        return { stdout: `${state.head}\n`, stderr: '' }
+      }
+      if (args[0] === 'branch' && args[1] === '-m' && args.length === 4) {
+        const [, , from, to] = args
+        if (!renamed) {
+          // Simulate the racing checkout landing exactly at rename time.
+          state.head = 'you/experiment'
+          renamed = true
+        }
+        // The ref rename itself succeeds by name; assert the from/to for the revert.
+        if (from === 'you/fix-auth' && to === 'you/Nautilus') {
+          return { stdout: '', stderr: '' }
+        }
+        return { stdout: '', stderr: '' }
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`)
+    })
+    await expect(renameCurrentBranch(exec, 'you/Nautilus', 'you/fix-auth')).rejects.toThrow(
+      /HEAD moved to "you\/experiment" during the rename/
+    )
+    // The stray rename is reverted so nothing is left mislabeled.
+    expect(exec).toHaveBeenCalledWith(['branch', '-m', 'you/fix-auth', 'you/Nautilus'])
   })
 })

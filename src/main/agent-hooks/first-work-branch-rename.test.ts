@@ -481,6 +481,49 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     expect(onRenamed).not.toHaveBeenCalled()
   })
 
+  it('does not relabel when HEAD moves off the branch between validation and rename (cxg2)', async () => {
+    // The post-generation revalidation (line ~239) passes, but the user checks out
+    // another branch in the tiny window before the rename runs. Two-arg `branch -m`
+    // would still rename you/Nautilus by name and exit 0 — the caller must NOT settle
+    // or relabel, because HEAD is now on you/manual.
+    let headReads = 0
+    let renameAttempted = false
+    gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref' && args[2] === 'HEAD') {
+        headReads += 1
+        // Reads 1-2 = the pre-generation currentBranch read (L182) and the
+        // post-generation revalidation (L239) — both still on Nautilus so the
+        // caller's own checks pass and control reaches renameCurrentBranch.
+        // Read 3+ = the guard's pre-rename readHead: HEAD has since moved, so
+        // only the branch-rename guard (not L240) can catch it.
+        return { stdout: `${headReads <= 2 ? 'you/Nautilus' : 'you/manual'}\n`, stderr: '' }
+      }
+      if (args[0] === 'rev-parse' && args.some((arg) => arg.includes('@{u}'))) {
+        throw noUpstreamError
+      }
+      if (args[0] === 'symbolic-ref') {
+        return { stdout: 'you/Nautilus\n', stderr: '' }
+      }
+      if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/you/Nautilus')) {
+        throw new Error('not found')
+      }
+      if (args[0] === 'show-ref') {
+        throw new Error('not found')
+      }
+      if (args[0] === 'branch' && args[1] === '-m') {
+        renameAttempted = true
+        return { stdout: '', stderr: '' }
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`)
+    })
+    const { deps, onRenamed, setDisplayName } = makeDeps()
+    await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
+    // Guard fails closed at its pre-rename HEAD check: no rename, no relabel.
+    expect(renameAttempted).toBe(false)
+    expect(onRenamed).not.toHaveBeenCalled()
+    expect(setDisplayName).not.toHaveBeenCalled()
+  })
+
   it('does not rename when the branch gains an upstream while generation is running', async () => {
     let upstreamReadCount = 0
     gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
@@ -537,7 +580,12 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     )
     expect(computeBranchNameMock).toHaveBeenCalledWith('fix-auth', expect.anything(), 'remote-user')
     expect(provider.exec).not.toHaveBeenCalledWith(['branch', '-m', 'you/fix-auth'], '/repo/wt')
-    expect(provider.renameCurrentBranch).toHaveBeenCalledWith('/repo/wt', 'you/fix-auth')
+    // Pins the source branch on the SSH path too (TOCTOU guard, matches local two-arg rename).
+    expect(provider.renameCurrentBranch).toHaveBeenCalledWith(
+      '/repo/wt',
+      'remote-user/Nautilus',
+      'you/fix-auth'
+    )
   })
 
   it('retries when the SSH provider is unavailable on the first working event', async () => {
@@ -554,7 +602,11 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     expect(onRenamed).not.toHaveBeenCalled()
 
     await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
-    expect(provider.renameCurrentBranch).toHaveBeenCalledWith('/repo/wt', 'you/fix-auth')
+    expect(provider.renameCurrentBranch).toHaveBeenCalledWith(
+      '/repo/wt',
+      'you/Nautilus',
+      'you/fix-auth'
+    )
     expect(onRenamed).toHaveBeenCalledWith(REPO_ID)
   })
 })

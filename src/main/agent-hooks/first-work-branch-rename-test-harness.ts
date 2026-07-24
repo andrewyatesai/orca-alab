@@ -20,6 +20,10 @@ export function gitResponder(opts: {
   hasUpstream: boolean
   existingRefs?: string[]
 }) {
+  // Track HEAD so a two-arg `branch -m <from> <to>` moves it exactly like real git
+  // (HEAD follows only when <from> is the checked-out branch) — needed to exercise
+  // renameCurrentBranch's fail-closed HEAD-move guard.
+  let head = opts.currentBranch
   return async (args: string[]) => {
     if (args[0] === 'rev-parse' && args.some((arg) => arg.includes('@{u}'))) {
       if (opts.hasUpstream) {
@@ -28,7 +32,7 @@ export function gitResponder(opts: {
       throw noUpstreamError
     }
     if (args[0] === 'rev-parse') {
-      return { stdout: `${opts.currentBranch}\n`, stderr: '' }
+      return { stdout: `${head}\n`, stderr: '' }
     }
     if (args[0] === 'show-ref') {
       const ref = args.at(-1) ?? ''
@@ -38,6 +42,9 @@ export function gitResponder(opts: {
       throw new Error('not found')
     }
     if (args[0] === 'branch' && args[1] === '-m') {
+      if (args.length === 4 && args[2] === head) {
+        head = args[3]
+      }
       return { stdout: '', stderr: '' }
     }
     throw new Error(`unexpected git args: ${args.join(' ')}`)

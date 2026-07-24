@@ -274,6 +274,65 @@ describe('RelayDispatcher', () => {
     await expect(pending).resolves.toEqual({ exitCode: 0 })
   })
 
+  it('rejects a pending relay->client request when its target client detaches', async () => {
+    const ownerId = dispatcher.attachClient(() => {})
+    const pending = dispatcher.requestAnyClient('orca.cli', { argv: ['status'] })
+
+    // Why: the owning socket is gone; the request must fail fast, not hang until the 30s timeout.
+    dispatcher.detachClient(ownerId)
+
+    await expect(pending).rejects.toThrow('Relay client disconnected')
+  })
+
+  it('rejects a pending relay->client request when the target write throws', async () => {
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    dispatcher.attachClient(() => {
+      throw new Error('socket closed')
+    })
+
+    const pending = dispatcher.requestAnyClient('orca.cli', { argv: ['status'] })
+
+    await expect(pending).rejects.toThrow('Relay client disconnected')
+  })
+
+  it('ignores a relay->client response echoed by a different client', async () => {
+    const ownerWritten: Buffer[] = []
+    const ownerId = dispatcher.attachClient((data) => {
+      ownerWritten.push(Buffer.from(data))
+    })
+    const otherId = dispatcher.attachClient(() => {})
+
+    const pending = dispatcher.requestAnyClient(
+      'orca.cli',
+      { argv: ['status'] },
+      { excludeClientId: otherId }
+    )
+    const request = JSON.parse(
+      decodeFirstFrame(ownerWritten[0]).payload.toString('utf-8')
+    ) as JsonRpcRequest
+
+    // Why: a forged response from a client the request was never sent to must not settle it.
+    dispatcher.feedClient(
+      otherId,
+      encodeJsonRpcFrame({ jsonrpc: '2.0', id: request.id, result: { hijacked: true } }, 1, 0)
+    )
+    const raced = await Promise.race([
+      pending.then(
+        () => 'settled',
+        () => 'settled'
+      ),
+      Promise.resolve('pending')
+    ])
+    expect(raced).toBe('pending')
+
+    // The genuine response from the target client still resolves it.
+    dispatcher.feedClient(
+      ownerId,
+      encodeJsonRpcFrame({ jsonrpc: '2.0', id: request.id, result: { exitCode: 0 } }, 1, 0)
+    )
+    await expect(pending).resolves.toEqual({ exitCode: 0 })
+  })
+
   it('isolates failed socket-client writes from other clients', () => {
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     const goodSocketWritten: Buffer[] = []

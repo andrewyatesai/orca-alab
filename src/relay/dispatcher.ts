@@ -50,6 +50,7 @@ type RelayClient = {
 }
 
 type PendingRelayRequest = {
+  clientId: number
   resolve: (result: unknown) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
@@ -80,6 +81,8 @@ export class RelayDispatcher {
   // Why: the new client's multiplexer restarts at seq=1, so reset seq/decoder state or acks stall and fire a false connection-dead signal.
   setWrite(write: RelayClientWrite, sinkOptions?: RelayClientSinkOptions): void {
     this.requestAborts.abortClient(this.primaryClient.id)
+    // Why: the pre-reconnect socket is gone; relay->client requests sent to it can never be answered, so fail them fast instead of hanging until the 30s timeout.
+    this.rejectPendingForClient(this.primaryClient.id, 'Relay client reconnected')
     this.primaryClient.write = write
     this.primaryClient.waitWriteDrain = sinkOptions?.waitWriteDrain
     this.primaryClient.closed = false
@@ -91,6 +94,7 @@ export class RelayDispatcher {
   // Why: mark in-flight requests stale on disconnect so a late pty.spawn/fs.watch can't create unowned remote state.
   invalidateClient(): void {
     this.requestAborts.abortClient(this.primaryClient.id)
+    this.rejectPendingForClient(this.primaryClient.id, 'Relay client disconnected')
     this.primaryClient.generation++
     this.primaryClient.closed = true
     this.flushDrainWaiters(this.primaryClient)
@@ -110,6 +114,7 @@ export class RelayDispatcher {
       return
     }
     this.requestAborts.abortClient(clientId)
+    this.rejectPendingForClient(clientId, 'Relay client disconnected')
     client.generation++
     client.closed = true
     this.flushDrainWaiters(client)
@@ -308,9 +313,21 @@ export class RelayDispatcher {
         this.pendingRelayRequests.delete(id)
         reject(new Error(`Request "${method}" timed out after ${timeoutMs}ms`))
       }, timeoutMs)
-      this.pendingRelayRequests.set(id, { resolve, reject, timer })
+      this.pendingRelayRequests.set(id, { clientId, resolve, reject, timer })
       this.sendFrame(client, msg)
     })
+  }
+
+  // Why: a relay->client request outlives its socket only until this timer; reject-with-connection so an awaiter fails fast instead of hanging the full timeout.
+  private rejectPendingForClient(clientId: number, reason: string): void {
+    for (const [id, pending] of this.pendingRelayRequests) {
+      if (pending.clientId !== clientId) {
+        continue
+      }
+      clearTimeout(pending.timer)
+      this.pendingRelayRequests.delete(id)
+      pending.reject(new Error(reason))
+    }
   }
 
   dispose(): void {
@@ -387,15 +404,16 @@ export class RelayDispatcher {
     if ('id' in msg && 'method' in msg) {
       void this.handleRequest(client, msg as JsonRpcRequest)
     } else if ('id' in msg && ('result' in msg || 'error' in msg)) {
-      this.handleResponse(msg as JsonRpcResponse)
+      this.handleResponse(client, msg as JsonRpcResponse)
     } else if ('method' in msg && !('id' in msg)) {
       this.handleNotification(client, msg as JsonRpcNotification)
     }
   }
 
-  private handleResponse(msg: JsonRpcResponse): void {
+  private handleResponse(client: RelayClient, msg: JsonRpcResponse): void {
     const pending = this.pendingRelayRequests.get(msg.id)
-    if (!pending) {
+    // Why: request ids come from one shared counter; only settle from the client the request was sent to so a second socket can't hijack another client's reverse-RPC result.
+    if (!pending || pending.clientId !== client.id) {
       return
     }
     clearTimeout(pending.timer)
@@ -518,6 +536,7 @@ export class RelayDispatcher {
       client.closed = true
       client.generation++
       this.requestAborts.abortClient(client.id)
+      this.rejectPendingForClient(client.id, 'Relay client disconnected')
       this.flushDrainWaiters(client)
       // Why: frames have no retransmit buffer; detach now so reconnect/PTY-reattach runs instead of waiting the ~20s keepalive timeout.
       if (client !== this.primaryClient) {

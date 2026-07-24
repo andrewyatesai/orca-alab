@@ -22,9 +22,16 @@ function createSftpMock(): SFTPWrapper {
       cb(null, [])
     ),
     unlink: vi.fn((_path: string, cb: (err?: Error | null) => void) => cb(null)),
-    rmdir: vi.fn((_path: string, cb: (err?: Error | null) => void) => cb(null))
+    rmdir: vi.fn((_path: string, cb: (err?: Error | null) => void) => cb(null)),
+    rename: vi.fn((_from: string, _to: string, cb: (err?: Error | null) => void) => cb(null)),
+    ext_openssh_rename: vi.fn((_from: string, _to: string, cb: (err?: Error | null) => void) =>
+      cb(null)
+    )
   } as unknown as SFTPWrapper
 }
+
+const partialOf = (finalPath: string): RegExp =>
+  new RegExp(`^${finalPath.replace(/[.]/g, '\\.')}\\.orca-partial-`)
 
 describe('sftp-upload', () => {
   it('can create the first binary upload chunk without clobbering an existing temp file', async () => {
@@ -53,9 +60,17 @@ describe('sftp-upload', () => {
     })
 
     expect(sftp.mkdir).toHaveBeenCalledWith('/remote/assets/nested', expect.any(Function))
-    expect(sftp.createWriteStream).toHaveBeenCalledWith('/remote/assets/nested/asset.txt', {
-      flags: 'wx'
-    })
+    // Why: the write lands on a temp sibling (created no-clobber), then is
+    // renamed into the exclusive final path so a partial never appears there.
+    expect(sftp.createWriteStream).toHaveBeenCalledWith(
+      expect.stringMatching(partialOf('/remote/assets/nested/asset.txt')),
+      { flags: 'wx' }
+    )
+    expect(sftp.rename).toHaveBeenCalledWith(
+      expect.stringMatching(partialOf('/remote/assets/nested/asset.txt')),
+      '/remote/assets/nested/asset.txt',
+      expect.any(Function)
+    )
     const writeStream = vi.mocked(sftp.createWriteStream).mock.results[0]?.value as Writable
     expect(writeStream.listenerCount('close')).toBe(0)
     expect(writeStream.listenerCount('error')).toBe(0)
@@ -72,9 +87,10 @@ describe('sftp-upload', () => {
     })
 
     expect(sftp.mkdir).toHaveBeenCalledWith('/remote/assets/..fixtures', expect.any(Function))
-    expect(sftp.createWriteStream).toHaveBeenCalledWith('/remote/assets/..fixtures/asset.txt', {
-      flags: 'wx'
-    })
+    expect(sftp.createWriteStream).toHaveBeenCalledWith(
+      expect.stringMatching(partialOf('/remote/assets/..fixtures/asset.txt')),
+      { flags: 'wx' }
+    )
   })
 
   it('rejects sibling directories outside the upload root', async () => {
@@ -112,6 +128,60 @@ describe('sftp-upload', () => {
     await expect(uploadFile(sftp, linkPath, '/remote/link.txt')).rejects.toThrow()
 
     expect(sftp.createWriteStream).not.toHaveBeenCalled()
+  })
+
+  it('leaves no file at the final path and cleans the temp when the write fails mid-transfer', async () => {
+    const localDir = await mkdtemp(join(tmpdir(), 'orca-sftp-upload-'))
+    const localPath = join(localDir, 'src.txt')
+    await writeFile(localPath, 'hello world')
+    const created: string[] = []
+    const renamed: [string, string][] = []
+    const unlinked: string[] = []
+    const sftp = {
+      createWriteStream: vi.fn((p: string) => {
+        created.push(p)
+        return new Writable({
+          write(_chunk, _encoding, callback) {
+            // Simulate a disconnect mid-stream.
+            callback(new Error('connection lost'))
+          }
+        })
+      }),
+      rename: vi.fn((from: string, to: string, cb: (err?: Error | null) => void) => {
+        renamed.push([from, to])
+        cb(null)
+      }),
+      ext_openssh_rename: vi.fn((_from: string, _to: string, cb: (err?: Error | null) => void) =>
+        cb(new Error('unsupported'))
+      ),
+      unlink: vi.fn((p: string, cb: (err?: Error | null) => void) => {
+        unlinked.push(p)
+        cb(null)
+      })
+    } as unknown as SFTPWrapper
+
+    await expect(uploadFile(sftp, localPath, '/remote/dest.txt')).rejects.toThrow()
+
+    // Never promoted a partial into the final path...
+    expect(renamed).toHaveLength(0)
+    // ...wrote to a temp sibling, not the destination...
+    expect(created[0]).not.toBe('/remote/dest.txt')
+    expect(created[0]).toMatch(partialOf('/remote/dest.txt'))
+    // ...and cleaned the staged temp so nothing lingers on the host.
+    expect(unlinked).toContain(created[0])
+  })
+
+  it('promotes the staged temp to the final path only after a clean upload', async () => {
+    const localDir = await mkdtemp(join(tmpdir(), 'orca-sftp-upload-'))
+    const localPath = join(localDir, 'src.txt')
+    await writeFile(localPath, 'payload')
+    const sftp = createSftpMock()
+
+    await uploadFile(sftp, localPath, '/remote/dest.txt', { exclusive: true })
+
+    const created = vi.mocked(sftp.createWriteStream).mock.calls[0]?.[0] as string
+    expect(created).toMatch(partialOf('/remote/dest.txt'))
+    expect(sftp.rename).toHaveBeenCalledWith(created, '/remote/dest.txt', expect.any(Function))
   })
 
   it('removes remote directory contents before removing the directory', async () => {

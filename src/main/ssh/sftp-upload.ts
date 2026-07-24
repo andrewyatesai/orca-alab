@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import type { ReadStream } from 'node:fs'
 import { lstat, open, readdir, realpath } from 'node:fs/promises'
@@ -30,6 +31,10 @@ export function uploadFile(
   remotePath: string,
   options?: { exclusive?: boolean }
 ): Promise<void> {
+  // Why: stage to a unique temp sibling and rename into place only after the
+  // stream fully flushes, so a mid-transfer disconnect/read-error never leaves
+  // a truncated file at remotePath (fail-closed atomic upload).
+  const tempPath = `${remotePath}.orca-partial-${randomUUID()}`
   return new Promise((resolve, reject) => {
     let settled = false
     let readStream: ReadStream | null = null
@@ -50,9 +55,19 @@ export function uploadFile(
       readStream?.destroy()
       writeStream?.destroy()
       void fileHandle?.close().catch(() => {})
+      // Why: on failure discard the staged temp so a partial never lingers; the
+      // final path is untouched until a successful promoteTempToFinal below.
+      if (fn === reject && writeStream) {
+        void unlinkQuietSftp(sftp, tempPath)
+      }
       fn(val as never)
     }
-    const onWriteClose = (): void => settle(resolve)
+    const onWriteClose = (): void => {
+      void promoteTempToFinal(sftp, tempPath, remotePath, options?.exclusive === true).then(
+        () => settle(resolve),
+        (err: unknown) => settle(reject, err)
+      )
+    }
     const onWriteError = (err: Error): void => settle(reject, err)
     const onReadError = (err: Error): void => settle(reject, err)
 
@@ -78,9 +93,7 @@ export function uploadFile(
         }
         // Why: validate the local source before creating the remote write
         // target, so rejected sources do not leave empty files behind.
-        writeStream = sftp.createWriteStream(remotePath, {
-          flags: options?.exclusive ? 'wx' : 'w'
-        })
+        writeStream = sftp.createWriteStream(tempPath, { flags: 'wx' })
         writeStream.on('close', onWriteClose)
         writeStream.on('error', onWriteError)
         readStream = handle.createReadStream()
@@ -88,6 +101,45 @@ export function uploadFile(
         readStream.pipe(writeStream)
       })
       .catch((err: unknown) => settle(reject, err))
+  })
+}
+
+// Why: promote a fully-written temp file to its destination. Exclusive uploads
+// use plain rename (SFTP v3 fails if the target exists, preserving no-clobber);
+// overwrite uploads prefer posix-rename@openssh.com for an atomic replace.
+async function promoteTempToFinal(
+  sftp: SFTPWrapper,
+  tempPath: string,
+  remotePath: string,
+  exclusive: boolean
+): Promise<void> {
+  if (exclusive) {
+    await renameSftp(sftp, tempPath, remotePath)
+    return
+  }
+  try {
+    await new Promise<void>((resolve, reject) => {
+      // ext_openssh_rename throws synchronously when the server lacks the
+      // extension, so the try/catch also covers the unsupported case.
+      sftp.ext_openssh_rename(tempPath, remotePath, (err) => (err ? reject(err) : resolve()))
+    })
+    return
+  } catch {
+    /* extension unsupported or failed — fall back to unlink + rename */
+  }
+  await unlinkQuietSftp(sftp, remotePath)
+  await renameSftp(sftp, tempPath, remotePath)
+}
+
+function renameSftp(sftp: SFTPWrapper, from: string, to: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.rename(from, to, (err) => (err ? reject(err) : resolve()))
+  })
+}
+
+function unlinkQuietSftp(sftp: SFTPWrapper, remotePath: string): Promise<void> {
+  return new Promise((resolve) => {
+    sftp.unlink(remotePath, () => resolve())
   })
 }
 

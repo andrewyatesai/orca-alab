@@ -24,6 +24,8 @@ type MockSshClient = {
   lastConnectConfig?: unknown
   exec: (cmd: string, cb: (err: Error | undefined, channel: unknown) => void) => void
   sftp: (cb: (err: Error | undefined, channel: unknown) => void) => void
+  end: () => void
+  destroy: () => void
 }
 let clientInstances: MockSshClient[] = []
 
@@ -327,6 +329,21 @@ describe('SshConnection', () => {
       'target-1',
       expect.objectContaining({ status: 'connected' })
     )
+  })
+
+  it('force-destroys the ssh2 client on disconnect so a wedged socket cannot leak', async () => {
+    const conn = new SshConnection(createTarget(), createCallbacks())
+    await conn.connect()
+    expect(clientInstances).toHaveLength(1)
+    const endSpy = vi.spyOn(clientInstances[0], 'end')
+    const destroySpy = vi.spyOn(clientInstances[0], 'destroy')
+
+    await conn.disconnect()
+
+    // end() alone cannot finish a graceful shutdown on a half-dead socket;
+    // destroy() must also run to release the FD (mirrors reconnect teardown).
+    expect(endSpy).toHaveBeenCalled()
+    expect(destroySpy).toHaveBeenCalled()
   })
 
   it('enables TCP_NODELAY on the ssh2 client after ready', async () => {

@@ -155,6 +155,21 @@ export class SshConnection {
   getTarget(): SshTarget {
     return { ...this.target }
   }
+  // Why: updateTarget() mutates host/port/etc in place under the same id, but
+  // this.target is captured at construction and drives reconnect/exec routing;
+  // the pool must rebuild when the endpoint identity no longer matches so it
+  // never serves a connection bound to the pre-edit host.
+  matchesTarget(target: SshTarget): boolean {
+    const t = this.target
+    return (
+      t.host === target.host &&
+      t.port === target.port &&
+      t.username === target.username &&
+      t.configHost === target.configHost &&
+      t.proxyCommand === target.proxyCommand &&
+      t.jumpHost === target.jumpHost
+    )
+  }
   getSystemSshResolvedConfig(): SshResolvedConfig | null {
     return cloneResolvedConfig(this.systemSshResolvedConfig)
   }
@@ -1380,8 +1395,18 @@ export class SshConnection {
     this.reconnectTimer = null
     this.cachedPassphrase = null
     this.cachedPassword = null
-    this.client?.end()
+    // Why: mirror closeTransportsForReconnect — end() alone cannot finish the
+    // graceful SSH shutdown on a half-dead socket (sleep/wake, partition), so
+    // force-close with destroy() to release the FD instead of leaking it until
+    // the OS TCP timeout.
+    const client = this.client
     this.client = null
+    try {
+      client?.end()
+      client?.destroy()
+    } catch {
+      /* best-effort transport teardown */
+    }
     this.proxyProcess?.kill()
     this.proxyProcess = null
     this.systemOperationAbortController.abort()

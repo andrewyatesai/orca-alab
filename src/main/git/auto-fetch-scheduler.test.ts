@@ -143,6 +143,36 @@ describe('GitAutoFetchScheduler', () => {
     expect(fetchRepo).toHaveBeenCalledTimes(2)
   })
 
+  it('re-times a just-fetched repo onto a lengthened interval instead of the 30s initial delay', async () => {
+    // Why: switching to a longer interval must recompute eligibility from the repo's
+    // last fetch (lastFetchAt + newInterval), not reset to INITIAL_DELAY — otherwise a
+    // just-fetched repo fetches again ~30s after the switch, violating the new cadence.
+    const { scheduler, fetchRepo, advance } = makeHarness([makeRepo('a')], 5)
+
+    await scheduler.runDueFetches() // seed initial delay
+    advance(30_000)
+    await scheduler.runDueFetches() // first fetch; nextEligibleAt = now + 5min
+    expect(fetchRepo).toHaveBeenCalledTimes(1)
+
+    // Lengthen to 60min while enabled.
+    scheduler.configure({ enabled: true, intervalMinutes: 60 })
+
+    // Old (clear→initial-delay) behavior: eligible again after 30s → premature 2nd fetch.
+    advance(30_000)
+    await scheduler.runDueFetches()
+    expect(fetchRepo).toHaveBeenCalledTimes(1)
+
+    // Still throttled well before the new 60min interval elapses.
+    advance(30 * 60_000)
+    await scheduler.runDueFetches()
+    expect(fetchRepo).toHaveBeenCalledTimes(1)
+
+    // Once lastFetchAt + 60min passes (30s + 30min already advanced), it fetches.
+    advance(30 * 60_000)
+    await scheduler.runDueFetches()
+    expect(fetchRepo).toHaveBeenCalledTimes(2)
+  })
+
   it('re-seeds the initial delay when auto-fetch is disabled then re-enabled', async () => {
     const { scheduler, fetchRepo, advance } = makeHarness([makeRepo('a')])
 

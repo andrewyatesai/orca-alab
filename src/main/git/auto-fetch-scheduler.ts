@@ -17,6 +17,9 @@ type RepoFetchState = {
   nextEligibleAt: number
   consecutiveFailures: number
   inFlight: boolean
+  // Why: null until the first attempt lands; lets an interval change recompute
+  // eligibility from the real last-fetch time instead of the 30s initial delay.
+  lastAttemptAt: number | null
 }
 
 export type GitAutoFetchSchedulerDeps = {
@@ -47,11 +50,16 @@ export class GitAutoFetchScheduler {
       this.stop()
       return
     }
-    // Why: each repo's nextEligibleAt was baked with the previous interval, so an
-    // interval change (or a disable→re-enable) must re-seed scheduled state — else
-    // repos stay throttled on the old cadence / stale backoff until it elapses.
-    if (this.intervalMs !== previousIntervalMs || !wasEnabled) {
+    if (!wasEnabled) {
+      // Why: a disable→re-enable is a fresh start, so wipe state and let the next
+      // tick re-seed the brief INITIAL_DELAY (no stale mid-interval throttle).
       this.repoStates.clear()
+    } else if (this.intervalMs !== previousIntervalMs) {
+      // Why: an interval change must re-time already-fetched repos onto the NEW
+      // cadence from their real last-fetch time — not reset them to the 30s initial
+      // delay, which would fetch a just-fetched repo ~30s after switching to a
+      // longer interval, violating that interval.
+      this.reseedForIntervalChange()
     }
     if (this.timer) {
       return
@@ -62,6 +70,18 @@ export class GitAutoFetchScheduler {
     }, TICK_MS)
     // Why: a background fetch cadence must never keep the process alive on quit.
     this.timer.unref?.()
+  }
+
+  private reseedForIntervalChange(): void {
+    for (const state of this.repoStates.values()) {
+      // Why: a repo still in its initial-delay window (no attempt yet) keeps that
+      // schedule; the new interval only governs the wait AFTER a fetch.
+      if (state.lastAttemptAt === null) {
+        continue
+      }
+      const multiplier = Math.min(2 ** state.consecutiveFailures, MAX_BACKOFF_MULTIPLIER)
+      state.nextEligibleAt = state.lastAttemptAt + this.intervalMs * multiplier
+    }
   }
 
   stop(): void {
@@ -83,7 +103,8 @@ export class GitAutoFetchScheduler {
         const state = this.repoStates.get(repo.id) ?? {
           nextEligibleAt: now + INITIAL_DELAY_MS,
           consecutiveFailures: 0,
-          inFlight: false
+          inFlight: false,
+          lastAttemptAt: null
         }
         this.repoStates.set(repo.id, state)
         if (state.inFlight || now < state.nextEligibleAt) {
@@ -102,12 +123,16 @@ export class GitAutoFetchScheduler {
     try {
       await this.deps.fetchRepo(repo)
       state.consecutiveFailures = 0
-      state.nextEligibleAt = (this.deps.now?.() ?? Date.now()) + this.intervalMs
+      const completedAt = this.deps.now?.() ?? Date.now()
+      state.lastAttemptAt = completedAt
+      state.nextEligibleAt = completedAt + this.intervalMs
       this.deps.onRepoFetched?.(repo)
     } catch {
       state.consecutiveFailures += 1
       const multiplier = Math.min(2 ** state.consecutiveFailures, MAX_BACKOFF_MULTIPLIER)
-      state.nextEligibleAt = (this.deps.now?.() ?? Date.now()) + this.intervalMs * multiplier
+      const completedAt = this.deps.now?.() ?? Date.now()
+      state.lastAttemptAt = completedAt
+      state.nextEligibleAt = completedAt + this.intervalMs * multiplier
     } finally {
       state.inFlight = false
     }

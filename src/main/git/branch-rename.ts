@@ -79,7 +79,16 @@ export async function resolveUniqueBranchName(
   return null
 }
 
-/** Rename the currently checked-out branch (`git branch -m <newBranch>`). */
-export async function renameCurrentBranch(exec: GitExec, newBranch: string): Promise<void> {
-  await exec(['branch', '-m', newBranch])
+/**
+ * Rename `currentBranch` to `newBranch` (`git branch -m <currentBranch> <newBranch>`).
+ * Why: the two-arg form pins the source by name so a concurrent checkout in the same
+ * worktree between validation and exec can't make single-arg `branch -m` rename whatever
+ * branch HEAD now points at; if HEAD moved, git fails closed instead of mislabeling it.
+ */
+export async function renameCurrentBranch(
+  exec: GitExec,
+  currentBranch: string,
+  newBranch: string
+): Promise<void> {
+  await exec(['branch', '-m', currentBranch, newBranch])
 }

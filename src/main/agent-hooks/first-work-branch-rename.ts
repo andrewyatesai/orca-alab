@@ -274,7 +274,7 @@ async function runAutoRename(
 
   await (provider
     ? provider.renameCurrentBranch(worktreePath, newBranch)
-    : renameCurrentBranch(exec, newBranch))
+    : renameCurrentBranch(exec, currentBranch, newBranch))
 
   // resolveUniqueBranchName may append a collision suffix (`-2`, …), so derive names from the resolved leaf, not the slug.
   const newBranchLeaf = newBranch.slice(newBranch.lastIndexOf('/') + 1)

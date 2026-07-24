@@ -127,9 +127,10 @@ describe('resolveUniqueBranchName', () => {
 })
 
 describe('renameCurrentBranch', () => {
-  it('runs git branch -m with the new name', async () => {
+  it('pins the source branch by name so a concurrent checkout cannot redirect the rename', async () => {
     const exec: GitExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' })
-    await renameCurrentBranch(exec, 'you/fix-auth')
-    expect(exec).toHaveBeenCalledWith(['branch', '-m', 'you/fix-auth'])
+    await renameCurrentBranch(exec, 'you/Nautilus', 'you/fix-auth')
+    // Two-arg form: renames the validated branch, not "whatever HEAD points at now".
+    expect(exec).toHaveBeenCalledWith(['branch', '-m', 'you/Nautilus', 'you/fix-auth'])
   })
 })

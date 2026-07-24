@@ -88,7 +88,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     const { deps, onRenamed, setDisplayName } = makeDeps()
     await maybeAutoRenameBranchOnFirstWork(workingEvent({ prompt: 'Fix auth from note #1' }), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['branch', '-m', 'you/fix-auth'],
+      ['branch', '-m', 'you/Nautilus', 'you/fix-auth'],
       expect.objectContaining({ cwd: '/repo/wt' })
     )
     expect(resolveTextGenerationParamsMock).toHaveBeenCalledWith(
@@ -111,7 +111,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     const { deps, onRenamed, setDisplayName } = makeDeps({ renameWorktreeFolder: undefined })
     await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['branch', '-m', 'you/fix-auth'],
+      ['branch', '-m', 'you/Nautilus', 'you/fix-auth'],
       expect.objectContaining({ cwd: '/repo/wt' })
     )
     expect(setDisplayName).toHaveBeenCalledWith(WORKTREE_ID, 'Fix auth')
@@ -134,7 +134,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     })
     await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['branch', '-m', 'you/fix-auth'],
+      ['branch', '-m', 'you/Nautilus', 'you/fix-auth'],
       expect.objectContaining({ cwd: '/repo/wt' })
     )
     expect(setDisplayName).toHaveBeenCalledWith(WORKTREE_ID, 'Fix auth')
@@ -149,7 +149,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     const { deps, setDisplayName } = makeDeps()
     await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['branch', '-m', 'you/worktree-spinner'],
+      ['branch', '-m', 'you/Nautilus', 'you/worktree-spinner'],
       expect.objectContaining({ cwd: '/repo/wt' })
     )
     expect(setDisplayName).toHaveBeenCalledWith(WORKTREE_ID, 'Worktree spinner')
@@ -174,7 +174,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     const { deps, setDisplayName } = makeDeps({ getCurrentDisplayName: () => 'My cool feature' })
     await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['branch', '-m', 'you/fix-auth'],
+      ['branch', '-m', 'you/Nautilus', 'you/fix-auth'],
       expect.objectContaining({ cwd: '/repo/wt' })
     )
     expect(setDisplayName).not.toHaveBeenCalled()
@@ -195,7 +195,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     const { deps } = makeDeps({ resolveWorktreeIdForTab: () => instanceId })
     await maybeAutoRenameBranchOnFirstWork(workingEvent({ worktreeId: undefined }), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['branch', '-m', 'you/fix-auth'],
+      ['branch', '-m', 'you/Nautilus', 'you/fix-auth'],
       expect.objectContaining({ cwd: '/repo/wt' })
     )
   })
@@ -307,7 +307,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
 
     await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['branch', '-m', 'you/fix-auth'],
+      ['branch', '-m', 'you/Nautilus', 'you/fix-auth'],
       expect.objectContaining({ cwd: '/repo/wt' })
     )
     expect(onRenamed).toHaveBeenCalledWith(REPO_ID)
@@ -421,7 +421,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     gitExecFileAsyncMock.mockImplementation(plainResponder)
     await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['branch', '-m', 'you/fix-auth'],
+      ['branch', '-m', 'you/Nautilus', 'you/fix-auth'],
       expect.objectContaining({ cwd: '/repo/wt' })
     )
     expect(setRenameError).toHaveBeenLastCalledWith(WORKTREE_ID, null)
@@ -445,7 +445,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     const { deps, setDisplayName, renameWorktreeFolder } = makeDeps()
     await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['branch', '-m', 'you/fix-auth-2'],
+      ['branch', '-m', 'you/Nautilus', 'you/fix-auth-2'],
       expect.objectContaining({ cwd: '/repo/wt' })
     )
     // Display name and folder must follow the resolved (suffixed) leaf, not the

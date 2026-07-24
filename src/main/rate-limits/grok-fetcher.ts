@@ -10,46 +10,44 @@ import {
   type GrokAuthReadResult,
   type GrokAuthSession
 } from './grok-auth'
+import {
+  mapMonthlyUsage,
+  mapWeeklyCredits,
+  type GrokBillingConfig,
+  type GrokBillingResponse
+} from './grok-billing-mapping'
+import { parseRetryAfterMs } from './retry-after'
+
+const GROK_CLI_PROXY_DEFAULT = 'https://cli-chat-proxy.grok.com/v1'
+
+// Why: this base carries the account Bearer token, so an env override (mirroring
+// Grok CLI's proxy config) must be a valid HTTPS URL — never attach the
+// credential to a plaintext or unparseable host inherited from a poisoned
+// environment. Fail closed to the pinned default when it isn't.
+function resolveGrokProxyBase(): string {
+  const override = process.env.GROK_CLI_CHAT_PROXY_BASE_URL?.trim()
+  if (!override) {
+    return GROK_CLI_PROXY_DEFAULT
+  }
+  try {
+    if (new URL(override).protocol !== 'https:') {
+      return GROK_CLI_PROXY_DEFAULT
+    }
+  } catch {
+    return GROK_CLI_PROXY_DEFAULT
+  }
+  return override.replace(/\/$/, '')
+}
 
 // Why: billing URL and headers must match Grok CLI or xAI rejects the request.
-const GROK_CLI_PROXY_BASE =
-  process.env.GROK_CLI_CHAT_PROXY_BASE_URL?.trim().replace(/\/$/, '') ||
-  'https://cli-chat-proxy.grok.com/v1'
+const GROK_CLI_PROXY_BASE = resolveGrokProxyBase()
 const BILLING_CREDITS_URL = `${GROK_CLI_PROXY_BASE}/billing?format=credits`
 // Why: some unified-billing accounts expose only a monthly included budget,
 // which is present in the default (format-less) billing view.
 const BILLING_DEFAULT_URL = `${GROK_CLI_PROXY_BASE}/billing`
 const API_TIMEOUT_MS = 10_000
-const WEEKLY_WINDOW_MINUTES = 10_080
-const MONTHLY_WINDOW_MINUTES = 43_200
 
 const GROK_CLI_AUTH_HEADER = 'xai-grok-cli'
-
-type GrokMoneyVal = { val?: string | number }
-
-type GrokUsagePeriod = {
-  type?: string
-  start?: string
-  end?: string
-}
-
-type GrokBillingConfig = {
-  creditUsagePercent?: number
-  currentPeriod?: GrokUsagePeriod
-  billingPeriodStart?: string
-  billingPeriodEnd?: string
-  subscriptionTier?: string
-  monthlyLimit?: GrokMoneyVal
-  used?: GrokMoneyVal
-  onDemandCap?: GrokMoneyVal
-  onDemandUsed?: GrokMoneyVal
-  prepaidBalance?: GrokMoneyVal
-  isUnifiedBillingUser?: boolean
-}
-
-type GrokBillingResponse = GrokBillingConfig & {
-  config?: GrokBillingConfig
-}
 
 function result(
   status: ProviderRateLimits['status'],
@@ -64,77 +62,6 @@ function result(
     error,
     status,
     ...(usageMetadata ? { usageMetadata } : {})
-  }
-}
-
-function parseResetDescription(isoString: string | undefined): string | null {
-  if (!isoString) {
-    return null
-  }
-  const date = new Date(isoString)
-  if (Number.isNaN(date.getTime())) {
-    return null
-  }
-  const isToday = date.toDateString() === new Date().toDateString()
-  return isToday
-    ? date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-    : date.toLocaleDateString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
-}
-
-function timestampsMatch(left: string | undefined, right: string | undefined): boolean {
-  const leftTimestamp = left ? Date.parse(left) : Number.NaN
-  const rightTimestamp = right ? Date.parse(right) : Number.NaN
-  return Number.isFinite(leftTimestamp) && leftTimestamp === rightTimestamp
-}
-
-function hasConfirmedWeeklyPeriod(config: GrokBillingConfig): boolean {
-  const period = config.currentPeriod
-  // Why: monthly unified-billing responses can also carry a weekly currentPeriod;
-  // matching billing bounds identify Grok's omitted protobuf zero unambiguously.
-  return (
-    period?.type === 'USAGE_PERIOD_TYPE_WEEKLY' &&
-    timestampsMatch(period.start, config.billingPeriodStart) &&
-    timestampsMatch(period.end, config.billingPeriodEnd)
-  )
-}
-
-function mapWeeklyCredits(config: GrokBillingConfig): RateLimitWindow | null {
-  const usedPercent =
-    config.creditUsagePercent === undefined && hasConfirmedWeeklyPeriod(config)
-      ? 0
-      : config.creditUsagePercent
-  if (typeof usedPercent !== 'number' || !Number.isFinite(usedPercent)) {
-    return null
-  }
-  const periodEnd = config.currentPeriod?.end ?? config.billingPeriodEnd
-  const resetsAt = periodEnd ? Date.parse(periodEnd) : null
-  return {
-    usedPercent: Math.min(100, Math.max(0, usedPercent)),
-    windowMinutes: WEEKLY_WINDOW_MINUTES,
-    resetsAt: resetsAt !== null && Number.isFinite(resetsAt) ? resetsAt : null,
-    resetDescription: parseResetDescription(periodEnd)
-  }
-}
-
-function parseMoneyVal(value: GrokMoneyVal | undefined): number | null {
-  const raw = value?.val
-  const num = typeof raw === 'string' ? Number.parseFloat(raw) : raw
-  return typeof num === 'number' && Number.isFinite(num) ? num : null
-}
-
-function mapMonthlyUsage(config: GrokBillingConfig): RateLimitWindow | null {
-  const limit = parseMoneyVal(config.monthlyLimit)
-  const used = parseMoneyVal(config.used)
-  if (limit === null || used === null || limit <= 0) {
-    return null
-  }
-  const periodEnd = config.currentPeriod?.end ?? config.billingPeriodEnd
-  const resetsAt = periodEnd ? Date.parse(periodEnd) : null
-  return {
-    usedPercent: Math.min(100, Math.max(0, (used / limit) * 100)),
-    windowMinutes: MONTHLY_WINDOW_MINUTES,
-    resetsAt: resetsAt !== null && Number.isFinite(resetsAt) ? resetsAt : null,
-    resetDescription: parseResetDescription(periodEnd)
   }
 }
 
@@ -203,6 +130,20 @@ async function fetchBillingData(
     return {
       kind: 'result',
       result: result('error', `Grok usage request unauthorized (HTTP ${res.status})`)
+    }
+  }
+  if (res.status === 429) {
+    // Why: a 429 must gate the active-failure lane (retryAtMs) instead of
+    // re-hammering the endpoint, and read as 'Limited' rather than a generic
+    // refresh failure — same contract as Claude's OAuth path (#9617).
+    const retryAfterMs = parseRetryAfterMs(res.headers?.get('retry-after') ?? null)
+    return {
+      kind: 'result',
+      result: result('error', 'Grok usage is rate limited (HTTP 429)', {
+        failureKind: 'rate-limited',
+        source: 'oauth',
+        ...(retryAfterMs !== null ? { retryAtMs: Date.now() + retryAfterMs } : {})
+      })
     }
   }
   if (!res.ok) {

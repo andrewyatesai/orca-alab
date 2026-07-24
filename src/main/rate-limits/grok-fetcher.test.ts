@@ -257,6 +257,74 @@ describe('fetchGrokRateLimits', () => {
     expect(result.error).toBe('aborted')
   })
 
+  function rateLimitedResponse(retryAfter: string | null): Response {
+    return {
+      ok: false,
+      status: 429,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'retry-after' ? retryAfter : null)
+      },
+      json: async () => ({})
+    } as unknown as Response
+  }
+
+  it('classifies a 429 billing response as rate-limited and gates on Retry-After (#9617)', async () => {
+    authState.file = freshAuthJson()
+    netFetchMock.mockResolvedValueOnce(rateLimitedResponse('120'))
+
+    const lowerBound = Date.now() + 120_000
+    const result = await fetchGrokRateLimits()
+    const upperBound = Date.now() + 120_000
+
+    expect(result.status).toBe('error')
+    expect(result.usageMetadata?.failureKind).toBe('rate-limited')
+    expect(result.usageMetadata?.source).toBe('oauth')
+    expect(result.usageMetadata?.retryAtMs).toBeGreaterThanOrEqual(lowerBound)
+    expect(result.usageMetadata?.retryAtMs).toBeLessThanOrEqual(upperBound)
+    // Why: the status-bar copy keys off rate-limit wording to render 'Limited'.
+    expect(result.error).toMatch(/rate[- ]?limited/i)
+    expect(netFetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('classifies a 429 without a usable Retry-After as rate-limited but sets no gate', async () => {
+    authState.file = freshAuthJson()
+    netFetchMock.mockResolvedValueOnce(rateLimitedResponse(null))
+
+    const result = await fetchGrokRateLimits()
+    expect(result.status).toBe('error')
+    expect(result.usageMetadata?.failureKind).toBe('rate-limited')
+    expect(result.usageMetadata?.retryAtMs).toBeUndefined()
+    expect(result.error).toMatch(/rate[- ]?limited/i)
+  })
+
+  it('rejects a non-HTTPS proxy override and never sends the token in cleartext', async () => {
+    vi.stubEnv('GROK_CLI_CHAT_PROXY_BASE_URL', 'http://attacker.example')
+    vi.resetModules()
+    authState.file = freshAuthJson()
+    netFetchMock.mockResolvedValueOnce(jsonResponse(BILLING_RESPONSE))
+
+    const { fetchGrokRateLimits: fetchFresh } = await import('./grok-fetcher')
+    await fetchFresh()
+
+    const calledUrl = netFetchMock.mock.calls[0]?.[0] as string
+    expect(calledUrl).toBe('https://cli-chat-proxy.grok.com/v1/billing?format=credits')
+    expect(calledUrl.startsWith('http://')).toBe(false)
+  })
+
+  it('honors an HTTPS proxy override', async () => {
+    vi.stubEnv('GROK_CLI_CHAT_PROXY_BASE_URL', 'https://proxy.internal.example/v1/')
+    vi.resetModules()
+    authState.file = freshAuthJson()
+    netFetchMock.mockResolvedValueOnce(jsonResponse(BILLING_RESPONSE))
+
+    const { fetchGrokRateLimits: fetchFresh } = await import('./grok-fetcher')
+    await fetchFresh()
+
+    expect(netFetchMock.mock.calls[0]?.[0]).toBe(
+      'https://proxy.internal.example/v1/billing?format=credits'
+    )
+  })
+
   it('returns error when the session token is expired', async () => {
     authState.file = JSON.stringify({
       'https://auth.x.ai::client': {

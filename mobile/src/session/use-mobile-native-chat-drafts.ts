@@ -4,13 +4,14 @@ import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 export type MobileNativeChatPendingMessage = {
   id: string
   text: string
-  expectedOccurrence: number
+  normalizedText: string
+  // The transcript tail at send time; only echoes after it can clear this bubble.
+  baselineTailMessageId: string | null
 }
 export type MobileNativeChatSendOrigin = {
   draftKey: string
   pendingKey: string | null
   normalizedText: string
-  baselineOccurrences: number
   baselineTailMessageId: string | null
 }
 
@@ -41,21 +42,13 @@ function normalizedUserText(message: NativeChatMessage): string | null {
   return text || null
 }
 
-function countUserTextOccurrences(messages: readonly NativeChatMessage[], text: string): number {
-  let count = 0
-  for (const message of messages) {
-    if (normalizedUserText(message) === text) {
-      count++
-    }
-  }
-  return count
-}
-
-function findLandedUnconfirmedSends(
-  messages: readonly NativeChatMessage[],
-  entries: readonly UnconfirmedSend[]
-): UnconfirmedSend[] {
-  // Why: pagination prepends old equal text; only unclaimed matches after each captured tail prove new echoes.
+// Match each entry to a NEW transcript echo: one whose index is after the entry's
+// captured tail (prepended history has index <= tail) and not already claimed by
+// another entry. Shared by the unconfirmed-send hold and the optimistic-pending
+// clear so paged-in identical turns can never satisfy either path.
+function findLandedByBaselineTail<
+  T extends { normalizedText: string; baselineTailMessageId: string | null }
+>(messages: readonly NativeChatMessage[], entries: readonly T[]): T[] {
   const messageIndexById = new Map<string, number>()
   const userMessagesByText = new Map<string, Array<{ id: string; index: number }>>()
   for (const [index, message] of messages.entries()) {
@@ -69,7 +62,7 @@ function findLandedUnconfirmedSends(
   }
 
   const claimedMessageIds = new Set<string>()
-  const landed: UnconfirmedSend[] = []
+  const landed: T[] = []
   for (const entry of entries) {
     const tailIndex = entry.baselineTailMessageId
       ? messageIndexById.get(entry.baselineTailMessageId)
@@ -147,7 +140,6 @@ export function useMobileNativeChatDrafts(args: {
         draftKey,
         pendingKey,
         normalizedText,
-        baselineOccurrences: countUserTextOccurrences(currentMessages, normalizedText),
         baselineTailMessageId: currentMessages[currentMessages.length - 1]?.id ?? null
       }
     },
@@ -169,17 +161,14 @@ export function useMobileNativeChatDrafts(args: {
     }
     const pendingKey = origin.pendingKey
     pendingCounterRef.current += 1
+    const pendingId = `pending-${pendingCounterRef.current}`
     setPendingBySession((previous) => {
       const current = previous[pendingKey] ?? NO_PENDING_MESSAGES
-      const earlierOutstanding = current.filter(
-        (pending) =>
-          pending.text.trim() === origin.normalizedText &&
-          pending.expectedOccurrence > origin.baselineOccurrences
-      ).length
-      const pending = {
-        id: `pending-${pendingCounterRef.current}`,
+      const pending: MobileNativeChatPendingMessage = {
+        id: pendingId,
         text,
-        expectedOccurrence: origin.baselineOccurrences + earlierOutstanding + 1
+        normalizedText: origin.normalizedText,
+        baselineTailMessageId: origin.baselineTailMessageId
       }
       return { ...previous, [pendingKey]: [...current, pending] }
     })
@@ -207,10 +196,7 @@ export function useMobileNativeChatDrafts(args: {
         deadline: null
       }
       // Why: the transcript event can beat the lost RPC acknowledgement.
-      if (
-        isActiveTranscript &&
-        findLandedUnconfirmedSends(messagesRef.current, [entry]).length > 0
-      ) {
+      if (isActiveTranscript && findLandedByBaselineTail(messagesRef.current, [entry]).length > 0) {
         setDrafts((previous) =>
           (previous[origin.draftKey] ?? '').trim() === text.trim()
             ? { ...previous, [origin.draftKey]: '' }
@@ -236,7 +222,7 @@ export function useMobileNativeChatDrafts(args: {
         entry.draftKey === draftKey &&
         (entry.pendingKey === null || entry.pendingKey === pendingKey)
     )
-    const landed = findLandedUnconfirmedSends(messages, relevant)
+    const landed = findLandedByBaselineTail(messages, relevant)
     if (landed.length === 0) {
       return
     }
@@ -271,27 +257,28 @@ export function useMobileNativeChatDrafts(args: {
   const pending = pendingKey
     ? (pendingBySession[pendingKey] ?? NO_PENDING_MESSAGES)
     : NO_PENDING_MESSAGES
+  // Why: trigger only on a transcript change (like the unconfirmed-send hold), not
+  // on `pending`. Reconciling survivors against the same window would let a second
+  // effect run re-consume an echo already claimed by a bubble removed in the first.
   useEffect(() => {
-    if (!pendingKey || pending.length === 0) {
+    if (!pendingKey) {
       return
     }
     setPendingBySession((previous) => {
-      const current = previous[pendingKey] ?? []
-      const landedCounts = new Map<string, number>()
-      for (const message of messages) {
-        const text = normalizedUserText(message)
-        if (text) {
-          landedCounts.set(text, (landedCounts.get(text) ?? 0) + 1)
-        }
-      }
-      // Why: compare against the count captured before send; historical equal
-      // turns cannot clear a new echo, while duplicates land one occurrence each.
-      const next = current.filter(
-        (item) => (landedCounts.get(item.text.trim()) ?? 0) < item.expectedOccurrence
-      )
-      if (next.length === current.length) {
+      const current = previous[pendingKey] ?? NO_PENDING_MESSAGES
+      if (current.length === 0) {
         return previous
       }
+      // Clear a bubble only when a NEW echo lands after its captured tail; paged-in
+      // older identical turns (index <= tail) must not drop it — the real echo may
+      // not have arrived yet. One echo is claimed per bubble (duplicate sends each
+      // need their own). Same guard as the unconfirmed-send hold.
+      const landed = findLandedByBaselineTail(messages, current)
+      if (landed.length === 0) {
+        return previous
+      }
+      const landedSet = new Set(landed)
+      const next = current.filter((item) => !landedSet.has(item))
       if (next.length > 0) {
         return { ...previous, [pendingKey]: next }
       }
@@ -299,7 +286,7 @@ export function useMobileNativeChatDrafts(args: {
       delete remaining[pendingKey]
       return remaining
     })
-  }, [messages, pending, pendingKey])
+  }, [messages, pendingKey])
 
   return {
     composerText: draftKey ? (drafts[draftKey] ?? '') : '',

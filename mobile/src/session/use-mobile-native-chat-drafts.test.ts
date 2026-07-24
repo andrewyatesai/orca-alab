@@ -159,6 +159,41 @@ describe('useMobileNativeChatDrafts', () => {
     expect(state?.pending).toEqual([])
   })
 
+  it('keeps the optimistic bubble when pagination prepends an older identical turn', async () => {
+    await mount('a')
+    const anchor = assistantTextMessage('anchor', 'working')
+    await act(async () =>
+      renderer?.update(createElement(Harness, { tabId: 'a', messages: [anchor] }))
+    )
+    const origin = state?.captureSendOrigin('ping')
+    act(() => {
+      if (origin) {
+        state?.acceptSend(origin, 'ping')
+      }
+    })
+    expect(state?.pending.map((pending) => pending.text)).toEqual(['ping'])
+
+    // Older page prepended before the real echo arrives: index <= captured tail,
+    // so it must not satisfy the pending clear.
+    await act(async () =>
+      renderer?.update(
+        createElement(Harness, { tabId: 'a', messages: [userTextMessage('older', 'ping'), anchor] })
+      )
+    )
+    expect(state?.pending.map((pending) => pending.text)).toEqual(['ping'])
+
+    // The genuine echo lands after the tail and clears the bubble.
+    await act(async () =>
+      renderer?.update(
+        createElement(Harness, {
+          tabId: 'a',
+          messages: [userTextMessage('older', 'ping'), anchor, userTextMessage('new', 'ping')]
+        })
+      )
+    )
+    expect(state?.pending).toEqual([])
+  })
+
   it('does not erase newer edits when an older send settles', async () => {
     await mount('a')
     act(() => state?.setComposerText('submitted'))

@@ -31060,6 +31060,22 @@ describe('OrcaRuntimeService', () => {
     )
   })
 
+  it('clamps out-of-range GitLab work-item page/perPage before they reach glab (parity with the MR path)', async () => {
+    // Why: the RPC schema types page/perPage as any finite number, so a relay
+    // caller can send negative/fractional/huge values the desktop UI never emits.
+    listGitLabWorkItemsMock.mockReset()
+    listGitLabWorkItemsMock.mockResolvedValue({ items: [] })
+    const runtime = new OrcaRuntimeService(store as never)
+
+    await runtime.listGitLabRepoWorkItems(TEST_REPO_ID, 'opened', -5, 1e308)
+    await runtime.listGitLabRepoWorkItems(TEST_REPO_ID, 'opened', 3.5, 0)
+
+    const first = listGitLabWorkItemsMock.mock.calls[0]
+    expect([first[2], first[3]]).toEqual([1, 100])
+    const second = listGitLabWorkItemsMock.mock.calls[1]
+    expect([second[2], second[3]]).toEqual([3, 1])
+  })
+
   it('routes runtime GitLab MR details, review-management, job, and pasted URL actions through the selected WSL project runtime', async () => {
     setPlatform('win32')
     const runtimeStore = {

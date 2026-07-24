@@ -20,7 +20,14 @@ export type StreamedGitStatus = {
   succeeded: boolean
 }
 
-type StatusStreamOptions = Pick<GitStreamOptions, 'cwd' | 'env' | 'wslDistro' | 'signal'>
+type StatusStreamOptions = Pick<
+  GitStreamOptions,
+  'cwd' | 'env' | 'wslDistro' | 'signal' | 'timeout'
+>
+
+// Why: a status scan on a wedged NFS/SSHFS mount must fail closed rather than pin
+// the getStatus in-flight dedupe forever; matches the sync git deadline scale (#7225).
+const STATUS_STREAM_TIMEOUT_MS = 60_000
 
 type RustStatusResult = {
   entries: GitStatusEntry[]
@@ -49,6 +56,7 @@ export async function streamGitStatus(
     // invalid UTF-8; the Rust parser carries bytes + decodes lossily itself.
     const { stoppedEarly } = await gitStreamStdout(statusArgs, {
       ...options,
+      timeout: options.timeout ?? STATUS_STREAM_TIMEOUT_MS,
       onStdoutBytes: (chunk) => parser.update(chunk, limit)
     })
     if (!stoppedEarly) {

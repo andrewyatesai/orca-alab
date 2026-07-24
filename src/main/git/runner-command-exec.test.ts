@@ -747,6 +747,27 @@ describe('gitStreamStdout', () => {
     await rejection
     expect(child.kill).toHaveBeenCalled()
   })
+
+  it('kills git and rejects when the stream deadline elapses (wedged filesystem)', async () => {
+    // Why: a status scan on a hung NFS/SSHFS mount that never emits close must not
+    // leave the promise (and the getStatus in-flight dedupe) unsettled forever.
+    vi.useFakeTimers()
+    const child = createMockChildProcess(1234)
+    spawnMock.mockReturnValue(child)
+
+    const promise = gitStreamStdout(['status'], {
+      cwd: '/repo',
+      timeout: 50,
+      onStdoutBytes: () => {}
+    })
+    const rejection = expect(promise).rejects.toThrow('git stream timed out.')
+    // No 'close'/'data' ever arrives — only the deadline settles it.
+    await vi.advanceTimersByTimeAsync(51)
+
+    await rejection
+    expect(child.kill).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
 })
 
 describe('translateWslOutputPaths', () => {

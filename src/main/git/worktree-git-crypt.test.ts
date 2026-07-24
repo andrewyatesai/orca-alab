@@ -78,7 +78,16 @@ describe('addWorktree on git-crypt repositories', () => {
     await addWorktree(REPO, WORKTREE, BRANCH, 'origin/main')
 
     expect(gitExecFileAsyncMock.mock.calls[1]).toEqual([
-      [...PARALLEL, 'worktree', 'add', '--no-track', '-b', BRANCH, WORKTREE, 'refs/remotes/origin/main'],
+      [
+        ...PARALLEL,
+        'worktree',
+        'add',
+        '--no-track',
+        '-b',
+        BRANCH,
+        WORKTREE,
+        'refs/remotes/origin/main'
+      ],
       { cwd: REPO, timeout: WORKTREE_ADD_TIMEOUT_MS }
     ])
     expect(symlinkMock).not.toHaveBeenCalled()
@@ -204,9 +213,10 @@ describe('addWorktree on git-crypt repositories', () => {
     const addArgs = gitExecFileAsyncMock.mock.calls[0]?.[0] as string[]
     expect(addArgs.filter((arg) => arg === '--no-checkout')).toHaveLength(1)
     expect(symlinkMock).toHaveBeenCalledOnce()
-    expect(
-      gitExecFileAsyncMock.mock.calls.map((call) => call[0])
-    ).not.toContainEqual([...PARALLEL, 'checkout'])
+    expect(gitExecFileAsyncMock.mock.calls.map((call) => call[0])).not.toContainEqual([
+      ...PARALLEL,
+      'checkout'
+    ])
   })
 
   it('rolls back both the worktree and fresh branch when git-crypt setup fails', async () => {
@@ -236,5 +246,29 @@ describe('addWorktree on git-crypt repositories', () => {
       '--',
       BRANCH
     ])
+  })
+
+  it('still force-deletes the fresh branch when the internal relist is degraded during git-crypt rollback', async () => {
+    // Why: removeWorktree resolves the branch to clean up via listWorktrees, which
+    // swallows git failures to []. A transiently degraded listing at rollback time
+    // must not orphan the fresh -b branch — the explicit knownRemovedWorktree fixes it.
+    mockUnlockedRepo()
+    symlinkMock.mockRejectedValue(Object.assign(new Error('cannot link state'), { code: 'EIO' }))
+    gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'rev-parse' && args.includes('--absolute-git-dir')) {
+        return { stdout: `${WORKTREE_GIT_DIR}\n` }
+      }
+      // Degraded relist: `worktree list` yields nothing (mirrors the swallowed-error []).
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        return { stdout: '' }
+      }
+      return { stdout: '' }
+    })
+
+    await expect(addWorktree(REPO, WORKTREE, BRANCH)).rejects.toThrow('cannot link state')
+
+    const calls = gitExecFileAsyncMock.mock.calls.map((call) => call[0])
+    expect(calls).toContainEqual(['worktree', 'remove', '--force', WORKTREE])
+    expect(calls).toContainEqual(['branch', '-D', '--', BRANCH])
   })
 })

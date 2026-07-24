@@ -1023,7 +1023,13 @@ async function performAddWorktree(
       }
     } catch (error) {
       // Why: the add succeeded, so registration (and the fresh branch) is certain.
-      return rollbackDeferredWorktreeCreate(repoPath, worktreePath, branch, true, options, error)
+      // Pass the branch explicitly so rollback still force-deletes it if the internal
+      // relist is transiently degraded (listWorktrees swallows failures → []), which
+      // would otherwise orphan the fresh branch (removeWorktree resolves '' → no delete).
+      return rollbackDeferredWorktreeCreate(repoPath, worktreePath, branch, true, options, error, {
+        branch: `refs/heads/${branch}`,
+        head: ''
+      })
     }
   }
 
@@ -1116,6 +1122,11 @@ export async function addSparseWorktree(
           deleteBranch: !options.checkoutExistingBranch,
           // Why: failed-creation rollback — the fresh branch has no user commits, so force-delete rather than orphan it.
           forceBranchDelete: !options.checkoutExistingBranch,
+          // Why: name the branch explicitly so a transiently degraded relist (listWorktrees → [])
+          // can't leave removeWorktree with '' and orphan the fresh branch.
+          ...(!options.checkoutExistingBranch
+            ? { knownRemovedWorktree: { branch: `refs/heads/${branch}`, head: '' } }
+            : {}),
           ...(options.wslDistro ? { wslDistro: options.wslDistro } : {})
         })
       } catch {

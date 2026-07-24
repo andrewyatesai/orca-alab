@@ -2376,7 +2376,7 @@ describe('GitHandler', () => {
         ['merge-base', '--is-ancestor', 'old-local-oid', 'remote-oid'],
         '/repo'
       )
-      expect(gitMock).toHaveBeenCalledWith(['reset', '--hard', 'remote-oid'], '/repo')
+      expect(gitMock).toHaveBeenCalledWith(['reset', '--keep', 'remote-oid'], '/repo')
       expect(gitMock.mock.calls.map((call) => call[0])).not.toContainEqual([
         'update-ref',
         'refs/heads/main',

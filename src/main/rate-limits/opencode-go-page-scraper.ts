@@ -13,14 +13,30 @@
  * `resetInSec` as direct numeric properties (not nested), so that placeholder
  * `null` occurrences and billing-context duplicates are ignored.
  */
+// Why: a genuine usage object is well under a KB; these caps neutralize a
+// quadratic brace-scan on a malformed body without rejecting real pages.
+const MAX_BLOCK_SCAN_LENGTH = 100_000
+const MAX_KEY_OCCURRENCES = 64
+// Why: reject oversized bodies before the scan rather than after (was 10MB); a
+// real opencode.ai usage page is a few hundred KB at most.
+const MAX_PAGE_TEXT_LENGTH = 2_000_000
+
 function extractUsageBlock(text: string, key: string): string | null {
   // Match every occurrence of `key:` (with optional $R[N]= assignment)
   // Why: React Flight wire format embeds object references between the colon
   // and the literal brace, so we skip over any `$R[N]=` tokens to reach `{`.
   const keyRegex = new RegExp(`\\b${key}\\b\\s*:`, 'g')
   let keyMatch: RegExpExecArray | null
+  // Why: a hostile/oversized opencode.ai body full of unbalanced `key:{` tokens
+  // would otherwise make each occurrence scan to end-of-text — O(n^2) — freezing
+  // the main process. Bound both the occurrence count and each block scan so a
+  // real usage object (tiny) still parses while a malformed body fails closed.
+  let occurrences = 0
 
   while ((keyMatch = keyRegex.exec(text)) !== null) {
+    if (++occurrences > MAX_KEY_OCCURRENCES) {
+      return null
+    }
     // Scan forward from after the colon to find the opening `{`,
     // allowing for the `$R[N]=` token or plain whitespace in between.
     // We only scan a short window so we don't accidentally land on the
@@ -38,9 +54,10 @@ function extractUsageBlock(text: string, key: string): string | null {
     // Why: this brace-depth parser does not skip string literals. React Flight's
     // current format does not emit raw { } inside strings, but this is a scraper
     // against HTML we don't control — treat as fragile.
+    const scanEnd = Math.min(text.length, openBrace + MAX_BLOCK_SCAN_LENGTH)
     let depth = 0
     let block: string | null = null
-    for (let i = openBrace; i < text.length; i++) {
+    for (let i = openBrace; i < scanEnd; i++) {
       if (text[i] === '{') {
         depth++
       } else if (text[i] === '}') {
@@ -127,7 +144,7 @@ type ParsedSubscription = {
 export function parseSubscriptionFromPageText(text: string): ParsedSubscription | null {
   // Why: OpenCode usage is scraped from HTML-embedded JS (React Flight wire
   // format). Defensive size check prevents runaway parsing on unexpected payloads.
-  if (!text || text.length > 10_000_000) {
+  if (!text || text.length > MAX_PAGE_TEXT_LENGTH) {
     return null
   }
 

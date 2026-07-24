@@ -15,6 +15,17 @@ export function useThrottledLatestValue<T>(value: T, intervalMs: number, resetKe
   const lastEmitRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resetKeyRef = useRef(resetKey)
+  const [renderKey, setRenderKey] = useState(resetKey)
+
+  // Reset BEFORE paint: correct the returned value during render on a source
+  // switch (React's adjust-state-during-render), so the newly-keyed view can't
+  // paint the prior source's throttled frame for one frame while the effect
+  // below catches up. Ref/timer teardown stays in the effect (a render may be
+  // discarded, so side effects don't belong here).
+  if (renderKey !== resetKey) {
+    setRenderKey(resetKey)
+    setThrottled(value)
+  }
 
   useEffect(() => {
     if (resetKeyRef.current !== resetKey) {

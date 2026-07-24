@@ -1,4 +1,4 @@
-import { createElement } from 'react'
+import { createElement, useEffect } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { useThrottledLatestValue } from './use-throttled-latest-value'
@@ -92,6 +92,42 @@ describe('useThrottledLatestValue', () => {
     expect(latest).toBe('a')
     act(() => vi.advanceTimersByTime(50))
     expect(latest).toBe('abc')
+  })
+
+  it('corrects the returned value during render on a source switch (reset before paint)', () => {
+    // Records the interleaving of render-phase values and passive-effect flushes.
+    // A reset done only in the effect produces the new value AFTER the first
+    // effect (a stale paint); a reset before paint produces it during render,
+    // before any effect runs.
+    const log: string[] = []
+    function ProbeHarness({ value, resetKey }: { value: string; resetKey: unknown }): null {
+      const v = useThrottledLatestValue(value, 50, resetKey)
+      log.push(`R:${v}`)
+      useEffect(() => {
+        log.push('EFFECT')
+      })
+      return null
+    }
+    act(() => {
+      renderer = create(createElement(ProbeHarness, { value: 'a-old', resetKey: 'session-a' }))
+    })
+    // A held/throttled frame is pending for session-a.
+    act(() =>
+      renderer?.update(createElement(ProbeHarness, { value: 'a-newer', resetKey: 'session-a' }))
+    )
+
+    log.length = 0
+    // Switch to session-b: its value must be produced during render, before the
+    // effect flush, so the newly-keyed view never paints session-a's frame.
+    act(() =>
+      renderer?.update(createElement(ProbeHarness, { value: 'b-current', resetKey: 'session-b' }))
+    )
+
+    const bIdx = log.indexOf('R:b-current')
+    const effectIdx = log.indexOf('EFFECT')
+    expect(bIdx).toBeGreaterThanOrEqual(0)
+    expect(effectIdx).toBeGreaterThanOrEqual(0)
+    expect(bIdx).toBeLessThan(effectIdx)
   })
 
   it('clears immediately and drops the trailing emit when the value goes undefined', () => {

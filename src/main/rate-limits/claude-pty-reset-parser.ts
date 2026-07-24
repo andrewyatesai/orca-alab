@@ -1,5 +1,11 @@
 import type { RateLimitWindow } from '../../shared/rate-limit-types'
-import { buildWallClockTimestamp } from './time-zone-wall-clock'
+import {
+  buildRollingResetTimestamp,
+  getZonedNowParts,
+  MONTH_INDEX_BY_NAME,
+  shiftCalendarDays,
+  WEEKDAY_INDEX_BY_NAME
+} from './reset-time-zone-calendar'
 
 const RESET_LINE_RE = /resets?\s+(?:at\s+|in\s+)?(.+)/i
 const MONTH_PATTERN =
@@ -20,50 +26,6 @@ const RELATIVE_RESET_TOKEN_RE = /(\d+)\s*(d(?:ays?)?|h(?:ours?|rs?)?|m(?:in(?:ut
 const IANA_TIME_ZONE_RE = /\(([^()]*)\)?\s*$/
 
 export type ClaudePtyResetMetadata = Pick<RateLimitWindow, 'resetsAt' | 'resetDescription'>
-
-const MONTH_INDEX_BY_NAME: Record<string, number> = {
-  jan: 0,
-  january: 0,
-  feb: 1,
-  february: 1,
-  mar: 2,
-  march: 2,
-  apr: 3,
-  april: 3,
-  may: 4,
-  jun: 5,
-  june: 5,
-  jul: 6,
-  july: 6,
-  aug: 7,
-  august: 7,
-  sep: 8,
-  sept: 8,
-  september: 8,
-  oct: 9,
-  october: 9,
-  nov: 10,
-  november: 10,
-  dec: 11,
-  december: 11
-}
-
-const WEEKDAY_INDEX_BY_NAME: Record<string, number> = {
-  sun: 0,
-  sunday: 0,
-  mon: 1,
-  monday: 1,
-  tue: 2,
-  tuesday: 2,
-  wed: 3,
-  wednesday: 3,
-  thu: 4,
-  thursday: 4,
-  fri: 5,
-  friday: 5,
-  sat: 6,
-  saturday: 6
-}
 
 export function extractClaudePtyResetMetadata(
   lines: string[],
@@ -158,19 +120,12 @@ function parseMonthDayResetTimestamp(resetDescription: string): number | null {
     return null
   }
 
-  const now = new Date()
   const timeZone = extractResetTimeZone(resetDescription)
-  let timestamp = buildWallClockTimestamp(
-    { year: now.getFullYear(), monthIndex, day, hour, minute },
-    timeZone
-  )
-  if (timestamp !== null && timestamp <= Date.now()) {
-    timestamp = buildWallClockTimestamp(
-      { year: now.getFullYear() + 1, monthIndex, day, hour, minute },
-      timeZone
-    )
-  }
-  return timestamp
+  const year = getZonedNowParts(timeZone).year
+  return buildRollingResetTimestamp({ year, monthIndex, day, hour, minute }, timeZone, (parts) => ({
+    ...parts,
+    year: parts.year + 1
+  }))
 }
 
 function parseWeekdayResetTimestamp(resetDescription: string): number | null {
@@ -185,21 +140,22 @@ function parseWeekdayResetTimestamp(resetDescription: string): number | null {
     return null
   }
 
-  const now = new Date()
   const hour = parseHour(match[2], match[4])
   const minute = Number(match[3] ?? 0)
   if (!isValidClockTime(hour, minute)) {
     return null
   }
 
-  const candidate = new Date(now)
-  const daysUntil = (weekdayIndex - now.getDay() + 7) % 7
-  candidate.setDate(now.getDate() + daysUntil)
-  candidate.setHours(hour, minute, 0, 0)
-  if (candidate.getTime() <= Date.now()) {
-    candidate.setDate(candidate.getDate() + 7)
-  }
-  return candidate.getTime()
+  // Why: the reset weekday is expressed in the reset line's zone (or local when
+  // none), so derive "today" and the day-of-week from that zone before rolling
+  // forward — mirroring the month-day branch instead of assuming local time.
+  const timeZone = extractResetTimeZone(resetDescription)
+  const zonedNow = getZonedNowParts(timeZone)
+  const daysUntil = (weekdayIndex - zonedNow.weekday + 7) % 7
+  const target = shiftCalendarDays(zonedNow, daysUntil)
+  return buildRollingResetTimestamp({ ...target, hour, minute }, timeZone, (parts) =>
+    shiftCalendarDays(parts, 7)
+  )
 }
 
 function parseTimeOnlyResetTimestamp(resetDescription: string): number | null {
@@ -215,12 +171,11 @@ function parseTimeOnlyResetTimestamp(resetDescription: string): number | null {
     return null
   }
 
-  const candidate = new Date()
-  candidate.setHours(hour, minute, 0, 0)
-  if (candidate.getTime() <= Date.now()) {
-    candidate.setDate(candidate.getDate() + 1)
-  }
-  return candidate.getTime()
+  const timeZone = extractResetTimeZone(resetDescription)
+  const zonedNow = getZonedNowParts(timeZone)
+  return buildRollingResetTimestamp({ ...zonedNow, hour, minute }, timeZone, (parts) =>
+    shiftCalendarDays(parts, 1)
+  )
 }
 
 function parseHour(hourText: string, periodText: string): number {

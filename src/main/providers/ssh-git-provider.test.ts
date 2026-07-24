@@ -1417,10 +1417,11 @@ describe('SshGitProvider', () => {
     }
   })
 
-  it('renameCurrentBranch sends the narrow branch-rename request', async () => {
-    await provider.renameCurrentBranch('/home/user/feat', 'you/fix-auth')
+  it('renameCurrentBranch sends the narrow branch-rename request with the pinned source', async () => {
+    await provider.renameCurrentBranch('/home/user/feat', 'you/Nautilus', 'you/fix-auth')
     expect(mux.request).toHaveBeenCalledWith('git.renameCurrentBranch', {
       worktreePath: '/home/user/feat',
+      currentBranch: 'you/Nautilus',
       newBranch: 'you/fix-auth'
     })
   })

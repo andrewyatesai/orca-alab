@@ -285,6 +285,34 @@ describe('GitHandler', () => {
         })
       ).rejects.toThrow('Branch name must not start with "-"')
     })
+
+    it('pins the source branch so a HEAD move to another branch is not renamed', async () => {
+      gitInit(tmpDir)
+      writeFileSync(path.join(tmpDir, 'file.txt'), 'hello')
+      gitCommit(tmpDir, 'initial')
+      execFileSync('git', ['checkout', '-b', 'you/Nautilus'], { cwd: tmpDir, stdio: 'pipe' })
+      // Simulate a concurrent checkout that moved HEAD off the validated branch after validation.
+      execFileSync('git', ['checkout', '-b', 'other'], { cwd: tmpDir, stdio: 'pipe' })
+
+      await dispatcher.callRequest('git.renameCurrentBranch', {
+        worktreePath: tmpDir,
+        currentBranch: 'you/Nautilus',
+        newBranch: 'you/fix-auth'
+      })
+
+      // The pinned source was renamed; the branch HEAD now points at (`other`) is untouched.
+      expect(currentBranch(tmpDir)).toBe('other')
+      const branches = execFileSync('git', ['branch', '--format=%(refname:short)'], {
+        cwd: tmpDir,
+        encoding: 'utf-8'
+      })
+        .split('\n')
+        .map((b) => b.trim())
+        .filter(Boolean)
+      expect(branches).toContain('you/fix-auth')
+      expect(branches).toContain('other')
+      expect(branches).not.toContain('you/Nautilus')
+    })
   })
 
   describe('forceDeletePreservedBranch', () => {

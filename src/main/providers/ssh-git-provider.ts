@@ -781,9 +781,15 @@ export class SshGitProvider implements IGitProvider {
     })
   }
 
-  async renameCurrentBranch(worktreePath: string, newBranch: string): Promise<void> {
+  async renameCurrentBranch(
+    worktreePath: string,
+    currentBranch: string,
+    newBranch: string
+  ): Promise<void> {
     await this.runWithDiffDedupeClear(async () => {
-      await this.mux.request('git.renameCurrentBranch', { worktreePath, newBranch })
+      // Why: pass currentBranch so the relay pins the source (two-arg `branch -m`) and can't
+      // rename whatever HEAD moved to between validation and exec (TOCTOU, matches local path).
+      await this.mux.request('git.renameCurrentBranch', { worktreePath, currentBranch, newBranch })
     })
   }
 

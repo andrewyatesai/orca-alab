@@ -1366,16 +1366,29 @@ export class GitHandler {
     return this.runWithGitReadCacheClear(async () => {
       const worktreePath = params.worktreePath
       const newBranch = params.newBranch
+      const currentBranch = params.currentBranch
       if (typeof worktreePath !== 'string' || typeof newBranch !== 'string') {
         throw new Error('Invalid branch rename request.')
       }
       if (newBranch.startsWith('-')) {
         throw new Error('Branch name must not start with "-".')
       }
+      // Why: pin the source by name (two-arg `branch -m <cur> <new>`) so a concurrent checkout
+      // can't make single-arg rename whatever HEAD now points at (TOCTOU); if the pinned source
+      // no longer exists git fails closed. Older clients omit currentBranch → single-arg fallback.
+      const pinnedSource =
+        typeof currentBranch === 'string' && currentBranch.length > 0 ? currentBranch : null
+      if (pinnedSource !== null && pinnedSource.startsWith('-')) {
+        throw new Error('Branch name must not start with "-".')
+      }
       try {
         // Why: generic git.exec blocks destructive branch flags; this narrow RPC permits only the already-checked current-branch rename.
         await this.git(['check-ref-format', '--branch', newBranch], worktreePath)
-        await this.git(['branch', '-m', newBranch], worktreePath)
+        const renameArgs =
+          pinnedSource !== null
+            ? ['branch', '-m', pinnedSource, newBranch]
+            : ['branch', '-m', newBranch]
+        await this.git(renameArgs, worktreePath)
       } catch (error) {
         throw new Error(normalizeGitErrorMessage(error))
       }

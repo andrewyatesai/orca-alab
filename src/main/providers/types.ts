@@ -359,7 +359,11 @@ export type IGitProvider = {
     force?: boolean,
     options?: { deleteBranch?: boolean; forceBranchDelete?: boolean }
   ): Promise<RemoveWorktreeResult>
-  renameCurrentBranch?(worktreePath: string, newBranch: string): Promise<void>
+  renameCurrentBranch?(
+    worktreePath: string,
+    currentBranch: string,
+    newBranch: string
+  ): Promise<void>
   forceDeletePreservedBranch?(
     repoPath: string,
     branchName: string,

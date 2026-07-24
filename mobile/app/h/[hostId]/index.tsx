@@ -93,6 +93,7 @@ import {
 import { useWorkspaceSections } from '../../../src/worktree/use-workspace-sections'
 import { getMobileWorkspaceLineageGroupKey } from '../../../src/worktree/mobile-workspace-lineage'
 import { areWorktreeListsEqual } from '../../../src/worktree/worktree-list-snapshot'
+import { reconcilePinnedIds, revertPendingPin } from '../../../src/worktree/pin-reconciliation'
 import { repoColor } from '../../../src/worktree/repo-color'
 import {
   WORKSPACE_GROUP_OPTIONS as GROUP_OPTIONS,
@@ -145,6 +146,9 @@ export function HostScreen({
   const repoMetadataFetchedAtRef = useRef(0)
   const newWorktreeModalRef = useRef<{ open: () => void }>(null)
   const newWorktreeModalVisibleRef = useRef(false)
+  // Why: track in-flight pin toggles (worktreeId -> desired isPinned) so a worktree.ps snapshot
+  // that predates the desktop applying worktree.set can't revert (or persist away) an optimistic pin.
+  const pendingPinRef = useRef(new Map<string, boolean>())
   const closeHostClient = useCloseHost()
   const forceReconnectHost = useForceReconnect()
   const [worktrees, setWorktrees] = useState<Worktree[]>(initialCache ?? [])
@@ -469,17 +473,18 @@ export function HostScreen({
           })
 
           // Sync pin state from server so desktop-initiated pins reflect without relying on stale AsyncStorage.
-          const serverPinned = new Set(
-            result.worktrees.filter((w) => w.isPinned).map((w) => w.worktreeId)
-          )
+          // reconcilePinnedIds keeps optimistic toggles until the snapshot confirms them and returns null
+          // when the snapshot omits isPinned (older desktop), so we don't wipe/persist away local pins. Its
+          // only side effect (pruning confirmed overrides) is idempotent under React's double-invoked updater.
           setPinnedIds((prev) => {
-            if (serverPinned.size === prev.size && [...serverPinned].every((id) => prev.has(id))) {
+            const pins = reconcilePinnedIds(result.worktrees, pendingPinRef.current)
+            if (!pins || (pins.size === prev.size && [...pins].every((id) => prev.has(id)))) {
               return prev
             }
             if (hostId) {
-              void savePinnedIds(hostId, serverPinned)
+              void savePinnedIds(hostId, pins)
             }
-            return serverPinned
+            return pins
           })
         }
       } catch {
@@ -601,24 +606,33 @@ export function HostScreen({
         ? isWorktreePinned(worktree, pinnedIds)
         : pinnedIds.has(worktreeId)
       const newPinned = !currentlyPinned
-
-      setWorktrees((prev) =>
-        prev.map((w) => (w.worktreeId === worktreeId ? { ...w, isPinned: newPinned } : w))
-      )
-      setLastKnownWorktrees((prev) =>
-        prev.map((w) => (w.worktreeId === worktreeId ? { ...w, isPinned: newPinned } : w))
-      )
-
-      updateLocalPins(worktreeId, newPinned)
-
-      if (client) {
-        client
-          .sendRequest('worktree.set', {
-            worktree: `id:${worktreeId}`,
-            isPinned: newPinned
-          })
-          .catch(() => {})
+      // Optimistically mark the pin across both lists and the persisted pin set.
+      const applyLocal = (pinned: boolean) => {
+        const mark = (l: Worktree[]) =>
+          l.map((w) => (w.worktreeId === worktreeId ? { ...w, isPinned: pinned } : w))
+        setWorktrees(mark)
+        setLastKnownWorktrees(mark)
+        updateLocalPins(worktreeId, pinned)
       }
+      applyLocal(newPinned)
+
+      if (!client) {
+        return
+      }
+      // Record the desired state so a poll racing this set can't revert the optimistic pin.
+      pendingPinRef.current.set(worktreeId, newPinned)
+      // Why: reconcilePinnedIds only clears an override on confirmation, so a set that never applies
+      // (rejection or ok:false) would re-force the optimistic value into pinnedIds every poll. Fail
+      // closed: drop the override and roll the pin back to server truth — unless a newer toggle
+      // superseded this request (revertPendingPin returns false, leaving it untouched).
+      const revert = () => {
+        if (revertPendingPin(pendingPinRef.current, worktreeId, newPinned)) {
+          applyLocal(currentlyPinned)
+        }
+      }
+      client
+        .sendRequest('worktree.set', { worktree: `id:${worktreeId}`, isPinned: newPinned })
+        .then((r) => (r.ok ? undefined : revert()), revert)
     },
     [client, worktrees, pinnedIds, updateLocalPins]
   )

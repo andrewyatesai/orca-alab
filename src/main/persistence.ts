@@ -3899,7 +3899,10 @@ export class Store {
     let hashInput = serialized
     for (const { sentinel, blob, plaintext } of secretSubs) {
       const escapedSentinel = JSON.stringify(sentinel).slice(1, -1)
-      payload = payload.replace(escapedSentinel, () => blob)
+      // Why: blob sits inside JSON string quotes in `serialized`, so it must be
+      // JSON-escaped (a plaintext-persisted secret containing " or \ would
+      // otherwise corrupt the whole store — the next load's JSON.parse throws).
+      payload = payload.replace(escapedSentinel, () => JSON.stringify(blob).slice(1, -1))
       hashInput = hashInput.replace(escapedSentinel, () => JSON.stringify(plaintext).slice(1, -1))
     }
     const stateHash = createHash('sha1').update(hashInput).digest('hex')

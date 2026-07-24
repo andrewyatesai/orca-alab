@@ -6896,6 +6896,35 @@ describe('Store', () => {
     }
   })
 
+  it('round-trips a plaintext secret containing JSON-special chars without corrupting the store', async () => {
+    // Regression (#9381 single-serialization save): the blob was spliced into
+    // already-serialized JSON unescaped, so a plaintext secret with a " or \
+    // produced invalid JSON — the NEXT load's JSON.parse threw and the ENTIRE
+    // store was unloadable, not just the one secret.
+    const cookie = 'a"b\\c'
+    process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS = '1'
+    safeStorageControl.available = false
+    try {
+      const store = await createStore()
+      store.updateSettings({ opencodeSessionCookie: cookie, tabScrollPosition: 42 })
+      store.flush()
+
+      // The on-disk file must be valid JSON (readDataFile JSON.parses it).
+      const persisted = readDataFile() as {
+        settings: { opencodeSessionCookie: string; tabScrollPosition: number }
+      }
+      expect(persisted.settings.opencodeSessionCookie).toBe(`orca-plaintext-v1:${cookie}`)
+
+      // The whole store reloads — the sibling setting is not lost to a parse throw.
+      const reloaded = await createStore()
+      expect(reloaded.getSettings().opencodeSessionCookie).toBe(cookie)
+      expect(reloaded.getSettings().tabScrollPosition).toBe(42)
+    } finally {
+      delete process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS
+      safeStorageControl.available = true
+    }
+  })
+
   it('preserves an existing encrypted secret verbatim across a safeStorage outage', async () => {
     // Save encrypted while the keychain is available, then reload/resave while it is gone: the
     // ciphertext must be re-emitted verbatim, never dropped or rewritten as cleartext.

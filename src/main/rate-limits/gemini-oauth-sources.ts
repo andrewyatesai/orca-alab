@@ -79,7 +79,10 @@ export async function readGeminiCredentials(): Promise<GeminiCredentials | null>
 
 export async function saveGeminiCredentials(creds: GeminiCredentials): Promise<void> {
   const tmpPath = `${OAUTH_CREDS_PATH}.${process.pid}.tmp`
-  await writeFile(tmpPath, JSON.stringify(creds, null, 2), 'utf-8')
+  // Why: these are long-lived OAuth access+refresh tokens — write owner-only so
+  // the atomic rename can never downgrade the credential file to world-readable
+  // on a multi-user or SSH host (rename replaces the inode, tightening 0o644).
+  await writeFile(tmpPath, JSON.stringify(creds, null, 2), { encoding: 'utf-8', mode: 0o600 })
   await rename(tmpPath, OAUTH_CREDS_PATH)
 }
 

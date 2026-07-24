@@ -71,11 +71,15 @@ function isExecTimeoutError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
     return false
   }
-  const { code, killed, signal } = err as { code?: unknown; killed?: unknown; signal?: unknown }
-  // Why: on Windows a timeout kill surfaces as killed/SIGTERM with a null
-  // code, not ETIMEDOUT — the old ETIMEDOUT-only check let a stuck first
-  // probe fall through to a second equally stuck probe (issue #7225).
-  return code === 'ETIMEDOUT' || killed === true || signal === 'SIGTERM'
+  const e = err as { code?: unknown; killed?: unknown; signal?: unknown; message?: unknown }
+  // Why: Windows kills a timed-out probe as killed/SIGTERM (no ETIMEDOUT code) and the runner's
+  // deadline rejects with a bare `"<cmd> timed out."`; both must take the soft retry (#7225).
+  return (
+    e.code === 'ETIMEDOUT' ||
+    e.killed === true ||
+    e.signal === 'SIGTERM' ||
+    (typeof e.message === 'string' && e.message.endsWith(' timed out.'))
+  )
 }
 
 async function runGhLoginProbe(args: string[]): Promise<GhLoginProbeResult> {

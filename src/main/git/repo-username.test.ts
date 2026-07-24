@@ -211,6 +211,36 @@ describe('resolveLocalGitUsername', () => {
     expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(2)
   })
 
+  it('treats the runner’s bare "timed out." error (no code/signal) as a soft timeout', async () => {
+    // Why: the runner replaced Node's execFile timeout with its own, rejecting with a
+    // bare `new Error("gh timed out.")` carrying no code/killed/signal. Misclassifying
+    // that as a hard empty result pins an authoritative '' that CLEARS the persisted
+    // branch-prefix username. It must instead take the soft, retryable timeout path.
+    vi.useFakeTimers()
+    originRemoteUrl = 'https://github.com/stablyai/orca.git'
+    ghExecFileAsyncMock
+      .mockRejectedValueOnce(makeExecError('gh timed out.'))
+      .mockResolvedValueOnce({ stdout: 'gh-demo\n', stderr: '' })
+
+    await expect(resolveLocalGitUsernameDetailed('/repo')).resolves.toEqual({
+      username: '',
+      authoritative: false
+    })
+    // No second (equally stuck) probe within the cooldown.
+    await expect(resolveLocalGitUsernameDetailed('/repo')).resolves.toEqual({
+      username: '',
+      authoritative: false
+    })
+    expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1)
+    await expect(resolveLocalGitUsernameDetailed('/repo')).resolves.toEqual({
+      username: 'gh-demo',
+      authoritative: true
+    })
+    expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(2)
+  })
+
   it('reports authoritative empty for non-GitHub repos', async () => {
     originRemoteUrl = 'https://gitlab.com/stablyai/orca.git'
 

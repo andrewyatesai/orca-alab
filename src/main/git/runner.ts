@@ -258,6 +258,7 @@ type CommandExecOptions = {
   encoding?: BufferEncoding
   maxBuffer?: number
   timeout?: number
+  stdin?: string
   env?: NodeJS.ProcessEnv
   signal?: AbortSignal
   killProcessTree?: boolean
@@ -489,7 +490,11 @@ function execFileCapture(
           return
         }
         terminating = true
-        const timeoutError = new Error(`${command} timed out.`)
+        // Why: tag ETIMEDOUT so consumers (e.g. gh-login isExecTimeoutError) classify our
+        // custom deadline the same as Node's — an untagged timeout was read as a hard failure.
+        const timeoutError = Object.assign(new Error(`${command} timed out.`), {
+          code: 'ETIMEDOUT'
+        })
         if (!child) {
           terminating = false
           finish(timeoutError)
@@ -528,9 +533,14 @@ async function spawnCommandCapture(
       cwd: options.cwd,
       detached: options.killProcessTree === true && process.platform !== 'win32',
       env: options.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // Why: pipe stdin only when the caller supplies input, else git reads EOF; a
+      // silently-dropped payload (killProcessTree path) let a real op run on empty input.
+      stdio: [options.stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       windowsHide: true
     })
+    if (options.stdin !== undefined) {
+      endSubprocessStdin(child.stdin, options.stdin)
+    }
     recordSubprocessSpawn(spawnCmd, spawnArgs, performance.now() - spawnStartedAt)
     let timer: NodeJS.Timeout | null = null
     const onAbort = (): void => {
@@ -565,7 +575,8 @@ async function spawnCommandCapture(
     timer = options.timeout
       ? setTimeout(() => {
           void killSpawnedCommandTree(child, options.killProcessTree)
-          finish(new Error(`${command} timed out.`))
+          // Why: tag ETIMEDOUT so our custom deadline classifies like Node's (see execFileCapture).
+          finish(Object.assign(new Error(`${command} timed out.`), { code: 'ETIMEDOUT' }))
         }, options.timeout)
       : null
     options.signal?.addEventListener('abort', onAbort, { once: true })
@@ -870,6 +881,8 @@ export async function gitExecFileAsync(
                 encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
                 maxBuffer: options.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER,
                 timeout: options.timeout,
+                // Why: forward stdin so a killProcessTree remote op isn't silently fed EOF.
+                stdin: options.stdin,
                 env: policy.env,
                 signal: options.signal,
                 killProcessTree: true
@@ -968,6 +981,12 @@ export type GitStreamOptions = {
   env?: NodeJS.ProcessEnv
   wslDistro?: string
   signal?: AbortSignal
+  /**
+   * Deadline (ms) after which the child is tree-killed and the promise rejects.
+   * Without it, a status scan on a wedged NFS/SSHFS mount never settles and pins
+   * the in-flight dedupe so that worktree's status wedges until restart. 0/undefined = none.
+   */
+  timeout?: number
   /** Byte backstop; defaults to DEFAULT_GIT_MAX_BUFFER. */
   maxBuffer?: number
   /**
@@ -1013,10 +1032,15 @@ export async function gitStreamStdout(
       let stdoutBytes = 0
       let stderr = ''
       let stderrBytes = 0
+      let timer: NodeJS.Timeout | null = null
       // Why: decode stderr statefully so a multibyte UTF-8 char split across chunks isn't corrupted into replacement chars.
       const stderrDecoder = new StringDecoder('utf8')
 
       const cleanup = (): void => {
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
         child.stdout?.off('data', onStdoutData)
         child.stderr?.off('data', onStderrData)
         child.off('error', onError)
@@ -1090,6 +1114,14 @@ export async function gitStreamStdout(
       child.on('error', onError)
       child.on('close', onClose)
       options.signal?.addEventListener('abort', onAbort, { once: true })
+      // Why: bound the scan so a wedged filesystem can't leave the promise (and the
+      // getStatus in-flight dedupe) unsettled forever; tag ETIMEDOUT for classifiers.
+      if (options.timeout && options.timeout > 0) {
+        timer = setTimeout(() => {
+          void killSpawnedCommandTree(child)
+          finish(Object.assign(new Error('git stream timed out.'), { code: 'ETIMEDOUT' }))
+        }, options.timeout)
+      }
       if (options.signal?.aborted) {
         onAbort()
       }

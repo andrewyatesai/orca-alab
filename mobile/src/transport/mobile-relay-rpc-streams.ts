@@ -176,8 +176,10 @@ export class MobileRelayRpcStreams {
     }
     // Why: worktree/agent-keyed subscriptions (session.tabs, nativeChat) carry
     // their teardown key in the subscribe params, so the host can be told to
-    // unsubscribe without waiting for — or ever seeing — a subscriptionId.
-    const paramUnsub = buildStreamUnsubscribe(stream.method, stream.params)
+    // unsubscribe without waiting for — or ever seeing — a subscriptionId. The
+    // subscribe request id (`id`) is echoed for session.tabs so the host tears
+    // down only this subscriber, not every sibling on the same worktree.
+    const paramUnsub = buildStreamUnsubscribe(stream.method, stream.params, id)
     if (paramUnsub) {
       this.options.sendFrame({
         id: this.options.nextId(),

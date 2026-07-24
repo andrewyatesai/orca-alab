@@ -35,16 +35,42 @@ function createHarness(options?: { deferConnect?: boolean }) {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('MobileRelayRpcStreams cancel teardown', () => {
-  it('unsubscribes worktree-keyed session.tabs on cancel (no subscriptionId involved)', async () => {
+  it('unsubscribes session.tabs on cancel echoing the subscribe id as subscriptionId', async () => {
     const { streams, frames } = createHarness()
     const dispose = streams.subscribe('session.tabs.subscribe', { worktree: 'id:wt-1' }, () => {})
     await flush()
+    // The subscribe frame's id is the host's per-subscriber cleanup key.
+    const subscribeId = frames.find((f) => f.method === 'session.tabs.subscribe')?.id
+    expect(subscribeId).toBeDefined()
 
     dispose()
 
     const unsub = frames.find((f) => f.method === 'session.tabs.unsubscribe')
     expect(unsub).toBeDefined()
-    expect(unsub?.params).toEqual({ worktree: 'id:wt-1' })
+    // Why: a subscriptionId-less unsubscribe is a PREFIX wipe on the host; the
+    // targeted teardown must carry the original subscribe id.
+    expect(unsub?.params).toEqual({ worktree: 'id:wt-1', subscriptionId: subscribeId })
+  })
+
+  it('canceling one session.tabs subscriber does not broadcast a prefix-wipe teardown for a sibling', async () => {
+    const { streams, frames } = createHarness()
+    // Two mounted screens subscribe to the same worktree on one socket.
+    const disposeA = streams.subscribe('session.tabs.subscribe', { worktree: 'id:wt-1' }, () => {})
+    streams.subscribe('session.tabs.subscribe', { worktree: 'id:wt-1' }, () => {})
+    await flush()
+    const subscribeIds = frames
+      .filter((f) => f.method === 'session.tabs.subscribe')
+      .map((f) => f.id)
+    expect(subscribeIds).toHaveLength(2)
+    const [idA] = subscribeIds
+
+    disposeA()
+
+    const unsubs = frames.filter((f) => f.method === 'session.tabs.unsubscribe')
+    expect(unsubs).toHaveLength(1)
+    // Targets only subscriber A's key; a subscriptionId-less frame would be a
+    // prefix wipe on the host that also silently tears down subscriber B.
+    expect(unsubs[0]?.params).toEqual({ worktree: 'id:wt-1', subscriptionId: idA })
   })
 
   it('runtime.clientEvents: cancel before ready then unsubscribes once when ready lands', async () => {

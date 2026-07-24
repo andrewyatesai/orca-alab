@@ -210,7 +210,9 @@ export const GitGeneratePullRequestFields = GitGenerateCommitMessage.extend({
 })
 
 export const GitBulkPaths = WorktreeSelector.extend({
-  filePaths: z.array(z.string().min(1, 'Missing file path'))
+  // Why: cap the batch like the sibling GitCheckIgnored so a mobile/relay caller
+  // can't fan one validated request out into an unbounded run of git subprocesses.
+  filePaths: z.array(z.string().min(1, 'Missing file path')).max(2000)
 })
 
 const GitPushTargetParam = z.object({

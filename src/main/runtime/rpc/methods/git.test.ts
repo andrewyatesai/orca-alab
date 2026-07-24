@@ -260,6 +260,41 @@ describe('git RPC methods', () => {
     expect(runtime.bulkDiscardRuntimeGitPaths).not.toHaveBeenCalled()
   })
 
+  it('rejects an oversized bulk path array before fanning out git subprocesses', async () => {
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      bulkStageRuntimeGitPaths: vi.fn(),
+      bulkUnstageRuntimeGitPaths: vi.fn()
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: GIT_METHODS })
+
+    const oversized = Array.from({ length: 2001 }, (_v, i) => `f${i}.ts`)
+    const stageResponse = await dispatcher.dispatch(
+      makeRequest('git.bulkStage', { worktree: 'id:wt-1', filePaths: oversized })
+    )
+    const unstageResponse = await dispatcher.dispatch(
+      makeRequest('git.bulkUnstage', { worktree: 'id:wt-1', filePaths: oversized })
+    )
+
+    expect(stageResponse).toMatchObject({ ok: false, error: { code: 'invalid_argument' } })
+    expect(unstageResponse).toMatchObject({ ok: false, error: { code: 'invalid_argument' } })
+    expect(runtime.bulkStageRuntimeGitPaths).not.toHaveBeenCalled()
+    expect(runtime.bulkUnstageRuntimeGitPaths).not.toHaveBeenCalled()
+
+    // Why: exactly 2000 (the cap) still passes — the bound rejects only above it.
+    const atCap = Array.from({ length: 2000 }, (_v, i) => `f${i}.ts`)
+    const runtimeAtCap = {
+      getRuntimeId: () => 'test-runtime',
+      bulkStageRuntimeGitPaths: vi.fn().mockResolvedValue({ ok: true })
+    } as unknown as OrcaRuntimeService
+    const dispatcherAtCap = new RpcDispatcher({ runtime: runtimeAtCap, methods: GIT_METHODS })
+    const atCapResponse = await dispatcherAtCap.dispatch(
+      makeRequest('git.bulkStage', { worktree: 'id:wt-1', filePaths: atCap })
+    )
+    expect(atCapResponse).toMatchObject({ ok: true })
+    expect(runtimeAtCap.bulkStageRuntimeGitPaths).toHaveBeenCalledWith('id:wt-1', atCap)
+  })
+
   it('routes remote operations to the runtime', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',

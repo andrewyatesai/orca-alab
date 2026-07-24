@@ -144,7 +144,14 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
         },
         connectionId
       )
-      const initial = await runtime.listMobileSessionTabs(params.worktree)
+      // Why: cleanup is registered before this await, so a rejected initial list
+      // (missing worktree, transient failure) must tear the entry down before it
+      // rethrows or it leaks in subscriptionCleanups/subscriptionsByConnection on a
+      // long-lived socket (mirrors subscribeAll).
+      const initial = await runtime.listMobileSessionTabs(params.worktree).catch((error) => {
+        runtime.cleanupSubscription(subscriptionId)
+        throw error
+      })
       if (closed || signal?.aborted) {
         runtime.cleanupSubscription(subscriptionId)
         return

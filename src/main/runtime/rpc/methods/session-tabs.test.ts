@@ -547,6 +547,32 @@ describe('session tab RPC methods', () => {
     expect(emitted.map((message) => JSON.parse(message).result?.type)).not.toContain('updated')
   })
 
+  it('tears down the subscription registry entry when the initial list rejects', async () => {
+    // Why: cleanup registers before the initial-list await; a rejected list must
+    // run that cleanup before rethrowing or the entry leaks in the registry and
+    // by-connection index (Codex cxr2), accumulating on a long-lived socket.
+    const cleanupSubscription = vi.fn()
+    const listError = new Error('missing worktree')
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn().mockRejectedValue(listError),
+      onMobileSessionTabsChanged: vi.fn(() => vi.fn()),
+      registerSubscriptionCleanup: vi.fn(),
+      cleanupSubscription
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
+
+    await dispatcher.dispatchStreaming(
+      makeRequest('session.tabs.subscribe', { worktree: 'id:wt-1' }),
+      vi.fn(),
+      { connectionId: 'conn-1' }
+    )
+
+    expect(cleanupSubscription).toHaveBeenCalledWith('session.tabs:conn-1:id:wt-1:req-1')
+    // The failed initial list must not have installed a live tab-change listener.
+    expect(runtime.onMobileSessionTabsChanged).not.toHaveBeenCalled()
+  })
+
   it('unsubscribes a session tabs stream using the resolved worktree id and connection id', async () => {
     const cleanupSubscription = vi.fn()
     const runtime = {

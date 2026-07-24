@@ -280,6 +280,43 @@ describe('RateLimitService', () => {
     expect(fetchCodexRateLimits).toHaveBeenCalledTimes(2)
   })
 
+  it('drains a queued Claude refresh after a full fetch queued during a Codex-only cycle', async () => {
+    // Why: a bare `continue` in the single-provider drain exited the loop with
+    // shouldContinue already false, stranding a sibling forced fetch (its awaiter
+    // hung until the next poll — usage chip stuck on Waiting/Limited).
+    const service = new RateLimitService()
+    const firstCodex = deferred<ProviderRateLimits>()
+    vi.mocked(fetchCodexRateLimits)
+      .mockImplementationOnce(() => firstCodex.promise)
+      .mockResolvedValue(okProvider('codex', 50))
+    vi.mocked(fetchClaudeRateLimits).mockResolvedValue(okProvider('claude', 30))
+
+    // Codex-only cycle in flight (isFetching true, awaiting firstCodex).
+    const codexSwitch = service.refreshForCodexAccountChange()
+    await Promise.resolve()
+
+    // Full fetch queues behind it (checked first in the drain).
+    const fullRefresh = service.refresh()
+    await Promise.resolve()
+
+    // Claude-only forced refresh queues too and must not be stranded.
+    let claudeResolved = false
+    const claudeRefresh = service.refreshClaudeForCurrentTarget().then((state) => {
+      claudeResolved = true
+      return state
+    })
+    await Promise.resolve()
+
+    firstCodex.resolve(okProvider('codex', 24))
+    await codexSwitch
+    await fullRefresh
+    await claudeRefresh
+
+    expect(claudeResolved).toBe(true)
+    // Full cycle fetches Claude once; the drained Claude-only cycle fetches it again.
+    expect(fetchClaudeRateLimits).toHaveBeenCalledTimes(2)
+  })
+
   it('removes all window listeners when replacing the attached window', () => {
     const service = new RateLimitService()
     const firstWindow = new FakeRateLimitWindow()

@@ -39,11 +39,19 @@ export class GitAutoFetchScheduler {
   constructor(private readonly deps: GitAutoFetchSchedulerDeps) {}
 
   configure(settings: GitAutoFetchSettings): void {
+    const previousIntervalMs = this.intervalMs
+    const wasEnabled = this.enabled
     this.enabled = settings.enabled
     this.intervalMs = settings.intervalMinutes * 60_000
     if (!this.enabled) {
       this.stop()
       return
+    }
+    // Why: each repo's nextEligibleAt was baked with the previous interval, so an
+    // interval change (or a disable→re-enable) must re-seed scheduled state — else
+    // repos stay throttled on the old cadence / stale backoff until it elapses.
+    if (this.intervalMs !== previousIntervalMs || !wasEnabled) {
+      this.repoStates.clear()
     }
     if (this.timer) {
       return

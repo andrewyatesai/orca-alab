@@ -8,19 +8,19 @@ describe('useThrottledLatestValue', () => {
   let latest: string | undefined
   let consoleSpy: MockInstance
 
-  function Harness({ value }: { value: string | undefined }): null {
-    latest = useThrottledLatestValue(value, 50)
+  function Harness({ value, resetKey }: { value: string | undefined; resetKey?: unknown }): null {
+    latest = useThrottledLatestValue(value, 50, resetKey)
     return null
   }
 
-  function render(value: string | undefined): void {
+  function render(value: string | undefined, resetKey?: unknown): void {
     act(() => {
-      renderer = create(createElement(Harness, { value }))
+      renderer = create(createElement(Harness, { value, resetKey }))
     })
   }
 
-  function update(value: string | undefined): void {
-    act(() => renderer?.update(createElement(Harness, { value })))
+  function update(value: string | undefined, resetKey?: unknown): void {
+    act(() => renderer?.update(createElement(Harness, { value, resetKey })))
   }
 
   beforeEach(() => {
@@ -52,6 +52,43 @@ describe('useThrottledLatestValue', () => {
     render('a')
     update('ab')
     update('abc')
+    expect(latest).toBe('a')
+    act(() => vi.advanceTimersByTime(50))
+    expect(latest).toBe('abc')
+  })
+
+  it('emits the new source immediately when resetKey changes mid-throttle', () => {
+    // Session A is streaming: its held value is throttled and a trailing emit is
+    // pending (not yet elapsed).
+    render('a-old', 'session-a')
+    update('a-newer', 'session-a')
+    expect(latest).toBe('a-old')
+
+    // Switch to session B (new resetKey) before A's interval elapses. B's value
+    // must show at once, never A's stale trailing frame.
+    update('b-current', 'session-b')
+    expect(latest).toBe('b-current')
+
+    // A's pending trailing emit must have been cancelled, not fire late over B.
+    act(() => vi.advanceTimersByTime(50))
+    expect(latest).toBe('b-current')
+  })
+
+  it('does not carry a stale value when the new source is undefined (idle) on switch', () => {
+    render('a-old', 'session-a')
+    update('a-newer', 'session-a')
+    expect(latest).toBe('a-old')
+
+    update(undefined, 'session-b')
+    expect(latest).toBeUndefined()
+    act(() => vi.advanceTimersByTime(50))
+    expect(latest).toBeUndefined()
+  })
+
+  it('still throttles within a stable resetKey', () => {
+    render('a', 'session')
+    update('ab', 'session')
+    update('abc', 'session')
     expect(latest).toBe('a')
     act(() => vi.advanceTimersByTime(50))
     expect(latest).toBe('abc')

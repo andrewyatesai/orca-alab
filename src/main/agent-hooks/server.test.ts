@@ -7567,6 +7567,34 @@ describe('AgentHookServer provider-session pane attribution', () => {
       })
     ])
   })
+
+  it('does not bind an unbound remote session via the LOCAL input probe', () => {
+    // Regression: the remote path ran resolveProviderSessionPaneKey, whose local
+    // input-probe heuristic ("which LOCAL pane got the freshest keyboard input")
+    // is meaningless for a session running on another host — it would attribute
+    // the remote worker to an unrelated local pane. The remote path must use
+    // only the explicit spawn binding and otherwise fail open to the posted key.
+    const server = new AgentHookServer()
+    let probeCalls = 0
+    // Simulate fresh local typing in an UNRELATED local pane.
+    server.setClaudePaneInputProbe(() => {
+      probeCalls += 1
+      return { paneKey: GOOD_PANE, ptyId: 'pty-local' }
+    })
+    server.ingestRemote(
+      {
+        paneKey: PANE,
+        hookEventName: 'UserPromptSubmit',
+        providerSession: { key: 'session_id', id: 'ffffffff-1111-4222-8333-444444444444' },
+        payload: { state: 'working', prompt: 'remote unbound turn', agentType: 'claude' }
+      },
+      'ssh-host'
+    )
+    expect(probeCalls).toBe(0)
+    expect(server.getStatusSnapshot()).toEqual([
+      expect.objectContaining({ paneKey: PANE, state: 'working', prompt: 'remote unbound turn' })
+    ])
+  })
 })
 
 describe('AgentHookServer fork lineage and input rebind', () => {

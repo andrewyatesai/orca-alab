@@ -1324,14 +1324,23 @@ export class AgentHookServer {
   // daemon-worker misattribution (#9236) identically. Returns the owning pane
   // key when a session→pane binding applies, else null (fail open to the posted
   // key). May register a new binding from the daemon roster or input probe.
-  private resolveProviderSessionPaneKey(meta: HookBodyClaudeMeta): string | null {
+  private resolveProviderSessionPaneKey(
+    meta: HookBodyClaudeMeta,
+    options?: { allowLocalHeuristics?: boolean }
+  ): string | null {
     if (!meta.sessionId) {
       return null
     }
+    // Why: the roster read and input probe below inspect THIS host's local
+    // Claude state; a relayed (SSH/WSL) session runs on another host, so those
+    // heuristics would misbind it to a local pane. The remote path passes
+    // allowLocalHeuristics:false and relies only on the explicit spawn-time
+    // binding (valid on any host), which is what the #9236 rebind needs.
+    const allowLocalHeuristics = options?.allowLocalHeuristics ?? true
     // Why: resume/continue fork the session id, so the fork arrives unbound.
     // The daemon roster names the fork's parent — inherit the parent's pane.
     // Deterministic, so it runs before the input heuristic below.
-    if (!this.providerSessionPanes.has(meta.sessionId)) {
+    if (allowLocalHeuristics && !this.providerSessionPanes.has(meta.sessionId)) {
       const parent = resolveClaudeForkParentSessionId(meta.sessionId, meta.transcriptPath)
       const parentBinding = parent ? this.providerSessionPanes.get(parent) : undefined
       if (parentBinding) {
@@ -1346,7 +1355,11 @@ export class AgentHookServer {
     // Known ceiling: a headless prompt to an unbound session that lands
     // within the input window of unrelated typing can misbind until the next
     // interactive turn corrects it.
-    if (meta.eventName === 'UserPromptSubmit' && !this.providerSessionPanes.has(meta.sessionId)) {
+    if (
+      allowLocalHeuristics &&
+      meta.eventName === 'UserPromptSubmit' &&
+      !this.providerSessionPanes.has(meta.sessionId)
+    ) {
       const pane = this.claudePaneInputProbe?.(CLAUDE_PANE_INPUT_REBIND_WINDOW_MS) ?? null
       if (pane) {
         this.registerProviderSessionPane(meta.sessionId, pane.paneKey, pane.ptyId)
@@ -1485,14 +1498,19 @@ export class AgentHookServer {
     // posted key when no binding exists.
     const relayProviderSession =
       normalizeAgentProviderSession(envelope.providerSession) ?? undefined
-    const sessionPinnedPaneKey = this.resolveProviderSessionPaneKey({
-      sessionId: relayProviderSession?.key === 'session_id' ? relayProviderSession.id : null,
-      eventName:
-        typeof envelope.hookEventName === 'string' && envelope.hookEventName.trim().length > 0
-          ? envelope.hookEventName.trim()
-          : null,
-      transcriptPath: relayProviderSession?.transcriptPath ?? null
-    })
+    const sessionPinnedPaneKey = this.resolveProviderSessionPaneKey(
+      {
+        sessionId: relayProviderSession?.key === 'session_id' ? relayProviderSession.id : null,
+        eventName:
+          typeof envelope.hookEventName === 'string' && envelope.hookEventName.trim().length > 0
+            ? envelope.hookEventName.trim()
+            : null,
+        transcriptPath: relayProviderSession?.transcriptPath ?? null
+      },
+      // Why: a relayed session runs on another host — only the explicit spawn
+      // binding applies; local roster/input heuristics would misattribute it.
+      { allowLocalHeuristics: false }
+    )
     const usedSessionPin = sessionPinnedPaneKey !== null
     // Why: trim paneKey to match the HTTP path, else remote-vs-local events for one pane diverge.
     const physicalPaneKey = (sessionPinnedPaneKey ?? envelope.paneKey).trim()

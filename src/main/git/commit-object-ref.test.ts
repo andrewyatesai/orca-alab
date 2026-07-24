@@ -25,6 +25,30 @@ describe('commit object refs', () => {
     expect(isFullGitObjectId('g'.repeat(40))).toBe(false)
   })
 
+  it('recognizes SHA-256 (64-hex) object IDs so a present commit is not read as absent', () => {
+    // Why: SHA-256 object-format repos (git 2.29+) use 64-hex commit OIDs; the
+    // old 40-only gate short-circuited hasCommitObjectViaGitExec to false and
+    // fired a redundant remote fetch for a base commit that was already local.
+    expect(isFullGitObjectId('a'.repeat(64))).toBe(true)
+    expect(isFullGitObjectId('A'.repeat(64))).toBe(true)
+    // Neither SHA-1 nor SHA-256 length: still rejected without shelling out.
+    expect(isFullGitObjectId('a'.repeat(50))).toBe(false)
+    expect(isFullGitObjectId('g'.repeat(64))).toBe(false)
+  })
+
+  it('runs rev-parse (rather than short-circuiting) for a 64-hex SHA-256 ref', async () => {
+    const gitExec = vi.fn().mockResolvedValue({ stdout: 'a'.repeat(64), stderr: '' })
+
+    await expect(hasCommitObjectViaGitExec(gitExec, 'a'.repeat(64))).resolves.toBe(true)
+
+    expect(gitExec).toHaveBeenCalledWith([
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      `${'a'.repeat(64)}^{commit}`
+    ])
+  })
+
   it('verifies full commit objects and rejects missing objects', async () => {
     const gitExec = vi.fn().mockResolvedValue({ stdout: 'a'.repeat(40), stderr: '' })
 

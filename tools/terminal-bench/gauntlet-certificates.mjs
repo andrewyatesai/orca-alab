@@ -1,108 +1,137 @@
 // The moonshot E1 pair, enforced — the `certificates` gauntlet axis.
 //
 // E1 = "machine-checked safety certificates on the emitted code PLUS regression-
-// gated behavioral parity corpora, in a shipping product." Both halves are enforced
-// here for every decision-core crate that ships an ay certificate:
-//   (a) discharge rust/crates/*/proofs/ay/verify.sh (success = exit 0)
-//   (b) run that crate's Rust parity corpus (cargo test — matches_shared_parity_corpus)
-// Auto-discovering: any new E1-unit crate (a proofs/ay/verify.sh) is picked up with
-// no edit here. The TS side of each parity corpus runs in the vitest suite.
+// gated behavioral parity corpora, in a shipping product."
+//
+// WHAT CHANGED (the SMT purge). The certificate half used to mean "discharge each
+// decision-core crate's hand-written rust/crates/*/proofs/ay/*.smt2 bundle". Those
+// bundles were deleted: they modelled the decision logic in QF_LIA over UNBOUNDED
+// `Int`, so machine-integer overflow was outside every one of them, and five
+// reachable i64/u64 overflow bugs sat under "ALL PROOFS DISCHARGED" until the
+// compiler's own verifier refuted them. A model that restates the code by hand is
+// not a check on the code; it is a second thing to keep in sync, and it drifted.
+//
+// The certificate half is now (a) the COMPILER's verifier, which runs on every
+// build of rust/ via -Ztrust-verify=on and sees the real machine types, and (b) the
+// in-source property tests that replaced each retired theorem. This axis therefore
+// enforces the invariant that keeps (a) honest: no hand-encoded SMT may come back.
 //
 // Extracted from gauntlet.mjs to keep that file under its max-lines cap; the host
 // passes in the shared primitives (repo root, sh, skip, rustupStable).
 
-import { existsSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
 
-const findAy = (sh) => {
-  const home = process.env.HOME ?? ''
-  const cands = [
-    join(home, '.cargo', 'bin', 'ay'),
-    join(home, 'trust', 'build', 'host', 'stage2', 'bin', 'ay')
-  ]
-  for (const c of cands) {
-    if (existsSync(c)) {
-      return c
+// Anything a human hand-writes for a solver. `.alethe` is an ay proof transcript,
+// `verify.sh` inside a proofs dir is the discharge driver for such a bundle.
+const SMT_FILE = /\.(smt2|alethe)$/
+
+/** Every hand-coded solver input under `dir`, repo-relative. */
+export function findHandCodedSmt(dir, repo, out = []) {
+  let entries
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return out
+  }
+  for (const e of entries) {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) {
+      if (e.name === 'target' || e.name === 'node_modules' || e.name === 'vendor') {
+        continue
+      }
+      findHandCodedSmt(p, repo, out)
+      continue
+    }
+    if (SMT_FILE.test(e.name)) {
+      out.push(relative(repo, p))
     }
   }
-  try {
-    return sh('command', ['-v', 'ay']).trim() || null
-  } catch {
-    return null
-  }
+  return out
 }
 
 export function certificatesGate({ repo, sh, skip, rustupStable }) {
   const cratesDir = join(repo, 'rust', 'crates')
-  const crates = existsSync(cratesDir)
-    ? readdirSync(cratesDir).filter((c) =>
-        existsSync(join(cratesDir, c, 'proofs', 'ay', 'verify.sh'))
-      )
-    : []
-  if (crates.length === 0) {
-    return skip('no ay certificates found under rust/crates/*/proofs/ay')
+  if (!existsSync(cratesDir)) {
+    return skip('rust/crates not found')
   }
-  const ay = findAy(sh)
-  if (!ay) {
-    return skip(
-      `ay solver not found (~/.cargo/bin/ay, trust stage2, PATH) — ${crates.length} certificate(s) present but unproven; install ay then re-run`
-    )
-  }
-  // (a) discharge every certificate. Success is the verify.sh EXIT CODE (0), not a
-  // sentinel string — the certificates use different discharge banners (e.g.
-  // orca-git/orca-net's Trust-parser bundles print "ALL BUNDLES DISCHARGED"). The
-  // obligation tally counts per-line verdicts across both "ok …" and "  PASS …" forms.
-  let obligations = 0
-  const certFail = []
-  for (const c of crates) {
-    const vs = join(cratesDir, c, 'proofs', 'ay', 'verify.sh')
-    try {
-      const out = sh('bash', [vs])
-      obligations += (out.match(/^\s*(?:ok|PASS)\b/gm) ?? []).length
-    } catch (e) {
-      certFail.push(`cert:${c} (verify.sh exit ${e.status ?? '?'})`)
+
+  // (a) THE GUARD. Hand-encoded SMT under a first-party crate is a regression:
+  // it re-introduces a hand-maintained model of code the compiler already
+  // verifies, and such a model silently stops matching the code it claims to
+  // describe. Route the property through the trust-* stack instead — an in-source
+  // property test, a contract, or a capability ask in
+  // docs/trust/capability-gaps-from-the-smt-purge.md if the stack cannot express
+  // it yet.
+  const strays = findHandCodedSmt(cratesDir, repo)
+  if (strays.length > 0) {
+    return {
+      status: 'FAIL',
+      metrics: { handCodedSmtFiles: strays.length },
+      detail:
+        `hand-coded SMT is banned under rust/crates — found ${strays.length}: ` +
+        `${strays.slice(0, 6).join(', ')}${strays.length > 6 ? ', …' : ''}. ` +
+        'Express the property through the trust-* stack (in-source test/contract), ' +
+        'or record why it cannot be in docs/trust/capability-gaps-from-the-smt-purge.md.'
     }
   }
-  // (b) run the Rust parity corpora ONLY for crates that ship one (the TS→Rust
-  // decision cores — orca-git/orca-net are proof-only Trust cores with no shared
-  // corpus). Needs a stable toolchain (Homebrew rustc can shadow rustup); without
-  // it the parity half is unverified, so the gate degrades to REVIEW rather than
-  // reading green on the certificate half alone.
-  const parityCrates = crates.filter((c) =>
-    readdirSync(join(cratesDir, c)).some((f) => f.endsWith('parity-corpus.txt'))
-  )
-  const metricsBase = { crates: crates.length, obligations, parityCrates: parityCrates.length }
+
+  // (b) the parity corpora — the behavioral half of E1, unchanged. These are the
+  // shared TS↔Rust oracles; the TS side runs in the vitest suite.
+  const parityCrates = readdirSync(cratesDir).filter((c) => {
+    const p = join(cratesDir, c)
+    try {
+      return (
+        statSync(p).isDirectory() && readdirSync(p).some((f) => f.endsWith('parity-corpus.txt'))
+      )
+    } catch {
+      return false
+    }
+  })
+  if (parityCrates.length === 0) {
+    return skip('no parity corpora found under rust/crates/*/parity-corpus.txt')
+  }
+
+  // Needs a stable toolchain (Homebrew rustc can shadow rustup); without it the
+  // parity half is unverified, so the gate degrades to REVIEW rather than reading
+  // green on the guard alone.
   const cargo = rustupStable('cargo')
   const rustc = rustupStable('rustc')
-  if (parityCrates.length > 0 && !cargo) {
+  const metricsBase = { handCodedSmtFiles: 0, parityCrates: parityCrates.length }
+  if (!cargo) {
     return {
       status: 'REVIEW',
       metrics: { ...metricsBase, parity: 'not-run' },
-      detail: `${obligations} ay obligations discharged across ${crates.length} crate(s), but the Rust parity corpora (${parityCrates.length} crate(s)) were NOT run (no stable rustup toolchain — run bootstrap). Certificate half proven; parity half unverified here.`
+      detail: `no hand-coded SMT under rust/crates (guard green), but the Rust parity corpora (${parityCrates.length} crate(s)) were NOT run (no stable rustup toolchain — run bootstrap).`
     }
   }
-  let parityFail = null
-  if (parityCrates.length > 0) {
-    try {
-      sh(cargo, ['test', '-q', ...parityCrates.flatMap((c) => ['-p', c])], {
-        cwd: join(repo, 'rust'),
-        env: { ...process.env, ...(rustc ? { RUSTC: rustc } : {}) }
-      })
-    } catch (e) {
-      parityFail = `parity: cargo test exit ${e.status ?? '?'}`
-    }
-  }
-  const fails = [...certFail, parityFail].filter(Boolean)
-  if (fails.length > 0) {
+
+  try {
+    sh(cargo, ['test', '-q', ...parityCrates.flatMap((c) => ['-p', c])], {
+      cwd: join(repo, 'rust'),
+      env: {
+        ...process.env,
+        ...(rustc ? { RUSTC: rustc } : {}),
+        // The repo default toolchain is `trust`, which ships no `rustc` binary
+        // under that name, so a bare stable cargo still re-resolves to it and dies
+        // on `rustc -vV`. Pin the toolchain, and clear the `-Z` rustflags that
+        // rust/.cargo/config.toml sets for trustc — stable rejects them outright.
+        RUSTUP_TOOLCHAIN: 'stable',
+        RUSTFLAGS: '',
+        RUSTDOCFLAGS: ''
+      }
+    })
+  } catch (e) {
     return {
       status: 'FAIL',
-      metrics: { ...metricsBase, parity: parityFail ? 'FAIL' : 'pass' },
-      detail: fails.join(' · ')
+      metrics: { ...metricsBase, parity: 'FAIL' },
+      detail: `parity: cargo test exit ${e.status ?? '?'}`
     }
   }
+
   return {
     status: 'PASS',
     metrics: { ...metricsBase, parity: 'pass' },
-    detail: `E1 pair enforced: ${obligations} ay obligations discharged across ${crates.length} certificate crate(s) (${crates.join(', ')}) + Rust parity corpora green across ${parityCrates.length} decision-core crate(s). TS parity runs in the vitest suite.`
+    detail: `E1 pair enforced: no hand-coded SMT under rust/crates (the compiler's own verifier carries the certificate half via -Ztrust-verify=on) + Rust parity corpora green across ${parityCrates.length} decision-core crate(s) (${parityCrates.join(', ')}). TS parity runs in the vitest suite.`
   }
 }

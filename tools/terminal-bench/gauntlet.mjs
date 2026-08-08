@@ -8,7 +8,8 @@
 //                   a divergence is REVIEW, not auto-fail, because "more correct than
 //                   xterm per the VT/ECMA-48 spec" is a WIN to be triaged, not a bug.
 //   • perf        — MB/s throughput vs xterm, best-of-N medians in one thermal state.
-//   • safety      — Trust-proved obligations (skipped, not failed, when the toolchain is absent).
+//   • safety      — the compiler's own verification report over a first-party decision core
+//                   (skipped, not failed, when the Trust toolchain is absent).
 //   • autoformalize — Goal A: reuse the Trust ts2rust two-witness gate ($TRUST_REPO/tools/ts2rust)
 //                   to prove the orc corpus's Rust ports refine their TS (skipped if trustc absent).
 //   • census      — generated inventory ratchet (tools/repo-census.mjs): the delivery-shim
@@ -18,9 +19,9 @@
 //   • provenance  — every TS→Rust ported module pinned to its source hashes
 //                   (tools/port-provenance.mjs vs port-provenance.json): upstream TS drift
 //                   is REVIEW with a structured re-port task, not a reactive parity surprise.
-//   • certificates — the moonshot E1 pair, ENFORCED: discharge every decision-core crate's
-//                   ay certificate (rust/crates/*/proofs/ay/verify.sh) AND run its Rust parity
-//                   corpus. Auto-discovering; skipped (proves nothing) when ay is absent.
+//   • certificates — the moonshot E1 pair, ENFORCED: FAIL if any hand-coded SMT (.smt2 /
+//                   .alethe) reappears under rust/crates — the compiler's own verifier
+//                   carries the certificate half now — AND run every Rust parity corpus.
 //   • corpus      — the parity-corpus ratchet (moonshot F2): the machine-checked behavioral
 //                   parity case count (tools/parity-corpus-metrics.mjs vs parity-corpus-baseline.json)
 //                   may only GROW; a drop FAILs (a corpus was deleted/shrunk).
@@ -32,10 +33,18 @@
 // SKIP (so probing one axis stays scriptable) but says so loudly.
 // A machine-readable report is written to tools/terminal-bench/.gauntlet-report.json.
 
-import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync
+} from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadCorpus, loadJsonlCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 import { certificatesGate } from './gauntlet-certificates.mjs'
@@ -264,65 +273,80 @@ function perf(trials = 5) {
 const TRUST_ROOT = process.env.TRUST_REPO || join(process.env.HOME || '', 'trust')
 const TRUST_ROOT_LABEL = '$TRUST_REPO'
 
-// Same ladder as proofs/ay/resolve-solver.sh: $AY → PATH → the canonical cargo
-// symlink → in-tree trust bootstrap outputs.
-function locateAy() {
-  const home = process.env.HOME || ''
-  if (process.env.AY && existsSync(process.env.AY)) {
-    return process.env.AY
-  }
-  try {
-    const onPath = sh('bash', ['-lc', 'command -v ay']).trim()
-    if (onPath) {
-      return onPath
-    }
-  } catch {
-    // not on PATH — fall through to the known build locations
-  }
-  const candidates = [
-    join(home, '.cargo', 'bin', 'ay'),
-    join(TRUST_ROOT, 'build', 'host', 'stage2', 'bin', 'ay'),
-    join(
-      TRUST_ROOT,
-      'build',
-      'aarch64-apple-darwin',
-      'stage3-tools-bin',
-      'aarch64-apple-darwin',
-      'ay'
-    ),
-    join(
-      TRUST_ROOT,
-      'build',
-      'aarch64-apple-darwin',
-      'stage2-tools-bin',
-      'aarch64-apple-darwin',
-      'ay'
-    )
-  ]
-  return candidates.find((c) => existsSync(c)) ?? null
-}
-
+// Was: discharge orca-git's hand-written proofs/ay/*.smt2 bundle. That bundle is
+// gone — it modelled the code by hand, drifted from it, and reported ALL PROOFS
+// DISCHARGED over a model in which the machine-integer overflow bugs it was meant
+// to catch could not even be stated. The axis now reads the COMPILER's own
+// verification report, which is computed from the real MIR and the real types.
 function safety() {
-  const ay = locateAy()
-  const verify = join(repo, 'rust', 'crates', 'orca-git', 'proofs', 'ay', 'verify.sh')
-  if (!ay) {
-    return skip('Trust solver `ay` not found (~/.cargo/bin/ay) — safety axis unavailable here')
+  const trustc = locateTrustc()
+  if (!trustc) {
+    return skip(
+      `trustc not found ($TRUSTC, ${TRUST_ROOT_LABEL}/build/host/stage{1,2}/bin/trustc) — safety axis unavailable here`
+    )
   }
-  if (!existsSync(verify)) {
-    return skip('orca-git proof bundle (proofs/ay/verify.sh) not found')
+  // A dependency-free first-party decision core, so the probe needs no build
+  // system: the crate is a single file the verifier can take directly. This is the
+  // crate the workspace holds at a real `certify` policy.
+  const crate = 'orca-stream-split'
+  const unit = join(repo, 'rust', 'crates', crate, 'src', 'lib.rs')
+  if (!existsSync(unit)) {
+    return skip(`${crate}/src/lib.rs not found`)
   }
+  const outDir = mkdtempSync(join(tmpdir(), 'gauntlet-verify-'))
   try {
-    // Pin the bundles to the resolved binary via the ladder's $AY step.
-    const out = sh('bash', [verify], { cwd: dirname(verify), env: { ...process.env, AY: ay } })
-    const discharged = (out.match(/^\s*PASS\s/gm) || []).length
-    const clean = /DISCHARGED/.test(out) && !/\b(FAIL|UNKNOWN|error)\b/i.test(out)
+    // The verification report is emitted as `note:` DIAGNOSTICS, i.e. on stderr —
+    // reading stdout alone silently yields an empty report and a false REVIEW.
+    const r = spawnSync(
+      trustc,
+      [
+        '--edition',
+        '2024',
+        '--crate-type',
+        'lib',
+        '-Ztrust-verify=on',
+        '-Ztrust-verify-function-budget-steps=100000',
+        '-Ztrust-policy=certify',
+        '--out-dir',
+        outDir,
+        unit
+      ],
+      { encoding: 'utf8' }
+    )
+    if (r.error) {
+      throw r.error
+    }
+    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
+    // "Trust verification: N proved, N failed, N unknown, N timed out, N runtime-checked out of N obligation(s)"
+    const tally = { proved: 0, failed: 0, unknown: 0, timedOut: 0, runtimeChecked: 0, total: 0 }
+    const re =
+      /Trust verification: (\d+) proved, (\d+) failed, (\d+) unknown, (\d+) timed out, (\d+) runtime-checked out of (\d+) obligation/g
+    for (const m of out.matchAll(re)) {
+      tally.proved += +m[1]
+      tally.failed += +m[2]
+      tally.unknown += +m[3]
+      tally.timedOut += +m[4]
+      tally.runtimeChecked += +m[5]
+      tally.total += +m[6]
+    }
+    if (tally.total === 0) {
+      return { status: 'REVIEW', detail: 'trustc emitted no verification report — flag drift?' }
+    }
+    // A refutation is a FAIL: at `certify` the verifier is claiming a real
+    // counterexample. Anything merely unproved is REVIEW, never green — that
+    // residue is the Trust-Std gap, and reading it as a pass is how the retired
+    // bundles hid five overflow bugs.
+    const clean = tally.failed === 0 && tally.proved === tally.total
+    const status = tally.failed > 0 ? 'FAIL' : clean ? 'PASS' : 'REVIEW'
     return {
-      status: clean ? 'PASS' : 'REVIEW',
-      metrics: { obligations_discharged: discharged },
-      detail: 'orca-git SMT obligations (tcargo panic/UB proofs need the full Trust toolchain)'
+      status,
+      metrics: tally,
+      detail: `${crate} under the compiler's verifier (-Ztrust-policy=certify): ${tally.proved}/${tally.total} proved, ${tally.failed} refuted, ${tally.runtimeChecked} left as runtime checks`
     }
   } catch (e) {
     return { status: 'FAIL', detail: String(e.message).split('\n')[0] }
+  } finally {
+    rmSync(outDir, { recursive: true, force: true })
   }
 }
 
@@ -336,8 +360,12 @@ const TS2RUST = join(TRUST_ROOT, 'tools', 'ts2rust')
 // coords) and the Trust fuzzer already models them — including them here recovers
 // decision cores whose ONLY blocker was the arg type, not the ported logic.
 function locateTrustc() {
+  // stage1 BEFORE stage2: stage2 is the rustup-linked sysroot and can lag the
+  // Trust checkout by days, so preferring it silently verifies against stale
+  // compiler behavior.
   const candidates = [
     process.env.TRUSTC,
+    join(TRUST_ROOT, 'build', 'host', 'stage1', 'bin', 'trustc'),
     join(TRUST_ROOT, 'build', 'host', 'stage2', 'bin', 'trustc')
   ]
   for (const c of candidates) {

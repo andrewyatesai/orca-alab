@@ -78,12 +78,14 @@ pnpm gauntlet:perf            # MB/s medians + grid-parity
   VT/ECMA-48 spec is a win to triage — see `tools/aterm-vs-xterm/GOAL-B-HANDOFF.md`.
 - **perf** — best-of-N medians via `xterm-bench.mjs` / `addon-bench.mjs`, plus a
   grid-parity fingerprint check.
-- **safety** — discharges the orca-git SMT obligations with `ay`, resolved via the
-  ladder in `rust/crates/orca-git/proofs/ay/resolve-solver.sh` (`$AY` → PATH →
-  `~/.cargo/bin/ay` → trust build dirs); `SKIP` (never fail) when the Trust
-  toolchain is absent. `verify.sh --solver z3` re-checks the same bundles with
-  stock z3 as an independent portability check — ay remains the toolchain of
-  record, so the gauntlet itself never substitutes z3.
+- **safety** — reads the COMPILER's own verification report for a first-party
+  decision core (`orca-stream-split`) under `-Ztrust-verify=on -Ztrust-policy=certify`,
+  using `trustc` from `$TRUSTC` or `$TRUST_REPO/build/host/stage{1,2}/bin/trustc`;
+  `SKIP` (never fail) when the Trust toolchain is absent. A refutation is `FAIL`;
+  anything merely unproved is `REVIEW`, never green. This replaced discharging
+  hand-written `.smt2` bundles, which modelled the code by hand over unbounded
+  `Int` and so reported green while five reachable integer-overflow bugs sat
+  underneath — see `docs/trust/capability-gaps-from-the-smt-purge.md`.
 - **autoformalize** (Goal A) — reuses the Trust repo's `$TRUST_REPO/tools/ts2rust`
   two-witness gate (W1 `trustc -Z trust-verify-full` ∀-safety + W2 Node-TS
   differential). It auto-discovers the already-ported `.ts`/`.rs` pairs under

@@ -12,8 +12,15 @@
 //! Buffer length is UTF-8 bytes throughout: Rust `String::len()` is the byte count,
 //! matching the TS `Buffer.byteLength(segment, 'utf8')`.
 //!
-//! INVARIANT (proven by `test_buffer_never_exceeds_budget` + `proofs/ay`): after any
-//! `feed`, the retained buffer is `<= max_line_bytes` — the OOM bound.
+//! INVARIANT: after any `feed`, the retained buffer is `<= max_line_bytes` — the
+//! OOM bound, pinned by `buffer_never_exceeds_budget_on_any_chunking`.
+//!
+//! The `buffer.len() + segment.len()` add the guard reads is wrap-free *by
+//! construction* — it is a `saturating_add`, so there is no overflow obligation
+//! left to discharge anywhere. The bound itself is a functional invariant over the
+//! splitter's state, which Trust's Level-0 pipeline does not attempt: measured,
+//! `feed` has exactly one Level-0 obligation and it is runtime-checked, not proved.
+//! See gap I1 in `docs/trust/capability-gaps-from-the-smt-purge.md`.
 
 /// Default per-line cap (16 MiB), mirroring `NDJSON_MAX_LINE_BYTES` in the TS.
 pub const NDJSON_MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
@@ -201,24 +208,85 @@ mod tests {
         assert_eq!(lines(p.feed_collect("{\"a\":1}\n")), ["{\"a\":1}"]);
     }
 
+    /// The OOM invariant, over every chunking of a small alphabet rather than one
+    /// hand-picked sequence: no feed sequence ever grows the retained buffer past
+    /// the budget — the whole point of the splitter on an untrusted socket.
+    ///
+    /// Replaces the retired `oom_bound` SMT bundle. `oom_no_wrap` is moot at the
+    /// source: `feed` uses `saturating_add`, so the guard reads a value that cannot
+    /// wrap and there is no overflow obligation left for anyone to discharge.
+    /// `oom_buffer_le_max` reasoned about a single push in isolation, under an
+    /// assumed guard, with the surrounding control flow supplied only by a prose
+    /// comment. What it could not reach — that the guard is placed correctly
+    /// relative to every other arm (oversized, discarding, the newline `mem::take`),
+    /// across statement boundaries and across `feed` calls — is what this walks.
     #[test]
-    fn test_buffer_never_exceeds_budget() {
-        // The OOM invariant: no feed sequence ever grows the retained buffer past
-        // the budget — the whole point of the splitter on an untrusted socket.
+    fn buffer_never_exceeds_budget_on_any_chunking() {
+        // "€" is 3 UTF-8 bytes: the budget counts bytes, not chars, so a multi-byte
+        // segment can cross a budget the char count would not.
+        const ALPHABET: [&str; 4] = ["a", "bb", "€", "\n"];
         let big = "x".repeat(100);
-        for budget in [1usize, 3, 7, 64] {
-            let mut p = NdjsonSplitter::new(budget);
-            let chunks = ["a", "bb", "€", "cccccccc", "\n", "dd€ee", big.as_str()];
-            for c in chunks {
-                let _ = p.feed_collect(c);
-                assert!(
-                    p.buffered_bytes() <= budget,
-                    "buffer {} exceeded budget {}",
-                    p.buffered_bytes(),
-                    budget
-                );
+
+        let mut frontier: Vec<Vec<&str>> = vec![Vec::new()];
+        let mut sequences: Vec<Vec<&str>> = vec![Vec::new()];
+        for _ in 0..4 {
+            let mut next = Vec::new();
+            for seq in &frontier {
+                for c in ALPHABET {
+                    let mut s = seq.clone();
+                    s.push(c);
+                    next.push(s);
+                }
+            }
+            sequences.extend(next.iter().cloned());
+            frontier = next;
+        }
+        assert!(sequences.len() > 300, "enumeration too thin ({})", sequences.len());
+
+        let mut saw_oversized = 0;
+        let mut saw_line = 0;
+        let mut saw_brim = 0;
+
+        for budget in [1usize, 2, 3, 4, 7, 64] {
+            for seq in &sequences {
+                let mut p = NdjsonSplitter::new(budget);
+                for c in seq.iter().copied().chain([big.as_str()]) {
+                    for ev in p.feed_collect(c) {
+                        match ev {
+                            NdjsonEvent::Oversized { observed_bytes } => {
+                                assert!(observed_bytes > budget, "reported a non-oversized line");
+                                saw_oversized += 1;
+                            }
+                            // An emitted line is bounded too — it is the buffer at
+                            // the moment of the `mem::take`.
+                            NdjsonEvent::Line(l) => {
+                                assert!(l.len() <= budget, "emitted a {}-byte line", l.len());
+                                if l.len() == budget {
+                                    saw_brim += 1;
+                                }
+                                saw_line += 1;
+                            }
+                        }
+                    }
+                    assert!(
+                        p.buffered_bytes() <= budget,
+                        "buffer {} exceeded budget {budget} after {seq:?} + {c:?}",
+                        p.buffered_bytes()
+                    );
+                }
+                // The trailing 100-byte chunk overflows every budget here, so the
+                // splitter must end in the discarding state with nothing retained.
+                assert_eq!(p.buffered_bytes(), 0, "retained bytes after an oversized tail");
             }
         }
+
+        // Non-vacuity, the in-source form of the retired `oom_nonvacuity_sat` and
+        // `oom_catches_unguarded_sat` controls: the budget is genuinely reached at
+        // the brim (the bound is tight, not loose) and the guard genuinely fires
+        // (it is load-bearing, not dead).
+        assert!(saw_brim > 0, "no line ever filled the budget — the bound is loose");
+        assert!(saw_oversized > 0, "the oversized guard never fired — it is not load-bearing");
+        assert!(saw_line > 0, "no line was ever emitted");
     }
 
     #[test]

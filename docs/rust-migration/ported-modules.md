@@ -351,7 +351,10 @@ assert the streamed grid content.
 ## E1 decision-core tier — ay-certified, shared-corpus ports
 
 Pure decision cores lifted out of live TS subsystems and given the full **E1
-pair**: an ay machine-checked safety/invariant certificate (`rust/crates/<crate>/proofs/ay/verify.sh`)
+pair**: machine-checked safety obligations discharged by the compiler's own
+verifier (`-Ztrust-verify=on`, plus the exhaustive in-source property tests that
+replaced the retired hand-written SMT bundles — see
+`docs/trust/capability-gaps-from-the-smt-purge.md`)
 plus a behavioral parity corpus (`*-parity-corpus.txt`) run byte-identically by
 **both** the Rust core and its TS twin. These crates have no orca-dispatch parity
 adapter, so — like the IO tier — they are pinned here in the ledger; the

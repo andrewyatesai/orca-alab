@@ -6,9 +6,10 @@ import { activeFailureRefetchThrottleMs } from './active-failure-backoff'
 // Differential parity certificate (E1 unit): this TS production sizing and the
 // Rust `orca-provider-backoff::active_failure_refetch_throttle_ms` spec run the
 // SAME shared corpus and must agree on the throttle for every failure streak.
-// Divergence fails one side. Paired with the ay proofs (that crate's
-// proofs/ay/bo_*.smt2), this is the full E1 pair — spec proved correct,
-// implementations proved equivalent. The corpus encodes BASE=30000, MAX=900000
+// Divergence fails one side. Paired with that crate's class-exhaustive
+// `backoff_band_monotone_and_saturating_over_every_streak` test and the compiler's
+// own verifier, this is the full E1 pair — spec proved correct, implementations
+// proved equivalent. The corpus encodes BASE=30000, MAX=900000
 // (mirroring MIN_POLL_MS / DEFAULT_POLL_MS), so the test pins those exact values.
 const BASE_MS = 30_000
 const MAX_MS = 900_000

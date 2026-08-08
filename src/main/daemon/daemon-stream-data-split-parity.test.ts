@@ -5,9 +5,9 @@ import { clampToSafeSplitIndex, nextSafeSplitIndex } from './daemon-stream-data-
 
 // Differential parity certificate (E1 unit): these TS surrogate-safe split
 // primitives and the Rust `orca-stream-split` core run the SAME shared corpus and
-// must agree on every clamp/next index. Divergence fails one side. Paired with the
-// ay proofs (rust/crates/orca-stream-split/proofs/ay/{cs,ns}_*.smt2), this is the
-// full E1 pair. Units are hex UTF-16 code units built into a string via
+// must agree on every clamp/next index. Divergence fails one side. Paired with that
+// crate's exhaustive class-sequence tests and the compiler's own verifier (measured:
+// 2/2 obligations kernel-certified), this is the full E1 pair. Units are hex UTF-16 code units built into a string via
 // fromCharCode, exactly matching the Rust &[u16].
 const buildString = (unitsTok: string): string =>
   unitsTok === '_'

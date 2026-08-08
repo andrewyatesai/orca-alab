@@ -9,7 +9,9 @@
 //! session" and "keep the store under budget, oldest-first".
 //!
 //! Same E1 pair as the other decision cores: proven equivalent to the TS by
-//! `parity-corpus.txt`, proven correct by `proofs/ay/*.smt2`.
+//! `parity-corpus.txt`. Arithmetic safety is discharged by the compiler's own
+//! verifier (`-Ztrust-verify=on`); the retention/eviction safety properties are
+//! pinned by the exhaustive store enumeration in the tests below.
 
 #![forbid(unsafe_code)]
 
@@ -226,6 +228,278 @@ mod tests {
             checked += 1;
         }
         assert!(checked >= 8, "corpus too small ({checked})");
+    }
+
+    // -------------------------------------------------------------------
+    // Exhaustive retention/eviction safety.
+    //
+    // These replace the retired hand-encoded SMT bundle. They are strictly
+    // stronger than it was: the SMT modelled bytes and clocks as unbounded
+    // `Int` and covered only the expiry PREDICATE plus an abstract one-step
+    // eviction, while these enumerate whole stores and check the real planner
+    // over real `i64`/`u64`, including the sort, the loop and the saturation.
+    // -------------------------------------------------------------------
+
+    /// Independent restatement of the TS retention rule, written from the spec
+    /// rather than from the implementation, so a change to either side shows up.
+    fn expire_oracle(
+        is_live: bool,
+        age_ms: i64,
+        is_ended: bool,
+        liveness_unknown: bool,
+        th: SessionGcThresholds,
+    ) -> bool {
+        if is_live {
+            return false; // a live session is never touched
+        }
+        if age_ms < th.min_dir_age_ms {
+            return false; // TOCTOU floor
+        }
+        match (is_ended, liveness_unknown) {
+            (true, _) => age_ms > th.ended_retention_ms,
+            // Not ended and we cannot tell whether it is live: retention is ∞.
+            (false, true) => false,
+            (false, false) => age_ms > th.unrestored_retention_ms,
+        }
+    }
+
+    /// Every branch of the expiry decision over the full boolean cross product and
+    /// every retention boundary, including the i64 extremes. Replaces the ex1/ex2/
+    /// ex3 theorems, whose unbounded-`Int` model could not even state the extremes.
+    #[test]
+    fn expire_decision_matches_the_spec_on_every_branch_and_boundary() {
+        let ages = [
+            i64::MIN,
+            -1,
+            0,
+            TH.min_dir_age_ms - 1,
+            TH.min_dir_age_ms,
+            TH.min_dir_age_ms + 1,
+            TH.ended_retention_ms - 1,
+            TH.ended_retention_ms,
+            TH.ended_retention_ms + 1,
+            TH.unrestored_retention_ms - 1,
+            TH.unrestored_retention_ms,
+            TH.unrestored_retention_ms + 1,
+            i64::MAX,
+        ];
+        let mut expired = 0;
+        let mut kept = 0;
+        for &age in &ages {
+            for is_live in [false, true] {
+                for is_ended in [false, true] {
+                    for lu in [false, true] {
+                        let got = should_expire_session_dir(is_live, age, is_ended, lu, TH);
+                        assert_eq!(
+                            got,
+                            expire_oracle(is_live, age, is_ended, lu, TH),
+                            "age={age} live={is_live} ended={is_ended} unknown={lu}"
+                        );
+                        // The privacy bound itself, stated directly.
+                        if got {
+                            assert!(!is_live, "expired a LIVE session (age={age})");
+                            assert!(age >= TH.min_dir_age_ms, "expired below the TOCTOU floor");
+                            assert!(is_ended || !lu, "expired an unknown-liveness live-capable dir");
+                            expired += 1;
+                        } else {
+                            kept += 1;
+                        }
+                    }
+                }
+            }
+        }
+        // Non-vacuity: the enumeration really reaches both verdicts. This is the
+        // in-source form of the retired `ex_c1_*_sat` control.
+        assert!(expired > 0 && kept > 0, "vacuous: {expired} expired, {kept} kept");
+    }
+
+    /// Every store over 3 dirs drawn from a class-complete state space, crossed
+    /// with both liveness modes and several budgets. Checks the planner's whole
+    /// safety contract at once.
+    #[test]
+    fn planner_never_deletes_a_protected_dir_and_reaches_the_budget() {
+        const NOW: i64 = 1_000;
+        // Ages 1500 / 100 / 5 select the three retention regimes: past both
+        // retentions, inside the ended retention, and below the TOCTOU floor.
+        const LASTS: [i64; 3] = [-500, 900, 995];
+        const BYTES: [u64; 2] = [0, 100];
+
+        let mut states = Vec::new();
+        for &b in &BYTES {
+            for &l in &LASTS {
+                for ended in [false, true] {
+                    for live in [false, true] {
+                        states.push((b, l, ended, live));
+                    }
+                }
+            }
+        }
+
+        let mut saw_expire = 0;
+        let mut saw_evict = 0;
+        let mut saw_spared_live = 0;
+        let mut saw_spared_unknown = 0;
+        let mut stores = 0;
+
+        for a in &states {
+            for b in &states {
+                for c in &states {
+                    let triple = [*a, *b, *c];
+                    for lu in [false, true] {
+                        let live: HashSet<String> = triple
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, s)| s.3)
+                            .map(|(i, _)| i.to_string())
+                            .collect();
+                        // `liveness_unknown` means the live set is unavailable.
+                        let live_arg = if lu { None } else { Some(&live) };
+                        let dirs: Vec<SessionGcPlannerDir> = triple
+                            .iter()
+                            .enumerate()
+                            .map(|(i, s)| d(&i.to_string(), s.0, s.1, s.2))
+                            .collect();
+                        for budget in [0u64, 100, 150, 10_000] {
+                            stores += 1;
+                            let plan =
+                                plan_session_history_gc(&dirs, NOW, budget, lu, live_arg, TH);
+                            let deleted: Vec<&String> =
+                                plan.expire.iter().chain(plan.evict_for_size.iter()).collect();
+
+                            // (1) No name is deleted twice, and the two lists are disjoint.
+                            let unique: HashSet<&String> = deleted.iter().copied().collect();
+                            assert_eq!(unique.len(), deleted.len(), "double delete: {plan:?}");
+
+                            for (i, s) in triple.iter().enumerate() {
+                                let name = i.to_string();
+                                let (bytes, last, ended, is_live_flag) = *s;
+                                let is_live = !lu && is_live_flag;
+                                let age = NOW - last;
+                                let deleted_here = deleted.iter().any(|n| **n == name);
+
+                                // (2) THE PRIVACY BOUND: a live dir is never deleted.
+                                if is_live {
+                                    assert!(!deleted_here, "deleted LIVE dir {name}: {plan:?}");
+                                    if bytes > 0 {
+                                        saw_spared_live += 1;
+                                    }
+                                }
+                                // (3) Nothing below the TOCTOU floor is ever deleted.
+                                if age < TH.min_dir_age_ms {
+                                    assert!(!deleted_here, "deleted dir {name} below the floor");
+                                }
+                                // (4) An unknown-liveness, not-ended dir is never
+                                // deleted by EITHER path — it may be a live session
+                                // that has not reattached yet.
+                                if lu && !ended {
+                                    assert!(
+                                        !deleted_here,
+                                        "deleted unknown-liveness unrestored dir {name}"
+                                    );
+                                    saw_spared_unknown += 1;
+                                }
+                                // (5) Size eviction never touches an exempt dir.
+                                if plan.evict_for_size.contains(&name) {
+                                    assert!(!is_live && age >= TH.min_dir_age_ms);
+                                    assert!(ended || !lu, "evicted a live-capable dir {name}");
+                                }
+                            }
+
+                            // (6) Byte accounting is exact (all values here are far
+                            // from the saturation edges).
+                            let survivors: u64 = triple
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, _)| !plan.expire.contains(&i.to_string()))
+                                .map(|(_, s)| s.0)
+                                .sum();
+                            let evicted: u64 = triple
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, _)| plan.evict_for_size.contains(&i.to_string()))
+                                .map(|(_, s)| s.0)
+                                .sum();
+                            assert_eq!(
+                                plan.remaining_bytes,
+                                survivors - evicted,
+                                "byte accounting: {plan:?}"
+                            );
+
+                            // (7) EVICTION IS MINIMAL: nothing is evicted while
+                            // already under budget, and every eviction but the last
+                            // was taken while still over budget.
+                            if survivors <= budget {
+                                assert!(plan.evict_for_size.is_empty(), "over-evicted: {plan:?}");
+                            }
+                            // Tightness: the loop stops at the FIRST prefix that
+                            // reaches the budget, so undoing the last eviction must
+                            // put the store back over it. This is the in-source form
+                            // of the retired `*_tight_sat` controls, and it is what
+                            // makes "reaches the budget" a bound rather than a
+                            // licence to delete everything.
+                            if let Some(last) = plan.evict_for_size.last() {
+                                let last_bytes = triple[last.parse::<usize>().unwrap()].0;
+                                assert!(
+                                    plan.remaining_bytes + last_bytes > budget,
+                                    "evicted {last} unnecessarily (budget {budget}): {plan:?}"
+                                );
+                            }
+
+                            // (8) EVICTION REACHES THE BUDGET when the evictable
+                            // bytes suffice — the liveness property the retired
+                            // `ev2_reaches_budget_when_enough` asserted abstractly.
+                            let evictable: u64 = triple
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, s)| {
+                                    let name = i.to_string();
+                                    let is_live = !lu && s.3;
+                                    let age = NOW - s.1;
+                                    !plan.expire.contains(&name)
+                                        && !is_live
+                                        && age >= TH.min_dir_age_ms
+                                        && (s.2 || !lu)
+                                })
+                                .map(|(_, s)| s.0)
+                                .sum();
+                            if survivors.saturating_sub(evictable) <= budget {
+                                assert!(
+                                    plan.remaining_bytes <= budget,
+                                    "did not reach budget {budget}: {plan:?}"
+                                );
+                            }
+
+                            // (9) OLDEST-FIRST: the eviction order is non-decreasing
+                            // in last-activity.
+                            let order: Vec<i64> = plan
+                                .evict_for_size
+                                .iter()
+                                .map(|n| triple[n.parse::<usize>().unwrap()].1)
+                                .collect();
+                            assert!(
+                                order.windows(2).all(|w| w[0] <= w[1]),
+                                "eviction not oldest-first: {order:?}"
+                            );
+
+                            if !plan.expire.is_empty() {
+                                saw_expire += 1;
+                            }
+                            if !plan.evict_for_size.is_empty() {
+                                saw_evict += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Non-vacuity (the in-source form of the retired `ev_c1_*_sat` control):
+        // the enumeration really reaches expiry, eviction, and both spare paths.
+        assert!(stores > 10_000, "domain too thin ({stores} stores)");
+        assert!(saw_expire > 0, "no store ever expired");
+        assert!(saw_evict > 0, "no store ever evicted for size");
+        assert!(saw_spared_live > 0, "no live dir was ever spared under pressure");
+        assert!(saw_spared_unknown > 0, "no unknown-liveness dir was ever spared");
     }
 
     struct Case {

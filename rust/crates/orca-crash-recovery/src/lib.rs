@@ -11,8 +11,9 @@
 //! Both take the clock as a plain integer argument (no timers, no IO) and use only
 //! integer arithmetic, so the TS↔Rust parity is bit-exact. Same E1 pair as the
 //! other decision-core crates: proven equivalent to the TS by the shared
-//! `*-parity-corpus.txt` (a replayed operation trace), proven correct by
-//! `proofs/ay/{rr,gf}_*.smt2`.
+//! `*-parity-corpus.txt` (a replayed operation trace). The latch and rate-limit
+//! safety properties are pinned by the exhaustive crash-trace tests in each
+//! module, not by a hand-written model of them.
 
 #![forbid(unsafe_code)]
 

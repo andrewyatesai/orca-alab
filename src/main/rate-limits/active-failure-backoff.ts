@@ -2,8 +2,9 @@
 // out of the RateLimitsService so the doubling+clamp decision is unit-testable and
 // machine-checkable in isolation — it is the TS half of the `orca-provider-backoff`
 // E1 pair (proven equivalent to the Rust core by
-// `rust/crates/orca-provider-backoff/parity-corpus.txt`, proven correct by that
-// crate's `proofs/ay/bo_*.smt2`). Base/ceiling stay owned by the caller (they mirror
+// `rust/crates/orca-provider-backoff/parity-corpus.txt`; the Rust core's arithmetic
+// safety is discharged by the compiler's own verifier). Base/ceiling stay owned by
+// the caller (they mirror
 // MIN_POLL_MS / DEFAULT_POLL_MS) and are passed in, so the tie can't silently drift.
 
 /**

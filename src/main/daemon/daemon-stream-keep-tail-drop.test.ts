@@ -9,8 +9,8 @@ import {
 // The cross-language parity certificate (2nd E1 unit): this TS production sizing
 // and the Rust `orca-flow-control::keep_tail` spec run the SAME shared corpus and
 // must agree on keep-tail and drop-cap for every session count. Divergence fails
-// one side. Paired with the ay proofs (proofs/ay/kt_*.smt2), this is the full E1
-// pair — spec proved correct, implementations proved equivalent.
+// one side. Paired with that crate's exhaustive clamp-band tests, this is the full
+// E1 pair — spec proved correct, implementations proved equivalent.
 describe('background-session keep-tail shared parity corpus', () => {
   it('matches the Rust orca-flow-control::keep_tail corpus for every n', () => {
     const corpusPath = fileURLToPath(

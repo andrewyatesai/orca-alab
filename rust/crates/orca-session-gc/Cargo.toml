@@ -10,8 +10,8 @@ description = "Daemon session-history GC planning core (age-expiry + budget-resp
 # Deliberately zero-dependency (std only): the pure planner (scanned dirs + config
 # -> {expire, evictForSize, remaining}); the fs scan and rmSync stay in the TS
 # executor. Every retention bound is a privacy bound (scrollback is secret-bearing),
-# so the "never lose a live/recoverable session" invariants are proven in proofs/ay.
-# Same E1 pair as orca-flow-control.
+# so the "never lose a live/recoverable session" invariants are pinned by the
+# exhaustive store enumeration in the tests. Same E1 pair as orca-flow-control.
 
 [lints.rust]
 unsafe_code = "forbid"

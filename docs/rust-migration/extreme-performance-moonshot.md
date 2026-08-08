@@ -656,6 +656,23 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   half the pair. The TS side of each corpus stays enforced by the vitest suite. Certificates were
   present-but-manual before; they are now a standing gate, so the E1 claim's "regression-gated" holds by
   construction and any future E1 unit is enforced with zero gate edits.
+
+  **⚠️ SUPERSEDED 2026-08-08 — the ay certificate half of every E1 unit below was DELETED.**
+  Every `rust/crates/*/proofs/ay/` bundle is gone, and the `certificates` axis was inverted: it now
+  **FAILs** if any `.smt2`/`.alethe` reappears under `rust/crates/`. Read the per-unit "certificate
+  `proofs/ay/...` proves X" claims below as history, not as current state. Why: those bundles modelled
+  the decision logic in `QF_LIA` over **unbounded `Int`**, so machine-integer overflow was outside every
+  one of them by construction — `rh1_band_bound` literally opens `(declare-const t Int)`. Five reachable
+  `i64`/`u64` overflow bugs sat under a green `ALL PROOFS DISCHARGED` banner until the compiler's own
+  verifier refuted them (`d933238fa`). Each bundle was tied to the code it described **only by prose**,
+  and that tie is what broke. The certificate half of E1 is now the compiler itself
+  (`-Ztrust-verify=on`, real MIR and real machine types — measured kernel-certified on
+  `orca-stream-split` and `orca-provider-backoff`) plus exhaustive in-source property tests; the `safety`
+  axis reads the compiler's verification report directly. Properties the `trust-*` stack cannot yet
+  express are recorded as capability asks in
+  [`../trust/capability-gaps-from-the-smt-purge.md`](../trust/capability-gaps-from-the-smt-purge.md) —
+  notably the non-vacuity discipline (`N1`), which was the genuinely good idea in the retired bundles
+  and now survives as explicit `saw_*` counters in each replacement test.
   **✅ 5th E1 unit LANDED 2026-07-16** (`orca-renderer-heap`) — a FOURTH subsystem (startup), and the
   first to cross the float boundary. Ports the already-exported pure `computeRendererHeapCeilingMb` from
   `src/main/startup/renderer-heap-headroom.ts` (zero refactor): total RAM → V8 old-space ceiling MB, or

@@ -1,2 +1,0 @@
-# ay writes proof traces next to each .smt2 on solve; regenerated per run.
-*.alethe

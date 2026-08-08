@@ -8,9 +8,10 @@ import { computeRendererHeapCeilingMb } from './renderer-heap-headroom'
 // must agree on the ceiling (or null) for every RAM total + override. The corpus
 // override token maps to the env string the REAL production function parses, so
 // this exercises the whole TS path (parser + RAM tiers), not a shortcut. Paired
-// with the ay proofs (that crate's proofs/ay/rh_*.smt2) this is the full E1 pair;
-// it also pins that JS Number and Rust f64 agree bit-for-bit through the division /
-// *0.4 / floor / clamp.
+// with that crate's dense band/monotonicity sweep this is the full E1 pair; it also
+// pins that JS Number and Rust f64 agree bit-for-bit through the division / *0.4 /
+// floor / clamp — the float layer no hand-written integer model could see at all
+// (docs/trust/capability-gaps-from-the-smt-purge.md gap F1).
 describe('renderer heap-ceiling shared parity corpus', () => {
   it('matches the Rust orca-renderer-heap corpus for every RAM tier + override', () => {
     const corpusPath = fileURLToPath(

@@ -5,8 +5,9 @@ import { RendererRecoveryCircuitBreaker } from './renderer-recovery-circuit-brea
 
 // Differential parity certificate (E1 unit): this TS circuit breaker and the Rust
 // `orca-crash-recovery::renderer_recovery` core replay the SAME operation trace and
-// must agree on every step. Divergence fails one side. Paired with the ay proofs
-// (rust/crates/orca-crash-recovery/proofs/ay/rr_*.smt2), this is the full E1 pair.
+// must agree on every step. Divergence fails one side. Paired with that crate's
+// exhaustive `attempt_count_never_exceeds_max_on_any_trace` test, this is the full
+// E1 pair.
 // The corpus header fixes the config at window=100, max=3.
 describe('renderer-recovery circuit breaker shared parity corpus', () => {
   it('matches the Rust orca-crash-recovery trace step for step', () => {

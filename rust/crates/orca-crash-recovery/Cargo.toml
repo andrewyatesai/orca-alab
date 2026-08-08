@@ -10,7 +10,7 @@ description = "Crash-recovery decision cores (rolling-window renderer-reload rat
 # Deliberately zero-dependency: pure stateful decision cores (clock injected as a
 # plain integer, no timers/IO), kept trivially testable and machine-checkable. Same
 # E1 pair as orca-flow-control: proven equivalent to the TS by shared parity
-# corpora, proven correct by proofs/ay.
+# corpora, with the safety properties pinned by exhaustive in-source trace tests.
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -9,8 +9,10 @@
 //! below the floor.
 //!
 //! Pure functions of the droppable-session count — the same E1 pair as the
-//! producer controller: proven equivalent to the TS by `keep-tail-parity-corpus.txt`
-//! and proven correct by `proofs/ay/kt_*.smt2`.
+//! producer controller: proven equivalent to the TS by `keep-tail-parity-corpus.txt`.
+//! The clamp band and the division's panic-freedom are discharged natively by
+//! `-Ztrust-verify=on` (both obligations proved, kernel-certified); monotonicity
+//! is pinned by `keep_tail_is_non_increasing_in_session_count` below.
 
 /// Upper bound on a single session's keep-tail (also its value when few sessions
 /// compete). Mirrors `BACKGROUND_SESSION_KEEP_TAIL_CHARS`.
@@ -74,13 +76,32 @@ mod tests {
         assert_eq!(background_session_keep_tail_chars(1000), 64 * 1024);
     }
 
+    /// Monotonicity is a RELATIONAL (two-run) property, which the trust-* stack
+    /// cannot state as a per-call contract today — see
+    /// `docs/trust/capability-gaps-from-the-smt-purge.md` gap R1. Until it can,
+    /// this is the check: dense over the whole active region (where the divide is
+    /// the live term), then sparse out to `u64::MAX`.
     #[test]
     fn keep_tail_is_non_increasing_in_session_count() {
-        let mut prev = background_session_keep_tail_chars(1);
-        for n in 2..=200u64 {
+        let mut prev = background_session_keep_tail_chars(0);
+        for n in 1..=4_096u64 {
             let kt = background_session_keep_tail_chars(n);
             assert!(kt <= prev, "keep-tail rose from {prev} to {kt} at n={n}");
             prev = kt;
+        }
+        // Beyond the budget it is pinned at the floor and must stay there, right
+        // up to the u64 extreme the retired unbounded-`Int` model could not reach.
+        for n in [4_097u64, 100_000, 1 << 32, u64::MAX - 1, u64::MAX] {
+            let kt = background_session_keep_tail_chars(n);
+            assert!(kt <= prev, "keep-tail rose to {kt} at n={n}");
+            assert_eq!(kt, BACKGROUND_SESSION_MIN_KEEP_TAIL_CHARS);
+        }
+        // The drop cap inherits the ordering (it is exactly 2x the keep-tail).
+        let mut prev_cap = background_session_drop_cap_chars(0);
+        for n in 1..=4_096u64 {
+            let cap = background_session_drop_cap_chars(n);
+            assert!(cap <= prev_cap, "drop cap rose from {prev_cap} to {cap} at n={n}");
+            prev_cap = cap;
         }
     }
 

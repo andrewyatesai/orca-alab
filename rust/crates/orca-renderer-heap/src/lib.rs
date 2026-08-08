@@ -10,8 +10,15 @@
 //! default. The resolved env override is passed in as [`HeapOverride`] — the
 //! JS-`Number` string parsing (hex/exponential/whitespace/…) stays in the TS
 //! `parseRendererHeapOverrideMb`, out of this core's scope. Same E1 pair as the
-//! other decision cores: proven equivalent to the TS by `parity-corpus.txt`, proven
-//! correct by `proofs/ay/rh_*.smt2`.
+//! other decision cores: proven equivalent to the TS by `parity-corpus.txt`.
+//!
+//! The float layer is where the trust-* stack has nothing to say: measured, this
+//! crate raises exactly one Level-0 obligation and it is runtime-checked, and the
+//! `f64` pipeline that computes the clamp target raises none at all — see
+//! `docs/trust/capability-gaps-from-the-smt-purge.md` gap F1. It is covered here by
+//! the differential oracle plus the exhaustive band/monotonicity tests, NOT by a
+//! hand-written model that declared the target an unbounded `Int` and so could not
+//! see the float layer at all.
 
 #![forbid(unsafe_code)]
 
@@ -92,11 +99,11 @@ pub fn renderer_heap_ceiling_mb(total_memory_bytes: f64, override_value: HeapOve
                 return None;
             }
             // The target is `floor(totalGiB * 0.4) * 1024` clamped to the band, as the
-            // TS computes and as `proofs/ay/rh*.smt2` model it. Capping the scaled GiB
-            // at CAP/1024 first cannot change the clamped result (the clamp discards
-            // everything above the cap anyway) and keeps the whole number small enough
-            // to floor with an integer cast — f64 `floor`/`max`/`min` are absent from
-            // Trust's lowered bundle, the cast and integer `max`/`min` are not.
+            // TS computes it. Capping the scaled GiB at CAP/1024 first cannot change
+            // the clamped result (the clamp discards everything above the cap anyway)
+            // and keeps the whole number small enough to floor with an integer cast —
+            // f64 `floor`/`max`/`min` are absent from Trust's lowered bundle, the cast
+            // and integer `max`/`min` are not.
             let scaled_gib = total_gib * RENDERER_HEAP_RAM_FRACTION;
             let scaled_gib_capped = if scaled_gib > RENDERER_HEAP_CAP_SCALED_GIB {
                 RENDERER_HEAP_CAP_SCALED_GIB
@@ -219,6 +226,61 @@ mod tests {
             Some(RENDERER_HEAP_CAP_MB)
         );
         assert_eq!(renderer_heap_ceiling_mb(f64::MAX, HeapOverride::None), Some(RENDERER_HEAP_CAP_MB));
+    }
+
+    /// A dense sweep of the whole RAM tier: the ceiling is always inside the band,
+    /// and it never falls as total RAM rises. Replaces `rh1_band_bound` (which
+    /// modelled the clamp target as a free unbounded `Int`, so it could say nothing
+    /// about the `f64` pipeline or the `as u32` cast that actually produce it),
+    /// `rh2_clamp_monotone`, and `rh3_floor_redundant_under_gate`.
+    ///
+    /// Monotonicity is relational; see
+    /// `docs/trust/capability-gaps-from-the-smt-purge.md` gap R1.
+    #[test]
+    fn ram_tier_is_banded_and_never_falls_as_ram_rises() {
+        let mut prev: Option<u32> = None;
+        let mut saw_floor = 0;
+        let mut saw_cap = 0;
+        let mut steps = 0;
+        // 1/64 GiB steps across the gate, the crossover and well past both.
+        for i in 0..(64 * 64) {
+            let gib = i as f64 / 64.0;
+            let got = renderer_heap_ceiling_mb(gib * GIB, HeapOverride::None);
+            match got {
+                None => {
+                    // Below the gate only — the default is never re-entered later.
+                    assert!(gib < RENDERER_HEAP_MIN_TOTAL_GIB, "default returned at {gib} GiB");
+                    assert!(prev.is_none(), "fell back to the default after sizing at {gib} GiB");
+                }
+                Some(mb) => {
+                    steps += 1;
+                    assert!(
+                        (RENDERER_HEAP_FLOOR_MB..=RENDERER_HEAP_CAP_MB).contains(&mb),
+                        "{gib} GiB -> {mb} outside [3072, 4096]"
+                    );
+                    if let Some(p) = prev {
+                        assert!(mb >= p, "ceiling fell from {p} to {mb} at {gib} GiB");
+                    }
+                    if mb == RENDERER_HEAP_FLOOR_MB {
+                        saw_floor += 1;
+                    }
+                    if mb == RENDERER_HEAP_CAP_MB {
+                        saw_cap += 1;
+                    }
+                    prev = Some(mb);
+                }
+            }
+        }
+        assert!(steps > 2_000, "sweep too thin ({steps})");
+        // Non-vacuity (the retired `rh_c1`/`rh_c2` controls): both band endpoints are
+        // really reached, so the clamp is load-bearing at both ends.
+        assert!(saw_floor > 0, "the floor is never active — the clamp is vacuous");
+        assert!(saw_cap > 0, "the cap is never active — the clamp is vacuous");
+        // Monotonicity continues past the short-circuit bound.
+        assert_eq!(
+            renderer_heap_ceiling_mb(RENDERER_HEAP_MAX_TOTAL_BYTES * 2.0, HeapOverride::None),
+            Some(RENDERER_HEAP_CAP_MB)
+        );
     }
 
     /// Hand-written `PartialEq` must stay derive-equivalent.

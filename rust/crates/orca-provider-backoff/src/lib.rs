@@ -7,9 +7,9 @@
 //! hammering the network. The decision is a pure function of the streak count.
 //!
 //! Same E1 pair as `orca-flow-control`: proven equivalent to the TS by the shared
-//! `parity-corpus.txt`, and proven correct by `proofs/ay/bo_*.smt2`. This unit
-//! adds a proof shape the flow-control units did not exercise — a *saturating*
-//! exponential, whose Rust `1u64 << exp` must never overflow for ANY streak.
+//! `parity-corpus.txt`. The shift's and the multiply's panic-freedom are discharged
+//! by the compiler's own verifier (`-Ztrust-verify=on`); the band, monotonicity and
+//! saturation are pinned by the class-exhaustive test below.
 
 /// Base throttle: the wait after the first failure. Mirrors the TS
 /// `ACTIVE_FAILURE_REFETCH_MS` (= `MIN_POLL_MS`, 30s).
@@ -94,6 +94,66 @@ mod tests {
                 1u64.checked_shl(exp).unwrap_or(u64::MAX)
             );
         }
+    }
+
+    /// The whole backoff contract over the FULL `u32` streak domain, in one place.
+    ///
+    /// Replaces the retired `bo1_throttle_bound` / `bo2_monotone` / `bo3_saturates`
+    /// theorems and the `bo_c1` / `bo_c2` non-vacuity controls. It is strictly
+    /// stronger than they were: that model declared the multiplier an unbounded
+    /// `Int`, so `30000 * p` could not overflow *in the model* and the
+    /// `saturating_mul` this function actually depends on was outside it entirely.
+    ///
+    /// Exhaustive by class, not by sampling. The result depends only on
+    /// `exp = streak.saturating_sub(1)`, and the multiplier is `1 << exp` for
+    /// `exp < 64` and `u64::MAX` for `exp >= 64`. So `streak` in `0..=65` realizes
+    /// every distinct `exp` below the width plus one representative of the
+    /// saturated class, and `u32::MAX` re-checks that class at the domain edge —
+    /// together, every reachable multiplier.
+    #[test]
+    fn backoff_band_monotone_and_saturating_over_every_streak() {
+        let mut prev = 0u64;
+        let mut saw_floor = 0;
+        let mut saw_ceiling = 0;
+        let mut saw_intermediate = 0;
+
+        for streak in 0..=65u32 {
+            let ms = active_failure_refetch_throttle_ms(streak);
+
+            // bo1: the band holds for every streak.
+            assert!(
+                (ACTIVE_FAILURE_REFETCH_MS..=MAX_ACTIVE_FAILURE_REFETCH_MS).contains(&ms),
+                "streak={streak} ms={ms} outside [30_000, 900_000]"
+            );
+            // bo2: monotone — a longer failure run never shortens the wait.
+            assert!(ms >= prev, "throttle fell from {prev} to {ms} at streak={streak}");
+            prev = ms;
+
+            // bo3: once at the ceiling it stays there, for every larger streak.
+            if streak >= 6 {
+                assert_eq!(ms, MAX_ACTIVE_FAILURE_REFETCH_MS, "streak={streak} left the ceiling");
+            }
+
+            if ms == ACTIVE_FAILURE_REFETCH_MS {
+                saw_floor += 1;
+            } else if ms == MAX_ACTIVE_FAILURE_REFETCH_MS {
+                saw_ceiling += 1;
+            } else {
+                saw_intermediate += 1;
+            }
+        }
+
+        // The saturated class at the far edge of the domain — the case the retired
+        // unbounded-`Int` model could not express, since it had no `u64` to overflow.
+        assert_eq!(active_failure_refetch_throttle_ms(u32::MAX), MAX_ACTIVE_FAILURE_REFETCH_MS);
+
+        // bo_c2: the base floor is genuinely reached (the band is tight at the
+        // bottom, so a strict `> 30_000` spec would be false).
+        assert!(saw_floor > 0, "the 30s floor is never reached — the band is vacuous");
+        // bo_c1: the un-saturated branch is genuinely reachable, so this is not
+        // vacuously a constant function pinned to its ceiling.
+        assert!(saw_intermediate > 0, "the doubling never takes an intermediate value");
+        assert!(saw_ceiling > 0, "the ceiling is never reached");
     }
 
     #[test]

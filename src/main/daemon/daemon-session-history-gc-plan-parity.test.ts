@@ -6,8 +6,9 @@ import { planSessionHistoryGc } from './daemon-session-history-gc-plan'
 // Differential parity certificate (E1 unit): this TS GC planner and the Rust
 // `orca-session-gc::plan_session_history_gc` core run the SAME shared corpus and
 // must agree on {expire, evictForSize, remainingBytes} for every scanned store +
-// liveness/budget context. Divergence fails one side. Paired with the ay proofs
-// (rust/crates/orca-session-gc/proofs/ay/*.smt2), this is the full E1 pair.
+// liveness/budget context. Divergence fails one side. Paired with that crate's
+// exhaustive `planner_never_deletes_a_protected_dir_and_reaches_the_budget` test,
+// this is the full E1 pair.
 // Fixed thresholds match the corpus header.
 const THRESHOLDS = { minDirAgeMs: 10, endedRetentionMs: 100, unrestoredRetentionMs: 1000 }
 

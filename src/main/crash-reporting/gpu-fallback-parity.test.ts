@@ -5,8 +5,9 @@ import { GpuCrashFallbackTracker } from './gpu-crash-fallback-decision'
 
 // Differential parity certificate (E1 unit): this TS tracker and the Rust
 // `orca-crash-recovery::gpu_fallback` core replay the SAME crash trace and must
-// agree on every step. Divergence fails one side. Paired with the ay proofs
-// (rust/crates/orca-crash-recovery/proofs/ay/gf_*.smt2), this is the full E1 pair.
+// agree on every step. Divergence fails one side. Paired with that crate's
+// exhaustive `fallback_engages_at_most_once_and_only_inside_the_window` trace test,
+// this is the full E1 pair.
 // The corpus header fixes the config at window=30, threshold=3.
 describe('gpu software-fallback latch shared parity corpus', () => {
   it('matches the Rust orca-crash-recovery trace step for step', () => {

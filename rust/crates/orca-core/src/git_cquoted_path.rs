@@ -6,8 +6,15 @@
 //! porcelain output that may contain these, so the decode must match the TS
 //! implementation exactly — including accumulating a run of adjacent `\NNN`
 //! octal escapes into UTF-8 bytes before decoding (git C-quotes non-ASCII as a
-//! byte run), mirroring the TS `Uint8Array` + `TextDecoder` path. The octal
-//! arm's totality is proof-carried in `orca-git/proofs/ay/decode_total`.
+//! byte run), mirroring the TS `Uint8Array` + `TextDecoder` path.
+//!
+//! The octal arm's totality is established by
+//! `octal_escape_decode_is_total_over_every_escape` below, which runs the real
+//! decoder over the entire 1-to-3-digit escape domain. Measured, not assumed: the
+//! compiler's verifier statically discharges NONE of this function's 26 Level-0
+//! obligations today (25 runtime-checked, 1 unknown) — the panic checks are
+//! retained in the binary rather than proved away. See gap S1 in
+//! `docs/trust/capability-gaps-from-the-smt-purge.md`.
 
 // Every `chars[i]` below is `chars.get(i)`: `n` is `Vec::len`, an opaque value
 // the verifier cannot relate back to the buffer, so an `i < n` guard proves
@@ -106,6 +113,58 @@ mod tests {
         assert_eq!(decode_git_cquoted_path("\"a\\nb\""), "a\nb");
         assert_eq!(decode_git_cquoted_path("\"a\\\\b\""), "a\\b");
         assert_eq!(decode_git_cquoted_path("\"a\\\"b\""), "a\"b");
+    }
+
+    /// The octal arm is TOTAL and DROP-FREE over its ENTIRE input domain: every
+    /// 1-, 2- and 3-digit octal escape decodes to exactly one byte, equal to the
+    /// value reduced mod 256 — the same wrap JS `& 0xFF` on a `Uint8Array` push
+    /// performs, so the port stays byte-identical to the TS decoder.
+    ///
+    /// Replaces the retired `proofs/ay/decode_total` bundle (`decode_octal_total`,
+    /// `decode_octal_mask_matches_uint8`, `decode_octal_wrap_reachable_sat`). That
+    /// bundle proved arithmetic identities about a free 32-bit bitvector — that
+    /// `(v & 0xFF) == v mod 256` for `v <= 511` — which is true of *any* `v` and
+    /// was never connected to this function by anything but a prose comment. This
+    /// runs the actual decoder over all 584 escapes, so it also covers the
+    /// digit-run scanner, the `is_digit(8)` lookahead and the `from_utf8_lossy`
+    /// that the SMT never modelled.
+    #[test]
+    fn octal_escape_decode_is_total_over_every_escape() {
+        let mut checked = 0;
+        let mut saw_wrap = 0;
+
+        for digits in 1..=3usize {
+            for v in 0..(1u32 << (3 * digits)) {
+                // Most-significant digit first, exactly as git emits it.
+                let mut octal = String::new();
+                for pos in (0..digits).rev() {
+                    let d = (v >> (3 * pos)) & 0b111;
+                    octal.push(char::from(b'0' + d as u8));
+                }
+                let want_byte = (v & 0xFF) as u8;
+
+                // The escape is decoded, never dropped: the byte run is exactly
+                // one byte long, so lossy UTF-8 decoding of it is what we compare.
+                let got = decode_git_cquoted_path(&format!("\"\\{octal}\""));
+                assert_eq!(
+                    got,
+                    String::from_utf8_lossy(&[want_byte]),
+                    "\\{octal} (v={v}) decoded to {got:?}"
+                );
+
+                // The wrap region \400..\777 is genuinely reachable and the mask
+                // genuinely does work there — the in-source form of the retired
+                // `decode_octal_wrap_reachable_sat` control.
+                if v > 255 {
+                    assert_eq!(u32::from(want_byte), v - 256, "\\{octal} did not wrap by 256");
+                    saw_wrap += 1;
+                }
+                checked += 1;
+            }
+        }
+
+        assert_eq!(checked, 8 + 64 + 512, "domain not exhausted ({checked})");
+        assert!(saw_wrap > 0, "the wrap region was never reached — the mask is dead");
     }
 
     #[test]

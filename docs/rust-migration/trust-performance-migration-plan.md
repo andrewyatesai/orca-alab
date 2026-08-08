@@ -1,5 +1,18 @@
 # Trust Performance Migration Plan
 
+> **SUPERSEDED (2026-08-08) — the `proofs/ay/` discipline this plan prescribes is RETIRED.**
+> Every hand-encoded `.smt2` bundle under `rust/crates/*/proofs/ay/` has been deleted, and
+> the `certificates` gauntlet axis now **FAILs** if one reappears. Do not follow the
+> "attach the proof / Tier-0 SMT" recipe in §5 — it is kept below only as a record of what
+> was done. Those bundles modelled the code by hand in `QF_LIA` over unbounded `Int`, so
+> machine-integer overflow was outside every one of them; five reachable `i64`/`u64`
+> overflow bugs sat under a green `ALL PROOFS DISCHARGED` banner until the compiler's own
+> verifier refuted them. The certificate half of E1 is now the compiler
+> (`-Ztrust-verify=on`, which sees the real MIR and the real machine types) plus in-source
+> property tests. If the `trust-*` stack cannot express a property, record a capability ask
+> in [`../trust/capability-gaps-from-the-smt-purge.md`](../trust/capability-gaps-from-the-smt-purge.md)
+> — do not hand-write a model of the code next to the code.
+
 > **Status (2026-06-28):** Phase 0 (locale lazy-load) shipped. `orca-git` is the first
 > fully-landed subsumption: verified pure-Rust core + `ay` proofs → napi exposure →
 > dual-run parity (43/43) → **live cutover** of `getStatus` behind the TS fallback.
@@ -14,7 +27,7 @@
 
 > Goal: migrate orca's biggest **user-experience performance bottlenecks** into
 > **Trust-verified Rust** (aterm's "Trusted Rust" toolchain — `trustc` + `ay` SMT/CHC
-> + `trust-mc` BMC, the `proofs/ay/` discipline). This is a *performance* plan, not the
+> + `trust-mc` BMC). This is a *performance* plan, not the
 > whole-app port roadmap in [`migration-plan.md`](./migration-plan.md); it ranks only the
 > hot paths where moving to Rust measurably helps the user, and says which of those can
 > additionally carry a formal proof.
@@ -42,9 +55,11 @@ batching, code-split) — migrating it to Rust buys nothing and a proof would be
 Two honesty caveats carried from the research:
 - **orca-side crates carry no Trust proofs today.** The entire Trust apparatus lives inside
   the `rust/aterm` submodule workspace. orca-side code (`rust/crates/*`, `native/orca-node`)
-  currently ships *unverified* (`orca-terminal` even `forbid`s `unsafe`). Getting Trust on a
-  new orca-side crate means **porting the proof infra** (a `proofs/ay/` dir + `verify.sh` +
-  the `cfg(trust_verify)` declaration), or placing the crate inside the aterm submodule.
+  currently ships *unverified* (`orca-terminal` even `forbid`s `unsafe`). **Stale as of
+  2026-08-08:** `rust/.cargo/config.toml` now compiles the whole orca-side workspace with
+  `-Ztrust-verify=on`, so verification is on by default and needs no per-crate proof infra.
+  It runs at `-Ztrust-policy=advisory`, so it reports rather than gates — see
+  [`trust-verification.md`](./trust-verification.md).
 - **The Trust toolchain is environment-gated.** Per `rust/aterm/AGENTS.md`, on a given
   machine only some checkers (`ty`) are guaranteed runnable; `ay`/`trust-mc` need the
   `~/trust` toolchain. Proofs are authored in-idiom and discharged where the toolchain is
@@ -101,8 +116,13 @@ establishes the orca-side Trust pipeline.
   - the byte/line accumulators never overflow `u32`/`usize`;
   - `decodeGitCQuotedPath` is **total** (every input produces output, never panics);
   - the cap invariant: emitted entries `≤ limit` for all inputs (the property the relay bug violated).
-  Author as `rust/crates/orca-git/proofs/ay/git_porcelain/` (`.smt2` + `verify.sh` + `README.md`),
-  cloning the `a1_row_index` bundle structure.
+  **DONE, differently (2026-08-08):** these landed as hand-encoded `.smt2` bundles and were
+  then deleted with the rest of the purge. They live now as in-source property tests —
+  `octal_escape_decode_is_total_over_every_escape` (exhaustive over all 584 octal escapes),
+  `cap_bounds_the_emitted_and_the_buffered_entry_counts`, and
+  `line_scan_handles_every_terminator_shape_at_every_chunk_boundary` — plus gaps S1/C1 in
+  [`../trust/capability-gaps-from-the-smt-purge.md`](../trust/capability-gaps-from-the-smt-purge.md)
+  for the index-bounds part the stack still cannot discharge.
 - **Risk/blocker:** must preserve the streaming early-stop + chunk-boundary carry contract;
   SSH/relay needs a per-relay-arch native build (the real blocker — keep the TS path as the
   fallback when no addon for that arch); WSL path translation must be preserved.
@@ -194,9 +214,10 @@ aterm submodule** and ride aterm's existing `tools/verify.sh` proof gate (free T
 - **Phase 0 — non-Rust unblockers (parallel, no Trust):** the §4 quick wins. Do these first/with
   Phase 1 so the Rust effort targets the genuinely CPU-bound work, not startup-IPC or parse-cost
   that code-splitting fixes. Includes #4 (framebuffer single-copy).
-- **Phase 1 — `orca-git` status/diff (napi) + the orca-side Trust pipeline.** Flagship. Proves we
-  can author `proofs/ay/` + `verify.sh` for an orca-side crate and gate it. Unblocks every later
-  Option-B crate.
+- **Phase 1 — `orca-git` status/diff (napi) + the orca-side Trust pipeline.** Flagship. Unblocks
+  every later Option-B crate. (The original goal — "prove we can author `proofs/ay/` + `verify.sh`
+  for an orca-side crate" — was met and then retired; the workspace now compiles under
+  `-Ztrust-verify=on` and needs no per-crate bundle.)
 - **Phase 2 — terminal byte pipeline (aterm submodule):** 2a OSC-into-engine → 2b Rust batcher →
   2c byte transport (in that dependency order). Rides aterm's existing proof gate.
 - **Phase 3 — `orca-text` fuzzy/index (wasm):** once Phase 1 has established orca-side Trust.
@@ -255,9 +276,12 @@ and the aterm engine itself (wasm renderer + `orca_node` napi).
 3. **Attach the proof** (cheapest tier that covers the property; follow
    `assert_proves_and_catches` — one `unsat` theorem + one `sat` non-vacuity + one `sat` false-bound
    catch):
-   - *Tier-0 SMT (`ay`):* `proofs/ay/<name>/` with hand-encoded `.smt2` over `QF_BV` modeling the
-     arithmetic (index bounds, no-overflow, range), a `verify.sh` cloned from a bundle, and a
-     `README.md` linking the exact `file:line`. Template: `rust/aterm/crates/aterm-spec-models/proofs/ay/a1_row_index/`.
+   - *Tier-0 SMT (`ay`):* **RETIRED — do not do this.** Hand-encoded `.smt2` under a
+     first-party crate now FAILs the `certificates` gauntlet axis. The arithmetic this tier
+     hand-modelled (index bounds, no-overflow, range) is emitted and discharged by the
+     compiler itself on the real types; what the compiler cannot yet reach belongs in
+     [`../trust/capability-gaps-from-the-smt-purge.md`](../trust/capability-gaps-from-the-smt-purge.md),
+     not in a parallel model.
    - *Tier-1/2 in-`trustc`:* for memory safety on a type, mirror `aterm-scrollback`
      (`src/lib.rs:11-13` preamble + `#[cfg_attr(trust_verify, trust::backing)]` `mmap.rs:23`),
      check with `RUSTC_BOOTSTRAP=1 rustup run trust cargo trust check`. For all-inputs functional

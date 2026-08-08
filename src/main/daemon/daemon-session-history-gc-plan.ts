@@ -3,8 +3,9 @@
 // unit-testable and machine-checkable without a filesystem — the scan and the
 // rmSync stay in the executor. This is the TS half of the `orca-session-gc` E1
 // pair (proven equivalent to the Rust core by
-// rust/crates/orca-session-gc/parity-corpus.txt, proven correct by its
-// proofs/ay/*.smt2). Every bound is a privacy bound as much as a disk bound —
+// rust/crates/orca-session-gc/parity-corpus.txt; the retention/eviction safety
+// properties are pinned by that crate's exhaustive store enumeration). Every bound
+// is a privacy bound as much as a disk bound —
 // scrollback is secret-bearing — so "never lose a recoverable live session" and
 // "keep the store under budget" are the safety properties that matter.
 

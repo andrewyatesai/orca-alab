@@ -1,6 +1,7 @@
 {
   "minTrusted": 397,
   "measured": "2026-07-18",
+  "toolchain": "rustc 1.99.0-dev (4c9dc90f4)",
   "total": 403,
   "faithfulMiss": 0,
   "soundnessControls": 6,

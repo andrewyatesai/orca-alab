@@ -39,17 +39,17 @@
 // written to tools/terminal-bench/.gauntlet-report.json.
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadCorpus, loadJsonlCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 import { certificatesGate } from './gauntlet-certificates.mjs'
+import { autoformalizeGate } from './gauntlet-autoformalize.mjs'
 import { censusGate } from './gauntlet-census.mjs'
 import { corpusGate } from './gauntlet-corpus.mjs'
 import { EXIT, gauntletExit } from './gauntlet-exit-code.mjs'
 import { PERF_CORPUS_MB, prereqChecks } from './gauntlet-prereqs.mjs'
-import { rustTypeToArgspec } from './rust-type-to-argspec.mjs'
 
 const here = import.meta.dirname
 const repo = resolve(here, '..', '..')
@@ -384,158 +384,9 @@ function safety() {
   }
 }
 
-// --- autoformalize: the Trust ts2rust two-witness gate over the orc corpus -------
-// Goal A. Reuses the EXISTING autoformalizer in the Trust repo ($TRUST_REPO/tools/ts2rust):
-// it discovers the already-ported .ts/.rs pairs, derives each fn + argspec straight
-// from the candidate's signature, and runs W1 (trustc ∀-safety) + W2 (Node-TS diff).
-// SKIPs (never fakes) when the Trust harness or the trustc toolchain isn't present.
-const TS2RUST = join(TRUST_ROOT, 'tools', 'ts2rust')
-// u16/i16 are real orc arg types (terminal cols/rows, UTF-16 code units, viewport
-// coords) and the Trust fuzzer already models them — including them here recovers
-// decision cores whose ONLY blocker was the arg type, not the ported logic.
-function locateTrustc() {
-  const candidates = [
-    process.env.TRUSTC,
-    join(TRUST_ROOT, 'build', 'host', 'stage2', 'bin', 'trustc')
-  ]
-  for (const c of candidates) {
-    if (c && existsSync(c)) {
-      return c
-    }
-  }
-  try {
-    return sh('bash', ['-lc', 'command -v trustc']).trim() || null
-  } catch {
-    return null
-  }
-}
-
-function discoverCorpus(orcaDir) {
-  const out = []
-  let files
-  try {
-    files = readdirSync(orcaDir).filter((f) => f.endsWith('.rs'))
-  } catch {
-    return out
-  }
-  for (const rs of files) {
-    const name = rs.slice(0, -3)
-    if (!existsSync(join(orcaDir, `${name}.ts`))) {
-      continue // the driver needs a same-named .ts reference kernel
-    }
-    const src = readFileSync(join(orcaDir, rs), 'utf8')
-    // Allow a generic/lifetime clause between the fn name and the arg list
-    // (`pub fn f<'a>(…)`) — the shape of the &str-slice kernels.
-    const sig = src.match(/pub\s+fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)/u)
-    if (!sig) {
-      continue
-    }
-    // A tuple return (`-> (u16, u16)`) serializes to ONE JSON array via serde,
-    // matching a TS twin that returns `[a, b]` — the W2 harness diffs it fine
-    // (verified: b11_gridsize/b11_pointcell are TRUSTED), so it is NOT skipped.
-    const params = sig[2].trim()
-    const specs = []
-    let ok = true
-    // Filter empties so a trailing comma in a multi-line signature
-    // (`cell_height: u16,\n)`) does not split into a phantom empty param that
-    // falsely declines an otherwise-runnable kernel.
-    for (const p of params
-      ? params
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : []) {
-      const a = rustTypeToArgspec(p.split(':').slice(1).join(':'), src)
-      if (!a) {
-        ok = false
-        break
-      }
-      specs.push(a)
-    }
-    if (!ok) {
-      out.push({ name, fn: sig[1], declined: true })
-    } else {
-      // Convention: a deliberately-buggy port is named *_bug / *_naive (suffix), expected to be refuted.
-      // (Don't match substrings — e.g. `..._toobig` is a real predicate name, a faithful port.)
-      out.push({
-        name,
-        fn: sig[1],
-        argspec: specs.join(','),
-        expect: /_(bug|naive)$/u.test(name) ? 'NOT-TRUSTED' : 'TRUSTED'
-      })
-    }
-  }
-  return out
-}
-
-function autoformalize() {
-  const driver = join(TS2RUST, 'autoformalize.mjs')
-  if (!existsSync(driver)) {
-    return skip(
-      `Trust ts2rust harness not found (${TRUST_ROOT_LABEL}/tools/ts2rust) — Goal A engine lives in the Trust repo`
-    )
-  }
-  const corpus = discoverCorpus(join(TS2RUST, 'orca'))
-  const runnable = corpus.filter((c) => !c.declined)
-  if (!runnable.length) {
-    return skip(
-      `no autoformalizable .ts/.rs pairs discovered under ${TRUST_ROOT_LABEL}/tools/ts2rust/orca`
-    )
-  }
-  const trustc = locateTrustc()
-  if (!trustc) {
-    return {
-      status: 'SKIP',
-      metrics: { corpus: runnable.length, declined: corpus.length - runnable.length },
-      detail: `trustc not built — ${runnable.length} orc functions ready to autoformalize; build the Trust stage2 toolchain or set TRUSTC=<path>, then re-run`
-    }
-  }
-  const rows = []
-  for (const c of runnable) {
-    let verdict
-    let note = ''
-    try {
-      sh('node', [driver, `orca/${c.name}.ts`, c.fn, c.argspec, `orca/${c.name}.rs`], {
-        cwd: TS2RUST,
-        env: { ...process.env, TRUSTC: trustc },
-        timeout: 180000
-      })
-      verdict = 'TRUSTED'
-    } catch (e) {
-      const out = `${e.stdout || ''}${e.stderr || ''}`
-      verdict = /VERDICT:\s*TRUSTED/u.test(out) ? 'TRUSTED' : 'NOT-TRUSTED'
-      note = (
-        out.split('\n').find((l) => /counterexample|divergence|ts=|rust=|REFUTED/iu.test(l)) || ''
-      )
-        .trim()
-        .slice(0, 80)
-    }
-    rows.push({ fn: c.fn, argspec: c.argspec, expect: c.expect, verdict, note })
-  }
-  // A known-bug port coming back TRUSTED = soundness regression (FAIL). A faithful
-  // port coming back NOT-TRUSTED = triage (port bug vs. a Trust verifier precision gap).
-  const soundnessBreak = rows.some((r) => r.expect === 'NOT-TRUSTED' && r.verdict === 'TRUSTED')
-  const faithfulMiss = rows.some((r) => r.expect === 'TRUSTED' && r.verdict === 'NOT-TRUSTED')
-  const trusted = rows.filter((r) => r.verdict === 'TRUSTED').length
-  // Trusted-count ratchet: with ~165 permanent faithful-misses the gate is always
-  // REVIEW, which hides a REGRESSION (a kernel that used to verify silently breaking).
-  // Baseline the count so a DROP fails; growth is fine (bump the baseline knowingly).
-  const ratchetFile = join(here, 'autoformalize-ratchet.json')
-  const minTrusted = existsSync(ratchetFile)
-    ? (JSON.parse(readFileSync(ratchetFile, 'utf8')).minTrusted ?? 0)
-    : null
-  const regressed = minTrusted !== null && trusted < minTrusted
-  return {
-    status: soundnessBreak || regressed ? 'FAIL' : faithfulMiss ? 'REVIEW' : 'PASS',
-    metrics: { trusted, total: rows.length, declined: corpus.length - runnable.length, minTrusted },
-    detail: regressed
-      ? `TRUSTED count regressed: ${trusted} < baseline ${minTrusted} (a kernel stopped verifying)`
-      : minTrusted === null
-        ? `${trusted} TRUSTED — no ratchet baseline (write autoformalize-ratchet.json {"minTrusted":${trusted}})`
-        : `${trusted}/${rows.length} TRUSTED (baseline ${minTrusted})${trusted > minTrusted ? ' — grew, bump baseline' : ''}`,
-    rows
-  }
-}
+// --- autoformalize: fail-closed Trust corpus and evidence ratchets ---------------
+const autoformalize = () =>
+  autoformalizeGate({ here, sh, skip, trustRoot: TRUST_ROOT, trustRootLabel: TRUST_ROOT_LABEL })
 
 // --- provenance: every TS→Rust port pinned to its source hashes -------------------
 // Drift in a ported module's TS reference (or its Rust twin) must fail loudly with

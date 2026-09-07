@@ -20,10 +20,10 @@ lines of scrollback. We compare:
 
 ## Result (Apple Silicon, 16 MB corpus)
 
-| engine                       | MB/s | speedup | visible grid |
-| ---------------------------- | ---- | ------- | ------------ |
-| `@xterm/headless` (baseline) | ~87  | 1.0×    | identical    |
-| rust `orca-terminal` (napi)  | ~140–180 | ~1.6–2× | identical |
+| engine                       | MB/s     | speedup | visible grid |
+| ---------------------------- | -------- | ------- | ------------ |
+| `@xterm/headless` (baseline) | ~87      | 1.0×    | identical    |
+| rust `orca-terminal` (napi)  | ~140–180 | ~1.6–2× | identical    |
 
 The **ratio** is the stable metric; absolute MB/s swings with machine load.
 Linear bulk text is ~1.6–2× (print-bound); CSI-heavy TUI workloads
@@ -86,7 +86,7 @@ pnpm gauntlet:census          # regret-class ratchet (watched files only shrink)
   `--verify` reports the same verdict without installing (no surprise cargo build).
 - **conformance** — every case in `tools/aterm-vs-xterm/corpus.json` is run through
   both engines and the 24×80 grids are diffed. A match is parity; a divergence is
-  `REVIEW` (not auto-fail), because aterm being *more* correct than xterm per the
+  `REVIEW` (not auto-fail), because aterm being _more_ correct than xterm per the
   VT/ECMA-48 spec is a win to triage — see `tools/aterm-vs-xterm/GOAL-B-HANDOFF.md`.
 - **perf** — best-of-N medians via `xterm-bench.mjs` / `addon-bench.mjs`, plus a
   grid-parity fingerprint check.
@@ -101,17 +101,24 @@ pnpm gauntlet:census          # regret-class ratchet (watched files only shrink)
   differential). It auto-discovers the already-ported `.ts`/`.rs` pairs under
   `$TRUST_REPO/tools/ts2rust/orca` (`$TRUST_REPO` defaults to `trust` under `$HOME`),
   derives each `fn`+`argspec` from the candidate
-  signature, and reports `TRUSTED / NOT-TRUSTED / declined` per function. A
+  signature, and reports `TRUSTED / NOT-TRUSTED / INCOMPLETE / declined` per function. A
   known-bug port (`*_bug`/`*_naive`) coming back TRUSTED is a soundness `FAIL`; a
   faithful port coming back NOT-TRUSTED is `REVIEW` (port bug vs. a Trust verifier
-  precision gap). `SKIP` when the harness or `trustc` is absent. Live: **13/14 orc
-  functions TRUSTED** (`clampNumber`, `getUtf8ByteLengthForCodePoint`,
-  `isProcessOutputWhitespace`, `formatRepoRefs`, …); `trimDanglingHighSurrogate`
-  is REVIEW — W2-clean but W1-incomplete (the UTF-16 surrogate frontier).
+  precision gap). `SKIP` when the harness or `trustc` is absent. The recorded
+  baseline is **397 TRUSTED / 403 kernels / 6 controls refuted**, measured
+  2026-07-18 with the toolchain recorded in `autoformalize-ratchet.json`; it is
+  historical evidence, not a fresh result from this checkout.
+  The ratchet checks both `minTrusted` and `soundnessControls`: a vanished corpus
+  or missing controls is `FAIL`; missing, malformed, or incomplete baselines
+  cannot pass. With no baseline and no corpus the result is `SKIP`.
+  Harness exit status must agree with its unique verdict. Negative controls
+  require a static refutation or observed differential divergence; timeouts,
+  incomplete proofs, and build errors prove nothing. Production CLI regression
+  tests live in `gauntlet-autoformalize.test.mjs`.
 - **census** — `tools/repo-census.mjs` regenerates the inventory; the regret class
   (`census-ratchet.json`: the delivery-shim manifest and the watched god objects)
   may only shrink, and growth is `REVIEW`. Triage before you re-baseline: a stale
-  ceiling makes the axis REVIEW unconditionally, which detects *nothing* new. Record
+  ceiling makes the axis REVIEW unconditionally, which detects _nothing_ new. Record
   why the growth was accepted in a `_`-prefixed key (notes, never ceilings) and pull
   the ceiling in whenever a number shrank. **Measure the ceilings at the commit you
   commit them at** — pinning them to an older HEAD lands the axis already red. A

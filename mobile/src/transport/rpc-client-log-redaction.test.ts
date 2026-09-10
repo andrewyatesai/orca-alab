@@ -66,6 +66,25 @@ describe('redactedEndpoint', () => {
 })
 
 describe('mobile rpc-client connection logs', () => {
+  it.each([
+    'wss://desktop.example:7443?token=super-secret',
+    'wss://desktop.example:7443#super-secret',
+    'wss://user:password@desktop.example:7443?token=super-secret'
+  ])('redacts credentials from endpoints without a path: %s', (endpoint) => {
+    globalThis.WebSocket = NeverOpeningWebSocket as unknown as typeof WebSocket
+    const logs: ConnectionLogEntry[] = []
+    const client = connect(endpoint, 'device-token', 'server-key', {
+      onLog: (entry) => logs.push(entry)
+    })
+    try {
+      expect(logs[0]?.detail).toBe('desktop.example:7443')
+      expect(JSON.stringify(logs)).not.toContain('super-secret')
+      expect(JSON.stringify(logs)).not.toContain('password')
+    } finally {
+      client.close()
+    }
+  })
+
   it('never exposes endpoint query credentials', () => {
     globalThis.WebSocket = NeverOpeningWebSocket as unknown as typeof WebSocket
     const logs: ConnectionLogEntry[] = []

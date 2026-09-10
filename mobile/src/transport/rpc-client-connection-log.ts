@@ -24,17 +24,14 @@ export function createConnectionLogEmitter(
   }
 }
 
-// Why: keep device tokens / full URLs out of log scrolls — truncate to host:port,
-// dropping any `user:password@` userinfo the authority may carry.
+// URL parsing also strips query credentials when an endpoint has no path.
 export function redactedEndpoint(ep: string): string {
   try {
-    const m = ep.match(/^wss?:\/\/([^/]+)/i)
-    if (!m) {
+    const endpoint = new URL(ep)
+    if (endpoint.protocol !== 'ws:' && endpoint.protocol !== 'wss:') {
       return 'unknown'
     }
-    const authority = m[1]
-    const at = authority.lastIndexOf('@')
-    return at !== -1 ? authority.slice(at + 1) : authority
+    return endpoint.host || 'unknown'
   } catch {
     return 'unknown'
   }

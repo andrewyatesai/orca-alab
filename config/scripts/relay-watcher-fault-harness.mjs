@@ -221,7 +221,13 @@ async function main() {
       includesWatchPath(params, beforePath)
     )
 
-    const faultSignal = process.platform === 'win32' ? 'SIGTERM' : 'SIGSEGV'
+    // Why: a core signal makes macOS write a crash report on every run.
+    const faultSignal =
+      process.platform === 'win32'
+        ? 'SIGTERM'
+        : process.platform === 'darwin'
+          ? 'SIGKILL'
+          : 'SIGSEGV'
     startIndex = relay.messageCount()
     process.kill(firstWatcherPid, faultSignal)
     const replacementWatcherPid = await waitForWatcherPid(pidFile, firstWatcherPid, relay.stderr)

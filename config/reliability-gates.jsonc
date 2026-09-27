@@ -7039,7 +7039,7 @@
           "file": "config/scripts/runtime-file-watcher-fault-harness.mjs",
           "assertions": [
             "the built watcher entry delivers an event before fault injection",
-            "the harness parent survives watcher-child SIGSEGV",
+            "the harness parent survives a fatal watcher-child signal (SIGKILL on macOS, SIGSEGV on Linux)",
             "the real supervisor automatically replaces the child, resubscribes, and delivers a post-crash event"
           ]
         },

@@ -58,7 +58,7 @@ async function loadSupervisor(bundleDir) {
 
 async function main() {
   if (process.platform === 'win32') {
-    console.log('[runtime-file-watcher-fault] SKIP: SIGSEGV oracle is macOS/Linux only')
+    console.log('[runtime-file-watcher-fault] SKIP: fatal-signal oracle is macOS/Linux only')
     return
   }
   if (!existsSync(ENTRY_PATH)) {
@@ -92,12 +92,9 @@ async function main() {
     supervisor = new WatcherProcessSupervisor()
 
     let resolveInterruption
-    const interrupted = withTimeout(
-      new Promise((resolveWait) => {
-        resolveInterruption = resolveWait
-      }),
-      'automatic watcher resubscription'
-    )
+    const interrupted = new Promise((resolveWait) => {
+      resolveInterruption = resolveWait
+    })
     subscription = await supervisor.subscribe(
       rootPath,
       (error, events) => {
@@ -131,8 +128,13 @@ async function main() {
     if (!firstChildPid) {
       throw new Error('Watcher supervisor did not expose a live child')
     }
-    process.kill(firstChildPid, 'SIGSEGV')
-    await Promise.race([interrupted, watcherError])
+    // Why: a core signal makes macOS write a crash report, and under Electron a
+    // "quit unexpectedly" dialog; SIGKILL is just as unhandled.
+    const faultSignal = process.platform === 'darwin' ? 'SIGKILL' : 'SIGSEGV'
+    process.kill(firstChildPid, faultSignal)
+    // Why: time the resubscription from the fault, not from subscribe; the
+    // first FSEvents delivery alone can take ~15 s on a loaded Mac.
+    await Promise.race([withTimeout(interrupted, 'automatic watcher resubscription'), watcherError])
 
     const replacementChildPid = supervisor.child?.pid
     if (!replacementChildPid || replacementChildPid === firstChildPid) {
@@ -151,6 +153,7 @@ async function main() {
     console.log(
       JSON.stringify({
         hostPid: process.pid,
+        faultSignal,
         killedWatcherPid: firstChildPid,
         replacementWatcherPid: replacementChildPid,
         hostSurvived: true,

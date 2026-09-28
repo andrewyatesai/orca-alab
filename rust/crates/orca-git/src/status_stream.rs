@@ -435,4 +435,157 @@ mod tests {
         // The buffer never exceeds limit + 2 (cap_invariant proof's bound).
         assert!(one_shot.status_length <= limit + 2);
     }
+
+    // ------------------------------------------------------------------
+    // The cap invariant on the real parser. `proofs/ay/cap_invariant` reasons
+    // about two free 32-bit bitvectors `c` and `k` under an ASSUMED
+    // precondition ("entering a line, count <= limit" and "a line pushes at
+    // most 2 entries") — claims about this parser's control flow that the
+    // model postulates. These tests exercise them on real records, at full
+    // `usize` width.
+    // ------------------------------------------------------------------
+
+    /// `into_result` emits at most `limit` entries, and the parser never buffers
+    /// more than `limit + 2` — the `+2` being a boundary `1 MM` record, which
+    /// pushes both its staged and its unstaged halves before the next per-line
+    /// stop-check. Walks every mix of 1-, 2- and 3-entry-per-line record shapes
+    /// against every limit in range, in one shot and chunked.
+    #[test]
+    fn cap_bounds_the_emitted_and_the_buffered_entry_counts() {
+        // "1 MM" pushes 2 entries per line; "? f" and "1 M." push 1.
+        const SHAPES: [&str; 3] = [
+            "1 MM N... 100644 100644 100644 aaaa bbbb p{i}.ts",
+            "1 M. N... 100644 100644 100644 aaaa bbbb p{i}.ts",
+            "? f{i}.txt",
+        ];
+        let mut saw_plus_two = 0;
+        let mut saw_capped = 0;
+
+        for shape in SHAPES {
+            let mut text = String::new();
+            for i in 0..40 {
+                text.push_str(&shape.replace("{i}", &i.to_string()));
+                text.push('\n');
+            }
+            for limit in 1..=20usize {
+                for chunk_size in [7usize, 4096] {
+                    let mut p = StatusPorcelainParser::new();
+                    let mut stopped = false;
+                    for chunk in text.as_bytes().chunks(chunk_size) {
+                        if p.update(chunk, limit) {
+                            stopped = true;
+                            break;
+                        }
+                        // Buffered count while the scan is still running.
+                        assert!(
+                            p.status_length() <= limit + 2,
+                            "buffered {} > limit+2 ({}) mid-scan",
+                            p.status_length(),
+                            limit + 2
+                        );
+                    }
+                    if !stopped {
+                        p.finish();
+                    }
+                    let buffered = p.status_length();
+                    let r = p.into_result(limit);
+
+                    // `cap_buffer_le_limit_plus_2`: the memory bound.
+                    assert!(buffered <= limit + 2, "buffered {buffered} > limit+2 for {shape}");
+                    if buffered == limit + 2 {
+                        saw_plus_two += 1;
+                    }
+                    // `cap_emit_le_limit`: the emitted bound, once the cap stopped
+                    // the scan. Without the cap the parser emits everything it saw.
+                    if r.did_hit_limit {
+                        assert!(
+                            r.entries.len() <= limit,
+                            "emitted {} > limit {limit}",
+                            r.entries.len()
+                        );
+                        saw_capped += 1;
+                    }
+                    assert!(r.status_length >= r.entries.len());
+                }
+            }
+        }
+
+        // Non-vacuity, the in-source form of the `cap_nonvacuity_sat` and
+        // `cap_catches_false_tight_sat` controls: `limit + 2` is genuinely reached,
+        // so the bound is the least upper bound and a tighter `limit + 1` claim
+        // would be FALSE.
+        assert!(saw_plus_two > 0, "limit+2 never reached — the +2 bound is loose");
+        assert!(saw_capped > 0, "the cap never fired — the bound is vacuous");
+    }
+
+    /// `limit == 0` disables the cap entirely: nothing stops, nothing is truncated.
+    /// `cap_emit_le_limit` excludes this case by assumption (`limit != 0`), so it
+    /// says nothing about the parser's actual default.
+    #[test]
+    fn a_zero_limit_disables_the_cap() {
+        let mut text = String::new();
+        for i in 0..50 {
+            text.push_str(&format!("? f{i}.txt\n"));
+        }
+        let r = parse_status_porcelain(text.as_bytes(), 0);
+        assert!(!r.did_hit_limit);
+        assert_eq!(r.entries.len(), 50);
+        assert_eq!(r.status_length, 50);
+    }
+
+    // ------------------------------------------------------------------
+    // Line-scan bounds, beside `proofs/ay/line_scan_bounds`.
+    //
+    // That bundle ASSUMES `start <= nl < len` — precisely memchr's
+    // postcondition, the only hard part — and restates the easy remainder in
+    // 32-bit `QF_BV`, a narrowing of `usize`. What IS checkable on the real
+    // code is the CR-strip behavior at each edge, which is what these pin.
+    // ------------------------------------------------------------------
+
+    /// Every record terminator shape, at every chunk boundary: CRLF, bare LF, an
+    /// empty record (`\n` at the record start — the `nl > start` guard's reason to
+    /// exist), a lone CR that is *not* a terminator, and a CR-only tail.
+    #[test]
+    fn line_scan_handles_every_terminator_shape_at_every_chunk_boundary() {
+        let cases: [(&[u8], &[&str]); 6] = [
+            (b"? a.txt\r\n? b.txt\r\n", &["a.txt", "b.txt"]),
+            (b"? a.txt\n? b.txt\n", &["a.txt", "b.txt"]),
+            // Empty records between entries: start == nl, so the CR-strip guard
+            // must short-circuit before evaluating `nl - 1`.
+            (b"\n\n? a.txt\n\n\n? b.txt\n", &["a.txt", "b.txt"]),
+            // A leading empty record at offset 0 — the underflow case exactly.
+            (b"\n? a.txt\r\n", &["a.txt"]),
+            // A CR that is not a terminator stays in the path.
+            (b"? a\rb.txt\n", &["a\rb.txt"]),
+            // Unterminated tail, flushed by `finish`.
+            (b"? a.txt\n? b.txt", &["a.txt", "b.txt"]),
+        ];
+
+        for (input, want) in cases {
+            // Every chunking, including 1 byte at a time, so each terminator is
+            // split across a `feed` boundary in some run.
+            for chunk_size in 1..=input.len().max(1) {
+                let mut p = StatusPorcelainParser::new();
+                for chunk in input.chunks(chunk_size) {
+                    assert!(!p.update(chunk, 0), "stopped with the cap disabled");
+                }
+                p.finish();
+                let got: Vec<String> = p.into_result(0).entries.into_iter().map(|e| e.path).collect();
+                assert_eq!(got, want, "input {input:?} at chunk size {chunk_size}");
+            }
+        }
+    }
+
+    /// A record that is exactly `"\r"` must not strip itself into a negative
+    /// index, and an empty record must not emit an entry. This is the in-source
+    /// form of the `line_scan_nonvacuity_sat` control, which asserts the
+    /// `nl > start` guard is load-bearing.
+    #[test]
+    fn a_bare_cr_record_neither_underflows_nor_emits() {
+        for input in [&b"\r\n"[..], b"\r", b"\n\r\n", b"\r\n\r\n"] {
+            let r = parse_status_porcelain(input, 0);
+            assert!(r.entries.is_empty(), "input {input:?} produced entries");
+            assert_eq!(r.status_length, 0);
+        }
+    }
 }

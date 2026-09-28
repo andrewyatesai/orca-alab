@@ -221,6 +221,58 @@ mod tests {
         assert_eq!(renderer_heap_ceiling_mb(f64::MAX, HeapOverride::None), Some(RENDERER_HEAP_CAP_MB));
     }
 
+    /// A dense sweep of the whole RAM tier: the ceiling is always inside the band,
+    /// and it never falls as total RAM rises. `rh1_band_bound` models the clamp
+    /// target as a free unbounded `Int`, so it says nothing about the `f64`
+    /// pipeline or the `as u32` cast that produce it; this runs them, beside
+    /// `rh2_clamp_monotone` and `rh3_floor_redundant_under_gate`.
+    #[test]
+    fn ram_tier_is_banded_and_never_falls_as_ram_rises() {
+        let mut prev: Option<u32> = None;
+        let mut saw_floor = 0;
+        let mut saw_cap = 0;
+        let mut steps = 0;
+        // 1/64 GiB steps across the gate, the crossover and well past both.
+        for i in 0..(64 * 64) {
+            let gib = i as f64 / 64.0;
+            let got = renderer_heap_ceiling_mb(gib * GIB, HeapOverride::None);
+            match got {
+                None => {
+                    // Below the gate only — the default is never re-entered later.
+                    assert!(gib < RENDERER_HEAP_MIN_TOTAL_GIB, "default returned at {gib} GiB");
+                    assert!(prev.is_none(), "fell back to the default after sizing at {gib} GiB");
+                }
+                Some(mb) => {
+                    steps += 1;
+                    assert!(
+                        (RENDERER_HEAP_FLOOR_MB..=RENDERER_HEAP_CAP_MB).contains(&mb),
+                        "{gib} GiB -> {mb} outside [3072, 4096]"
+                    );
+                    if let Some(p) = prev {
+                        assert!(mb >= p, "ceiling fell from {p} to {mb} at {gib} GiB");
+                    }
+                    if mb == RENDERER_HEAP_FLOOR_MB {
+                        saw_floor += 1;
+                    }
+                    if mb == RENDERER_HEAP_CAP_MB {
+                        saw_cap += 1;
+                    }
+                    prev = Some(mb);
+                }
+            }
+        }
+        assert!(steps > 2_000, "sweep too thin ({steps})");
+        // Non-vacuity (the `rh_c1`/`rh_c2` controls): both band endpoints are
+        // really reached, so the clamp is load-bearing at both ends.
+        assert!(saw_floor > 0, "the floor is never active — the clamp is vacuous");
+        assert!(saw_cap > 0, "the cap is never active — the clamp is vacuous");
+        // Monotonicity continues past the short-circuit bound.
+        assert_eq!(
+            renderer_heap_ceiling_mb(RENDERER_HEAP_MAX_TOTAL_BYTES * 2.0, HeapOverride::None),
+            Some(RENDERER_HEAP_CAP_MB)
+        );
+    }
+
     /// Hand-written `PartialEq` must stay derive-equivalent.
     #[test]
     fn heap_override_equality_is_structural() {

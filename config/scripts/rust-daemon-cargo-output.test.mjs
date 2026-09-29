@@ -8,7 +8,7 @@ import {
   createCargoTemporalProofStderrFilter,
   createRustDaemonCargoStderrFilter
 } from './rust-daemon-cargo-output.mjs'
-import { hostTriple } from './rust-toolchain-lane.mjs'
+import { TRUST_REQUIRED_TRIPLES, hostTriple } from './rust-toolchain-lane.mjs'
 
 // build-rust-daemon.mjs resolves its build tool through rust-toolchain-lane.mjs:
 // `targo` (probed with `--unverified --version`) when the installed Trust
@@ -58,6 +58,9 @@ function fakeToolchainEnv(fixtureDir, fakeCargo) {
   delete env.CARGO
   delete env.RUSTC
   delete env.ORCA_STOCK_RUST_TOOLCHAIN
+  // A plain host build: a caller's mac build-arch selection would add slices.
+  delete env.ORCA_MAC_BUILD_ARCHES
+  delete env.ORCA_MAC_RELEASE
   return env
 }
 
@@ -201,27 +204,93 @@ describe('classifyRustDaemonCargoStderr', () => {
     }
   })
 
-  itOnPosix('reports Cargo spawn failures without an unlabelled stack trace', () => {
+  // A build tool that is not there fails at one of two places, and each has its
+  // own exact message. On a TRUST-REQUIRED host (the host triple the installed
+  // Trust seal serves) the targo identity probe in rust-toolchain-lane.mjs fails
+  // first and there is no stock fallback. On any other host the STOCK EXCEPTION
+  // lane resolves `rustup which cargo` (the same missing path) and the streamed
+  // spawn in stream-cargo-command.mjs fails.
+  const trustRequiredHost = TRUST_REQUIRED_TRIPLES.has(hostTriple())
+  itOnPosix(
+    trustRequiredHost
+      ? 'reports a missing targo on a Trust-required host without an unlabelled stack trace'
+      : 'reports a missing stock-exception cargo without an unlabelled stack trace',
+    () => {
+      const fixtureDir = mkdtempSync(join(tmpdir(), 'orca-rust-spawn-'))
+      const missingCargo = join(fixtureDir, 'missing-cargo')
+
+      try {
+        writeFakeToolchain(fixtureDir, null)
+        const result = spawnSync(
+          process.execPath,
+          [resolve(import.meta.dirname, 'build-rust-daemon.mjs')],
+          {
+            encoding: 'utf8',
+            // CARGO names the build tool on a Trust host; the fake rustup names it
+            // on a STOCK EXCEPTION host. Both point at nothing.
+            env: { ...fakeToolchainEnv(fixtureDir, missingCargo), CARGO: missingCargo }
+          }
+        )
+
+        expect(result.status).toBe(1)
+        expect(result.signal).toBeNull()
+        if (trustRequiredHost) {
+          expect(result.stderr).toContain(
+            `[build-rust-daemon] could not run \`${missingCargo}\` (spawnSync ${missingCargo} ENOENT)`
+          )
+          expect(result.stderr).toContain('There is no stock fallback for this target.')
+          expect(result.stderr).not.toContain('could not start cargo:')
+        } else {
+          expect(result.stderr).toContain(
+            `[build-rust-daemon] could not start cargo: spawn ${missingCargo} ENOENT`
+          )
+        }
+        expect(result.stderr).not.toContain('at runCargoBuild')
+      } finally {
+        rmSync(fixtureDir, { recursive: true, force: true })
+      }
+    }
+  )
+
+  // The streamed spawn's own failure path, reached on every POSIX host: the
+  // build tool passes the targo identity probe and is gone by the time the
+  // build spawns it (the fake removes itself after answering the probe).
+  itOnPosix('reports a build-tool spawn failure from the stream without a stack trace', () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'orca-rust-spawn-'))
-    const missingCargo = join(fixtureDir, 'missing-cargo')
+    const vanishingTargo = join(fixtureDir, 'vanishing-targo')
 
     try {
       writeFakeToolchain(fixtureDir, null)
+      writeFileSync(
+        vanishingTargo,
+        `#!/usr/bin/env node
+if (process.argv.includes('--version')) {
+  require('node:fs').unlinkSync(__filename)
+  console.log('targo 0.0.0-fake')
+  process.exit(0)
+}
+process.exit(99)
+`
+      )
+      chmodSync(vanishingTargo, 0o755)
       const result = spawnSync(
         process.execPath,
         [resolve(import.meta.dirname, 'build-rust-daemon.mjs')],
         {
           encoding: 'utf8',
-          // CARGO names the build tool on a Trust host; the fake rustup names it
-          // on a STOCK EXCEPTION host. Both point at nothing.
-          env: { ...fakeToolchainEnv(fixtureDir, missingCargo), CARGO: missingCargo }
+          env: {
+            ...fakeToolchainEnv(fixtureDir, join(fixtureDir, 'unused')),
+            CARGO: vanishingTargo
+          }
         }
       )
 
+      expect(existsSync(vanishingTargo)).toBe(false)
       expect(result.status).toBe(1)
       expect(result.signal).toBeNull()
-      expect(result.stderr).toContain('[build-rust-daemon] could not ')
-      expect(result.stderr).toContain('ENOENT')
+      expect(result.stderr).toContain(
+        `[build-rust-daemon] could not start cargo: spawn ${vanishingTargo} ENOENT`
+      )
       expect(result.stderr).not.toContain('at runCargoBuild')
     } finally {
       rmSync(fixtureDir, { recursive: true, force: true })

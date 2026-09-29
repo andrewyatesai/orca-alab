@@ -273,6 +273,9 @@ compiles as vanilla Rust with the verifier off. The repo's own instruction —
 "PROBE before editing either flag" — had failed twice, so it is now
 `config/scripts/check-trust-flag-surface.mjs`, wired into `pnpm lint`, and it
 enumerates every tracked `*.cargo/config.toml` rather than naming one.
+(Removed in the 2026-09-28 Trust migration: the cargo configs carry no `-Z` flags
+any more, so there is no flag surface left to probe, and `pnpm lint` no longer
+runs it.)
 
 > **Superseded 2026-08-30 — the flag surface moved back; see §4c.** The
 > paragraph below was true of the stage2 installed on 2026-08-18 and is false of
@@ -366,6 +369,9 @@ the probe §4b introduced — now passes: *"every configured trust flag is accep
 across: .cargo/config.toml, rust/.cargo/config.toml"*. This is the second flip in
 twelve days, which retires any temptation to write a flag list down as durable:
 the probe is the record, this table is a snapshot.
+(The probe itself was removed in the 2026-09-28 Trust migration, for the reason
+given in §4b: with no `-Z` flags left in any cargo config, there is nothing
+for it to probe.)
 
 **One consequence nobody has acted on yet.** §1.5 wanted the step budget and §4b
 conceded the `-ms` twin only because no step budget existed. One exists again, so

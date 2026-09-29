@@ -77,16 +77,60 @@ function tally(stdout) {
   if (!s || typeof s.total_obligations !== 'number') {
     return null
   }
+  const gate = report.verification_gate ?? {}
+  // Every conditional_on_* flag the gate reports, true or false. A `pass` that
+  // is conditional on assumption rows, dependency entries, runtime checks,
+  // unknown rows or visitation entries is not an unconditional pass, so these
+  // travel with the decision instead of being summarised away.
+  const conditionalOn = Object.fromEntries(
+    Object.entries(gate)
+      .filter(([key]) => key.startsWith('conditional_on_'))
+      .map(([key, value]) => [key.slice('conditional_on_'.length), value === true])
+  )
+  // A field the report did not carry is null (printed `?`), never a silent 0.
+  const count = (value) => (typeof value === 'number' ? value : null)
   return {
     functions: s.functions_analyzed ?? 0,
+    functionsInconclusive: count(s.functions_inconclusive),
     obligations: s.total_obligations,
     proved: s.total_proved ?? 0,
     failed: s.total_failed ?? 0,
     unknown: s.total_unknown ?? 0,
     timedOut: s.total_timed_out ?? 0,
     runtimeChecked: s.total_runtime_checked ?? 0,
-    gate: report.verification_gate?.decision ?? 'unknown'
+    unattributed: {
+      failed: count(s.total_unattributed_failed),
+      unknown: count(s.total_unattributed_unknown),
+      proved: count(s.total_unattributed_proved)
+    },
+    verdict: s.verdict ?? null,
+    // The report's own authority label: a serialized report is an observational
+    // record, not proof credit (trust-types SERIALIZED_REPORT_AUTHORITY).
+    authority: report.authority ?? null,
+    gate: gate.decision ?? 'unknown',
+    gateLane: gate.lane ?? null,
+    gateLevel: gate.verification_level ?? null,
+    assumed: count(gate.counts?.assumed),
+    coverageComplete:
+      typeof gate.coverage?.coverage_complete === 'boolean'
+        ? gate.coverage.coverage_complete
+        : null,
+    conditionalOn
   }
+}
+
+/** The true conditional_on_* flags, as words ("dependency entries"). */
+function conditions(r) {
+  return Object.entries(r.conditionalOn ?? {})
+    .filter(([, on]) => on)
+    .map(([name]) => name.replaceAll('_', ' '))
+}
+
+/** "pass (advisory L2; conditional on dependency entries)" */
+function gateSummary(r) {
+  const lane = [r.gateLane ?? 'lane ?', r.gateLevel].filter(Boolean).join(' ')
+  const conditional = conditions(r)
+  return `${r.gate} (${lane}${conditional.length > 0 ? `; conditional on ${conditional.join(', ')}` : ''})`
 }
 
 const results = []
@@ -104,13 +148,17 @@ for (const crate of crates) {
   results.push({ crate, compiled, seconds, ...t })
   process.stderr.write(
     compiled
-      ? `ok ${seconds.toFixed(0)}s — ${t.obligations} obligation(s), ${t.proved} proved, gate ${t.gate}\n`
+      ? `ok ${seconds.toFixed(0)}s — ${t.obligations} obligation(s), ${t.proved} proved, gate ${gateSummary(t)}\n`
       : `NOT MEASURED (${seconds.toFixed(0)}s, exit ${run.status})\n`
   )
   if (!compiled) {
+    // targo trust reports a refusal as `targo trust: could not …` as well as
+    // `error: …`; failing both, the last stderr line is still more than nothing.
+    const lines = (run.stderr ?? '').split('\n').filter((l) => l.trim() !== '')
     const first =
-      (run.stderr ?? '').split('\n').find((l) => /^(targo trust: )?error/.test(l)) ??
-      '(no error line)'
+      lines.find((l) => /^(targo trust: )?(error|could not|failed)/.test(l)) ??
+      lines.at(-1) ??
+      '(no stderr)'
     process.stderr.write(`               ${first}\n`)
   }
 }
@@ -119,26 +167,55 @@ if (wantJson) {
   console.log(JSON.stringify({ crates: results }, null, 2))
 } else {
   const pad = (s, n) => String(s).padEnd(n)
-  const num = (s, n) => String(s).padStart(n)
+  const num = (s, n) => String(s ?? '?').padStart(n)
+  const measured = results.filter((r) => r.compiled)
+  // A total over a field some report did not carry is `?`, not a partial sum.
+  const sum = (k) =>
+    measured.some((r) => typeof r[k] !== 'number') ? null : measured.reduce((n, r) => n + r[k], 0)
+  const row = (name, r, secs) =>
+    `  ${pad(name, 22)}${num(r.obligations, 7)}${num(r.proved, 8)}${num(r.failed, 8)}${num(r.unknown, 9)}${num(r.timedOut, 9)}${num(r.runtimeChecked, 8)}${num(r.assumed, 9)}${num(secs, 7)}`
+  const rule = `  ${'-'.repeat(87)}`
   console.log('')
   console.log(
-    `  ${pad('crate', 22)}${num('oblig', 7)}${num('proved', 8)}${num('failed', 8)}${num('unknown', 9)}${num('timeout', 9)}${num('rt-chk', 8)}${num('secs', 7)}`
+    `  ${pad('crate', 22)}${num('oblig', 7)}${num('proved', 8)}${num('failed', 8)}${num('unknown', 9)}${num('timeout', 9)}${num('rt-chk', 8)}${num('assumed', 9)}${num('secs', 7)}`
   )
-  console.log(`  ${'-'.repeat(78)}`)
+  console.log(rule)
   for (const r of results) {
     if (!r.compiled) {
-      console.log(`  ${pad(r.crate, 22)}${num('NOT MEASURED', 47)}${num(r.seconds.toFixed(0), 7)}`)
+      console.log(`  ${pad(r.crate, 22)}${num('NOT MEASURED', 58)}${num(r.seconds.toFixed(0), 7)}`)
       continue
     }
+    console.log(row(r.crate, r, r.seconds.toFixed(0)))
+  }
+  console.log(rule)
+  const totals = Object.fromEntries(
+    ['obligations', 'proved', 'failed', 'unknown', 'timedOut', 'runtimeChecked', 'assumed'].map(
+      (k) => [k, sum(k)]
+    )
+  )
+  console.log(row('total', totals, (sum('seconds') ?? 0).toFixed(0)))
+  console.log('')
+  // The gate decision never travels alone: its lane and level, and every
+  // condition the decision rests on, are printed beside it.
+  console.log('  gate decision (lane level; what it is conditional on):')
+  for (const r of measured) {
+    const notes = []
+    if (r.coverageComplete !== true) {
+      notes.push(r.coverageComplete === false ? 'coverage INCOMPLETE' : 'coverage not reported')
+    }
+    if (r.functionsInconclusive !== 0) {
+      notes.push(`${r.functionsInconclusive ?? '?'} function(s) inconclusive`)
+    }
+    const u = r.unattributed
+    if (u.failed !== 0 || u.unknown !== 0 || u.proved !== 0) {
+      notes.push(
+        `unattributed rows: ${u.failed ?? '?'} failed, ${u.unknown ?? '?'} unknown, ${u.proved ?? '?'} proved`
+      )
+    }
     console.log(
-      `  ${pad(r.crate, 22)}${num(r.obligations, 7)}${num(r.proved, 8)}${num(r.failed, 8)}${num(r.unknown, 9)}${num(r.timedOut, 9)}${num(r.runtimeChecked, 8)}${num(r.seconds.toFixed(0), 7)}`
+      `    ${pad(r.crate, 22)}${gateSummary(r)}${notes.length > 0 ? ` — ${notes.join('; ')}` : ''}`
     )
   }
-  const sum = (k) => results.filter((r) => r.compiled).reduce((n, r) => n + r[k], 0)
-  console.log(`  ${'-'.repeat(78)}`)
-  console.log(
-    `  ${pad('total', 22)}${num(sum('obligations'), 7)}${num(sum('proved'), 8)}${num(sum('failed'), 8)}${num(sum('unknown'), 9)}${num(sum('timedOut'), 9)}${num(sum('runtimeChecked'), 8)}${num(sum('seconds').toFixed(0), 7)}`
-  )
   console.log('')
   if (sum('timedOut') > 0) {
     console.log(`  ${sum('timedOut')} obligation(s) TIMED OUT. A timeout is an assumption, not a`)
@@ -146,7 +223,11 @@ if (wantJson) {
     console.log('')
   }
   console.log('  Unproved is not the same as wrong, and proved is not the whole story: unknown,')
-  console.log('  timed-out and runtime-checked rows are assumptions. Read the per-crate report')
+  console.log('  timed-out, runtime-checked and assumed rows are assumptions, and a gate `pass`')
+  console.log('  holds only on the conditions printed beside it. This report is advisory')
+  console.log('  (`--allow-l0-gaps`); the JSON it summarises carries the authority label')
+  const authorities = [...new Set(measured.map((r) => r.authority ?? '?'))]
+  console.log(`  \`${authorities.join('`, `') || '?'}\`. Read the per-crate report`)
   console.log('  (`targo trust check -p <crate>` from rust/) before quoting a verdict.')
   console.log('')
 }

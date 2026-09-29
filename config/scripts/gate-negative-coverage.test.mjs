@@ -64,7 +64,6 @@ const TAG_CLAIM = new RegExp(`${GATE_COVERAGE_TAG}\\s+([\\w:.-]+)`, 'g')
 export const GATES_MISSING_A_NEGATIVE_TEST = new Map([
   // Rust-cutover campaign gates, newer than the sweep that emptied this list.
   ['verify:rust', 'no test of any kind'],
-  ['check:trust-flags', 'no test of any kind'],
   ['check:cutover-census', 'no test of any kind']
 ])
 

@@ -1,14 +1,6 @@
-# Compile this repository with Trust, verification ON.
-#
-# rust/.cargo/config.toml sets `-Ztrust-verify=on` for every unit and states the
-# assumption this file exists to satisfy: "The Trust toolchain (repo-root
-# rust-toolchain, or the machine default) compiles this workspace."
-#
-# Neither held. The machine default is stable, and stable REFUSES to parse `-Z` at
-# all — so every cargo invocation either failed outright or was worked around by
-# clearing RUSTFLAGS / running from the repo root where the config is not read.
-# Both workarounds silently compile as vanilla Rust: the verifier never runs, and
-# nothing says so. Pinning the toolchain here is what makes the config's first
-# sentence true.
+# ALab systems build with the Trust toolchain (owner directive 2026-09-28).
+# This file selects the compiler only; the lane is chosen on the command line:
+# `targo --unverified <cmd>` (no proof claim) or `targo trust <cmd>` (verified).
+# The earlier rationale for this pin lives in commit f2a257117 (git show f2a257117:rust-toolchain.toml).
 [toolchain]
 channel = "trust"

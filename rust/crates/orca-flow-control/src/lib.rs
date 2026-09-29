@@ -311,6 +311,117 @@ mod tests {
         );
     }
 
+    // -------------------------------------------------------------------
+    // Exhaustive decision table.
+    //
+    // Beside the ay bundle (t1..t4 + two controls), whose theorems are
+    // propositions over free `Int`s that never mention `update` —
+    // `t2_reassert_gated`, for instance, asserts `elapsed < 5000` and then
+    // `elapsed >= 5000` on the same term, so it stays `unsat` whatever this file
+    // does. The table below drives the real controller over every state ×
+    // pending-class × elapsed-class cell.
+    // -------------------------------------------------------------------
+
+    const HIGH: u64 = 100;
+    const LOW: u64 = 10;
+    const IVL: u64 = 5_000;
+
+    /// Pending values at and around both watermarks, plus the u64 extremes the
+    /// unbounded-`Int` model could not represent.
+    const PENDINGS: [u64; 9] = [0, LOW - 1, LOW, LOW + 1, HIGH - 1, HIGH, HIGH + 1, 1_000, u64::MAX];
+
+    /// Independent restatement of the TS rule, from the spec not the code.
+    fn action_oracle(paused_at: Option<u64>, pending: u64, now: u64) -> FlowAction {
+        match paused_at {
+            None if pending > HIGH => FlowAction::Pause,
+            None => FlowAction::None,
+            Some(_) if pending < LOW => FlowAction::Resume,
+            Some(at) if pending > HIGH && now.saturating_sub(at) >= IVL => FlowAction::Pause,
+            Some(_) => FlowAction::None,
+        }
+    }
+
+    /// Every (paused-state, pending, elapsed) cell, checked against the oracle and
+    /// against the four safety properties the ay theorems are named for.
+    #[test]
+    fn decision_table_is_exhaustive_over_both_watermarks() {
+        // Elapsed classes: none, just under the interval, exactly at it, past it.
+        let elapsed = [0u64, IVL - 1, IVL, IVL + 1, u64::MAX];
+        let mut cells = 0;
+        let (mut pauses, mut resumes, mut nones, mut reasserts) = (0, 0, 0, 0);
+
+        for &pending in &PENDINGS {
+            for &dt in &elapsed {
+                for start_paused in [false, true] {
+                    let mut fc = ProducerFlowController::new(HIGH, LOW, IVL);
+                    let paused_at = if start_paused {
+                        // Reach the paused state through the PRODUCTION path, not by
+                        // poking the map: a flood at t=0 latches the pause.
+                        assert_eq!(fc.update("a", HIGH + 1, 0), FlowAction::Pause);
+                        Some(0u64)
+                    } else {
+                        None
+                    };
+                    assert_eq!(fc.is_paused("a"), start_paused);
+
+                    let got = fc.update("a", pending, dt);
+                    cells += 1;
+                    assert_eq!(
+                        got,
+                        action_oracle(paused_at, pending, dt),
+                        "paused={start_paused} pending={pending} now={dt}"
+                    );
+
+                    // t4: an UNPAUSED pty pauses iff pending is strictly above HIGH.
+                    if !start_paused {
+                        assert_eq!(
+                            got == FlowAction::Pause,
+                            pending > HIGH,
+                            "pause edge is not exactly `> HIGH`"
+                        );
+                        assert_ne!(got, FlowAction::Resume, "resumed an unpaused pty");
+                    } else {
+                        // t3: a PAUSED pty never resumes while pending is at or above
+                        // LOW — the anti-flap guarantee the daemon relies on.
+                        if pending >= LOW {
+                            assert_ne!(got, FlowAction::Resume, "spurious resume at {pending}");
+                        }
+                        // t1: inside the hysteresis band nothing happens at all.
+                        if (LOW..=HIGH).contains(&pending) {
+                            assert_eq!(got, FlowAction::None, "flapped inside the band");
+                        }
+                        // t2: a re-assert requires BOTH still-flooding and the elapsed
+                        // failsafe interval.
+                        if got == FlowAction::Pause {
+                            reasserts += 1;
+                            assert!(pending > HIGH && dt >= IVL, "re-asserted too early");
+                        }
+                    }
+                    // The pause flag and the emitted action always agree.
+                    match got {
+                        FlowAction::Pause => {
+                            pauses += 1;
+                            assert!(fc.is_paused("a"));
+                        }
+                        FlowAction::Resume => {
+                            resumes += 1;
+                            assert!(!fc.is_paused("a"));
+                        }
+                        FlowAction::None => {
+                            nones += 1;
+                            assert_eq!(fc.is_paused("a"), start_paused);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(cells >= 90, "domain too thin ({cells} cells)");
+        // Non-vacuity — the in-source form of the `c1`/`c2` controls: the
+        // table really reaches every verdict, including a re-assert.
+        assert!(pauses > 0 && resumes > 0 && nones > 0, "table missed a verdict");
+        assert!(reasserts > 0, "no cell ever re-asserted the pause");
+    }
+
     /// Run the SHARED parity corpus (`parity-corpus.txt`) — the exact same
     /// oracle the TS `PtyProducerFlowController` runs in its own test suite. If
     /// the Rust spec and the TS production path ever disagree on a step, one of

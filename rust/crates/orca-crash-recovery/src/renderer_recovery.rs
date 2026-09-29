@@ -58,6 +58,13 @@ impl RendererRecoveryCircuitBreaker {
         self.attempts.clear();
     }
 
+    /// Attempts currently buffered, BEFORE any prune — the memory bound that
+    /// `attempt_count_never_exceeds_max_on_any_trace` pins.
+    #[cfg(test)]
+    fn buffered_attempts(&self) -> usize {
+        self.attempts.len()
+    }
+
     /// Keeps only attempts strictly newer than `now - window_ms`. The strict `>`
     /// means a timestamp exactly at the cutoff has aged out — the edge the ay
     /// `rr3_prune_boundary` proof pins.
@@ -162,6 +169,118 @@ mod tests {
             }
         }
         assert!(checked >= 10, "corpus too small ({checked} ops)");
+    }
+
+    // -------------------------------------------------------------------
+    // Whole-trace invariants.
+    //
+    // Beside `proofs/ay/rr_*.smt2`. `rr1_never_exceeds_max` is only the
+    // INDUCTIVE STEP over one abstract `Int` counter — its base case and prune
+    // step are argued in English in the bundle README, and its model cannot see
+    // the `attempts.len() as u32` truncating cast. Running the real breaker over
+    // every trace checks the whole thing.
+    // -------------------------------------------------------------------
+
+    /// Clock alphabet chosen around the window edges (window = 100): far past,
+    /// exactly at a cutoff, one either side, and a jump clear of the window.
+    const CLOCKS: [i64; 5] = [0, 99, 100, 101, 250];
+
+    /// Every trace of 5 attempts over `CLOCKS`, for several caps: the buffered
+    /// attempt list NEVER exceeds `max_recoveries`, so the breaker cannot grow
+    /// without bound however a renderer crash-loops.
+    #[test]
+    fn attempt_count_never_exceeds_max_on_any_trace() {
+        let mut traces = 0;
+        let mut saw_reject = 0;
+        for max in [1u32, 2, 3] {
+            for a in CLOCKS {
+                for b in CLOCKS {
+                    for c in CLOCKS {
+                        for e in CLOCKS {
+                            for f in CLOCKS {
+                                let mut br = RendererRecoveryCircuitBreaker::new(100, max);
+                                traces += 1;
+                                for now in [a, b, c, e, f] {
+                                    let before = br.buffered_attempts();
+                                    let d = br.register_recovery_attempt(now);
+                                    // The memory bound itself.
+                                    assert!(
+                                        br.buffered_attempts() <= max as usize,
+                                        "buffered {} > max {max}",
+                                        br.buffered_attempts()
+                                    );
+                                    // The reported count never exceeds the cap either.
+                                    assert!(d.recent_recovery_count <= max);
+                                    // A REJECTED attempt is not recorded: the list can
+                                    // only have shrunk (by pruning), never grown. This
+                                    // is the two-state half of `rr2_no_admit_at_cap`.
+                                    if !d.allowed {
+                                        saw_reject += 1;
+                                        assert!(
+                                            br.buffered_attempts() <= before,
+                                            "a rejected attempt still grew the list"
+                                        );
+                                        assert_eq!(
+                                            d.recent_recovery_count, max,
+                                            "rejected below the cap"
+                                        );
+                                    }
+                                    // An ALLOWED attempt is recorded exactly once.
+                                    else {
+                                        assert_eq!(
+                                            d.recent_recovery_count as usize,
+                                            br.buffered_attempts()
+                                        );
+                                        assert!(d.recent_recovery_count <= max);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(traces > 3_000, "domain too thin ({traces})");
+        // Non-vacuity: the cap really is reached (the `rr_c1_*_sat` control).
+        assert!(saw_reject > 0, "no trace ever hit the cap");
+    }
+
+    /// Liveness: whatever state a trace left the breaker in, `reset` re-opens it —
+    /// there is no permanent lockout. `rr3_reset_reopens` asserts this of an
+    /// abstract counter; this checks the real `Vec`.
+    #[test]
+    fn reset_reopens_the_breaker_from_any_state() {
+        for max in [1u32, 2, 3] {
+            for a in CLOCKS {
+                for b in CLOCKS {
+                    for c in CLOCKS {
+                        let mut br = RendererRecoveryCircuitBreaker::new(100, max);
+                        for now in [a, b, c, a, b, c] {
+                            let _ = br.register_recovery_attempt(now);
+                        }
+                        br.reset();
+                        assert_eq!(br.buffered_attempts(), 0);
+                        let d = br.register_recovery_attempt(500);
+                        assert!(d.allowed, "reset did not re-open (max={max})");
+                        assert_eq!(d.recent_recovery_count, 1);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A zero cap is a degenerate configuration the constructor does not reject;
+    /// pin what it actually does so it cannot drift. (The ay proofs assume
+    /// `max >= 1` and say nothing here.)
+    #[test]
+    fn a_zero_cap_rejects_every_attempt() {
+        let mut br = RendererRecoveryCircuitBreaker::new(100, 0);
+        for now in [0i64, 1, 1_000] {
+            let d = br.register_recovery_attempt(now);
+            assert!(!d.allowed);
+            assert_eq!(d.recent_recovery_count, 0);
+            assert_eq!(br.buffered_attempts(), 0);
+        }
     }
 
     fn split_op(line: &str, idx: usize) -> (&str, &str) {

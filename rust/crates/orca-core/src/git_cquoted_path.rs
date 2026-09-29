@@ -108,6 +108,56 @@ mod tests {
         assert_eq!(decode_git_cquoted_path("\"a\\\"b\""), "a\"b");
     }
 
+    /// The octal arm is TOTAL and DROP-FREE over its ENTIRE input domain: every
+    /// 1-, 2- and 3-digit octal escape decodes to exactly one byte, equal to the
+    /// value reduced mod 256 — the same wrap JS `& 0xFF` on a `Uint8Array` push
+    /// performs, so the port stays byte-identical to the TS decoder.
+    ///
+    /// Runs the real decoder over what `orca-git/proofs/ay/decode_total` models
+    /// (`decode_octal_total`, `decode_octal_mask_matches_uint8`,
+    /// `decode_octal_wrap_reachable_sat`). That bundle proves bitvector identities
+    /// tied to this function only by a comment; this covers all 584 escapes,
+    /// including the digit-run scanner, the `is_digit(8)` lookahead and the
+    /// `from_utf8_lossy` the SMT does not model.
+    #[test]
+    fn octal_escape_decode_is_total_over_every_escape() {
+        let mut checked = 0;
+        let mut saw_wrap = 0;
+
+        for digits in 1..=3usize {
+            for v in 0..(1u32 << (3 * digits)) {
+                // Most-significant digit first, exactly as git emits it.
+                let mut octal = String::new();
+                for pos in (0..digits).rev() {
+                    let d = (v >> (3 * pos)) & 0b111;
+                    octal.push(char::from(b'0' + d as u8));
+                }
+                let want_byte = (v & 0xFF) as u8;
+
+                // The escape is decoded, never dropped: the byte run is exactly
+                // one byte long, so lossy UTF-8 decoding of it is what we compare.
+                let got = decode_git_cquoted_path(&format!("\"\\{octal}\""));
+                assert_eq!(
+                    got,
+                    String::from_utf8_lossy(&[want_byte]),
+                    "\\{octal} (v={v}) decoded to {got:?}"
+                );
+
+                // The wrap region \400..\777 is genuinely reachable and the mask
+                // genuinely does work there — the in-source form of the
+                // `decode_octal_wrap_reachable_sat` control.
+                if v > 255 {
+                    assert_eq!(u32::from(want_byte), v - 256, "\\{octal} did not wrap by 256");
+                    saw_wrap += 1;
+                }
+                checked += 1;
+            }
+        }
+
+        assert_eq!(checked, 8 + 64 + 512, "domain not exhausted ({checked})");
+        assert!(saw_wrap > 0, "the wrap region was never reached — the mask is dead");
+    }
+
     #[test]
     fn decodes_octal_escapes() {
         // git quotes a UTF-8 "é" (0xC3 0xA9) as \303\251 — the adjacent octal

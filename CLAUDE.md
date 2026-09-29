@@ -77,7 +77,7 @@ source-only covers a **skipped** gate only. A **failing** build still blocks the
 release — a real defect cannot be laundered by relabelling the repo. Content
 guards (forbidden-content, private-refs, gitleaks) must pass in every mode.
 
-### Two rules that keep breaking
+### Rules that keep breaking
 
 1. **Never pin a public-facing reference to a dev-only sha.** `alabsystems/*`
    repos are snapshot repos with rewritten history; a dev commit does not exist
@@ -86,13 +86,15 @@ guards (forbidden-content, private-refs, gitleaks) must pass in every mode.
 2. **`publish/config.sh` must use flat `KEY_DEFAULT="value"` lines.** The engine
    reads the committed file with `^KEY_DEFAULT="(.*)"$` and does **not** source
    it, so `: "${KEY_DEFAULT:=…}"` parses in bash but is invisible to the engine.
-3. **Commit a `rust-toolchain.toml`.** The engine runs the public-clone gate in a
-   SCRUBBED environment, so a clone without one inherits whatever `rustup
-   default` is set on the machine cutting the release. On the maintainer box
-   that is the custom `trust` verifying compiler, which fails compiling ordinary
-   third-party build scripts (`libc`, `unicode-ident`) on proof obligations
-   unrelated to your repo. Pin the toolchain so the gate tests the candidate,
-   not the workstation.
+3. **Pin the Trust toolchain.** Owner directive 2026-09-28: ALab repositories
+   build with Trust. Commit a `rust-toolchain.toml` with `channel = "trust"`,
+   and spell every Rust step of `CHECK_CMD_DEFAULT` as `rustup run trust targo
+   ...`: the engine refuses a bare `targo`, which resolves through the gate's
+   inherited PATH, and a gate step must never depend on `rustup default`. A
+   public snapshot cannot resolve the locally linked `trust` channel, so a repo
+   that exports its pin swaps in a stock one at export time (its transforms
+   copy `publish/public-rust-toolchain.toml`); that swap is the only place a
+   stock pin belongs.
 4. **Never bump a version without moving intra-workspace requirements.** On a
    0.x workspace a caret requirement is minor-locked: `^0.3.0` means
    `>=0.3.0 <0.4.0`, so bumping the package to `0.4.0` while

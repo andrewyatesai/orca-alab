@@ -8,6 +8,50 @@ import {
   createCargoTemporalProofStderrFilter,
   createRustDaemonCargoStderrFilter
 } from './rust-daemon-cargo-output.mjs'
+import { hostTriple } from './rust-toolchain-lane.mjs'
+
+// build-rust-daemon.mjs resolves its build tool through rust-toolchain-lane.mjs:
+// `targo` (probed with `--unverified --version`) where Trust serves the host, else
+// the STOCK EXCEPTION lane via read-only `rustup` queries. The fakes answer both:
+// `targo` passes the probe and otherwise IS the payload; `rustup which cargo`
+// names the same payload as `cargo`.
+function writeFakeToolchain(fixtureDir, payload) {
+  const fakeRustup = join(fixtureDir, 'rustup')
+  writeFileSync(
+    fakeRustup,
+    `#!/usr/bin/env node
+const [verb, sub] = process.argv.slice(2)
+if (verb === 'toolchain') console.log('stable-fake (default)')
+else if (verb === 'target') console.log(${JSON.stringify(hostTriple())})
+else if (verb === 'which') console.log(sub === 'cargo' ? process.env.FAKE_CARGO : process.execPath)
+`
+  )
+  chmodSync(fakeRustup, 0o755)
+  if (payload !== null) {
+    const body = payload.replace(/^#!.*\n/, '')
+    const fakeTargo = join(fixtureDir, 'targo')
+    writeFileSync(
+      fakeTargo,
+      `#!/usr/bin/env node
+if (process.argv.includes('--version')) { console.log('targo 0.0.0-fake'); process.exit(0) }
+${body}`
+    )
+    writeFileSync(join(fixtureDir, 'cargo'), payload)
+    chmodSync(fakeTargo, 0o755)
+    chmodSync(join(fixtureDir, 'cargo'), 0o755)
+  }
+}
+
+function fakeToolchainEnv(fixtureDir, fakeCargo) {
+  const env = {
+    ...process.env,
+    PATH: `${fixtureDir}${delimiter}${process.env.PATH ?? ''}`,
+    FAKE_CARGO: fakeCargo
+  }
+  delete env.CARGO
+  delete env.ORCA_STOCK_RUST_TOOLCHAIN
+  return env
+}
 
 describe('classifyRustDaemonCargoStderr', () => {
   it('reclassifies the successful temporal proof receipt', () => {
@@ -122,21 +166,14 @@ describe('classifyRustDaemonCargoStderr', () => {
   const itOnPosix = process.platform === 'win32' ? it.skip : it
   itOnPosix('drains streamed Cargo diagnostics before a failed build exits', () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'orca-rust-stream-'))
-    const fakeRustup = join(fixtureDir, 'rustup')
     const fakeCargo = join(fixtureDir, 'cargo')
     const cargoPayload = `warning: ${'x'.repeat(2 * 1024 * 1024)} END-OF-CARGO-STDERR\n`
 
     try {
-      writeFileSync(
-        fakeRustup,
-        '#!/usr/bin/env node\nprocess.stdout.write(`${process.env.FAKE_CARGO}\\n`)\n'
-      )
-      writeFileSync(
-        fakeCargo,
+      writeFakeToolchain(
+        fixtureDir,
         `#!/usr/bin/env node\nprocess.stderr.write(${JSON.stringify(cargoPayload)})\nprocess.exitCode = 7\n`
       )
-      chmodSync(fakeRustup, 0o755)
-      chmodSync(fakeCargo, 0o755)
 
       const result = spawnSync(
         process.execPath,
@@ -144,11 +181,7 @@ describe('classifyRustDaemonCargoStderr', () => {
         {
           encoding: 'utf8',
           maxBuffer: 4 * 1024 * 1024,
-          env: {
-            ...process.env,
-            PATH: `${fixtureDir}${delimiter}${process.env.PATH ?? ''}`,
-            FAKE_CARGO: fakeCargo
-          }
+          env: fakeToolchainEnv(fixtureDir, fakeCargo)
         }
       )
 
@@ -162,31 +195,24 @@ describe('classifyRustDaemonCargoStderr', () => {
 
   itOnPosix('reports Cargo spawn failures without an unlabelled stack trace', () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'orca-rust-spawn-'))
-    const fakeRustup = join(fixtureDir, 'rustup')
     const missingCargo = join(fixtureDir, 'missing-cargo')
 
     try {
-      writeFileSync(
-        fakeRustup,
-        '#!/usr/bin/env node\nprocess.stdout.write(`${process.env.FAKE_CARGO}\\n`)\n'
-      )
-      chmodSync(fakeRustup, 0o755)
+      writeFakeToolchain(fixtureDir, null)
       const result = spawnSync(
         process.execPath,
         [resolve(import.meta.dirname, 'build-rust-daemon.mjs')],
         {
           encoding: 'utf8',
-          env: {
-            ...process.env,
-            PATH: `${fixtureDir}${delimiter}${process.env.PATH ?? ''}`,
-            FAKE_CARGO: missingCargo
-          }
+          // CARGO names the build tool on a Trust host; the fake rustup names it
+          // on a STOCK EXCEPTION host. Both point at nothing.
+          env: { ...fakeToolchainEnv(fixtureDir, missingCargo), CARGO: missingCargo }
         }
       )
 
       expect(result.status).toBe(1)
       expect(result.signal).toBeNull()
-      expect(result.stderr).toContain('[build-rust-daemon] could not start cargo:')
+      expect(result.stderr).toContain('[build-rust-daemon] could not ')
       expect(result.stderr).toContain('ENOENT')
       expect(result.stderr).not.toContain('at runCargoBuild')
     } finally {
@@ -198,7 +224,6 @@ describe('classifyRustDaemonCargoStderr', () => {
     'mirrors job control and forwards cancellation to the complete Cargo process group',
     async () => {
       const fixtureDir = mkdtempSync(join(tmpdir(), 'orca-rust-signal-'))
-      const fakeRustup = join(fixtureDir, 'rustup')
       const fakeCargo = join(fixtureDir, 'cargo')
       const armedMarker = join(fixtureDir, 'armed-rustc')
       const continuedMarker = join(fixtureDir, 'continued-rustc')
@@ -207,12 +232,8 @@ describe('classifyRustDaemonCargoStderr', () => {
       let cargoPid = null
 
       try {
-        writeFileSync(
-          fakeRustup,
-          '#!/usr/bin/env node\nprocess.stdout.write(`${process.env.FAKE_CARGO}\\n`)\n'
-        )
-        writeFileSync(
-          fakeCargo,
+        writeFakeToolchain(
+          fixtureDir,
           `#!/usr/bin/env node
 const { spawn } = require('node:child_process')
 const { existsSync } = require('node:fs')
@@ -231,15 +252,9 @@ const readyTimer = setInterval(() => {
 setInterval(() => {}, 1000)
 `
         )
-        chmodSync(fakeRustup, 0o755)
-        chmodSync(fakeCargo, 0o755)
 
         wrapper = spawn(process.execPath, [resolve(import.meta.dirname, 'build-rust-daemon.mjs')], {
-          env: {
-            ...process.env,
-            PATH: `${fixtureDir}${delimiter}${process.env.PATH ?? ''}`,
-            FAKE_CARGO: fakeCargo
-          },
+          env: fakeToolchainEnv(fixtureDir, fakeCargo),
           stdio: ['ignore', 'ignore', 'pipe']
         })
         wrapper.stderr.setEncoding('utf8')
@@ -249,8 +264,9 @@ setInterval(() => {}, 1000)
           wrapper.once('close', (status, signal) => resolveClose({ status, signal }))
         })
         await new Promise((resolveReady, rejectReady) => {
-          // Why 15s, not 2s: reaching "cargo-ready" costs FIVE Node startups
-          // (this wrapper -> build-rust-daemon -> fake cargo -> its two children)
+          // Why 15s, not 2s: reaching "cargo-ready" costs SIX Node startups
+          // (this wrapper -> build-rust-daemon -> the targo identity probe ->
+          // fake cargo -> its two children)
           // plus marker-file polling. That is process-startup latency, which this
           // test does not assert — it asserts SIGTSTP/SIGCONT/SIGQUIT job control.
           // A 2s budget held when run alone and flaked inside the full parallel

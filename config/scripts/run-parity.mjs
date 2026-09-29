@@ -6,31 +6,26 @@
 //   2. Run the vitest driver (tools/parity/parity.test.ts) which asserts
 //      TS == Rust (and TS == golden) for every case.
 //
-// Toolchain: the orca-crates workspace needs rustc 1.96, but the machine default
-// `cargo` is a Homebrew 1.95 that shadows rustup and whose child rustc is also
-// the shadow. We pin BOTH the cargo and rustc to the rustup `stable` toolchain,
-// matching config/scripts/build-aterm-wasm.mjs.
+// Toolchain: `targo --unverified run` (the Trust toolchain's fast lane; see
+// rust-toolchain-lane.mjs — no stock fallback on a host Trust serves).
 //
-// Fully offline: the workspace resolves against rust/vendor (which carries the
-// complete lockfile closure, web-time included). A prebuilt binary is only a
-// fallback when rustup is unavailable; preferring it can silently run stale code.
+// Fully offline: cargo runs inside rust/, so rust/.cargo/config.toml resolves the
+// workspace against rust/vendor (which carries the complete lockfile closure,
+// web-time included). A prebuilt binary is only a fallback when no Rust
+// toolchain is available; preferring it can silently run stale code.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { orcaParityExecutablePaths } from './rust-host-executable-paths.mjs'
+import { RustToolchainError, cargoInvocation } from './rust-toolchain-lane.mjs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
 const vectorsDir = resolve(projectDir, 'tools/parity/vectors')
 const outputsFile = resolve(projectDir, 'tools/parity/rust_outputs.json')
 const vitestCli = resolve(dirname(require.resolve('vitest/package.json')), 'vitest.mjs')
-
-function rustupBin(tool) {
-  const r = spawnSync('rustup', ['which', tool, '--toolchain', 'stable'], { encoding: 'utf8' })
-  return r.status === 0 ? r.stdout.trim() : null
-}
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { stdio: 'inherit', cwd: projectDir, ...opts })
@@ -45,42 +40,45 @@ function run(cmd, args, opts = {}) {
 const prebuilt = orcaParityExecutablePaths(projectDir).find((path) => existsSync(path))
 
 let rustStatus
-const cargoBin = rustupBin('cargo')
-const rustcBin = rustupBin('rustc')
-if (cargoBin && rustcBin) {
-  console.log('[parity] building + running orca-parity (rustup stable, offline via rust/vendor)')
-  rustStatus = run(
-    cargoBin,
-    [
-      'run',
+let invocation = null
+let toolchainError = null
+try {
+  invocation = cargoInvocation({
+    verb: 'run',
+    args: [
       '--quiet',
       '-p',
       'orca-parity',
       '--manifest-path',
-      'rust/Cargo.toml',
+      resolve(projectDir, 'rust/Cargo.toml'),
+      '--offline',
       '--',
       vectorsDir,
       outputsFile
     ],
-    {
-      env: {
-        ...process.env,
-        RUSTC: rustcBin,
-        // The repo-root .cargo/config.toml turns Trust verification on via `-Z`
-        // rustflags, which this STABLE leg refuses to parse. Parity asks whether
-        // the ported logic matches its TS twin — a question about the code, not
-        // the verifier — so the flags are cleared (env overrides the config
-        // table wholesale), same idiom as build-rust-daemon/build-terminal-addon.
-        RUSTFLAGS: process.env.RUSTFLAGS ?? '',
-        RUSTDOCFLAGS: process.env.RUSTDOCFLAGS ?? ''
-      }
-    }
+    label: 'parity'
+  })
+} catch (error) {
+  if (!(error instanceof RustToolchainError)) {
+    throw error
+  }
+  toolchainError = error
+}
+if (invocation) {
+  console.log(
+    `[parity] building + running orca-parity (${invocation.args.slice(0, 2).join(' ')}, offline via rust/vendor)`
   )
+  rustStatus = run(invocation.command, invocation.args, {
+    cwd: resolve(projectDir, 'rust'),
+    env: invocation.env
+  })
 } else if (prebuilt) {
-  console.warn(`[parity] rustup stable unavailable; using prebuilt ${prebuilt}`)
+  console.warn(`[parity] ${toolchainError.message}`)
+  console.warn(`[parity] no Rust toolchain; using prebuilt ${prebuilt} (may be stale)`)
   rustStatus = run(prebuilt, [vectorsDir, outputsFile])
 } else {
-  console.error('[parity] no prebuilt orca-parity and rustup stable is unavailable')
+  console.error(`[parity] ${toolchainError.message}`)
+  console.error('[parity] and there is no prebuilt orca-parity to fall back to')
   process.exit(1)
 }
 

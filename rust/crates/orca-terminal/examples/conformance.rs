@@ -6,7 +6,7 @@
 //! and exits non-zero on any divergence — so a skeptic can run one command and
 //! see, line by line, that the engine matches the reference implementation.
 //!
-//!   cargo run -q --release --example conformance -p orca-terminal -- [corpus.rec]
+//!   targo --unverified run -q --release --example conformance -p orca-terminal -- [corpus.rec]
 //!
 //! The goldens are regenerable from xterm.js (`node build-corpus.mjs`), so they
 //! are not hand-authored — they are whatever xterm actually renders.

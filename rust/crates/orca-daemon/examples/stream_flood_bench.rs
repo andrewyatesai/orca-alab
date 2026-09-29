@@ -6,7 +6,7 @@
 //! investigation.md); the pump_bench example measures only the read+engine leg.
 //!
 //! Run on a QUIET machine, interleaved before/after builds (ABBA):
-//!   cargo run --release -p orca-daemon --example stream_flood_bench -- \
+//!   targo --unverified run --release -p orca-daemon --example stream_flood_bench -- \
 //!     <corpus-path> [--mb 200] [--binary]
 //! A missing corpus file is generated deterministically (~--mb MB of SGR-
 //! colored text lines). Reported MB/s = corpus bytes / (createOrAttach → exit

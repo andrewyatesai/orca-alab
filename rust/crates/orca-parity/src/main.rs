@@ -22,7 +22,7 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     // Anchored to the crate dir at COMPILE time, not to cwd. The documented
-    // invocation is a bare `cargo run -p orca-parity`, which people run from
+    // invocation is a bare `targo --unverified run -p orca-parity`, which people run from
     // `rust/` — a cwd-relative default silently resolved to `rust/tools/parity`
     // and died with "cannot read vectors dir".
     const DEFAULT_VECTORS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../tools/parity/vectors");

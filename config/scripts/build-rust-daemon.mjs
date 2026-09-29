@@ -8,12 +8,11 @@
 // it, guaranteeing "one correct solution that always works". On Windows the
 // named-pipe transport (orca-winpipe) resolves fully offline via rust/vendor.
 //
-// Toolchain: the orca-crates workspace needs rustc 1.96, but the machine default
-// cargo can be a Homebrew 1.95 shadow that also shadows its child rustc. Pin BOTH
-// to the rustup `stable` toolchain (matching build-aterm-wasm.mjs / run-parity.mjs).
-// Fully offline: the workspace resolves against rust/vendor.
+// Toolchain: the Trust toolchain, via `targo --unverified build` (owner directive
+// 2026-09-28; no stock fallback). A triple Trust cannot build — the x64 slice of a
+// universal mac build, linux/windows hosts — is a labelled STOCK EXCEPTION (see
+// rust-toolchain-lane.mjs). Fully offline: the workspace resolves against rust/vendor.
 
-import { spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import {
   clearInstalledAtermSourceCommit,
@@ -23,11 +22,11 @@ import {
 import { dirname, resolve } from 'node:path'
 import {
   DARWIN_TRIPLES,
-  assertRustupDarwinTargetsInstalled,
   lipoCreate,
   needsPerTargetMacBuild,
   resolveMacBuildArches
 } from './mac-build-arches.mjs'
+import { RustToolchainError, cargoInvocation } from './rust-toolchain-lane.mjs'
 import { CargoCommandFailure, runStreamedCargoCommand } from './stream-cargo-command.mjs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
@@ -53,43 +52,29 @@ function stampDaemonProvenance() {
   }
 }
 
-function rustupBin(tool) {
-  const r = spawnSync('rustup', ['which', tool, '--toolchain', 'stable'], { encoding: 'utf8' })
-  return r.status === 0 ? r.stdout.trim() : null
-}
-
-const cargoBin = rustupBin('cargo')
-const rustcBin = rustupBin('rustc')
-if (!cargoBin || !rustcBin) {
-  console.error(
-    '[build-rust-daemon] rustup `stable` toolchain unavailable (the workspace needs rustc 1.96). ' +
-      'Install it with `rustup toolchain install stable`.'
-  )
-  process.exitCode = 1
-}
-
-async function runCargoBuild(extraArgs) {
+// Returns the target dir the build wrote to (the stock-exception lane has its own).
+async function runCargoBuild(triple) {
   // Cargo discovers `.cargo/config.toml` from the invocation directory, not from
   // `--manifest-path`. Run inside `rust/` so the checked-in offline vendor source
-  // is actually used. Stock stable rustc cannot accept the Trust-only flag in
-  // that config, so an explicit (possibly caller-supplied) RUSTFLAGS value owns
-  // this ordinary product build.
+  // is actually used.
+  const invocation = cargoInvocation({
+    verb: 'build',
+    args: ['--release', '-p', 'orca-daemon', '--manifest-path', manifest, '--offline'],
+    triple,
+    label: 'build-rust-daemon',
+    // A cross-arch STOCK EXCEPTION slice builds beside Trust-built units on this
+    // host, so it gets its own target dir; a host with no Trust toolchain keeps
+    // the default one.
+    stockTargetDir: triple ? resolve(rustWorkspaceDir, 'target/stock-exception') : null
+  })
   await runStreamedCargoCommand({
-    command: cargoBin,
-    args: [
-      'build',
-      '--release',
-      '-p',
-      'orca-daemon',
-      '--manifest-path',
-      manifest,
-      '--offline',
-      ...extraArgs
-    ],
+    command: invocation.command,
+    args: invocation.args,
     cwd: rustWorkspaceDir,
-    env: { ...process.env, RUSTC: rustcBin, RUSTFLAGS: process.env.RUSTFLAGS ?? '' },
+    env: invocation.env,
     label: 'build-rust-daemon'
   })
+  return invocation.targetDir ?? resolve(rustWorkspaceDir, 'target')
 }
 
 async function main() {
@@ -99,13 +84,12 @@ async function main() {
   // dev default stays a plain host-arch build (fast path, no extra targets).
   const macArches = process.platform === 'darwin' ? resolveMacBuildArches() : null
   if (macArches && needsPerTargetMacBuild(macArches)) {
-    assertRustupDarwinTargetsInstalled(macArches)
     const perTargetBinPaths = []
     for (const arch of macArches) {
       const triple = DARWIN_TRIPLES[arch]
       console.log(`[build-rust-daemon] building release orca-daemon for ${triple} (offline)`)
-      await runCargoBuild(['--target', triple])
-      const targetBinPath = resolve(projectDir, `rust/target/${triple}/release/orca-daemon`)
+      const targetDir = await runCargoBuild(triple)
+      const targetBinPath = resolve(targetDir, `${triple}/release/orca-daemon`)
       if (!existsSync(targetBinPath)) {
         throw new CargoCommandFailure(`expected binary missing after build: ${targetBinPath}`)
       }
@@ -124,9 +108,9 @@ async function main() {
     console.log(`[build-rust-daemon] built ${binPath} (${macArches.join(' + ')})`)
   } else {
     console.log(
-      '[build-rust-daemon] building release orca-daemon (rustup stable, offline via rust/vendor)'
+      '[build-rust-daemon] building release orca-daemon (targo --unverified, offline via rust/vendor)'
     )
-    await runCargoBuild([])
+    await runCargoBuild(null)
     if (!existsSync(binPath)) {
       throw new CargoCommandFailure(`expected binary missing after build: ${binPath}`)
     }
@@ -135,14 +119,16 @@ async function main() {
   }
 }
 
-if (cargoBin && rustcBin) {
-  try {
-    await main()
-  } catch (error) {
-    if (!(error instanceof CargoCommandFailure)) {
-      throw error
-    }
+try {
+  await main()
+} catch (error) {
+  if (error instanceof RustToolchainError) {
+    console.error(`[build-rust-daemon] ${error.message}`)
+    process.exitCode = 1
+  } else if (error instanceof CargoCommandFailure) {
     console.error(`[build-rust-daemon] ${error.message}`)
     process.exitCode = error.exitCode
+  } else {
+    throw error
   }
 }

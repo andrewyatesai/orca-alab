@@ -3,12 +3,12 @@
 // Proves the fresh Rust ports against the live TypeScript reference: for every
 // case in the shared vector corpus it runs the real `src/shared` function and
 // asserts its output equals the Rust port's output (read from rust_outputs.json,
-// produced by `cargo run -p orca-parity`). The compared outputs are both
+// produced by `targo --unverified run -p orca-parity`). The compared outputs are both
 // computed live — neither is hand-authored — so an agreement is real evidence
 // of behavioural parity, and a disagreement is a concrete divergence to review.
 //
 // Run order:
-//   1. cd rust && cargo run -p orca-parity -- ../tools/parity/vectors ../tools/parity/rust_outputs.json
+//   1. cd rust && targo --unverified run -p orca-parity -- ../tools/parity/vectors ../tools/parity/rust_outputs.json
 //   2. vitest run tools/parity/parity.test.ts
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -43,7 +43,7 @@ const rustRuns: RustRun[] = existsSync(RUST_OUTPUTS)
 const rustByKey = new Map(rustRuns.map((run) => [`${run.module}::${run.caseIndex}`, run]))
 
 describe('TS↔Rust parity', () => {
-  it('rust_outputs.json exists (run `cargo run -p orca-parity` first)', () => {
+  it('rust_outputs.json exists (run `pnpm parity` first)', () => {
     expect(existsSync(RUST_OUTPUTS)).toBe(true)
   })
 

@@ -7,7 +7,7 @@
 //!
 //! Run on a QUIET machine (loadavg < ~3 — under load the gather's busy-reads
 //! steal cores from `cat` and the numbers invert unreliably):
-//!   cargo run --release -p orca-daemon --example pump_bench -- /tmp/atbench/flood_500.vt
+//!   targo --unverified run --release -p orca-daemon --example pump_bench -- /tmp/atbench/flood_500.vt
 #[cfg(unix)]
 fn main() {
     use nix::errno::Errno;

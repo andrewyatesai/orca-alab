@@ -93,8 +93,7 @@ async function runRustLeg() {
   if (!bin) {
     throw new Error(
       'orca-daemon binary not built — run:\n' +
-        '  PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH" \\\n' +
-        '    cargo build -p orca-daemon --manifest-path rust/Cargo.toml --offline'
+        '  (cd rust && targo --unverified build -p orca-daemon --offline)'
     )
   }
   const socketPath = join(scratch, 'rust.sock')

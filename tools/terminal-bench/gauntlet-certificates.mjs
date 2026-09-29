@@ -4,35 +4,31 @@
 // gated behavioral parity corpora, in a shipping product." Both halves are enforced
 // here for every decision-core crate that ships an ay certificate:
 //   (a) discharge rust/crates/*/proofs/ay/verify.sh (success = exit 0)
-//   (b) run that crate's Rust parity corpus (cargo test — matches_shared_parity_corpus)
+//   (b) run that crate's Rust parity corpus (`targo --unverified test` —
+//       matches_shared_parity_corpus)
 // Auto-discovering: any new E1-unit crate (a proofs/ay/verify.sh) is picked up with
 // no edit here. The TS side of each parity corpus runs in the vitest suite.
 //
 // Extracted from gauntlet.mjs to keep that file under its max-lines cap; the host
-// passes in the shared primitives (repo root, sh, skip, rustupStable).
+// passes in the shared primitives (repo root, sh, skip, resolveTargo).
 
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
+// $AY → PATH (the atpkg-managed ay); never the ~/trust/build tree, which is the
+// compiler repo's exclusive build output.
 const findAy = (sh) => {
-  const home = process.env.HOME ?? ''
-  const cands = [
-    join(home, '.cargo', 'bin', 'ay'),
-    join(home, 'trust', 'build', 'host', 'stage2', 'bin', 'ay')
-  ]
-  for (const c of cands) {
-    if (existsSync(c)) {
-      return c
-    }
+  if (process.env.AY && existsSync(process.env.AY)) {
+    return process.env.AY
   }
   try {
-    return sh('command', ['-v', 'ay']).trim() || null
+    return sh('bash', ['-lc', 'command -v ay']).trim() || null
   } catch {
     return null
   }
 }
 
-export function certificatesGate({ repo, sh, skip, rustupStable }) {
+export function certificatesGate({ repo, sh, skip, resolveTargo }) {
   const cratesDir = join(repo, 'rust', 'crates')
   const crates = existsSync(cratesDir)
     ? readdirSync(cratesDir).filter((c) =>
@@ -45,7 +41,7 @@ export function certificatesGate({ repo, sh, skip, rustupStable }) {
   const ay = findAy(sh)
   if (!ay) {
     return skip(
-      `ay solver not found (~/.cargo/bin/ay, trust stage2, PATH) — ${crates.length} certificate(s) present but unproven; install ay then re-run`
+      `ay solver not found ($AY, PATH) — ${crates.length} certificate(s) present but unproven; install ay (atpkg) then re-run`
     )
   }
   // (a) discharge every certificate. Success is the verify.sh EXIT CODE (0), not a
@@ -57,7 +53,8 @@ export function certificatesGate({ repo, sh, skip, rustupStable }) {
   for (const c of crates) {
     const vs = join(cratesDir, c, 'proofs', 'ay', 'verify.sh')
     try {
-      const out = sh('bash', [vs])
+      // Pin every bundle to the solver resolved above via its $AY rung.
+      const out = sh('bash', [vs], { env: { ...process.env, AY: ay } })
       obligations += (out.match(/^\s*(?:ok|PASS)\b/gm) ?? []).length
     } catch (e) {
       certFail.push(`cert:${c} (verify.sh exit ${e.status ?? '?'})`)
@@ -65,9 +62,9 @@ export function certificatesGate({ repo, sh, skip, rustupStable }) {
   }
   // (b) run the Rust parity corpora ONLY for crates that ship one (the TS→Rust
   // decision cores — orca-git/orca-net are proof-only Trust cores with no shared
-  // corpus). Needs a stable toolchain (Homebrew rustc can shadow rustup); without
-  // it the parity half is unverified, so the gate degrades to REVIEW rather than
-  // reading green on the certificate half alone.
+  // corpus). Needs targo (the Trust toolchain); without it the parity half is
+  // unverified, so the gate degrades to REVIEW rather than reading green on the
+  // certificate half alone.
   // Scanned over EVERY crate, not over `crates`. `crates` is the ay-certificate
   // subset, so filtering it meant a decision core that ships a corpus but no
   // certificate was silently skipped — the corpus existed, the gate read green,
@@ -79,43 +76,24 @@ export function certificatesGate({ repo, sh, skip, rustupStable }) {
       readdirSync(join(cratesDir, c)).some((f) => f.endsWith('parity-corpus.txt'))
   )
   const metricsBase = { crates: crates.length, obligations, parityCrates: parityCrates.length }
-  const cargo = rustupStable('cargo')
-  const rustc = rustupStable('rustc')
-  if (parityCrates.length > 0 && !cargo) {
+  const targo = parityCrates.length > 0 ? resolveTargo() : null
+  if (parityCrates.length > 0 && !targo) {
     return {
       status: 'REVIEW',
       metrics: { ...metricsBase, parity: 'not-run' },
-      detail: `${obligations} ay obligations discharged across ${crates.length} crate(s), but the Rust parity corpora (${parityCrates.length} crate(s)) were NOT run (no stable rustup toolchain — run bootstrap). Certificate half proven; parity half unverified here.`
+      detail: `${obligations} ay obligations discharged across ${crates.length} crate(s), but the Rust parity corpora (${parityCrates.length} crate(s)) were NOT run (targo, the Trust toolchain, not found). Certificate half proven; parity half unverified here.`
     }
   }
   let parityFail = null
   if (parityCrates.length > 0) {
     try {
-      sh(cargo, ['test', '-q', ...parityCrates.flatMap((c) => ['-p', c])], {
-        cwd: join(repo, 'rust'),
-        env: {
-          ...process.env,
-          ...(rustc ? { RUSTC: rustc } : {}),
-          // rust/.cargo/config.toml turns Trust verification on for every unit
-          // via `-Z` rustflags, which STABLE rustc refuses to parse — so this
-          // gate's parity half exited 101 before running a single corpus. Both
-          // vars are needed: RUSTFLAGS overrides the `rustflags` table wholesale
-          // (the config file says so), but doctests read `rustdocflags`, which
-          // it does not touch. Cleared rather than switched to the Trust
-          // toolchain on purpose: parity asks whether the ported logic matches
-          // its TS twin, which is a question about the code, not the verifier.
-          RUSTFLAGS: '',
-          RUSTDOCFLAGS: '',
-          // The repo-root rust-toolchain.toml pins the TRUST toolchain, which
-          // ships no rustdoc — and cargo resolves bare `rustdoc` through the
-          // rustup proxy, which follows the pin even though `cargo`/`rustc` here
-          // are explicit stable binaries. Doctests then fail before running.
-          // Pin rustdoc to the same stable toolchain the rest of this leg uses.
-          ...(rustupStable('rustdoc') ? { RUSTDOC: rustupStable('rustdoc') } : {})
-        }
+      // Parity asks whether the ported logic matches its TS twin — a question
+      // about the code, not the verifier — so it runs targo's unverified lane.
+      sh(targo, ['--unverified', 'test', '-q', ...parityCrates.flatMap((c) => ['-p', c])], {
+        cwd: join(repo, 'rust')
       })
     } catch (e) {
-      parityFail = `parity: cargo test exit ${e.status ?? '?'}`
+      parityFail = `parity: targo --unverified test exit ${e.status ?? '?'}`
     }
   }
   const fails = [...certFail, parityFail].filter(Boolean)

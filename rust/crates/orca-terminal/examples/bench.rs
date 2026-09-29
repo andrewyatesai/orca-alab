@@ -5,8 +5,8 @@
 //! Both engines consume the *same* corpus file (generated here, deterministically,
 //! so there is a single source of truth) in the same chunk size, then dump the
 //! final visible grid for a parity check. Usage:
-//!   cargo run -q --release --example bench -- gen   <corpus> <megabytes>
-//!   cargo run -q --release --example bench -- run   <corpus> <out.json>
+//!   targo --unverified run -q --release --example bench -- gen   <corpus> <megabytes>
+//!   targo --unverified run -q --release --example bench -- run   <corpus> <out.json>
 
 use std::env;
 use std::fs;

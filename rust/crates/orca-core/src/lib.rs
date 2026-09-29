@@ -3,11 +3,11 @@
 //! Each module here is a faithful port of a `src/shared/*` module that contains
 //! no IO, no Electron, and no platform calls. The original TypeScript test cases
 //! are translated verbatim so behavioural fidelity is verifiable with
-//! `cargo test`. Anything that touches the filesystem, network, processes, or an
-//! OS API lives in a higher tier crate, not here.
+//! `targo --unverified test -p orca-core`. Anything that touches the filesystem,
+//! network, processes, or an OS API lives in a higher tier crate, not here.
 //!
 //! Written verifier-friendly for Trust (`#![forbid(unsafe_code)]`, panic-free):
-//! the pure-logic surface is the first target for `tcargo trust check`.
+//! the pure-logic surface is the first target for `targo trust check -p orca-core`.
 
 // Trust contracts: the `trust` tool namespace only exists under `trustc`
 // (`--cfg trust_verify`); inert under stock cargo so the crate stays

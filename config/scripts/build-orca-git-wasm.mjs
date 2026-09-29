@@ -7,7 +7,7 @@
 // Two wrinkles (identical to build-aterm-wasm.mjs):
 //  1. Offline vendor: rust/.cargo/config.toml replaces crates-io with the offline
 //     rust/vendor (which lacks wasm-bindgen). cargo reads config from the
-//     INVOCATION CWD, so we invoke from the repo ROOT (no .cargo there) with
+//     INVOCATION CWD, so we invoke from the repo ROOT (no vendoring config) with
 //     CARGO_NET_OFFLINE=false to resolve wasm-bindgen online. orca-git-wasm is its
 //     OWN workspace (rust/Cargo.toml excludes it) so this never touches the main
 //     offline lock.
@@ -33,6 +33,11 @@ import {
   assertNoEmbeddedLocalBuildPaths,
   wasmCratePathRemapRustflags
 } from './wasm-build-paths.mjs'
+import {
+  RustToolchainError,
+  cargoInvocation,
+  stockExceptionToolchain
+} from './rust-toolchain-lane.mjs'
 import { writeCratePin } from './wasm-crate-artifact-pin.mjs'
 
 const ROOT = join(import.meta.dirname, '..', '..')
@@ -68,26 +73,18 @@ function which(bin) {
   return false
 }
 
-// Absolute path to a rustup-managed STABLE tool (Homebrew's cargo/rustc on PATH
-// shadow rustup and lack the wasm32 target).
-function rustupStableBin(bin) {
-  return execFileSync('rustup', ['which', bin, '--toolchain', 'stable'], {
-    encoding: 'utf8'
-  }).trim()
-}
-
-// Build cargo with the rustup-managed STABLE toolchain explicitly (see
-// build-aterm-wasm.mjs for the two PATH-shadow gotchas this defeats). Falls back
-// to plain cargo (+ RUSTUP_TOOLCHAIN) when rustup is absent.
+// STOCK EXCEPTION (Trust lacks a wasm32-unknown-unknown std; measured E0463
+// "can't find crate for `core`", and -Zbuild-std fails because the seal ships no
+// rust-src): the wasm32 build uses an INSTALLED stock rustup toolchain
+// (ORCA_STOCK_RUST_TOOLCHAIN, default `stable`) with cargo and rustc pinned by
+// absolute path. Missing rustup/toolchain/target is an error naming what to
+// install — never an install, and never a bare `cargo` fallback.
 function runWasmCargo(args, opts = {}) {
-  const baseEnv = opts.env ?? process.env
-  if (which('rustup')) {
-    const cargo = rustupStableBin('cargo')
-    const rustc = rustupStableBin('rustc')
-    run(cargo, args, { ...opts, env: { ...baseEnv, RUSTC: rustc } })
-  } else {
-    run('cargo', args, opts)
-  }
+  const stock = stockExceptionToolchain({
+    targets: ['wasm32-unknown-unknown'],
+    env: opts.env ?? process.env
+  })
+  run(stock.cargo, args, { ...opts, env: stock.env })
 }
 
 function resolveWasmBindgen() {
@@ -96,24 +93,35 @@ function resolveWasmBindgen() {
     return cached
   }
   console.log(`[orca-git-wasm] bootstrapping wasm-bindgen-cli ${WB_VERSION} → ${WB_DIR}`)
-  run('cargo', [
-    'install',
-    'wasm-bindgen-cli',
-    '--version',
-    WB_VERSION,
-    '--root',
-    WB_DIR,
-    '--locked'
-  ])
+  // A HOST tool: targo (`targo --unverified install`) where Trust serves the host.
+  const install = cargoInvocation({
+    verb: 'install',
+    args: ['wasm-bindgen-cli', '--version', WB_VERSION, '--root', WB_DIR, '--locked'],
+    label: 'orca-git-wasm'
+  })
+  run(install.command, install.args, { env: install.env })
   return cached
 }
 
-const wasmBindgen = resolveWasmBindgen()
+let wasmBindgen
+try {
+  // Fail fast, before the CLI bootstrap, when the STOCK EXCEPTION toolchain for
+  // wasm32 is not installed.
+  stockExceptionToolchain({ targets: ['wasm32-unknown-unknown'] })
+  wasmBindgen = resolveWasmBindgen()
+} catch (error) {
+  if (!(error instanceof RustToolchainError)) {
+    throw error
+  }
+  console.error(`[orca-git-wasm] ${error.message}`)
+  process.exit(1)
+}
 
 console.log(`\n[orca-git-wasm] building ${CRATE_DIR} …`)
 // Build from ROOT (online ancestry) via --manifest-path so wasm-bindgen resolves
-// from crates.io, not the offline rust/vendor. RUSTUP_TOOLCHAIN pins stable for
-// the no-rustup fallback (matching rust-toolchain.toml in the crate).
+// from crates.io, not the offline rust/vendor. runWasmCargo pins the STOCK
+// EXCEPTION toolchain (the crate's own rust-toolchain.toml says `stable` too, but
+// cargo never reads it from the ROOT cwd).
 runWasmCargo(
   [
     'build',
@@ -127,7 +135,6 @@ runWasmCargo(
     env: {
       ...process.env,
       CARGO_NET_OFFLINE: 'false',
-      RUSTUP_TOOLCHAIN: 'stable',
       // Remap builder paths so release panic/source strings can't leak the
       // builder's home/username into the git wasm shipped in the relay bundle
       // uploaded to every remote host.

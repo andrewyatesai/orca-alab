@@ -4,7 +4,7 @@ A third party can verify this engine matches **xterm.js 6.1.0-beta.220** with tw
 
 ```sh
 node build-corpus.mjs          # regenerate cases + goldens from real xterm.js
-cargo run --release --example conformance -p orca-terminal
+targo --unverified run --release --example conformance -p orca-terminal
 ```
 
 The goldens are not hand-authored — they are whatever xterm.js renders for each

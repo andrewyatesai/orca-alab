@@ -569,7 +569,7 @@ async function launchRustDaemon(
   if (!binPath) {
     throw new Error(
       'orca-daemon binary not found. It is part of the build (bundled to Resources/orca-daemon; ' +
-        'in dev run `cargo build --release -p orca-daemon --manifest-path rust/Cargo.toml`). ' +
+        'in dev run `pnpm build:rust-daemon`). ' +
         'This is a build defect, not a runtime condition.'
     )
   }

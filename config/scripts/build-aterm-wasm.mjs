@@ -3,14 +3,19 @@
 // loop runs in this wasm every frame, so it inherits aterm's native opt-3 profile.
 //
 // The crates LIVE in aterm (vendored at rust/aterm/crates/*), so this builds
-// them from there. Two wrinkles handled here:
+// them from there. Three wrinkles handled here:
 //  1. Offline vendor: rust/.cargo/config.toml replaces crates-io with the
 //     offline rust/vendor (which intentionally lacks the web deps wgpu-webgl/
 //     wasm-bindgen/web-sys). cargo reads config from the INVOCATION CWD, not the
-//     manifest — so we invoke from the repo ROOT (no .cargo there) with
-//     CARGO_NET_OFFLINE=false to resolve the web deps online.
+//     manifest — so we invoke from the repo ROOT (which has no vendoring config)
+//     with CARGO_NET_OFFLINE=false to resolve the web deps online.
 //  2. wasm-bindgen pin: both crates use =0.2.108; we use a cached CLI under
-//     config/.tooling (bootstrapped via cargo install if missing).
+//     config/.tooling (bootstrapped via `targo --unverified install` if missing).
+//  3. STOCK EXCEPTION (Trust lacks a wasm32-unknown-unknown std; measured
+//     E0463 "can't find crate for `core`", and -Zbuild-std fails because the
+//     seal ships no rust-src): the wasm32 build uses an INSTALLED stock rustup
+//     toolchain (ORCA_STOCK_RUST_TOOLCHAIN, default `stable`), never installing
+//     one — see rust-toolchain-lane.mjs.
 //
 // Usage: node config/scripts/build-aterm-wasm.mjs [--cpu] [--gpu]  (default: both)
 import { execFileSync } from 'node:child_process'
@@ -31,6 +36,11 @@ import {
   withPatchedAtermWorktree
 } from './aterm-wasm-source-patch.mjs'
 import { cachedWasmBindgenExecutablePath } from './rust-host-executable-paths.mjs'
+import {
+  RustToolchainError,
+  cargoInvocation,
+  stockExceptionToolchain
+} from './rust-toolchain-lane.mjs'
 import { CargoCommandFailure, runStreamedCargoCommand } from './stream-cargo-command.mjs'
 import { assertNoEmbeddedLocalBuildPaths, wasmPathRemapRustflags } from './wasm-build-paths.mjs'
 
@@ -85,45 +95,23 @@ function which(bin) {
   return false
 }
 
-// Orca's browser artifacts deliberately default to stable, the proven
-// wasm32-capable path, even though native aterm pins Trust. The explicit override
-// keeps Trust-WASM verification available without making it a build prerequisite.
-const RUST_TOOLCHAIN = process.env.ORCA_RUST_TOOLCHAIN || 'stable'
-
-// Absolute path to a rustup-managed tool (Homebrew's cargo/rustc on PATH shadow
-// rustup and lack the wasm32 target).
-function rustupToolchainBin(bin, toolchain = RUST_TOOLCHAIN) {
-  return execFileSync('rustup', ['which', bin, '--toolchain', toolchain], {
-    encoding: 'utf8'
-  }).trim()
-}
-
-// Build with the selected rustup toolchain explicitly. Two shadows to beat:
-// (1) a Homebrew cargo on PATH ignores RUSTUP_TOOLCHAIN, and (2) cargo spawns a
-// BARE `rustc` resolved from PATH unless RUSTC is pinned. Falls back to plain
-// cargo (+ RUSTUP_TOOLCHAIN) when rustup is absent.
+// STOCK EXCEPTION (Trust lacks a wasm32-unknown-unknown std; measured E0463):
+// the stock cargo and rustc are pinned by absolute path (a Homebrew cargo on PATH
+// ignores RUSTUP_TOOLCHAIN, and cargo spawns a BARE `rustc` unless RUSTC is set).
+// No rustup, no toolchain, or no wasm32 target is an error naming what to
+// install — never an install, and never a bare `cargo` fallback.
 async function runWasmCargo(args, opts = {}) {
-  const baseEnv = opts.env ?? process.env
-  if (which('rustup')) {
-    const cargo = rustupToolchainBin('cargo')
-    const rustc = rustupToolchainBin('rustc')
-    await runStreamedCargoCommand({
-      command: cargo,
-      args,
-      cwd: opts.cwd ?? ROOT,
-      env: { ...baseEnv, RUSTC: rustc },
-      label: 'aterm-wasm'
-    })
-  } else {
-    await runStreamedCargoCommand({
-      command: 'cargo',
-      args,
-      cwd: opts.cwd ?? ROOT,
-      env: baseEnv,
-      label: 'aterm-wasm',
-      shell: process.platform === 'win32'
-    })
-  }
+  const stock = stockExceptionToolchain({
+    targets: ['wasm32-unknown-unknown'],
+    env: opts.env ?? process.env
+  })
+  await runStreamedCargoCommand({
+    command: stock.cargo,
+    args,
+    cwd: opts.cwd ?? ROOT,
+    env: stock.env,
+    label: 'aterm-wasm'
+  })
 }
 
 function resolveWasmBindgen() {
@@ -132,24 +120,15 @@ function resolveWasmBindgen() {
     return cached
   }
   // Bootstrap the exact pinned CLI once (cached, gitignored) so the build is
-  // reproducible regardless of the system wasm-bindgen version.
+  // reproducible regardless of the system wasm-bindgen version. It is a HOST tool,
+  // so it builds with targo (`targo --unverified install`) where Trust serves the host.
   console.log(`[aterm-wasm] bootstrapping wasm-bindgen-cli ${WB_VERSION} → ${WB_DIR}`)
-  const hasRustup = which('rustup')
-  // Why: a custom default toolchain can reject third-party build dependencies;
-  // bootstrap this host tool with stable, independent of renderer verification.
-  run(
-    hasRustup ? rustupToolchainBin('cargo', 'stable') : 'cargo',
-    ['install', 'wasm-bindgen-cli', '--version', WB_VERSION, '--root', WB_DIR, '--locked'],
-    hasRustup
-      ? {
-          env: {
-            ...process.env,
-            RUSTC: rustupToolchainBin('rustc', 'stable'),
-            RUSTUP_TOOLCHAIN: 'stable'
-          }
-        }
-      : undefined
-  )
+  const install = cargoInvocation({
+    verb: 'install',
+    args: ['wasm-bindgen-cli', '--version', WB_VERSION, '--root', WB_DIR, '--locked'],
+    label: 'aterm-wasm'
+  })
+  run(install.command, install.args, { env: install.env })
   return cached
 }
 
@@ -175,15 +154,14 @@ async function buildCrate(key, wasmBindgen, atermSource) {
       '--manifest-path',
       join(atermSource, dir, 'Cargo.toml')
     ],
-    // Pin the selected Orca WASM toolchain: the machine's global default may lack
-    // wasm32-unknown-unknown or violate aterm's rust-version. The simd flag is
-    // target-scoped so host proc-macro builds stay untouched.
+    // runWasmCargo pins the STOCK EXCEPTION toolchain (the machine's global
+    // default may lack wasm32-unknown-unknown or violate aterm's rust-version).
+    // The simd flag is target-scoped so host proc-macro builds stay untouched.
     {
       env: {
         ...process.env,
         CARGO_TARGET_DIR,
         CARGO_NET_OFFLINE: 'false',
-        RUSTUP_TOOLCHAIN: RUST_TOOLCHAIN,
         CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: [
           process.env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS,
           WASM_SIMD_RUSTFLAG,
@@ -292,7 +270,19 @@ if (!which('wasm-opt')) {
   console.error(`[aterm-wasm] wasm-opt not found — install ${install}`)
   process.exit(1)
 }
-const wasmBindgen = resolveWasmBindgen()
+let wasmBindgen
+try {
+  // Fail fast, before a multi-minute CLI bootstrap, when the STOCK EXCEPTION
+  // toolchain for wasm32 is not installed.
+  stockExceptionToolchain({ targets: ['wasm32-unknown-unknown'] })
+  wasmBindgen = resolveWasmBindgen()
+} catch (error) {
+  if (!(error instanceof RustToolchainError)) {
+    throw error
+  }
+  console.error(`[aterm-wasm] ${error.message}`)
+  process.exit(1)
+}
 const flags = process.argv.slice(2)
 const keys = flags.length ? flags.map((f) => f.replace(/^--/, '')) : ['cpu', 'gpu']
 try {
@@ -329,9 +319,13 @@ try {
   }
   console.log('\n[aterm-wasm] done.')
 } catch (error) {
-  if (!(error instanceof CargoCommandFailure)) {
+  if (error instanceof RustToolchainError) {
+    console.error(`[aterm-wasm] ${error.message}`)
+    process.exitCode = 1
+  } else if (error instanceof CargoCommandFailure) {
+    console.error(`[aterm-wasm] ${error.message}`)
+    process.exitCode = error.exitCode
+  } else {
     throw error
   }
-  console.error(`[aterm-wasm] ${error.message}`)
-  process.exitCode = error.exitCode
 }

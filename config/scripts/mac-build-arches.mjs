@@ -42,26 +42,9 @@ export function needsPerTargetMacBuild(arches, processArch = process.arch) {
   return arches.length > 1 || arches[0] !== hostMacArch(processArch)
 }
 
-/** Fails fast with an actionable message when rustup lacks a needed std. */
-export function assertRustupDarwinTargetsInstalled(arches) {
-  const result = spawnSync('rustup', ['target', 'list', '--installed', '--toolchain', 'stable'], {
-    encoding: 'utf8'
-  })
-  if (result.status !== 0) {
-    throw new Error(
-      'rustup is required for cross-arch mac builds (`rustup target list` failed). ' +
-        'Install rustup with a stable toolchain first.'
-    )
-  }
-  const installed = new Set(result.stdout.split('\n').map((line) => line.trim()))
-  const missing = arches.map((arch) => DARWIN_TRIPLES[arch]).filter((t) => !installed.has(t))
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing rust std for target(s): ${missing.join(', ')}. ` +
-        `Run: rustup target add ${missing.join(' ')} --toolchain stable`
-    )
-  }
-}
+// A slice whose std the Trust toolchain lacks (today x86_64-apple-darwin) is built
+// by the STOCK EXCEPTION lane in rust-toolchain-lane.mjs, which checks the stock
+// toolchain and its target without ever installing one.
 
 /** Reads the arches a Mach-O (thin or fat) file covers, in Node arch names. */
 export function machOFileArches(filePath) {

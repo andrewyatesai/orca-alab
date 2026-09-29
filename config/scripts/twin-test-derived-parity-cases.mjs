@@ -82,6 +82,7 @@ import path from 'node:path'
 import ts from 'typescript-api'
 
 import { rustDispatchArms } from './rust-dispatch-arm-inventory.mjs'
+import { RustToolchainError, cargoInvocation } from './rust-toolchain-lane.mjs'
 import { prepareWorkDir, runRecording, writeRecorder } from './twin-call-recording.mjs'
 import { REPO_ROOT } from './typescript-symbol-resolution.mjs'
 const VECTORS_DIR = path.join(REPO_ROOT, 'tools', 'parity', 'vectors')
@@ -595,39 +596,39 @@ function main() {
   )
 
   // The real Rust core over the derived corpus, the same way `pnpm parity` does:
-  // same binary, offline via rust/vendor, RUSTFLAGS cleared because the repo
-  // config's `-Z` verifier flags do not parse on the stable leg.
-  const which = (tool) => {
-    const r = spawnSync('rustup', ['which', tool, '--toolchain', 'stable'], { encoding: 'utf8' })
-    return r.status === 0 ? r.stdout.trim() : null
-  }
-  const cargoBin = which('cargo')
-  const rustcBin = which('rustc')
-  if (!cargoBin || !rustcBin) {
-    console.error('[twin-derived] rustup stable unavailable; cannot run the Rust leg')
+  // same binary, `targo --unverified run` inside rust/ so it resolves offline
+  // via rust/vendor (rust-toolchain-lane.mjs; no stock fallback).
+  let invocation
+  try {
+    invocation = cargoInvocation({
+      verb: 'run',
+      args: [
+        '--quiet',
+        '-p',
+        'orca-parity',
+        '--manifest-path',
+        path.join(REPO_ROOT, 'rust', 'Cargo.toml'),
+        '--offline',
+        '--',
+        CANDIDATE_DIR,
+        RUST_OUTPUTS
+      ],
+      label: 'twin-derived'
+    })
+  } catch (error) {
+    if (!(error instanceof RustToolchainError)) {
+      throw error
+    }
+    console.error(`[twin-derived] ${error.message} Cannot run the Rust leg.`)
     return 1
   }
-  const rust = spawnSync(
-    cargoBin,
-    [
-      'run',
-      '--quiet',
-      '-p',
-      'orca-parity',
-      '--manifest-path',
-      'rust/Cargo.toml',
-      '--',
-      CANDIDATE_DIR,
-      RUST_OUTPUTS
-    ],
-    {
-      cwd: REPO_ROOT,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      encoding: 'utf8',
-      maxBuffer: 256 * 1024 * 1024,
-      env: { ...process.env, RUSTC: rustcBin, RUSTFLAGS: '', RUSTDOCFLAGS: '' }
-    }
-  )
+  const rust = spawnSync(invocation.command, invocation.args, {
+    cwd: path.join(REPO_ROOT, 'rust'),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+    env: invocation.env
+  })
   if (rust.status !== 0) {
     console.error(`[twin-derived] Rust leg failed (exit ${rust.status})`)
     console.error((rust.stderr || '').split('\n').slice(-25).join('\n'))

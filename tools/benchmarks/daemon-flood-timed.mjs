@@ -152,7 +152,7 @@ function resolveDaemonBin(explicit) {
   if (!bin) {
     throw new Error(
       `orca-daemon binary not built (looked at ${candidates.join(', ')}) — run:\n` +
-        '  cargo build --release -p orca-daemon --manifest-path rust/Cargo.toml'
+        '  pnpm build:rust-daemon   (targo --unverified build --release -p orca-daemon, in rust/)'
     )
   }
   if (bin === candidates[1]) {

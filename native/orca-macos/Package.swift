@@ -7,7 +7,7 @@ import PackageDescription
 // Swift↔Rust seam — OrcaKit wraps the C API in idiomatic Swift; a SwiftUI app
 // target sits on top of OrcaKit.
 //
-// Build the core first:  (cd ../../rust && cargo build -p orca-ffi)
+// Build the core first:  (cd ../../rust && targo --unverified build -p orca-ffi)
 // Then:                  swift test
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let rustTarget = "\(packageDir)/../../rust/target/debug"

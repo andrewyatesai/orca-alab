@@ -7,16 +7,15 @@
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, copyFileSync, statSync } from 'node:fs'
-import { resolve, join } from 'node:path'
-import { homedir } from 'node:os'
+import { resolve } from 'node:path'
 import {
   DARWIN_TRIPLES,
-  assertRustupDarwinTargetsInstalled,
   lipoCreate,
   machOFileArches,
   needsPerTargetMacBuild,
   resolveMacBuildArches
 } from './mac-build-arches.mjs'
+import { RustToolchainError, cargoInvocation } from './rust-toolchain-lane.mjs'
 import { CargoCommandFailure, runStreamedCargoCommand } from './stream-cargo-command.mjs'
 import { newestTerminalAddonSourceMtime } from './terminal-addon-source-inputs.mjs'
 import {
@@ -51,28 +50,6 @@ function cdylibName() {
     return 'orca_node.dll'
   }
   return 'liborca_node.so'
-}
-
-function cargoEnv() {
-  // Prefer the rustup toolchain (~/.cargo/bin) over an older system cargo so the
-  // build gets a rustc new enough for aterm's edition-2024 crates.
-  const cargoBin = join(homedir(), '.cargo', 'bin')
-  const sep = process.platform === 'win32' ? ';' : ':'
-  const path = existsSync(cargoBin)
-    ? `${cargoBin}${sep}${process.env.PATH ?? ''}`
-    : process.env.PATH
-  return { ...process.env, PATH: path }
-}
-
-// Defaults to STABLE (the proven addon-build toolchain); ORCA_RUST_TOOLCHAIN=trust
-// rebuilds the napi addon with the Trust-verified compiler.
-const RUST_TOOLCHAIN = process.env.ORCA_RUST_TOOLCHAIN || 'stable'
-
-function rustupStableBin(tool) {
-  const r = spawnSync('rustup', ['which', tool, '--toolchain', RUST_TOOLCHAIN], {
-    encoding: 'utf8'
-  })
-  return r.status === 0 ? r.stdout.trim() : null
 }
 
 function ensureAtermSubmodule() {
@@ -137,46 +114,32 @@ const buildAtermSourceCommit = readCleanAtermSourceCommit(atermSource)
 // surviving old addon look current on the next invocation.
 clearInstalledAtermSourceCommit(ATERM_SOURCE_STAMP)
 
-// Pin BOTH cargo and rustc to rustup's stable toolchain (matches run-parity.mjs):
-// a Homebrew cargo on PATH ignores rust-toolchain.toml, and even rustup's cargo
-// spawns a bare `rustc` from PATH unless RUSTC is pinned. Falls back to plain
-// `cargo` (with ~/.cargo/bin prepended) when rustup is absent.
-const stableCargo = rustupStableBin('cargo')
-const stableRustc = rustupStableBin('rustc')
-const env = cargoEnv()
-if (stableRustc) {
-  env.RUSTC = stableRustc
-}
-// The repo-root .cargo/config.toml turns Trust verification on via `-Z` rustflags,
-// which the stable toolchain selected above refuses to PARSE — the build then dies
-// probing target info, before compiling anything. An explicit RUSTFLAGS overrides
-// the config table wholesale (same idiom, same reason as build-rust-daemon.mjs);
-// a caller-supplied value still wins.
-env.RUSTFLAGS = process.env.RUSTFLAGS ?? ''
-
-async function runCargoBuild(targetTriple) {
-  const args = ['build', '--release', ...(targetTriple ? ['--target', targetTriple] : [])]
-  try {
-    await runStreamedCargoCommand({
-      command: stableCargo ?? 'cargo',
-      args,
-      cwd: addonDir,
-      env,
-      label: 'terminal-addon',
-      // shell only for bare-name PATH lookup; an absolute cargo path may contain spaces.
-      shell: process.platform === 'win32' && !stableCargo
-    })
-  } catch (error) {
-    if (error instanceof CargoCommandFailure && error.reason === 'spawn') {
-      console.error(
-        '[terminal-addon] Install rustup with a stable toolchain >=1.96 (https://rustup.rs), then re-run.'
-      )
-    }
-    throw error
-  }
+// Toolchain: targo's unverified lane (`targo --unverified build --release`) for
+// every triple the Trust toolchain serves, with no stock fallback. A triple it
+// cannot build (the x64 slice of a universal mac build, linux/windows hosts) is a
+// labelled STOCK EXCEPTION resolved in rust-toolchain-lane.mjs, in its own target
+// dir so stock- and Trust-compiled units never share a deps/ directory.
+async function runCargoBuild(triple) {
+  const invocation = cargoInvocation({
+    verb: 'build',
+    args: ['--release'],
+    triple,
+    label: 'terminal-addon',
+    // A cross-arch STOCK EXCEPTION slice builds beside Trust-built units on this
+    // host, so it gets its own target dir; a host with no Trust toolchain keeps
+    // the default one.
+    stockTargetDir: triple ? resolve(addonDir, 'target/stock-exception') : null
+  })
+  await runStreamedCargoCommand({
+    command: invocation.command,
+    args: invocation.args,
+    cwd: addonDir,
+    env: invocation.env,
+    label: 'terminal-addon'
+  })
   const built = resolve(
-    addonDir,
-    targetTriple ? `target/${targetTriple}/release` : 'target/release',
+    invocation.targetDir ?? resolve(addonDir, 'target'),
+    triple ? `${triple}/release` : 'release',
     cdylibName()
   )
   if (!existsSync(built)) {
@@ -187,7 +150,6 @@ async function runCargoBuild(targetTriple) {
 
 async function main() {
   if (perTargetMacBuild) {
-    assertRustupDarwinTargetsInstalled(macArches)
     const perTargetArtifacts = []
     for (const arch of macArches) {
       const triple = DARWIN_TRIPLES[arch]
@@ -201,7 +163,7 @@ async function main() {
     }
     console.log(`[terminal-addon] installed ${dest} (${macArches.join(' + ')})`)
   } else {
-    console.log('[terminal-addon] building aterm napi addon (cargo build --release)…')
+    console.log('[terminal-addon] building aterm napi addon (targo --unverified build --release)…')
     const built = await runCargoBuild(null)
     copyFileSync(built, dest)
     console.log(`[terminal-addon] installed ${dest}`)
@@ -223,9 +185,13 @@ async function main() {
 try {
   await main()
 } catch (error) {
-  if (!(error instanceof CargoCommandFailure)) {
+  if (error instanceof RustToolchainError) {
+    console.error(`[terminal-addon] ${error.message}`)
+    process.exitCode = 1
+  } else if (error instanceof CargoCommandFailure) {
+    console.error(`[terminal-addon] ${error.message}`)
+    process.exitCode = error.exitCode
+  } else {
     throw error
   }
-  console.error(`[terminal-addon] ${error.message}`)
-  process.exitCode = error.exitCode
 }

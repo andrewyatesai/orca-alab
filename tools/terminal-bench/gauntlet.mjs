@@ -72,12 +72,17 @@ const skip = (reason) => ({ status: 'SKIP', detail: reason })
 const C = { g: '\x1b[32m', r: '\x1b[31m', y: '\x1b[33m', d: '\x1b[2m', b: '\x1b[1m', x: '\x1b[0m' }
 
 // --- bootstrap: make every prerequisite present, idempotently — then PROVE it -----
-// rustup-stable pin for direct cargo invocations (perf corpus): the machine default
-// toolchain may be a nightly older than the workspace's rust-version, and a
-// Homebrew cargo shadowing rustup ignores rust-toolchain.toml.
-const rustupStable = (tool) => {
+// Direct cargo invocations (perf corpus, parity corpora) run the Trust toolchain's
+// fast lane, `targo --unverified`. `$CARGO` wins when a parent targo exported it,
+// and `--unverified --version` proves it IS targo (upstream cargo rejects the
+// flag). null when absent: a reported BLOCKED/REVIEW, never a stock fallback.
+// Kept inline (not config/scripts/rust-toolchain-lane.mjs) because the gauntlet
+// tests run a copy of tools/terminal-bench/gauntlet*.mjs outside the repo.
+const resolveTargo = () => {
+  const command = process.env.CARGO || 'targo'
   try {
-    return sh('rustup', ['which', tool, '--toolchain', 'stable']).trim()
+    sh(command, ['--unverified', '--version'])
+    return command
   } catch {
     return null
   }
@@ -136,13 +141,15 @@ function bootstrap() {
       `generating ${PERF_CORPUS_MB} MB perf corpus (orca-terminal bench example)`,
       () => {
         // Invoke from the repo ROOT (cargo reads .cargo/config from the cwd, so this
-        // escapes rust/'s offline-vendor replacement and resolves online), with the
-        // rustup-stable pin — same recipe as run-parity.mjs / build-aterm-wasm.mjs.
-        const cargo = rustupStable('cargo')
-        const rustc = rustupStable('rustc')
+        // escapes rust/'s offline-vendor replacement and resolves online).
+        const targo = resolveTargo()
+        if (!targo) {
+          throw new Error('targo (the Trust toolchain) not found — install it via atpkg')
+        }
         sh(
-          cargo ?? 'cargo',
+          targo,
           [
+            '--unverified',
             'run',
             '-q',
             '--release',
@@ -160,7 +167,7 @@ function bootstrap() {
           {
             cwd: repo,
             stdio: 'inherit',
-            env: { ...process.env, CARGO_NET_OFFLINE: 'false', ...(rustc ? { RUSTC: rustc } : {}) }
+            env: { ...process.env, CARGO_NET_OFFLINE: 'false' }
           }
         )
       }
@@ -322,49 +329,24 @@ function perf(trials = 5) {
 const TRUST_ROOT = process.env.TRUST_REPO || join(process.env.HOME || '', 'trust')
 const TRUST_ROOT_LABEL = '$TRUST_REPO'
 
-// Same ladder as proofs/ay/resolve-solver.sh: $AY → PATH → the canonical cargo
-// symlink → in-tree trust bootstrap outputs.
+// Same ladder as proofs/ay/resolve-solver.sh: $AY → PATH (the atpkg-managed ay).
+// Never ~/trust/build: that tree is the compiler repo's exclusive build output.
 function locateAy() {
-  const home = process.env.HOME || ''
   if (process.env.AY && existsSync(process.env.AY)) {
     return process.env.AY
   }
   try {
-    const onPath = sh('bash', ['-lc', 'command -v ay']).trim()
-    if (onPath) {
-      return onPath
-    }
+    return sh('bash', ['-lc', 'command -v ay']).trim() || null
   } catch {
-    // not on PATH — fall through to the known build locations
+    return null
   }
-  const candidates = [
-    join(home, '.cargo', 'bin', 'ay'),
-    join(TRUST_ROOT, 'build', 'host', 'stage2', 'bin', 'ay'),
-    join(
-      TRUST_ROOT,
-      'build',
-      'aarch64-apple-darwin',
-      'stage3-tools-bin',
-      'aarch64-apple-darwin',
-      'ay'
-    ),
-    join(
-      TRUST_ROOT,
-      'build',
-      'aarch64-apple-darwin',
-      'stage2-tools-bin',
-      'aarch64-apple-darwin',
-      'ay'
-    )
-  ]
-  return candidates.find((c) => existsSync(c)) ?? null
 }
 
 function safety() {
   const ay = locateAy()
   const verify = join(repo, 'rust', 'crates', 'orca-git', 'proofs', 'ay', 'verify.sh')
   if (!ay) {
-    return skip('Trust solver `ay` not found (~/.cargo/bin/ay) — safety axis unavailable here')
+    return skip('Trust solver `ay` not found ($AY or PATH) — safety axis unavailable here')
   }
   if (!existsSync(verify)) {
     return skip('orca-git proof bundle (proofs/ay/verify.sh) not found')
@@ -377,7 +359,7 @@ function safety() {
     return {
       status: clean ? 'PASS' : 'REVIEW',
       metrics: { obligations_discharged: discharged },
-      detail: 'orca-git SMT obligations (tcargo panic/UB proofs need the full Trust toolchain)'
+      detail: 'orca-git SMT obligations (panic/UB proofs are the `targo trust` lane, pnpm verify:rust)'
     }
   } catch (e) {
     return { status: 'FAIL', detail: String(e.message).split('\n')[0] }
@@ -437,7 +419,7 @@ function provenance() {
 }
 
 // --- certificates: the moonshot E1 pair, enforced (extracted module) -------------
-const certificates = () => certificatesGate({ repo, sh, skip, rustupStable })
+const certificates = () => certificatesGate({ repo, sh, skip, resolveTargo })
 
 // --- corpus: the parity-corpus ratchet (moonshot F2, extracted module) -----------
 const census = () => censusGate({ repo, here, benchDir: BENCH_DIR, sh })

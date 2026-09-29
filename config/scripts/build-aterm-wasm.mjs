@@ -36,11 +36,7 @@ import {
   withPatchedAtermWorktree
 } from './aterm-wasm-source-patch.mjs'
 import { cachedWasmBindgenExecutablePath } from './rust-host-executable-paths.mjs'
-import {
-  RustToolchainError,
-  cargoInvocation,
-  stockExceptionToolchain
-} from './rust-toolchain-lane.mjs'
+import { RustToolchainError, cargoInvocation, toolchainForTriple } from './rust-toolchain-lane.mjs'
 import { CargoCommandFailure, runStreamedCargoCommand } from './stream-cargo-command.mjs'
 import { assertNoEmbeddedLocalBuildPaths, wasmPathRemapRustflags } from './wasm-build-paths.mjs'
 
@@ -96,20 +92,24 @@ function which(bin) {
 }
 
 // STOCK EXCEPTION (Trust lacks a wasm32-unknown-unknown std; measured E0463):
-// the stock cargo and rustc are pinned by absolute path (a Homebrew cargo on PATH
-// ignores RUSTUP_TOOLCHAIN, and cargo spawns a BARE `rustc` unless RUSTC is set).
-// No rustup, no toolchain, or no wasm32 target is an error naming what to
-// install — never an install, and never a bare `cargo` fallback.
+// while the installed Trust toolchain ships no wasm32 std (probed per run in
+// rust-toolchain-lane.mjs), the stock cargo and rustc are pinned by absolute path
+// (a Homebrew cargo on PATH ignores RUSTUP_TOOLCHAIN, and cargo spawns a BARE
+// `rustc` unless RUSTC is set). No rustup, no toolchain, or no wasm32 target is
+// an error naming what to install — never an install, and never a bare `cargo`
+// fallback.
 async function runWasmCargo(args, opts = {}) {
-  const stock = stockExceptionToolchain({
-    targets: ['wasm32-unknown-unknown'],
-    env: opts.env ?? process.env
+  const tool = toolchainForTriple({
+    triple: 'wasm32-unknown-unknown',
+    env: opts.env ?? process.env,
+    label: 'aterm-wasm',
+    announce: false
   })
   await runStreamedCargoCommand({
-    command: stock.cargo,
-    args,
+    command: tool.command,
+    args: [...tool.laneArgs, ...args],
     cwd: opts.cwd ?? ROOT,
-    env: stock.env,
+    env: tool.env,
     label: 'aterm-wasm'
   })
 }
@@ -154,8 +154,8 @@ async function buildCrate(key, wasmBindgen, atermSource) {
       '--manifest-path',
       join(atermSource, dir, 'Cargo.toml')
     ],
-    // runWasmCargo pins the STOCK EXCEPTION toolchain (the machine's global
-    // default may lack wasm32-unknown-unknown or violate aterm's rust-version).
+    // runWasmCargo pins the wasm32 lane, today the STOCK EXCEPTION (the machine's
+    // global default may lack wasm32-unknown-unknown or violate aterm's rust-version).
     // The simd flag is target-scoped so host proc-macro builds stay untouched.
     {
       env: {
@@ -272,9 +272,9 @@ if (!which('wasm-opt')) {
 }
 let wasmBindgen
 try {
-  // Fail fast, before a multi-minute CLI bootstrap, when the STOCK EXCEPTION
-  // toolchain for wasm32 is not installed.
-  stockExceptionToolchain({ targets: ['wasm32-unknown-unknown'] })
+  // Fail fast, before a multi-minute CLI bootstrap, when no installed toolchain
+  // can build wasm32 (this also logs the STOCK EXCEPTION and the probe behind it).
+  toolchainForTriple({ triple: 'wasm32-unknown-unknown', label: 'aterm-wasm' })
   wasmBindgen = resolveWasmBindgen()
 } catch (error) {
   if (!(error instanceof RustToolchainError)) {

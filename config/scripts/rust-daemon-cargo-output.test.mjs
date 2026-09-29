@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -11,10 +11,11 @@ import {
 import { hostTriple } from './rust-toolchain-lane.mjs'
 
 // build-rust-daemon.mjs resolves its build tool through rust-toolchain-lane.mjs:
-// `targo` (probed with `--unverified --version`) where Trust serves the host, else
-// the STOCK EXCEPTION lane via read-only `rustup` queries. The fakes answer both:
-// `targo` passes the probe and otherwise IS the payload; `rustup which cargo`
-// names the same payload as `cargo`.
+// `targo` (probed with `--unverified --version`) when the installed Trust
+// toolchain ships the host std (`trustc --print target-libdir`), else the STOCK
+// EXCEPTION lane via read-only `rustup` queries. The fakes answer all of it:
+// `targo` passes the probe and otherwise IS the payload, `trustc` names a libdir
+// holding a libstd rlib, and `rustup which cargo` names the same payload as `cargo`.
 function writeFakeToolchain(fixtureDir, payload) {
   const fakeRustup = join(fixtureDir, 'rustup')
   writeFileSync(
@@ -27,6 +28,12 @@ else if (verb === 'which') console.log(sub === 'cargo' ? process.env.FAKE_CARGO 
 `
   )
   chmodSync(fakeRustup, 0o755)
+  const libdir = join(fixtureDir, 'sysroot', 'lib')
+  mkdirSync(libdir, { recursive: true })
+  writeFileSync(join(libdir, 'libstd-fake.rlib'), '')
+  const fakeTrustc = join(fixtureDir, 'trustc')
+  writeFileSync(fakeTrustc, `#!/usr/bin/env node\nconsole.log(${JSON.stringify(libdir)})\n`)
+  chmodSync(fakeTrustc, 0o755)
   if (payload !== null) {
     const body = payload.replace(/^#!.*\n/, '')
     const fakeTargo = join(fixtureDir, 'targo')
@@ -49,6 +56,7 @@ function fakeToolchainEnv(fixtureDir, fakeCargo) {
     FAKE_CARGO: fakeCargo
   }
   delete env.CARGO
+  delete env.RUSTC
   delete env.ORCA_STOCK_RUST_TOOLCHAIN
   return env
 }
@@ -264,9 +272,9 @@ setInterval(() => {}, 1000)
           wrapper.once('close', (status, signal) => resolveClose({ status, signal }))
         })
         await new Promise((resolveReady, rejectReady) => {
-          // Why 15s, not 2s: reaching "cargo-ready" costs SIX Node startups
+          // Why 15s, not 2s: reaching "cargo-ready" costs SEVEN Node startups
           // (this wrapper -> build-rust-daemon -> the targo identity probe ->
-          // fake cargo -> its two children)
+          // the trustc libdir probe -> fake cargo -> its two children)
           // plus marker-file polling. That is process-startup latency, which this
           // test does not assert — it asserts SIGTSTP/SIGCONT/SIGQUIT job control.
           // A 2s budget held when run alone and flaked inside the full parallel

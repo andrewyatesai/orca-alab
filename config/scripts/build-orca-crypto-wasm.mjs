@@ -33,11 +33,7 @@ import {
   assertNoEmbeddedLocalBuildPaths,
   wasmCratePathRemapRustflags
 } from './wasm-build-paths.mjs'
-import {
-  RustToolchainError,
-  cargoInvocation,
-  stockExceptionToolchain
-} from './rust-toolchain-lane.mjs'
+import { RustToolchainError, cargoInvocation, toolchainForTriple } from './rust-toolchain-lane.mjs'
 import { writeCratePin } from './wasm-crate-artifact-pin.mjs'
 
 const ROOT = join(import.meta.dirname, '..', '..')
@@ -75,16 +71,19 @@ function which(bin) {
 
 // STOCK EXCEPTION (Trust lacks a wasm32-unknown-unknown std; measured E0463
 // "can't find crate for `core`", and -Zbuild-std fails because the seal ships no
-// rust-src): the wasm32 build uses an INSTALLED stock rustup toolchain
-// (ORCA_STOCK_RUST_TOOLCHAIN, default `stable`) with cargo and rustc pinned by
-// absolute path. Missing rustup/toolchain/target is an error naming what to
-// install — never an install, and never a bare `cargo` fallback.
+// rust-src): while the installed Trust toolchain ships no wasm32 std (probed per
+// run in rust-toolchain-lane.mjs), the wasm32 build uses an INSTALLED stock
+// rustup toolchain (ORCA_STOCK_RUST_TOOLCHAIN, default `stable`) with cargo and
+// rustc pinned by absolute path. Missing rustup/toolchain/target is an error
+// naming what to install — never an install, and never a bare `cargo` fallback.
 function runWasmCargo(args, opts = {}) {
-  const stock = stockExceptionToolchain({
-    targets: ['wasm32-unknown-unknown'],
-    env: opts.env ?? process.env
+  const tool = toolchainForTriple({
+    triple: 'wasm32-unknown-unknown',
+    env: opts.env ?? process.env,
+    label: 'orca-crypto-wasm',
+    announce: false
   })
-  run(stock.cargo, args, { ...opts, env: stock.env })
+  run(tool.command, [...tool.laneArgs, ...args], { ...opts, env: tool.env })
 }
 
 function resolveWasmBindgen() {
@@ -105,9 +104,9 @@ function resolveWasmBindgen() {
 
 let wasmBindgen
 try {
-  // Fail fast, before the CLI bootstrap, when the STOCK EXCEPTION toolchain for
-  // wasm32 is not installed.
-  stockExceptionToolchain({ targets: ['wasm32-unknown-unknown'] })
+  // Fail fast, before the CLI bootstrap, when no installed toolchain can build
+  // wasm32 (this also logs the STOCK EXCEPTION and the probe result behind it).
+  toolchainForTriple({ triple: 'wasm32-unknown-unknown', label: 'orca-crypto-wasm' })
   wasmBindgen = resolveWasmBindgen()
 } catch (error) {
   if (!(error instanceof RustToolchainError)) {
@@ -119,9 +118,9 @@ try {
 
 console.log(`\n[orca-crypto-wasm] building ${CRATE_DIR} …`)
 // Build from ROOT (online ancestry) via --manifest-path so wasm-bindgen resolves
-// from crates.io, not the offline rust/vendor. runWasmCargo pins the STOCK
-// EXCEPTION toolchain (the crate's own rust-toolchain.toml says `stable` too, but
-// cargo never reads it from the ROOT cwd).
+// from crates.io, not the offline rust/vendor. runWasmCargo pins the wasm32 lane
+// (today the STOCK EXCEPTION; the crate's own rust-toolchain.toml says `stable`
+// too, but cargo never reads it from the ROOT cwd).
 runWasmCargo(
   [
     'build',

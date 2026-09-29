@@ -163,7 +163,9 @@ async function main() {
     }
     console.log(`[terminal-addon] installed ${dest} (${macArches.join(' + ')})`)
   } else {
-    console.log('[terminal-addon] building aterm napi addon (targo --unverified build --release)…')
+    console.log(
+      '[terminal-addon] building aterm napi addon (targo --unverified build --release)…'
+    )
     const built = await runCargoBuild(null)
     copyFileSync(built, dest)
     console.log(`[terminal-addon] installed ${dest}`)

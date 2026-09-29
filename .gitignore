@@ -175,6 +175,9 @@ playwright-report/
 
 # Rust native workspace build artifacts
 /rust/target/
+# `targo trust check tools/trust-terminal/cursor_arithmetic.rs` writes its
+# verification report beside the file (target/trust-cache/verification.json).
+/tools/trust-terminal/target/
 # rust/vendor is intentionally tracked: dependencies are vendored in-tree
 # (offline, reproducible, stripped builds) per the native-Rust migration goal.
 

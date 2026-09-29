@@ -215,7 +215,7 @@ fn find_units(haystack: &[u16], needle: &[u16]) -> Option<usize> {
 
 /// Truncate to `max_length` UTF-16 code units, dropping a trailing lone high
 /// surrogate so the result is always valid UTF-16 (no replacement glyph).
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 #[cfg_attr(trust_verify, trust::ensures(|out: &Vec<u16>| out.len() <= max_length))]
 fn truncate_preserving_surrogates(units: &[u16], max_length: usize) -> Vec<u16> {
     // Why `<` and not `<=`: the twin only short-circuits BELOW the cap, so a

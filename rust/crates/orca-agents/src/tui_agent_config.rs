@@ -404,7 +404,7 @@ pub fn is_tui_agent(value: &str) -> bool {
 }
 
 /// Detect command plus any aliases that identify the same agent on PATH.
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 // Postcondition — the result is exactly the primary command plus every alias.
 #[cfg_attr(trust_verify, trust::ensures(|out: &Vec<&str>| out.len() == 1 + config.detect_cmd_aliases.len()))]
 pub fn get_tui_agent_detect_commands(config: &TuiAgentConfig) -> Vec<&str> {

@@ -155,6 +155,8 @@ The point of this file is the diff. Sequence:
    Expect this to be long, and expect the `~/trust` bootstrap caveats recorded in
    `docs/rust-migration/trust-toolchain-experience.md` to apply.
 2. **Re-probe the flag surface first.** `node config/scripts/check-trust-flag-surface.mjs`.
+   (Removed in the 2026-09-28 Trust migration: the cargo configs carry no `-Z` flags
+   any more, so there is no flag surface left to probe.)
    The surface has now flipped three times; assume it moved again before assuming
    anything else. Fix both configs if it did.
 3. **Re-run the identical measurement.** `pnpm verify:rust orca-core` — same

@@ -133,7 +133,7 @@ pub fn get_browser_viewport_preset(
 }
 
 /// Map a preset row onto a CDP viewport override.
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 // Postcondition — the override copies the preset's emulation fields exactly.
 #[cfg_attr(trust_verify, trust::ensures(|out: &BrowserViewportOverride|
     out.width == preset.width

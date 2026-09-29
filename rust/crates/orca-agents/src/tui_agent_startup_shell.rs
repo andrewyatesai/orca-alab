@@ -40,7 +40,7 @@ pub fn resolve_startup_shell(platform: &str, shell: Option<AgentStartupShell>) -
 }
 
 /// Quote a single argument for the target shell.
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 // Postcondition — the result is always wrapped (at least the two quote chars).
 #[cfg_attr(trust_verify, trust::ensures(|out: &String| out.len() >= 2))]
 pub fn quote_startup_arg(value: &str, shell: AgentStartupShell) -> String {

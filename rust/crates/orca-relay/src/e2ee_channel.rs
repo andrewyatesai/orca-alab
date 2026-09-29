@@ -85,7 +85,7 @@ enum PlaintextRoute {
     ProtocolError,
 }
 
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 // Postcondition — no delivery route exists outside `Ready`. This is the
 // "no Deliver* before Ready" safety property; routing through one total pure
 // function means a later opcode cannot re-derive it by hand and get it wrong.

@@ -260,7 +260,7 @@ New `applyAtermCanonicalConfig` sits beside `applyTerminalAppearance` (`src/rend
 
 ### 5.6 Build + drift gate (grafted hard gate)
 
-- `config/scripts/build-aterm-settings-schema.mjs` — runs `cargo run -p aterm-config --bin dump-schema` (crate-level, no GUI), writes the vendored `.generated.ts` + `.d.ts`. Wired into `config/scripts/bump-aterm.mjs` so a pin bump regenerates the schema.
+- `config/scripts/build-aterm-settings-schema.mjs` (proposed; not written yet) — runs `targo --unverified run -p aterm-config --bin dump-schema` (crate-level, no GUI), writes the vendored `.generated.ts` + `.d.ts`. Wired into `config/scripts/bump-aterm.mjs` so a pin bump regenerates the schema.
 - `config/scripts/check-aterm-settings-schema.mjs` — **hash-pin drift gate** modeled on the existing `config/scripts/check-aterm-artifact-pin.mjs`, added to the `pnpm lint` chain **and** the gauntlet (`tools/terminal-bench/gauntlet.mjs`). If the vendored JSON diverges from the pinned crate, the build fails. This is the enforceable anti-drift machinery that makes "generated UI cannot drift" a fact rather than an aspiration.
 
 ---

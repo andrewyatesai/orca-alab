@@ -4,9 +4,9 @@
 //! output/input/resize/snapshot traffic over a single connection. JSON payloads
 //! ride the vendored `serde_json`; the frame header is hand-rolled bytes.
 
-// Trust contracts: the `trust` tool namespace only exists under `trustc`
-// (`--cfg trust_verify`); inert under stock cargo so the crate stays
-// dual-buildable. terminal_stream.rs carries a `trust::ensures` that was a hard
+// Trust contracts: `trustc` sets `cfg(trust_verify)` itself whenever verification
+// runs (`targo trust`); the cfg is off under `targo --unverified` and under the
+// stock wasm32 lane (orca-git-wasm), where this gating keeps the crate building. terminal_stream.rs carries a `trust::ensures` that was a hard
 // E0433 the moment verification turned on — the contract landed without this
 // registration, invisible while nothing set the cfg.
 #![cfg_attr(trust_verify, feature(register_tool))]

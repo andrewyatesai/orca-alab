@@ -2,9 +2,9 @@
 //! message generation, output cleanup). Pure logic over vendored `regex` +
 //! `serde_json`; the actual process spawning lives in a higher IO tier.
 
-// Trust contracts: the `trust` tool namespace only exists under `trustc`
-// (`--cfg trust_verify`); inert under stock cargo so the crate stays
-// dual-buildable.
+// Trust contracts: `trustc` sets `cfg(trust_verify)` itself whenever verification
+// runs (`targo trust`); the cfg is off under `targo --unverified` and under the
+// stock wasm32 lane (orca-git-wasm), where this gating keeps the crate building.
 #![cfg_attr(trust_verify, feature(register_tool))]
 #![cfg_attr(trust_verify, register_tool(trust))]
 

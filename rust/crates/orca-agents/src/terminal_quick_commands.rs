@@ -79,7 +79,7 @@ impl TerminalQuickCommand {
 }
 
 /// Truncate to the first `max_len` UTF-16 code units (TS `String.slice(0, n)`).
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 // Postcondition — the result never exceeds the cap in UTF-16 code units. (A
 // cap that splits a surrogate pair yields U+FFFD via the lossy decode rather
 // than the lone surrogate TS would keep; the caps here never split real input.)
@@ -199,7 +199,7 @@ pub fn is_terminal_quick_command_complete(command: &TerminalQuickCommand) -> boo
 
 /// Sanitize the persisted (untrusted) quick-command list. Non-array input
 /// yields the defaults (empty list).
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 // Postcondition — the result never exceeds the catalog cap.
 #[cfg_attr(trust_verify, trust::ensures(|out: &Vec<TerminalQuickCommand>| out.len() <= MAX_QUICK_COMMANDS))]
 pub fn normalize_terminal_quick_commands(input: &Value) -> Vec<TerminalQuickCommand> {

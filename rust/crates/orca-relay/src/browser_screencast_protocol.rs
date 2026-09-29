@@ -103,7 +103,7 @@ fn decode_frame_metadata(bytes: &[u8]) -> Option<Value> {
     Some(Value::Object(metadata))
 }
 
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 // Postcondition — the frame always carries the full fixed-width header.
 #[cfg_attr(trust_verify, trust::ensures(|out: &Vec<u8>| out.len() >= HEADER_BYTES))]
 pub fn encode_browser_screencast_frame(frame: &BrowserScreencastFrame) -> Vec<u8> {

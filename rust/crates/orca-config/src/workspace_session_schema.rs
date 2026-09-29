@@ -1057,7 +1057,7 @@ struct HistoryCandidate {
 
 /// Dedupe by normalized URL, keep most-recent visits, cap at
 /// `MAX_BROWSER_HISTORY_ENTRIES`. Mirrors `normalizeBrowserHistoryEntries`.
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 // Postcondition — the result never exceeds the history cap.
 #[cfg_attr(trust_verify, trust::ensures(|out: &Value|
     out.as_array().map_or(true, |entries| entries.len() <= MAX_BROWSER_HISTORY_ENTRIES)))]

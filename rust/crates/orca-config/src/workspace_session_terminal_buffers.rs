@@ -106,7 +106,7 @@ pub fn should_preserve_terminal_scrollback_buffers(
 /// walks code points backwards accumulating byte costs; on a Rust `&str` the
 /// byte length is already known, so the same suffix is the first char boundary
 /// at or after `len - max_bytes`.
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 #[cfg_attr(trust_verify, trust::ensures(|out: &&str| out.len() <= max_bytes))]
 fn clamp_utf8_text_tail(text: &str, max_bytes: usize) -> &str {
     if text.is_empty() || max_bytes == 0 {
@@ -124,7 +124,7 @@ fn clamp_utf8_text_tail(text: &str, max_bytes: usize) -> &str {
     &text[start..]
 }
 
-// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Trust contract: inert unless verification runs; checked under `targo trust`.
 // Postcondition — the result never exceeds the cap in UTF-8 bytes. It lives on
 // this `usize` overload rather than the `Option` one because the contract
 // renderer cannot parse a method call in the predicate: it answers "not a

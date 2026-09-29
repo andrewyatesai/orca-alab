@@ -2981,7 +2981,7 @@ map over `orca.h`) → `liborca_ffi.a` → the `aterm` engine. The `orca-smoke`
 executable drives the core end-to-end and **passes**:
 
 ```
-(cd rust && cargo build -p orca-ffi) && (cd native/orca-macos && swift run orca-smoke)
+(cd rust && targo --unverified build -p orca-ffi) && (cd native/orca-macos && swift run orca-smoke)
 # → OK — Swift shell drove the Rust core (grid, cursor, OSC-7 cwd, resize); core v0.0.1
 ```
 

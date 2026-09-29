@@ -283,7 +283,8 @@ Contracts must not break the stock wasm32 build of the crates above. Use
 only under the verifier and is otherwise absent:
 
 ```rust
-// Inert under stock rustc (cfg off); becomes #[trust::ensures(..)] under `--cfg trust_verify`.
+// Inert when verification is off (targo --unverified, stock wasm32); becomes
+// #[trust::ensures(..)] under `targo trust`, which sets cfg(trust_verify) itself.
 #[cfg_attr(trust_verify, trust::ensures(|s: &String|
     s.encode_utf16().count() <= max_length))]
 fn truncate_preserving_surrogates(value: &str, max_length: usize) -> String { /* ... */ }

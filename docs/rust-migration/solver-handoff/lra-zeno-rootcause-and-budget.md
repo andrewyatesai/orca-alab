@@ -75,6 +75,8 @@ a coarse outer backstop.
 
 ## Test plan (build #67, ay `1bc24189af82`)
 
+(The script was removed in the 2026-09-28 Trust migration: this hang converged in
+183229d26, and `targo trust` refuses the `TRUST_VERIFY_FUNCTIONS` filter it relied on.)
 `tools/trust-survey/focused-hang-test.sh build_agent_notification_id 20000 180` — one
 function, low budget, AY direct-solve timeout DISABLED (termination proven by budget alone),
 perl-alarm backstop. Exit 142 ⇒ still hangs (diagnosis wrong / SAT-core). Otherwise ⇒

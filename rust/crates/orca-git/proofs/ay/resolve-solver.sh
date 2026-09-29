@@ -11,7 +11,8 @@
 # defines solve_verdict <file> → first bare sat/unsat/unknown line, lowercased.
 
 # ay ladder: $AY → PATH (the atpkg-managed Trust toolchain). Never ~/trust/build
-# — the compiler repo's exclusive build output, whose ay goes stale.
+# — the compiler repo's exclusive build output, whose ay goes stale. An explicit
+# $AY that does not run is FATAL (below), never a fall-through to another solver.
 resolve_ay() {
   local c
   for c in \
@@ -27,7 +28,13 @@ resolve_ay() {
 
 SOLVER_KIND="${AY_SOLVER:-ay}"
 case "$SOLVER_KIND" in
-  ay) SOLVER_BIN="$(resolve_ay || true)" ;;
+  ay)
+    if [ -n "${AY:-}" ] && ! "$AY" --version >/dev/null 2>&1; then
+      echo "FATAL: \$AY='$AY' is not a runnable ay"
+      exit 1
+    fi
+    SOLVER_BIN="$(resolve_ay || true)"
+    ;;
   z3) SOLVER_BIN="${Z3:-$(command -v z3 2>/dev/null || true)}" ;;
   *)
     echo "FATAL: unknown AY_SOLVER='$SOLVER_KIND' (expected ay or z3)"

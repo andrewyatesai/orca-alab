@@ -24,12 +24,14 @@
 # doing the work.
 set -u
 # ay: $AY, else PATH (the atpkg-managed Trust toolchain). Never ~/trust/build —
-# the compiler repo's exclusive build output, whose ay goes stale.
-AY_REQUESTED="${AY:-}"
-AY=""
-for c in "$AY_REQUESTED" "$(command -v ay 2>/dev/null || true)"; do
-  if [ -n "$c" ] && "$c" --version >/dev/null 2>&1; then AY="$c"; break; fi
-done
+# the compiler repo's exclusive build output, whose ay goes stale. An explicit
+# $AY that does not run is an error, never a fall-through to another solver.
+if [ -n "${AY:-}" ]; then
+  "$AY" --version >/dev/null 2>&1 || { echo "FAIL: \$AY=$AY is not a runnable ay (grant_authority not checked)"; exit 1; }
+else
+  AY="$(command -v ay 2>/dev/null || true)"
+  if [ -n "$AY" ] && ! "$AY" --version >/dev/null 2>&1; then AY=""; fi
+fi
 [ -n "$AY" ] || { echo "SKIP: no runnable ay found (grant_authority not checked)"; exit 0; }
 echo "ay = $AY"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

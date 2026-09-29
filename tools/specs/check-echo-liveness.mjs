@@ -21,7 +21,10 @@ import { skipNothingProven } from './spec-exit-code.mjs'
 const here = import.meta.dirname
 const ty = resolveTy()
 if (!ty) {
-  skipNothingProven('echo-spec', 'ty not found (install the Trust toolchain via atpkg, or set TY_BIN)')
+  skipNothingProven(
+    'echo-spec',
+    'ty not found (install the Trust toolchain via atpkg, or set TY_BIN)'
+  )
 }
 const check = (cfg) =>
   spawnSync(

@@ -17,7 +17,10 @@ import { skipNothingProven } from './spec-exit-code.mjs'
 const here = import.meta.dirname
 const ty = resolveTy()
 if (!ty) {
-  skipNothingProven('keep-tail-spec', 'ty not found (install the Trust toolchain via atpkg, or set TY_BIN)')
+  skipNothingProven(
+    'keep-tail-spec',
+    'ty not found (install the Trust toolchain via atpkg, or set TY_BIN)'
+  )
 }
 const check = (tla, cfg) =>
   spawnSync(ty, ['check', join(here, tla), '--config', join(here, cfg), '--workers', '1'], {

@@ -303,7 +303,8 @@ async function main() {
   const corpusMb = corpusBytes / 1e6
 
   const cleanup = []
-  const scratch = process.platform === 'win32' ? null : mkdtempSync(join(os.tmpdir(), 'daemon-flood-'))
+  const scratch =
+    process.platform === 'win32' ? null : mkdtempSync(join(os.tmpdir(), 'daemon-flood-'))
   if (scratch) {
     cleanup.push(() => rmSync(scratch, { recursive: true, force: true }))
   }
@@ -437,8 +438,7 @@ async function main() {
   }
 }
 
-const invokedDirectly =
-  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 if (invokedDirectly) {
   main().catch((err) => {
     console.error(err.message ?? err)

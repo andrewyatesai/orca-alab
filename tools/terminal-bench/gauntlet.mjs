@@ -359,7 +359,8 @@ function safety() {
     return {
       status: clean ? 'PASS' : 'REVIEW',
       metrics: { obligations_discharged: discharged },
-      detail: 'orca-git SMT obligations (panic/UB proofs are the `targo trust` lane, pnpm verify:rust)'
+      detail:
+        'orca-git SMT obligations (panic/UB proofs are the `targo trust` lane, pnpm verify:rust)'
     }
   } catch (e) {
     return { status: 'FAIL', detail: String(e.message).split('\n')[0] }

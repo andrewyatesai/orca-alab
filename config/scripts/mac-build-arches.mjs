@@ -30,9 +30,7 @@ export function resolveMacBuildArches(env = process.env, processArch = process.a
       : [hostMacArch(processArch)]
   const unknown = requested.filter((arch) => !DARWIN_TRIPLES[arch])
   if (unknown.length > 0) {
-    throw new Error(
-      `Unsupported mac build arch(es): ${unknown.join(', ')} (supported: x64, arm64)`
-    )
+    throw new Error(`Unsupported mac build arch(es): ${unknown.join(', ')} (supported: x64, arm64)`)
   }
   return [...new Set(requested)]
 }

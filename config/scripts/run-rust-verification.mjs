@@ -41,11 +41,13 @@ const DEFAULT_CRATES = [
   'orca-git',
   'orca-text',
   'orca-policy',
-  'orca-agents',
+  'orca-agents'
 ]
 
 function allCrates() {
-  return readdirSync(join(RUST, 'crates')).filter((c) => c.startsWith('orca-')).sort()
+  return readdirSync(join(RUST, 'crates'))
+    .filter((c) => c.startsWith('orca-'))
+    .sort()
 }
 
 const crates = named.length > 0 ? named : wantAll ? allCrates() : DEFAULT_CRATES
@@ -99,7 +101,7 @@ for (const crate of crates) {
   const seconds = Number(process.hrtime.bigint() - started) / 1e9
   const t = tally(run.stdout ?? '')
   const compiled = t !== null
-  results.push({ crate, compiled, seconds, ...(t ?? {}) })
+  results.push({ crate, compiled, seconds, ...t })
   process.stderr.write(
     compiled
       ? `ok ${seconds.toFixed(0)}s — ${t.obligations} obligation(s), ${t.proved} proved, gate ${t.gate}\n`
@@ -119,7 +121,9 @@ if (wantJson) {
   const pad = (s, n) => String(s).padEnd(n)
   const num = (s, n) => String(s).padStart(n)
   console.log('')
-  console.log(`  ${pad('crate', 22)}${num('oblig', 7)}${num('proved', 8)}${num('failed', 8)}${num('unknown', 9)}${num('timeout', 9)}${num('rt-chk', 8)}${num('secs', 7)}`)
+  console.log(
+    `  ${pad('crate', 22)}${num('oblig', 7)}${num('proved', 8)}${num('failed', 8)}${num('unknown', 9)}${num('timeout', 9)}${num('rt-chk', 8)}${num('secs', 7)}`
+  )
   console.log(`  ${'-'.repeat(78)}`)
   for (const r of results) {
     if (!r.compiled) {

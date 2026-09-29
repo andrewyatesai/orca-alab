@@ -178,6 +178,9 @@ playwright-report/
 # `targo trust check tools/trust-terminal/cursor_arithmetic.rs` writes its
 # verification report beside the file (target/trust-cache/verification.json).
 /tools/trust-terminal/target/
+# `pnpm verify:rust` (`targo trust check -p <crate>`) writes the same cache
+# beside each crate's manifest: rust/crates/<crate>/target/trust-cache/.
+/rust/crates/*/target/
 # rust/vendor is intentionally tracked: dependencies are vendored in-tree
 # (offline, reproducible, stripped builds) per the native-Rust migration goal.
 

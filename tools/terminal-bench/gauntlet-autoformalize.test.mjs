@@ -34,7 +34,8 @@ function runAutoformalize(kernels, ratchet = BASELINE) {
   const here = join(root, 'tools', 'terminal-bench')
   const trustRoot = join(root, 'trust')
   const ts2rust = join(trustRoot, 'tools', 'ts2rust')
-  const trustc = join(trustRoot, 'build', 'host', 'stage2', 'bin', 'trustc')
+  // Handed to the gate via $TRUSTC, its first rung (the fixture is never executed).
+  const trustc = join(root, 'bin', 'trustc')
   try {
     mkdirSync(here, { recursive: true })
     // Copy the unmodified CLI and its modules so tests never rewrite a live ratchet/report.

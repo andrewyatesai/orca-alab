@@ -1,7 +1,7 @@
 // Exit codes for the model-checked PTY/terminal specs.
 //
 // The problem this exists to fix: all four spec scripts SKIP when `ty` is absent
-// (it ships in the local ~/trust stage2 build, which most machines do not have)
+// (it ships with the atpkg-managed Trust toolchain, which not every machine has)
 // and skipping exited 0. A run that model-checked NOTHING was indistinguishable
 // from a run where every invariant held — including to `spec:protocols`, which
 // chains two of them with `&&`.

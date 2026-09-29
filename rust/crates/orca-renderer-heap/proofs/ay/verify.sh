@@ -19,14 +19,11 @@
 # TS production sizing. Together that is the full E1 pair.
 set -u
 
-AY=""
-for c in "$HOME/.cargo/bin/ay" \
-         "$HOME/trust/build/host/stage2/bin/ay" \
-         "$(command -v ay 2>/dev/null || true)"; do
-  if [ -n "$c" ] && [ -x "$c" ]; then AY="$c"; break; fi
-done
-if [ -z "$AY" ]; then
-  echo "FAIL: no runnable ay found (looked in ~/.cargo/bin, trust sysroot, PATH)" >&2
+# ay: $AY, else PATH (the atpkg-managed Trust toolchain). Never ~/trust/build —
+# the compiler repo's exclusive build output, whose ay goes stale.
+AY="${AY:-$(command -v ay 2>/dev/null || true)}"
+if [ -z "$AY" ] || ! [ -x "$AY" ]; then
+  echo "FAIL: no runnable ay found (looked at \$AY, PATH)" >&2
   exit 1
 fi
 

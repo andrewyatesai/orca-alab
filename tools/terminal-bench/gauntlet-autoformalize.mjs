@@ -58,15 +58,11 @@ function discoverCorpus(orcaDir) {
   return out
 }
 
-function locateTrustc(trustRoot, sh) {
-  const candidates = [
-    process.env.TRUSTC,
-    join(trustRoot, 'build', 'host', 'stage2', 'bin', 'trustc')
-  ]
-  for (const c of candidates) {
-    if (c && existsSync(c)) {
-      return c
-    }
+// $TRUSTC → PATH (the atpkg-managed trustc); never $TRUST_REPO/build, which is
+// the compiler repo's exclusive build output.
+function locateTrustc(sh) {
+  if (process.env.TRUSTC && existsSync(process.env.TRUSTC)) {
+    return process.env.TRUSTC
   }
   try {
     return sh('bash', ['-lc', 'command -v trustc']).trim() || null
@@ -164,7 +160,7 @@ export function autoformalizeGate({ here, sh, skip, trustRoot, trustRootLabel })
           detail: `0 autoformalizable .ts/.rs pairs discovered under ${where} with a baseline on file — the ratcheted corpus is GONE; an empty corpus proves nothing`
         }
   }
-  const trustc = locateTrustc(trustRoot, sh)
+  const trustc = locateTrustc(sh)
   if (!trustc) {
     return {
       status: 'SKIP',
@@ -173,7 +169,7 @@ export function autoformalizeGate({ here, sh, skip, trustRoot, trustRootLabel })
         declined: corpus.length - runnable.length,
         controls
       },
-      detail: `trustc not built — ${runnable.length} orc functions ready to autoformalize; build the Trust stage2 toolchain or set TRUSTC=<path>, then re-run (nothing proven until then)`
+      detail: `trustc not found — ${runnable.length} orc functions ready to autoformalize; install the Trust toolchain (atpkg) or set TRUSTC=<path>, then re-run (nothing proven until then)`
     }
   }
   const rows = runnable.map((c) => ({

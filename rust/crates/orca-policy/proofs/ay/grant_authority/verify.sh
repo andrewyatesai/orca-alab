@@ -23,13 +23,12 @@
 # and without the catch-control they might be credited to a guard that is not
 # doing the work.
 set -u
+# ay: $AY, else PATH (the atpkg-managed Trust toolchain). Never ~/trust/build —
+# the compiler repo's exclusive build output, whose ay goes stale.
+AY_REQUESTED="${AY:-}"
 AY=""
-for c in \
-  "$HOME/.cargo/bin/ay" \
-  "$HOME/trust/build/host/stage2/bin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage3-tools-bin/aarch64-apple-darwin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage2-tools-bin/aarch64-apple-darwin/ay" ; do
-  if "$c" --version >/dev/null 2>&1; then AY="$c"; break; fi
+for c in "$AY_REQUESTED" "$(command -v ay 2>/dev/null || true)"; do
+  if [ -n "$c" ] && "$c" --version >/dev/null 2>&1; then AY="$c"; break; fi
 done
 [ -n "$AY" ] || { echo "SKIP: no runnable ay found (grant_authority not checked)"; exit 0; }
 echo "ay = $AY"

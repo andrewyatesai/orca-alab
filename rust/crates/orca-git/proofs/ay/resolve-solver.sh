@@ -10,17 +10,13 @@
 # Sets SOLVER_KIND (ay|z3) and SOLVER_BIN (empty when nothing runnable), and
 # defines solve_verdict <file> → first bare sat/unsat/unknown line, lowercased.
 
-# ay ladder: $AY → PATH → the canonical cargo symlink (can dangle mid trust-
-# sysroot rebuild) → in-tree trust bootstrap outputs (mirrors aterm's list).
+# ay ladder: $AY → PATH (the atpkg-managed Trust toolchain). Never ~/trust/build
+# — the compiler repo's exclusive build output, whose ay goes stale.
 resolve_ay() {
   local c
   for c in \
     "${AY:-}" \
-    "$(command -v ay 2>/dev/null || true)" \
-    "$HOME/.cargo/bin/ay" \
-    "$HOME/trust/build/host/stage2/bin/ay" \
-    "$HOME/trust/build/aarch64-apple-darwin/stage3-tools-bin/aarch64-apple-darwin/ay" \
-    "$HOME/trust/build/aarch64-apple-darwin/stage2-tools-bin/aarch64-apple-darwin/ay"; do
+    "$(command -v ay 2>/dev/null || true)"; do
     if [ -n "$c" ] && "$c" --version >/dev/null 2>&1; then
       echo "$c"
       return 0

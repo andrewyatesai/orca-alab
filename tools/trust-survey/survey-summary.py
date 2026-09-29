@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize a Trust survey JSON (tcargo-trust --format json) into the gap-log metric.
+"""Summarize a Trust survey JSON (targo trust check --format json) into the gap-log metric.
 
 Usage: survey-summary.py <survey.json>
 

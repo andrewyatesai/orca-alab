@@ -34,7 +34,7 @@
 //
 // Usage:
 //   node tools/autoformalize-blocker-census.mjs [--json] [--corpus <dir>] [--timeout-ms N]
-// Env: TRUSTC=<path> (else the rustup stage2 default); TS2RUST_CORPUS=<dir>.
+// Env: TRUSTC=<path> (else `trustc` on PATH — the atpkg Trust toolchain); TS2RUST_CORPUS=<dir>.
 // SKIPs (exit 0, empty report) when trustc or the corpus is absent — the Goal-A
 // engine + corpus live in the local ~/trust repo, so a fresh orc checkout has neither.
 
@@ -53,12 +53,13 @@ function argValue(flag) {
   return i !== -1 && i + 1 < args.length ? args[i + 1] : null
 }
 
+// $TRUSTC → PATH; never ~/trust/build, the compiler repo's exclusive build output.
 function locateTrustc() {
   if (process.env.TRUSTC && existsSync(process.env.TRUSTC)) {
     return process.env.TRUSTC
   }
-  const stage2 = join(homedir(), 'trust', 'build', 'host', 'stage2', 'bin', 'trustc')
-  return existsSync(stage2) ? stage2 : null
+  const probe = spawnSync('trustc', ['--version'], { encoding: 'utf8' })
+  return probe.status === 0 ? 'trustc' : null
 }
 
 const corpusDir =
@@ -76,7 +77,7 @@ function skip(reason) {
 }
 
 if (!trustc) {
-  skip('trustc not built (set TRUSTC or build ~/trust stage2)')
+  skip('trustc not found (install the Trust toolchain via atpkg, or set TRUSTC)')
 }
 if (!existsSync(corpusDir)) {
   skip(`corpus not found at ${corpusDir}`)

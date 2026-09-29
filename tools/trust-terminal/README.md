@@ -5,7 +5,7 @@ Two complementary **automated** bug-finders for the headless terminal engine:
 | Tool | Finds | How |
 |------|-------|-----|
 | `tools/conformance` (differential fuzzer) | **behaviour** bugs — engine renders differently than xterm.js | random VT streams through both engines, diff the grid |
-| `tools/trust-terminal` (Trust verifier) | **safety** bugs — integer overflow / out-of-bounds that *crash the daemon* | `tcargo trust` enumerates every arithmetic op + index as a proof obligation |
+| `tools/trust-terminal` (Trust verifier) | **safety** bugs — integer overflow / out-of-bounds that *crash the daemon* | `targo trust` enumerates every arithmetic op + index as a proof obligation |
 
 The fuzzer answers "does it match xterm?"; Trust answers "can any PTY byte stream
 make it panic?" — no test input required, the verifier reasons over all inputs.
@@ -13,7 +13,7 @@ make it panic?" — no test input required, the verifier reasons over all inputs
 ## Run it
 
 ```sh
-tcargo trust check tools/trust-terminal/cursor_arithmetic.rs
+targo trust check tools/trust-terminal/cursor_arithmetic.rs   # exits 1 by design: the _unsafe variants fail
 ```
 
 Trust lifts each `+`/`-`/index into a Level-0 safety obligation. The `_unsafe`

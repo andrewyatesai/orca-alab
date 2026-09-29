@@ -8,7 +8,7 @@
 # bundle's verify.sh and reports an aggregate verdict. Each bundle SKIPS (exit 0)
 # rather than fails when `ay` is absent, so this gate is green on a box without ay.
 #
-# Solver: resolve-solver.sh ladder ($AY → PATH → ~/.cargo/bin → trust build dirs).
+# Solver: resolve-solver.sh ladder ($AY → PATH).
 # `--solver z3` (or AY_SOLVER=z3) re-checks the same bundles with stock z3 as an
 # independent portability check; ay remains the toolchain of record.
 set -u

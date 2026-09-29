@@ -4,50 +4,52 @@
 #
 # WHY each guard exists (learned the hard way — see docs/rust-migration/trust-verification.md
 # builds #36-#38): a verifier must never be able to hang on one obligation.
-#   - TRUST_VERIFY_FN_BUDGET_MS  per-function wall-clock budget, enforced at obligation
-#       boundaries across BMC / trust-vc / trust-wp with SOUND degradation (Timeout /
-#       Unsupported — never Proved). Bounds a function whose obligations each return.
-#   - TRUST_TIMEOUT_MS           per-obligation typed-CHC/PDR deadline; feeds
-#       options.timeout -> the native solve watchdog ceiling (timeout + 2s). Bounds a
-#       SINGLE obligation that would otherwise spin inside ay_dpll (trust-mc be05d7f).
+#   - -Ztrust-verify-function-budget-ms  per-function wall-clock budget, enforced at
+#       obligation boundaries with SOUND degradation (Timeout / Unsupported — never
+#       Proved). Bounds a function whose obligations each return.
+#   - -Ztrust-verify-timeout-ms          per-obligation verifier deadline. Bounds a
+#       SINGLE obligation that would otherwise spin inside the solver.
+#     Both reach `targo trust` through TRUSTFLAGS, its tracked policy channel. The old
+#     TRUST_VERIFY_FN_BUDGET_MS / TRUST_TIMEOUT_MS / TRUST_SKIP_FUNCTIONS environment
+#     knobs are REFUSED by targo trust (measured 2026-09-28: "untracked Trust
+#     semantic/codegen control"), so this script unsets them.
 #   - perl alarm backstop        process-level wall clock; kills the whole compile if an
 #       UNCOVERED engine path (no thread watchdog) still spins. macOS has no `timeout(1)`.
 #
-# Usage: survey-orca-verify.sh <crate> [out-dir] [--contracts] [--skip fn1,fn2]
+# Usage: survey-orca-verify.sh <crate> [out-dir] [--contracts]
 #   crate        cargo package name, e.g. orca-core (default: orca-core)
 #   out-dir      where to drop the JSON + summary (default: /tmp/trust-survey)
-#   --contracts  compile with --cfg trust_verify so #[cfg_attr(trust_verify, trust::requires)]
-#                contracts activate (otherwise a pure as-written baseline survey)
-#   --skip       comma-separated TRUST_SKIP_FUNCTIONS patterns (exclude known-hard fns)
+#   --contracts  accepted for compatibility and a no-op: `targo trust` turns verification
+#                on, and the compiler injects cfg(trust_verify) whenever it is on, so
+#                #[cfg_attr(trust_verify, trust::…)] contracts are always active here
+#   --skip       no longer supported: targo trust refuses TRUST_SKIP_FUNCTIONS and has no
+#                tracked per-function exclusion
 set -uo pipefail
 
 CRATE="orca-core"
 OUT_DIR="/tmp/trust-survey"
 CONTRACTS=0
-SKIP=""
 positional=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --contracts) CONTRACTS=1 ;;
-    --skip) SKIP="${2:-}"; shift ;;
+    --skip)
+      echo "--skip is no longer supported: targo trust refuses TRUST_SKIP_FUNCTIONS (an untracked control)" >&2
+      exit 2 ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) if [ "$positional" = 0 ]; then CRATE="$1"; positional=1; else OUT_DIR="$1"; fi ;;
   esac
   shift
 done
 
-TRUST="${TRUST_HOME:-$HOME/trust}"
-# Prefer the freshly-built stage2 tools-bin tcargo-trust; fall back to the sysroot copy.
-TCARGO=""
-for cand in \
-  "$TRUST/build/aarch64-apple-darwin/stage3-tools-bin/aarch64-apple-darwin/tcargo-trust" \
-  "$TRUST/build/host/stage2/bin/tcargo-trust" \
-  "$TRUST/build/aarch64-apple-darwin/stage0-sysroot/bin/tcargo-trust"; do
-  [ -x "$cand" ] && { TCARGO="$cand"; break; }
-done
-[ -n "$TCARGO" ] || { echo "FATAL: no tcargo-trust binary found under $TRUST/build" >&2; exit 2; }
+# The Trust toolchain's targo (atpkg) — `--unverified --version` proves it IS targo
+# (upstream cargo rejects the flag). Never the ~/trust/build tree: that is the compiler
+# repo's exclusive build output.
+TARGO="${CARGO:-targo}"
+"$TARGO" --unverified --version >/dev/null 2>&1 \
+  || { echo "FATAL: \`$TARGO\` is not targo — install the Trust toolchain (atpkg) and put targo on PATH" >&2; exit 2; }
 
-# The Orca Rust workspace Cargo.toml lives under rust/, not the repo root — tcargo must
+# The Orca Rust workspace Cargo.toml lives under rust/, not the repo root — targo must
 # run from there or it finds no manifest and degrades to the transport:missing-json probe.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
@@ -60,14 +62,16 @@ JSON="$OUT_DIR/${CRATE}-${STAMP}.json"
 LOG="$OUT_DIR/${CRATE}-${STAMP}.log"
 
 # Bounds (override via env). Defaults: 90s/obligation, 120s/function, 45min whole run.
-FN_BUDGET_MS="${TRUST_VERIFY_FN_BUDGET_MS:-120000}"
-OBL_TIMEOUT_MS="${TRUST_TIMEOUT_MS:-90000}"
+# The legacy knob names are still read as override INPUTS, then unset, because targo
+# trust refuses to run while they are in its environment.
+FN_BUDGET_MS="${SURVEY_FN_BUDGET_MS:-${TRUST_VERIFY_FN_BUDGET_MS:-120000}}"
+OBL_TIMEOUT_MS="${SURVEY_OBL_TIMEOUT_MS:-${TRUST_TIMEOUT_MS:-90000}}"
 RUN_TIMEOUT_S="${SURVEY_RUN_TIMEOUT_S:-2700}"
+unset TRUST_VERIFY_FN_BUDGET_MS TRUST_TIMEOUT_MS TRUST_SKIP_FUNCTIONS TRUST_VERIFY_FUNCTIONS
+export TRUSTFLAGS="${TRUSTFLAGS:+$TRUSTFLAGS }-Ztrust-verify-function-budget-ms=$FN_BUDGET_MS -Ztrust-verify-timeout-ms=$OBL_TIMEOUT_MS"
 
 export TRUST_VERIFY_SURVEY=1
 export TRUST_VERIFY_POLICY="verify-example-corpus"
-export TRUST_VERIFY_FN_BUDGET_MS="$FN_BUDGET_MS"
-export TRUST_TIMEOUT_MS="$OBL_TIMEOUT_MS"
 # Verify ONLY the surveyed crate, not its deps. Per-crate is the survey's whole point, and
 # it dodges trustc MIR-opt query cycles in vendored deps (regex-syntax E0391 blocks
 # orca-text/config/agents — every regex-dependent crate). Set TRUST_VERIFY_PRIMARY_ONLY=0 to
@@ -77,7 +81,7 @@ export TRUST_VERIFY_PRIMARY_ONLY="${TRUST_VERIFY_PRIMARY_ONLY:-1}"
 # The ay-lra implied-bound propagation now has a per-state no-progress guard that
 # makes it CONVERGE BY DEFAULT, so this deadline should never fire on a solvable
 # obligation. SURVEY_NO_AY_TIMEOUT=1 disables it to PROVE convergence-by-default
-# (the typed-CHC watchdog via TRUST_TIMEOUT_MS stays on, so a non-LRA path can't
+# (the per-obligation -Ztrust-verify-timeout-ms stays on, so a non-LRA path can't
 # masquerade as an LRA hang).
 if [ "${SURVEY_NO_AY_TIMEOUT:-0}" = 1 ]; then
   unset AY_DIRECT_SOLVE_TIMEOUT_MS
@@ -85,18 +89,15 @@ if [ "${SURVEY_NO_AY_TIMEOUT:-0}" = 1 ]; then
 else
   export AY_DIRECT_SOLVE_TIMEOUT_MS="$OBL_TIMEOUT_MS"
 fi
-[ -n "$SKIP" ] && export TRUST_SKIP_FUNCTIONS="$SKIP"
-[ "$CONTRACTS" = 1 ] && export RUSTFLAGS="${RUSTFLAGS:-} --cfg trust_verify"
-
-echo "tcargo-trust : $TCARGO"                              | tee    "$LOG"
+echo "targo        : $("$TARGO" --unverified --version 2>/dev/null)" | tee    "$LOG"
 echo "crate        : $CRATE"                               | tee -a "$LOG"
-echo "contracts    : $CONTRACTS  skip=[${SKIP:-none}]"     | tee -a "$LOG"
+echo "contracts    : $CONTRACTS (always active under targo trust)" | tee -a "$LOG"
 echo "bounds       : obl=${OBL_TIMEOUT_MS}ms fn=${FN_BUDGET_MS}ms run=${RUN_TIMEOUT_S}s" | tee -a "$LOG"
 echo "json         : $JSON"                                | tee -a "$LOG"
 echo "start        : $(date '+%H:%M:%S')"                  | tee -a "$LOG"
 
 # Bust cargo's build cache for the crate — verification runs DURING compilation, so a
-# cached (unchanged) crate makes trustc skip re-verifying and tcargo emits a degraded
+# cached (unchanged) crate makes trustc skip re-verifying and targo emits a degraded
 # empty/transport probe. Touching the crate root forces a recompile + re-verify.
 CRATE_DIR="$WS/crates/${CRATE#orca-}"
 [ -d "$WS/crates/$CRATE" ] && CRATE_DIR="$WS/crates/$CRATE"
@@ -105,7 +106,7 @@ if [ -f "$CRATE_DIR/src/lib.rs" ]; then touch "$CRATE_DIR/src/lib.rs"; fi
 # perl alarm = process-level backstop (no timeout(1) on macOS). Run from the workspace
 # root so cargo resolves the manifest; --manifest-path alone doesn't fix cwd-relative probes.
 perl -e 'chdir $ENV{WS} or die "chdir $ENV{WS}: $!"; alarm shift; exec @ARGV' "$RUN_TIMEOUT_S" \
-  "$TCARGO" trust check -p "$CRATE" --format json --allow-l0-gaps >"$JSON" 2>>"$LOG"
+  "$TARGO" trust check -p "$CRATE" --format json --allow-l0-gaps >"$JSON" 2>>"$LOG"
 RC=$?
 
 echo "exit         : $RC at $(date '+%H:%M:%S')"           | tee -a "$LOG"

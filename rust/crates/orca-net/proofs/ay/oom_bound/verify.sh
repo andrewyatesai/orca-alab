@@ -16,13 +16,12 @@
 #   oom_nonvacuity_sat        sat    buffer reaches exactly max (bound is tight)
 #   oom_catches_unguarded_sat sat    without the guard, buffer > max is reachable
 set -u
+# ay: $AY, else PATH (the atpkg-managed Trust toolchain). Never ~/trust/build —
+# the compiler repo's exclusive build output, whose ay goes stale.
+AY_REQUESTED="${AY:-}"
 AY=""
-for c in \
-  "$HOME/.cargo/bin/ay" \
-  "$HOME/trust/build/host/stage2/bin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage3-tools-bin/aarch64-apple-darwin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage2-tools-bin/aarch64-apple-darwin/ay" ; do
-  if "$c" --version >/dev/null 2>&1; then AY="$c"; break; fi
+for c in "$AY_REQUESTED" "$(command -v ay 2>/dev/null || true)"; do
+  if [ -n "$c" ] && "$c" --version >/dev/null 2>&1; then AY="$c"; break; fi
 done
 [ -n "$AY" ] || { echo "SKIP: no runnable ay found (oom_bound not checked)"; exit 0; }
 echo "ay = $AY"

@@ -135,7 +135,7 @@
         "local",
         "ssh"
       ],
-      "coverageNotes": "The keystroke->echo felt-latency model (ty/TLA+) and the renderer-side wired-seam contract (vitest) are platform-independent; the ty gate runs where the local ~/trust stage2 build exists and SKIPs elsewhere. macOS local evidence covers both the armed/inert model runs and the worker-facade probe. Linux/Windows live typing-latency runs remain gaps.",
+      "coverageNotes": "The keystroke->echo felt-latency model (ty/TLA+) and the renderer-side wired-seam contract (vitest) are platform-independent; the ty gate runs where the atpkg Trust toolchain's ty is on PATH (or TY_BIN is set) and SKIPs elsewhere. macOS local evidence covers both the armed/inert model runs and the worker-facade probe. Linux/Windows live typing-latency runs remain gaps.",
       "motivatingLinks": [
         "Internal regression: predictive-echo silent capability death — the worker facade stopped exposing predict_*, the controller probe saw engine=null, and mosh-style echo degraded to an inert no-op with no signal (SSH typing lag).",
         "tools/specs/EchoLiveness.tla — the Trust echo-liveness felt-latency model"
@@ -212,7 +212,7 @@
         "Attach saved CI red/green artifacts for the ARMED=FALSE negative control and the stripped-facade discriminator."
       ],
       "knownGaps": [
-        "The ty gate SKIPs (exit 0) when the local ~/trust stage2 ty binary is absent, so a host without the Trust build gets the vitest contract but not the temporal proof.",
+        "The ty gate SKIPs (exit 3, nothing proven) when no ty is on PATH or in TY_BIN, so a host without the Trust toolchain gets the vitest contract but not the temporal proof.",
         "The model abstracts one in-flight keystroke and integer ticks; it proves the felt-latency ordering, not wall-clock milliseconds.",
         "Linux and Windows live typing-latency runs are not collected; only macOS local evidence exists.",
         "The wired-seam contract pins the default worker facade; it does not re-prove the in-process CPU/GPU fallback predict path, which the sibling prediction tests cover."

@@ -6,7 +6,7 @@
 //! indexing. Every `+`/`-`/index below is a Trust Level-0 obligation; Trust
 //! flags any that can overflow or panic on adversarial PTY input.
 //!
-//!   tcargo trust check tools/trust-terminal/cursor_arithmetic.rs
+//!   targo trust check tools/trust-terminal/cursor_arithmetic.rs
 //!
 //! The `_unsafe` variants are deliberate: Trust reports their arithmetic as a
 //! can-panic obligation (`mir_assert::Overflow`). The clamped variants are the

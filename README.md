@@ -94,19 +94,18 @@ Terminal and migration work is checked through several independent systems:
   discharged by the `certificates` gauntlet axis
 - explicit reliability, flake-history, renderer-size, and performance budgets
 
-The Rust workspace also compiles under **Trust**, a verifying Rust toolchain.
-`rust-toolchain.toml` pins the `trust` channel, and both `.cargo/config.toml`
-tables verify first-party target units at `-Ztrust-policy=advisory` under a
-per-function wall-clock budget; build scripts and proc-macros compile
-deauthorized (`-Ztrust-verify=off`), because host tooling is not the shipped
-artifact. `pnpm verify:rust` is the lane that reads the verdicts — it reports per
-crate rather than gating, since a lane that slow would only be skipped as a gate.
-Advisory means **verified-and-reported, not verified-clean**. And every routine
-build and test script (Rust daemon, native addon, WASM, parity, `pnpm test:rust`)
-explicitly selects rustup `stable`, which has no verifier — so the packaged
-binaries are not verified builds. Closing that is open work, not a settled
-design. All of this proves specific contracts, not that the whole application is
-formally verified.
+The Rust workspace builds with **Trust**, a verifying Rust toolchain.
+`rust-toolchain.toml` pins the `trust` channel, and every build and test script
+runs `targo`, Trust's cargo. Routine builds (Rust daemon, native addon, parity,
+`pnpm test:rust`) use its unverified lane, `targo --unverified`, which makes no
+proof claim — so the packaged binaries are not verified builds.
+`pnpm verify:rust` is the verified lane (`targo trust check`); it reports per
+crate rather than gating, and its advisory verdicts are **verified-and-reported,
+not verified-clean**. The WebAssembly blobs, the x86_64 slice of a universal
+macOS build, and Linux/Windows builds still use stock Rust, because the Trust
+toolchain ships a standard library only for Apple-silicon macOS today. All of
+this proves specific contracts, not that the whole application is formally
+verified.
 
 ### Incremental Rust migration
 
@@ -130,12 +129,15 @@ Prerequisites:
 
 - Node.js 24
 - pnpm 10
-- rustup with stable Rust 1.96 or newer
+- the Trust Rust toolchain (`targo`/`trustc`, installed by atpkg) on Apple-silicon
+  macOS; on other hosts, rustup with an installed stable Rust 1.96 or newer
 - Xcode Command Line Tools for macOS native components
 
-`rust-toolchain.toml` pins the `trust` channel for a bare `cargo` invocation, but
-every build and test script selects `stable` explicitly, so a stable rustup is all
-a source build needs; the Trust toolchain is required only by `pnpm verify:rust`.
+`rust-toolchain.toml` pins the `trust` channel, and the build scripts run
+`targo --unverified`. The scripts never install a Rust toolchain: where stock Rust
+is still required (WebAssembly, the x86_64 macOS slice, Linux/Windows hosts) they
+use an installed rustup toolchain (`ORCA_STOCK_RUST_TOOLCHAIN`, default `stable`)
+and fail with the install command if it is missing.
 
 Clone with the aterm submodule and install dependencies:
 
@@ -159,7 +161,8 @@ pnpm bump:aterm
 pnpm check:aterm-pin
 ```
 
-That path also needs the stable `wasm32-unknown-unknown` target and Binaryen's
+That path also needs an installed stock stable toolchain with the
+`wasm32-unknown-unknown` target (Trust ships no wasm32 standard library) and Binaryen's
 `wasm-opt` on `PATH` (`brew install binaryen` on macOS). The bump refreshes both
 Cargo lockfiles, the native addon, the Rust daemon, and the committed WASM
 artifacts, and fails closed if a downstream compatibility patch no longer applies

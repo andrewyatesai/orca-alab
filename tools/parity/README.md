@@ -14,7 +14,7 @@ failing.
 ## Coverage
 
 83 of the ~100 ported logic modules have adapters — **1556 vectors, 1549 of
-1549 golden checks green** via the Rust leg (`cargo run -p orca-parity`), and
+1549 golden checks green** via the Rust leg (`targo --unverified run -p orca-parity`), and
 **1641 of 1641** TS↔Rust comparisons green via the vitest leg. The remaining 17
 are out of differential scope (io-edge functions driven only by injected
 fs/exec/socket closures, `src/main`-sourced modules, or pure helpers TS keeps
@@ -60,12 +60,10 @@ pnpm parity
 `pnpm parity` (config/scripts/run-parity.mjs) runs the Rust leg then the TS leg:
 
 1. **Rust leg** — runs the ports over the vectors, self-checks goldens, writes
-   `rust_outputs.json`. It pins the rustup `stable` toolchain (the orca-crates
-   need rustc 1.96; the machine default cargo is a Homebrew 1.95 shadow). If a
-   prebuilt `rust/target/{debug,release}/orca-parity` exists it runs that
-   directly (works offline); otherwise it `cargo run`s it (needs network — the
-   full-workspace resolve currently pulls the unvendored `web-time` via
-   aterm-core).
+   `rust_outputs.json`. It runs `targo --unverified run -p orca-parity` from
+   `rust/`, offline via `rust/vendor`. A prebuilt
+   `rust/target/{debug,release}/orca-parity` is used only when no Rust toolchain
+   is available, with a warning (it may be stale).
 2. **TS leg** — `vitest run --config config/vitest.parity.config.ts` diffs the
    live TypeScript reference against `rust_outputs.json`.
 

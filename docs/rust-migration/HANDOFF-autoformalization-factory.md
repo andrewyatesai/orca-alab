@@ -53,8 +53,9 @@ and the memory `orc-goals-and-gauntlet.md` for the full frame; this doc is the o
   cannot regress — ratchet on the wave's per-kernel TRUSTED verdicts + a spot-verify, and run the full
   census only as a PERIODIC checkpoint (every ~3 waves) and after any TOOLCHAIN change. Never skip the
   full census + soundgate after a trustc/verify.mjs/fuzz.mjs/gauntlet.mjs change.
-- Toolchain: the LOCAL `~/trust` stage2 build (`~/trust/build/host/stage2/bin/trustc`,
-  rustc `1.99.0-dev 4c9dc90f4`). Corpus is LOCAL-only at `~/trust/tools/ts2rust/orca/*.{ts,rs,seed.jsonl}`.
+- Toolchain: the atpkg-managed `trustc` on PATH (measured 2026-09-28: `1.99.0-dev 321aaeda7`);
+  this handoff originally ran the local `~/trust` stage2 build (`1.99.0-dev 4c9dc90f4`), which is
+  the compiler repo's exclusive build tree and not a tool to invoke. Corpus is LOCAL-only at `~/trust/tools/ts2rust/orca/*.{ts,rs,seed.jsonl}`.
 - Session arc: **54 → 101 → 175 → 230 → 243 (100%) → 258 → 273 → 293** (+50 fresh real-orc kernels past
   100%). The grow-corpus loop's honest SKIP pattern: functions needing a runtime object (`new URL()` +
   IDNA/Punycode) are correctly declined, not forced — ~5 SKIPs so far, all URL-runtime.

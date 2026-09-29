@@ -287,7 +287,7 @@ node tools/benchmarks/daemon-flood-timed.mjs --mode ssh-localhost \
 blocking vs an inlined gather feeding a real `HeadlessTerminal`):
 
 ```
-cd rust && rustup run trust cargo run --release -p orca-daemon \
+cd rust && targo --unverified run --release -p orca-daemon \
   --example pump_bench -- /tmp/atbench/flood_500.vt
 ```
 

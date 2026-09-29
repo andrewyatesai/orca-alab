@@ -176,15 +176,18 @@ probe the `/opt/Orca ALab Edition` install dir.
 `config/scripts/build-terminal-addon.mjs` honor the same arch contract as
 `config/electron-builder.config.cjs`:
 
-- Default (dev): host-arch-only plain `cargo build`.
+- Default (dev): host-arch-only `targo --unverified build` (Trust toolchain).
 - `ORCA_MAC_RELEASE=1`: per-target builds for `x86_64-apple-darwin` +
   `aarch64-apple-darwin`, lipo-merged into the single artifact path the
   packager consumes (`rust/target/release/orca-daemon`,
   `native/orca-node/orca_node.node`).
 - `ORCA_MAC_BUILD_ARCHES=x64,arm64` (or a single foreign arch): same
-  per-target path for ad-hoc builds. Requires the rustup targets
-  (`rustup target add x86_64-apple-darwin aarch64-apple-darwin --toolchain stable`);
-  the scripts fail fast with that instruction when missing.
+  per-target path for ad-hoc builds. The `aarch64-apple-darwin` slice builds
+  with targo; the `x86_64-apple-darwin` slice is a labelled STOCK EXCEPTION
+  (the Trust toolchain ships no x86_64-apple-darwin std) and needs an installed
+  stock toolchain with that target
+  (`rustup target add x86_64-apple-darwin --toolchain stable`); the scripts
+  never install one and fail fast with that instruction when it is missing.
 
 An `afterPack` assertion (`config/scripts/assert-bundled-binary-arch.cjs`)
 verifies `orca-daemon` and `orca_node.node` inside every packaged bundle

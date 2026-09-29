@@ -48,12 +48,11 @@ flags (alt-screen / bracketed-paste / app-cursor / mouse) match xterm exactly.
 ## Run it
 
 ```sh
-# 1) build the Rust napi addon (once)
-cd ../../native/orca-node && cargo build --release
-cp target/release/liborca_node.dylib orca_node.node    # .so on Linux, .dll on Windows
+# 1) build the Rust napi addon (once) — installs native/orca-node/orca_node.node
+cd ../.. && pnpm build:terminal-addon
 
 # 2) generate the shared corpus via the Rust example
-cd ../../rust && cargo run -q --release --example bench -p orca-terminal -- gen /tmp/orca-bench/corpus.bin 16
+cd rust && targo --unverified run -q --release --example bench -p orca-terminal -- gen /tmp/orca-bench/corpus.bin 16
 
 # 3) install the xterm baseline + run the head-to-head
 cd ../tools/terminal-bench && npm install
@@ -91,8 +90,8 @@ pnpm gauntlet:census          # regret-class ratchet (watched files only shrink)
 - **perf** — best-of-N medians via `xterm-bench.mjs` / `addon-bench.mjs`, plus a
   grid-parity fingerprint check.
 - **safety** — discharges the orca-git SMT obligations with `ay`, resolved via the
-  ladder in `rust/crates/orca-git/proofs/ay/resolve-solver.sh` (`$AY` → PATH →
-  `~/.cargo/bin/ay` → trust build dirs); `SKIP` (never fail) when the Trust
+  ladder in `rust/crates/orca-git/proofs/ay/resolve-solver.sh` (`$AY` → PATH,
+  where atpkg installs it); `SKIP` (never fail) when the Trust
   toolchain is absent. `verify.sh --solver z3` re-checks the same bundles with
   stock z3 as an independent portability check — ay remains the toolchain of
   record, so the gauntlet itself never substitutes z3.

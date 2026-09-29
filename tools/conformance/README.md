@@ -24,7 +24,7 @@ the reference implementation Orca ships in its renderer.
 cd tools/conformance && npm i @xterm/headless && node build-corpus.mjs
 
 # 2. check the Rust engine against them
-cd ../../rust && cargo run --release --example conformance -p orca-terminal
+cd ../../rust && targo --unverified run --release --example conformance -p orca-terminal
 #   => "71 / 71 cases match xterm.js"   (exit 0)
 ```
 

@@ -22,9 +22,10 @@ correct than xterm per the VT spec, that is a WIN, not a bug).
   Builds on **stable** (`rust-toolchain.toml` pins stable; edition 2024) in ~12s.
 - `/path/to/orca-alab/node_modules/@xterm/{headless,addon-serialize,...}` — real xterm.js, the
   incumbent. Loadable in Node v26.
-- `~/trust` — the Trust toolchain: `trustc`/`tcargo` compile Rust AND prove safety
-  (overflow / panic / UB-freedom, refinement). `tcargo` at
-  `build/aarch64-apple-darwin/stage1/bin/tcargo`. This is the SAFETY moat for aterm.
+- The Trust toolchain (atpkg): `trustc`/`targo` compile Rust AND prove safety
+  (overflow / panic / UB-freedom, refinement) via `targo trust check`. (This
+  handoff originally named a `tcargo` in the `~/trust` build tree, which no longer
+  exists.) This is the SAFETY moat for aterm.
 
 ## "Vastly superior" = three measurable axes HN respects
 1. **Performance** — aterm (Rust) vs xterm.js (JS) throughput (MB/s of ANSI).
@@ -33,7 +34,7 @@ correct than xterm per the VT spec, that is a WIN, not a bug).
 2. **Correctness** — aterm must render terminal STATE at least as correctly as xterm
    on real input, per the VT/ECMA-48 spec. Where it diverges: if aterm is *wrong*,
    fix aterm; if aterm is *right* and xterm wrong, that is superiority — document it.
-3. **Safety** — `trustc`/`tcargo` PROVES aterm has no panics/overflow/UB on the
+3. **Safety** — `targo trust check` PROVES aterm has no panics/overflow/UB on the
    hot path. xterm.js can offer no such guarantee. Quantify proven obligations.
 
 ## What is already built (this session) — the conformance differential
@@ -70,7 +71,7 @@ cases in-proc (load `@xterm/headless` once); spawn the fast aterm binary per cas
 3. Grow the corpus toward thousands of cases: structured ANSI fuzzing + real-app
    captures (vim/htop/tmux output). Real conformance evidence needs scale.
 4. Run `race.mjs` → quantify the perf lead; profile + optimize aterm's slow paths.
-5. Run `tcargo trust check` / `trustc` over `aterm-core` → quantify proven safety
+5. Run `targo trust check -p aterm-core` over `aterm-core` → quantify proven safety
    (panic-freedom/overflow) the JS engine cannot match. Close the biggest gaps.
 6. Write the HN-grade report: reproducible benchmarks + a conformance corpus with
    the WARTS SHOWN + the formal-safety guarantee. HN will reject hype; "vastly

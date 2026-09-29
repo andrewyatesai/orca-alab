@@ -217,53 +217,51 @@ evidence. Precondition propagation is the wrong layer; both experiment commits w
 This **empirically confirms** the floor above: the residual needs owner native CHC/PDR proof
 *emission* for non-contract obligations, not a precondition or surface lever.
 
-## Current state (measured 2026-08-30)
+## Current state (measured 2026-09-28)
 
 Everything below this section is a dated log; read it as history. This section is
 the only present-tense claim in the file, and it is deliberately narrow.
 
-- Trust is **proof-aware, not proof-complete**, and it runs here routinely.
-  `rust-toolchain.toml` pins channel `trust`, which rustup resolves to a *sealed*
-  toolchain artifact rather than a live `~/trust/build/host/stage2` tree — so a
-  stage2 teardown in the compiler repo no longer breaks this workspace, and a
-  landed compiler fix is invisible here until a new seal is promoted.
-- **First-party target units verify at `advisory`**, with a per-function
-  wall-clock budget; `[host]` units (build scripts, proc-macros) and doctests
-  carry `-Ztrust-verify=off`, gated by `target-applies-to-host = false`. Both
-  `.cargo/config.toml` tables state this and must stay in lockstep. There is no
-  blanket first-party off-switch.
-- **The honest gap:** every routine build and test script in this repo selects
-  rustup `stable`, which has no verifier, so the packaged binaries are not
-  verified builds. Verification lives in one opt-in reporting lane. Vendored
-  third-party units also share the first-party policy, because cargo has no
-  per-package rustflags; per-unit scoping is the fix, not an off-switch.
-- Orca crates stay **Trust-ready**: `forbid(unsafe)`, panic-free, and
-  (incrementally) annotated with `#[cfg_attr(trust_verify, trust::requires/ensures(..))]`
-  contracts that are inert under stock cargo.
+- ALab systems build with Trust (owner directive 2026-09-28). `rust-toolchain.toml`
+  pins channel `trust`; `targo` (atpkg) drives every build and names the lane:
+  `targo --unverified` for routine builds and tests (no proof claim),
+  `targo trust` for verification (fail-closed).
+- **The cargo configs carry no compiler flags.** The `[host]`
+  `-Ztrust-verify=off` off-switch, the `[target]` advisory/budget rustflags and
+  the rustdocflags off-switch were removed: the `[host]` table made `targo trust`
+  refuse outright ("-Ztrust_verify_memory_ceiling_bytes is not part of the
+  verified Targo host-policy protocol"), and the budget flag broke `targo tippy`.
+  targo scopes verification per unit itself; one-run verifier bounds go in
+  `TRUSTFLAGS`.
+- **The honest gap:** routine builds are unverified (`targo --unverified`), so the
+  packaged binaries are not verified builds. Verification lives in one reporting
+  lane. The wasm32 builds, the x86_64 macOS slice and linux/windows hosts are a
+  labelled stock exception: the Trust seal ships a std for `aarch64-apple-darwin`
+  only (E0463 elsewhere; no rust-src for `-Zbuild-std`).
+- Measured under `targo trust check`: `orca-provider-backoff` is strict-green
+  (2/2 proved); `orca-stream-split` fails strict (4 proved, 2 failed, 4 unknown);
+  `orca-agents --allow-l0-gaps` runs to completion (179 proved, 103 failed, 520
+  unknown of 838) and its `cfg_attr(trust_verify, trust::…)` contracts reach the
+  verifier (closure-form predicates are reported as not lowered).
 
 ## Build + verify
 
-The Trust toolchain is installed, not built here: `rustup toolchain list` must
-show `trust`, and the sealing/promotion procedure lives in the Trust repo
-(`scripts/promote-toolchain.sh`, `INSTALL.md`). Then:
+The Trust toolchain is installed by atpkg (`targo --unverified --version` is the
+check that `targo` is really targo; `rustup run trust cargo` is upstream cargo
+and is not a Trust lane). Then:
 
 ```bash
 pnpm verify:rust                 # the six core crates
-pnpm verify:rust -- --all        # all 27 first-party crates
+pnpm verify:rust -- --all        # all first-party crates
 pnpm verify:rust -- orca-core --json
 ```
 
 `config/scripts/run-rust-verification.mjs` is the entry point; it runs
-`rustup run trust cargo build -p <crate>` from `rust/`, so the crate picks up
-`rust/.cargo/config.toml`'s advisory policy and budget. It **reports and never
-gates** — exit is non-zero only when a crate failed to compile or the toolchain is
-absent, because both mean the run measured nothing.
-
-Flag spellings are a property of the installed toolchain, not of the calendar.
-Run `node config/scripts/check-trust-flag-surface.mjs` (also wired into
-`pnpm lint`) before editing either config table, and never answer a flag
-rejection by clearing `RUSTFLAGS` or building from a directory where the table is
-not read — both compile vanilla Rust silently.
+`targo trust check -p <crate> --allow-l0-gaps --format json` from `rust/` and
+tallies the JSON report. It **reports and never gates** — exit is non-zero only
+when a crate produced no report or targo is absent, because both mean the run
+measured nothing. `targo trust` refuses a world-writable `CARGO_TARGET_DIR`
+(e.g. under `/tmp`).
 
 The per-function verdict rows are the artifact. "unsupported" and timed-out rows
 are not failures — they are the **gap log** (below), and they are assumptions,
@@ -271,9 +269,18 @@ not proofs.
 
 ## Contract convention (dual-build)
 
-Contracts must not break the stock-cargo build (the workspace must build with
-plain `cargo` too). Use `cfg_attr` gated on a `trust_verify` cfg so the Trust
-attribute is applied only under the verifier and is otherwise absent:
+> **Updated 2026-09-28.** The compiler injects `cfg(trust_verify)` whenever
+> verification is active (and it is a well-known cfg, so no `unexpected_cfgs`),
+> and `trust` is a predefined tool namespace in Trust — so under `targo trust` the
+> contracts below are live, and under `targo --unverified` they are inert. The
+> stock-compatibility rule survives only because the stock wasm32 lane still
+> compiles `orca-core`, `orca-agents`, `orca-git`, `orca-config` and `orca-relay`
+> (via `orca-git-wasm`); whether to keep the check-cfg entries and the
+> `cfg_attr(trust_verify, register_tool(trust))` gating is an open owner ruling.
+
+Contracts must not break the stock wasm32 build of the crates above. Use
+`cfg_attr` gated on the `trust_verify` cfg so the Trust attribute is applied
+only under the verifier and is otherwise absent:
 
 ```rust
 // Inert under stock rustc (cfg off); becomes #[trust::ensures(..)] under `--cfg trust_verify`.
@@ -289,7 +296,9 @@ Each annotated crate declares the cfg so stock builds don't warn:
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(trust_verify)'] }
 ```
 
-The contracts activate only when something passes `--cfg trust_verify`. Start with
+The contracts activate whenever verification is active (`targo trust`), because
+the compiler sets the cfg itself; a user `--cfg trust_verify` is refused when
+verification is off. Start with
 invariants already reasoned by hand — e.g.
 `agent_status_types::truncate_preserving_surrogates` (no lone surrogate, length ≤
 cap), `feature_interactions` record validation, the `orca-relay` binary framing
@@ -304,6 +313,12 @@ bounds.
 > cfg, which is the local workaround for the `trust` tool namespace not being
 > predefined upstream. Arming the cfg is open work; until it happens, do not
 > describe these contracts as checked.
+>
+> **Superseded 2026-09-28:** under `targo trust` the compiler arms the cfg (see
+> the note above). A contract reaching the verifier is still not a contract
+> proved: the closure-form `trust::ensures` predicates measured in `orca-agents`
+> are reported as not lowered into a verifier formula (unknown), so do not
+> describe them as checked either.
 
 ## Anticipated gap log — where Orca will stress Trust
 
@@ -323,7 +338,7 @@ verifier runs. Each row is a candidate **Trust improvement** driven by Orca.
 ## Loop
 
 1. Port/annotate an Orca crate (Trust-ready, contracts inert under stock cargo).
-2. Run `tcargo trust check` on a capable machine.
+2. Run `targo trust check -p <crate>` (or `pnpm verify:rust`).
 3. Triage the JSON: proved obligations = guarantees; unsupported/unproved = **Trust tickets**.
 4. Improve Trust (and/or `first-party/ty`, currently an empty slot — candidate home
    for Orca's reusable verified domain specs); re-verify.

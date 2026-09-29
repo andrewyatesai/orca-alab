@@ -130,12 +130,13 @@ Each cost real investigation. Each is refuted by measurement, not opinion.
 ## Known-good invocations
 
 ```sh
-# Engine criterion benches. Needs an IDLE machine; the trust toolchain must be
-# linked (rustup toolchain link trust ~/trust/build/host/stage2).
+# Engine criterion benches. Needs an IDLE machine and the atpkg Trust toolchain.
 # --manifest-path from the repo ROOT dodges rust/.cargo's offline vendor set,
-# which lacks proptest; without -Ztrust-verify=off, strict verification fails.
-RUSTUP_TOOLCHAIN=trust CARGO_NET_OFFLINE=false RUSTFLAGS="-Ztrust-verify=off" \
-  cargo bench --manifest-path rust/aterm/Cargo.toml -p aterm-bench --bench engine_throughput
+# which lacks proptest. (Updated 2026-09-28: the original recipe forced
+# RUSTFLAGS="-Ztrust-verify=off" through rustup's `trust` cargo; the unverified
+# lane is now named on the command line instead.)
+CARGO_NET_OFFLINE=false \
+  targo --unverified bench --manifest-path rust/aterm/Cargo.toml -p aterm-bench --bench engine_throughput
 
 pnpm bench:perf -- --engine-log /tmp/engine.txt --engine-log /tmp/comparative.txt
 pnpm bench:check            # gate; -- --accept appends to the trend

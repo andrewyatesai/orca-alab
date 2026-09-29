@@ -168,7 +168,7 @@ So the buckets, and who can close them:
 3. **Empty-counterexample failures and `[assert] runtime-checked` — only Trust
    closes these.** 393 `[assert] runtime-checked` rows in orca-core, plus the 32
    hardened rows. This is the absent-callee std gap, ~69% of obligations
-   workspace-wide per `rust/.cargo/config.toml`. Any Orca-side plan that
+   workspace-wide per the retired `rust/.cargo/config.toml` notes (f2a257117). Any Orca-side plan that
    promises to zero this bucket is lying.
 
 ## The work, in the order it pays

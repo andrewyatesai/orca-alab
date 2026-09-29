@@ -18,7 +18,7 @@ platform-specific native wrappers**. All third-party dependencies are
   of `rust-lang/rust`: `trustc` compiles Rust *and* proves properties about it
   (panic-safety, integer overflow, out-of-bounds, div-by-zero, ownership
   invariants, contract postconditions) via a MIR verification pass, driven by
-  `tcargo trust check`. Goal: **extreme performance + machine-checked safety**
+  `targo trust check`. Goal: **extreme performance + machine-checked safety**
   on the shared core.
 - **Native experience per platform via a thin wrapper, in any language.** The
   cross-platform requirement is satisfied by the Rust core; the wrapper is
@@ -79,7 +79,7 @@ subsystem map.
   (CI, contributors), AND is **verifier-ready** for Trust: `trustc` is
   Rust-compatible by default, so the same sources compile under the Trust
   sysroot with no source changes.
-- **Verification lane:** `tcargo trust check --format json` over the core proves
+- **Verification lane:** `targo trust check --format json` over the core proves
   the safety obligations Trust generates. The pure-logic crates (`orca-core`:
   path resolution, C-quote decoding, id parsing) are the ideal first verified
   target — they are exactly overflow/bounds/panic-shaped code.
@@ -234,7 +234,7 @@ verbatim** — so `cargo test` is the behavioural-parity gate:
   (`liborca_ffi.a`/`.dylib` + `orca.h`); first surface = the headless terminal.
 
 Per-module pattern for the whole migration: read TS + tests → port logic +
-tests → `cargo test`/clippy green → (pure logic) `tcargo trust check` → mark the
+tests → `targo --unverified test`/`targo tippy` green → (pure logic) `targo trust check` → mark the
 subsystem ported in `ported-modules.md`. Vendoring is live and proven for all
 three dependency modes: pure-Rust (`regex`, `serde_json`, and the `crypto_box`
 X25519/XSalsa20-Poly1305 stack — 20 crates incl. `curve25519-dalek` +

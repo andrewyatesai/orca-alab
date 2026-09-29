@@ -24,15 +24,15 @@ A test that constructs its own inputs proves the logic, never that production re
 ## Type Declarations: Prefer `.ts` Over `.d.ts`
 
 # Considerations
-## Trust Toolchain Posture (measured 2026-08-30)
+## Trust Toolchain Posture (measured 2026-09-28)
 
 State this accurately; do not describe the aspiration as the posture.
 
-- `rust-toolchain.toml` pins channel `trust`, so a bare `cargo` here resolves to the sealed Trust toolchain.
-- Two config tables carry identical flags and must stay in lockstep: `.cargo/config.toml` (read by invocations that start at the repo root) and `rust/.cargo/config.toml` (read from `rust/`). First-party **target** units verify at `-Ztrust-policy=advisory` with `-Ztrust-verify-function-budget-ms=5000`; `[host]` units (build scripts, proc-macros) and `rustdocflags` carry `-Ztrust-verify=off`, gated by `target-applies-to-host = false`. That host/target split is the sanctioned pattern — keep it.
-- **There is no blanket first-party off-switch, and adding one is not an option.** Two gaps are open and should be named as gaps: (1) vendored third-party units share the first-party policy, because cargo has no per-package rustflags — per-unit scoping is the fix; (2) every routine script (`build-rust-daemon`, `build-terminal-addon`, the three WASM builders, `run-parity`, `run-rust-tests`) selects rustup `stable` explicitly, so the **shipped artifacts are unverified builds** (`build-terminal-addon` is the one with an opt-in, `ORCA_RUST_TOOLCHAIN=trust`). Trust runs only in `pnpm verify:rust`, which reports and never gates.
-- Advisory is verified-and-reported, never verified-clean. A timed-out or unsupported obligation is an assumption, not a proof.
-- Flag spellings are a property of the installed toolchain, not of the calendar. `config/scripts/check-trust-flag-surface.mjs` (wired into `pnpm lint`) probes both tables against `rustc -Z help`. Never answer a flag rejection by clearing `RUSTFLAGS` or building from a directory where the table is not read — both compile vanilla Rust silently.
+- ALab systems build with the Trust toolchain (owner directive 2026-09-28). `rust-toolchain.toml` pins channel `trust`; drive every Rust command through `targo` and name the lane: `targo --unverified <build|check|test|run|install>` (no proof claim) or `targo trust <check|build|test>` (verified, fail-closed). Lint with `targo tippy`, format with `targo fmt`. Never stock `cargo`/`rustc`, `+stable`, or `rustup run <toolchain> cargo` — `rustup run trust cargo` is upstream cargo, not targo.
+- The cargo configs carry no compiler flags: `rust/.cargo/config.toml` is vendoring + offline only. Never add a `[host]` off-switch, `-Ztrust-*` rustflags or rustdocflags there — `targo trust` refuses a `[host]` rustflags table and `targo tippy` rejects `-Ztrust-verify-function-budget-ms`. Verifier bounds go in `TRUSTFLAGS` for one `targo trust` run.
+- Routine scripts (`build-rust-daemon`, `build-terminal-addon`, `run-parity`, `run-rust-tests`, the gauntlet) run `targo --unverified` via `config/scripts/rust-toolchain-lane.mjs`, with no stock fallback on a host Trust serves. `pnpm verify:rust` is the verified lane (`targo trust check --allow-l0-gaps`); it reports and never gates. Unverified builds make no proof claim, so the shipped artifacts are still not verified builds.
+- STOCK EXCEPTIONS, labelled at the point of use: the Trust seal ships a std only for `aarch64-apple-darwin`, so wasm32 (the three WASM builders), the x86_64 slice of a universal mac build, and linux/windows hosts use an INSTALLED stock rustup toolchain (`ORCA_STOCK_RUST_TOOLCHAIN`, default `stable`). The lane never installs a toolchain; a missing one is an error naming what to install.
+- A green advisory run is verified-and-reported, never verified-clean. A timed-out, unknown or unsupported obligation is an assumption, not a proof.
 
 ## Worktree Safety
 

@@ -35,7 +35,7 @@ Use `--depth 1` for build/CI environments; use `--filter=blob:none` for day-to-d
 Prerequisites:
 
 - Node.js 24 and pnpm
-- [rustup](https://rustup.rs) with a stable toolchain ≥ 1.96 (`rustup toolchain install stable`) — the terminal engine is a Rust addon built as part of `pnpm dev`/`pnpm test`. The build pins itself to rustup's `stable`, so a different default toolchain (or a Homebrew Rust) on the machine is fine.
+- The Trust Rust toolchain (`targo`/`trustc`, installed by atpkg) — the terminal engine is a Rust addon built as part of `pnpm dev`/`pnpm test`, with `targo --unverified build`. The repo pins the `trust` channel; the scripts never fall back to stock Rust on Apple-silicon macOS. On hosts the Trust toolchain does not ship for (Linux, Windows, Intel macOS) and for the WebAssembly builds, install a stock stable toolchain ≥ 1.96 with rustup yourself — the scripts use it but never install one.
 
 ```bash
 pnpm install

@@ -23,8 +23,7 @@ Prereqs:
 
 - **Rust leg:** the `orca-daemon` binary built at `rust/target/{debug,release}/orca-daemon`:
   ```bash
-  PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH" \
-    cargo build -p orca-daemon --manifest-path rust/Cargo.toml --offline
+  (cd rust && targo --unverified build -p orca-daemon --offline)
   ```
   Leg A launches it with the app's own argv — `--socket <path> --token <path>`
   (daemon-init.ts) — so the tokened hello the shipped client uses is on the

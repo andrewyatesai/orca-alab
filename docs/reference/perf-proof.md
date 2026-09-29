@@ -91,13 +91,12 @@ These cannot run inside the Electron/Playwright lane. Run them when the
 engine pin changes or when a claim depending on them is being re-proven, and
 fold the numbers into the same run so they trend alongside the app metrics.
 
-### 1. aterm engine criterion benches (requires the aterm checkout + cargo)
+### 1. aterm engine criterion benches (requires the aterm checkout + targo)
 
 ```sh
 cd <aterm repo>   # the source of the pinned rust/aterm submodule
-export PATH="$HOME/.cargo/bin:$PATH"
-cargo bench -p aterm-bench --bench engine_throughput 2>&1 | tee /tmp/engine.txt
-cargo bench -p aterm-bench --bench comparative       2>&1 | tee /tmp/comparative.txt
+targo --unverified bench -p aterm-bench --bench engine_throughput 2>&1 | tee /tmp/engine.txt
+targo --unverified bench -p aterm-bench --bench comparative       2>&1 | tee /tmp/comparative.txt
 ```
 
 Then fold into a run:

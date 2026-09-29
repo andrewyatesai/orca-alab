@@ -220,8 +220,10 @@ the GPU binary is 6,979,645 bytes with SHA-256
 The manifest makes the shipped files auditable and fail-closed, but it does not
 pin a toolchain: rebuilding the blobs byte-for-byte also depends on the exact
 Rust and Binaryen versions used, and schema 2 does not record them. Orca pins
-`wasm-bindgen` and bootstraps that exact CLI version itself; rustup `stable` and
-the system `wasm-opt` remain explicit maintainer prerequisites rather than
+`wasm-bindgen` and bootstraps that exact CLI version itself; an installed stock
+rustup toolchain with the wasm32 target (the Trust toolchain ships no wasm32
+standard library, so the WASM builds are a labelled stock exception) and the
+system `wasm-opt` remain explicit maintainer prerequisites rather than
 hermetically downloaded tools.
 
 The small downstream patch is a single-hunk WASM build shim in
@@ -265,7 +267,8 @@ blanket quiet mode:
 - Vite's generic 500 kB advisory was replaced by enforced desktop, web, lazy,
   eager-closure, and worker chunk budgets. Oversize regressions now fail with a
   useful policy instead of producing unactionable warnings.
-- Cargo runs from the vendored Rust workspace with stock stable flags. Only
+- Cargo runs from the vendored Rust workspace as `targo --unverified`, the Trust
+  toolchain's lane with no proof claim and no compiler flags in config. Only
   aterm's exact successful temporal-proof line is reclassified as a labelled
   `verified` receipt; every real compiler/build-script warning remains visible.
 - The macOS native build uses ScreenCaptureKit instead of the deprecated
@@ -722,11 +725,14 @@ runs.
 
 ## Update and maintain the source build
 
-Prerequisites are Node.js 24, pnpm, and a rustup-managed stable Rust toolchain
-version 1.96 or newer. The checkout vendors its Rust crates and WASM artifacts;
-it does not require a separate `CARGO_HOME` workaround. Regenerating aterm also
-requires the stable `wasm32-unknown-unknown` target and Binaryen's `wasm-opt` on
-`PATH` (`brew install binaryen` on macOS).
+Prerequisites are Node.js 24, pnpm, and the Trust Rust toolchain (`targo`, via
+atpkg) on Apple-silicon macOS; other hosts need an installed rustup stable Rust
+toolchain version 1.96 or newer, which the scripts use but never install. The
+checkout vendors its Rust crates and WASM artifacts; it does not require a
+separate `CARGO_HOME` workaround. Regenerating aterm also requires an installed
+stable toolchain with the `wasm32-unknown-unknown` target (a stock exception:
+Trust ships no wasm32 standard library) and Binaryen's `wasm-opt` on `PATH`
+(`brew install binaryen` on macOS).
 
 To update and rebuild:
 

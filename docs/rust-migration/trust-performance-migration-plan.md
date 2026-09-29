@@ -260,7 +260,7 @@ and the aterm engine itself (wasm renderer + `orca_node` napi).
      `README.md` linking the exact `file:line`. Template: `rust/aterm/crates/aterm-spec-models/proofs/ay/a1_row_index/`.
    - *Tier-1/2 in-`trustc`:* for memory safety on a type, mirror `aterm-scrollback`
      (`src/lib.rs:11-13` preamble + `#[cfg_attr(trust_verify, trust::backing)]` `mmap.rs:23`),
-     check with `RUSTC_BOOTSTRAP=1 rustup run trust cargo trust check`. For all-inputs functional
+     check with `targo trust check -p <crate>`. For all-inputs functional
      properties add a `#[cfg(kani)] #[kani::proof]` harness (template:
      `aterm-scrollback/src/kani_proofs.rs`, use a state-collapsing stub to dodge CBMC blowup) and
      register it in `verify-kani-proofs.sh`.

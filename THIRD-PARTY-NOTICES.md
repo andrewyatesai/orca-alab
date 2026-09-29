@@ -28,7 +28,7 @@ The crate lists below are generated mechanically from the pinned lockfiles
 (regenerate after dependency changes):
 
 ```
-cargo tree --manifest-path rust/aterm/Cargo.toml --locked \
+targo tree --manifest-path rust/aterm/Cargo.toml --locked \
   -p aterm-wasm -p aterm-gpu-web --target wasm32-unknown-unknown \
   -e normal --prefix none -f '{p}|{l}'
 
@@ -36,24 +36,23 @@ cargo tree --manifest-path rust/aterm/Cargo.toml --locked \
 for t in aarch64-apple-darwin x86_64-apple-darwin \
          x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
          x86_64-pc-windows-msvc; do
-  cargo tree --manifest-path native/orca-node/Cargo.toml --locked \
+  targo tree --manifest-path native/orca-node/Cargo.toml --locked \
     --target $t -e normal --prefix none -f '{p}|{l}'
 done
 
-# orca-daemon: union over the same five triples. RUSTFLAGS= neutralizes the
-# Trust-toolchain rustflags in rust/.cargo/config.toml on stock rustc.
+# orca-daemon: union over the same five triples.
 for t in aarch64-apple-darwin x86_64-apple-darwin \
          x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
          x86_64-pc-windows-msvc; do
-  RUSTFLAGS= cargo tree --manifest-path rust/Cargo.toml --locked \
+  targo tree --manifest-path rust/Cargo.toml --locked \
     -p orca-daemon --target $t -e normal --prefix none -f '{p}|{l}'
 done
 
 # run from the repo root so rust/.cargo/config.toml (offline vendoring) does
 # not apply — the wasm workspaces resolve their web deps from crates.io
-cargo tree --manifest-path rust/orca-crypto-wasm/Cargo.toml --locked \
+targo tree --manifest-path rust/orca-crypto-wasm/Cargo.toml --locked \
   --target wasm32-unknown-unknown -e normal --prefix none -f '{p}|{l}'
-cargo tree --manifest-path rust/orca-git-wasm/Cargo.toml --locked \
+targo tree --manifest-path rust/orca-git-wasm/Cargo.toml --locked \
   --target wasm32-unknown-unknown -e normal --prefix none -f '{p}|{l}'
 ```
 

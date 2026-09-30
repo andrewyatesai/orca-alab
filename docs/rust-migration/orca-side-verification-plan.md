@@ -256,6 +256,55 @@ The corresponding discipline on the Orca side: **an obligation may only leave
 the list by being proved or by being named as an assumption.** Never by the code
 becoming less checkable.
 
+## Not taken: retiring the `proofs/ay` bundles (the 2026-08-08 SMT purge)
+
+A pair written on 2026-08-08 and never pushed (`ac5f15358` + `94b532c03`, kept on
+branch `salvage/local-main-orca-alab-20260928`) deleted all 92 bundle files under
+8 crates' `proofs/ay`, made the gauntlet certificates axis FAIL on any
+`.smt2`/`.alethe`, and moved the safety axis to trustc's report for
+`orca-stream-split`. Its additive half, the class-exhaustive property tests with
+non-vacuity counters beside each bundle, landed as `48f96aaa8`. The retirement
+was re-assessed on 2026-09-29 against `f51eb6497`, re-measured on 2026-09-30
+against `3c9500365`, and is not taken:
+
+- **It would drop obligations without proving them.** The pair's own stage-1
+  measurement found the compiler's verifier covered only `orca-provider-backoff`
+  (1/1) and `orca-stream-split` (2/2). In the other six crates a property test
+  would replace a discharged theorem, which the rule above forbids. On
+  `3c9500365` all 14 `verify.sh` exit 0 with atpkg ay 0.13.0: 64 checks over 9
+  crates, 39 `unsat` theorems and 25 `sat` non-vacuity controls. 29 of those
+  theorems are in the six crates. None of the eight crates states a bundle's
+  property as a `trust::ensures` or `trust::requires`. `orca-git`'s four
+  contracts are in `git_history*.rs` and `source_control_ai.rs`, not in
+  `status_stream.rs` or `orca-core`'s `git_cquoted_path.rs`, which its bundles
+  model. So no bundle meets the retirement rule below today.
+- **The overflow blind spot that motivated it is closed without it.** The
+  bundles model QF_LIA over unbounded `Int`, so they cannot state machine
+  overflow. `d933238fa` saturated the five reachable i64/u64 sites, and
+  `targo trust check` reports machine-integer (Level 0) obligations on the real
+  code. `pnpm verify:rust` runs it; its default crate set leaves out
+  `orca-session-gc` and `orca-crash-recovery`, so name them or pass `--all`.
+- **Main went the other way.** `10eaed1e9` added `orca-policy`'s
+  `grant_authority` bundle after the purge was written. On 2026-09-29,
+  `1ecb5abf2` made every bundle fail closed on a bad `$AY`.
+- **Its gauntlet code is stale.** The safety axis runs `$TRUSTC` or a Trust
+  checkout's `build/host/stage{1,2}` trustc with `-Ztrust-*` flags. Main
+  resolves Trust from PATH through targo and passes verifier bounds in
+  `TRUSTFLAGS` (`tools/trust-survey/survey-orca-verify.sh`). Its parity fix
+  (stable cargo re-resolving to the `trust` channel) is superseded by main's
+  `targo --unverified` run over every corpus crate. A replay onto `3c9500365`
+  conflicts in 25 paths (22 for `ac5f15358`, 3 for `94b532c03`, by
+  `git merge-tree`): the bundle drivers main has edited since, the Rust files
+  whose tests already landed, the rate-limit backoff TS and the gauntlet
+  files. Its capability-gap list was
+  measured on the 2026-08-08 stage 1 and stays on the branch. Re-measure it
+  before quoting it.
+
+Retire bundles one crate at a time, never all at once. A bundle may go only when
+`targo trust check` at `certify` proves the same property on the real code, as a
+measurement rather than an assumption. Until then the bundle and its property
+test stay side by side.
+
 ## What is done
 
 - `orca-policy` exists: `decide_play_path_lexical` and `decide_fleet_grant`,

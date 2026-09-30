@@ -16,7 +16,7 @@
 #   oom_nonvacuity_sat        sat    buffer reaches exactly max (bound is tight)
 #   oom_catches_unguarded_sat sat    without the guard, buffer > max is reachable
 set -u
-# ay: $AY, else PATH (the atpkg-managed Trust toolchain). Never ~/trust/build —
+# ay: $AY, else PATH (the atpkg-managed Trust toolchain). Never a Trust checkout's build/ —
 # the compiler repo's exclusive build output, whose ay goes stale. An explicit
 # $AY that does not run is an error, never a fall-through to another solver.
 if [ -n "${AY:-}" ]; then

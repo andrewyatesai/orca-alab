@@ -330,7 +330,7 @@ const TRUST_ROOT = process.env.TRUST_REPO || join(process.env.HOME || '', 'trust
 const TRUST_ROOT_LABEL = '$TRUST_REPO'
 
 // Same ladder as proofs/ay/resolve-solver.sh: $AY → PATH (the atpkg-managed ay).
-// Never ~/trust/build: that tree is the compiler repo's exclusive build output.
+// Never a Trust checkout's build/: that tree is the compiler repo's exclusive build output.
 function locateAy() {
   if (process.env.AY && existsSync(process.env.AY)) {
     return process.env.AY

@@ -3,7 +3,7 @@
 // `ty` on PATH. Only a binary whose `--help` mentions TLA+ counts: Astral's
 // Python type checker is ALSO called `ty` (commonly installed via uv), and
 // handing it a .tla would read as a model-check FAIL instead of a missing tool.
-// Never ~/trust/build: that tree is the compiler repo's exclusive build output,
+// Never a Trust checkout's build/: that tree is the compiler repo's exclusive build output,
 // and its ty goes stale (measured 2026-09-28: the build-tree ty exited 101 on
 // KeepTailDropBroken, where the PATH ty reported the violation). null means
 // absent: callers SKIP (exit 3).

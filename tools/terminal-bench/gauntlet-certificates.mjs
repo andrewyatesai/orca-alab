@@ -15,7 +15,7 @@
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-// $AY → PATH (the atpkg-managed ay); never the ~/trust/build tree, which is the
+// $AY → PATH (the atpkg-managed ay); never the Trust checkout's build/ tree, which is the
 // compiler repo's exclusive build output.
 const findAy = (sh) => {
   if (process.env.AY && existsSync(process.env.AY)) {

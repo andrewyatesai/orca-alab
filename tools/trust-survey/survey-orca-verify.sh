@@ -43,7 +43,7 @@ while [ $# -gt 0 ]; do
 done
 
 # The Trust toolchain's targo (atpkg) — `--unverified --version` proves it IS targo
-# (upstream cargo rejects the flag). Never the ~/trust/build tree: that is the compiler
+# (upstream cargo rejects the flag). Never the Trust checkout's build/ tree: that is the compiler
 # repo's exclusive build output.
 TARGO="${CARGO:-targo}"
 "$TARGO" --unverified --version >/dev/null 2>&1 \

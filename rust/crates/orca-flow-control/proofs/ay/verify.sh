@@ -25,7 +25,7 @@
 # implementations are proved equivalent to them there.
 set -u
 
-# ay: $AY, else PATH (the atpkg-managed Trust toolchain). Never ~/trust/build —
+# ay: $AY, else PATH (the atpkg-managed Trust toolchain). Never a Trust checkout's build/ —
 # the compiler repo's exclusive build output, whose ay goes stale.
 AY="${AY:-$(command -v ay 2>/dev/null || true)}"
 if [ -z "$AY" ] || ! [ -x "$AY" ]; then

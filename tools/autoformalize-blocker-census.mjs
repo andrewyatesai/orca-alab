@@ -53,7 +53,7 @@ function argValue(flag) {
   return i !== -1 && i + 1 < args.length ? args[i + 1] : null
 }
 
-// $TRUSTC → PATH; never ~/trust/build, the compiler repo's exclusive build output.
+// $TRUSTC → PATH; never a Trust checkout's build/, the compiler repo's exclusive build output.
 function locateTrustc() {
   if (process.env.TRUSTC && existsSync(process.env.TRUSTC)) {
     return process.env.TRUSTC

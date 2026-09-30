@@ -10,7 +10,7 @@
 # Sets SOLVER_KIND (ay|z3) and SOLVER_BIN (empty when nothing runnable), and
 # defines solve_verdict <file> → first bare sat/unsat/unknown line, lowercased.
 
-# ay ladder: $AY → PATH (the atpkg-managed Trust toolchain). Never ~/trust/build
+# ay ladder: $AY → PATH (the atpkg-managed Trust toolchain). Never a Trust checkout's build/
 # — the compiler repo's exclusive build output, whose ay goes stale. An explicit
 # $AY that does not run is FATAL (below), never a fall-through to another solver.
 resolve_ay() {

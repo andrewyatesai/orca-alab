@@ -30,11 +30,14 @@ pub const POST_READY_FLUSH_FALLBACK_MS: u64 = 200;
 
 // ── Marker scanner ──────────────────────────────────────────────────────────
 
-/// Streaming scanner state (`ShellReadyScanState`): the current match depth
-/// into the marker prefix and the held (withheld-from-output) prefix bytes.
+/// Streaming scanner state (`ShellReadyScanState`): the held
+/// (withheld-from-output) prefix bytes. `held` only ever holds a matched
+/// prefix of the pure-ASCII marker, so its byte length IS the match depth the
+/// TS scanner keeps as a separate `matchPos`; one field means the two cannot
+/// disagree, and the next expected byte is `prefix.get(held.len())` with no
+/// cursor arithmetic.
 #[derive(Default)]
 struct MarkerScanState {
-    match_pos: usize,
     held: String,
 }
 
@@ -56,17 +59,16 @@ impl MarkerScanState {
         // the unscanned remainder of the chunk.
         let mut chars = data.chars();
         while let Some(ch) = chars.next() {
-            match prefix.get(self.match_pos) {
-                // The next prefix byte matched: hold it.
+            match prefix.get(self.held.len()) {
+                // The next prefix byte matched: hold it (one ASCII byte, so the
+                // match depth advances by exactly one).
                 Some(&expected) if ch as u32 == expected as u32 => {
                     self.held.push(ch);
-                    self.match_pos += 1;
                 }
                 // Full prefix then BEL: the marker. Strip it, emit the rest.
                 None if ch == '\x07' => {
                     let remaining = chars.as_str();
                     self.held.clear();
-                    self.match_pos = 0;
                     output.push_str(remaining);
                     return ScanOutcome {
                         output,
@@ -79,13 +81,11 @@ impl MarkerScanState {
                 _ => {
                     output.push_str(&self.held);
                     self.held.clear();
-                    self.match_pos = 0;
                     if prefix
                         .first()
                         .is_some_and(|&first| ch as u32 == first as u32)
                     {
                         self.held.push(ch);
-                        self.match_pos = 1;
                     } else {
                         output.push(ch);
                     }
@@ -100,7 +100,6 @@ impl MarkerScanState {
     }
 
     fn drain_held(&mut self) -> String {
-        self.match_pos = 0;
         std::mem::take(&mut self.held)
     }
 }
@@ -360,6 +359,36 @@ mod tests {
         let r = s.scan("\x1b]777;orca-she");
         assert_eq!(r.output, "");
         assert_eq!(s.drain_held(), "\x1b]777;orca-she");
+    }
+
+    /// The match depth is the held length: a marker fed one char per chunk,
+    /// a non-ASCII char breaking a partial match, an ESC restarting one, and a
+    /// drain mid-prefix all leave the scanner matching from the right depth.
+    #[test]
+    fn match_depth_tracks_the_held_prefix_across_restarts_and_drains() {
+        let mut s = MarkerScanState::default();
+        let one_per_chunk: Vec<String> = MARKER.chars().map(String::from).collect();
+        let refs: Vec<&str> = one_per_chunk.iter().map(String::as_str).collect();
+        let (out, matched, _) = scan_all(&mut s, &refs);
+        assert_eq!(out, "");
+        assert!(matched, "a marker split into single chars still matches");
+
+        let mut s = MarkerScanState::default();
+        let input = format!("\x1b]77é\x1b]7\x1b{MARKER}tail");
+        let (out, matched, post) = scan_all(&mut s, &[&input]);
+        assert_eq!(out, "\x1b]77é\x1b]7\x1btail");
+        assert!(
+            matched,
+            "ESC after a broken prefix restarts the match at depth 1"
+        );
+        assert!(post);
+
+        let mut s = MarkerScanState::default();
+        assert_eq!(s.scan("\x1b]777;").output, "");
+        assert_eq!(s.drain_held(), "\x1b]777;");
+        let (out, matched, _) = scan_all(&mut s, &["orca-shell-ready\x07"]);
+        assert_eq!(out, "orca-shell-ready\x07", "a drain resets the depth to 0");
+        assert!(!matched);
     }
 
     #[test]

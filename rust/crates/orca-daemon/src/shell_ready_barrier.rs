@@ -18,6 +18,11 @@
 /// marker is this prefix followed by BEL (`\x07`).
 pub const SHELL_READY_MARKER_PREFIX: &str = "\x1b]777;orca-shell-ready";
 
+// `MarkerScanState` uses `held.len()` (bytes) as the match depth and compares
+// each `char` to one prefix byte; both are only right while every prefix byte
+// is one ASCII char. A non-ASCII prefix byte must fail the build, not the scan.
+const _: () = assert!(SHELL_READY_MARKER_PREFIX.is_ascii());
+
 /// `SHELL_READY_TIMEOUT_MS` in session.ts — the default bound on waiting for a
 /// marker that may never come (e.g. a wrapper-less shell).
 pub const SHELL_READY_TIMEOUT_MS: u64 = 15_000;

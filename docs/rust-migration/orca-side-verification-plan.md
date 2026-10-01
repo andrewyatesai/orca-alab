@@ -268,14 +268,18 @@ was re-assessed on 2026-09-29 against `f51eb6497`, re-measured on 2026-09-30
 against `3c9500365`, and is not taken:
 
 - **It would drop obligations without proving them.** The pair's own stage-1
-  measurement found the compiler's verifier covered only `orca-provider-backoff`
-  (1/1) and `orca-stream-split` (2/2). In the other six crates a property test
-  would replace a discharged theorem, which the rule above forbids. On
-  `3c9500365` all 14 `verify.sh` exit 0 with atpkg ay 0.13.0: 64 checks over 9
-  crates, 39 `unsat` theorems and 25 `sat` non-vacuity controls. 29 of those
-  theorems are in the six crates. None of the eight crates states a bundle's
-  property as a `trust::ensures` or `trust::requires`. `orca-git`'s four
-  contracts are in `git_history*.rs` and `source_control_ai.rs`, not in
+  measurement credits the compiler's verifier only with machine-integer
+  (Level 0) obligations in `orca-provider-backoff` (1/1) and
+  `orca-stream-split` (2/2), and its deletion inventory routes even those two
+  crates' bundles to property tests (`bo2_monotone` is relational, its gap R1).
+  So in all eight crates a property test would replace a discharged theorem,
+  which the rule above forbids. On `3c9500365` all 14 `verify.sh` exit 0 with
+  atpkg ay 0.13.0: 64 checks over 9 crates, 39 `unsat` theorems and 25 `sat`
+  non-vacuity controls. 36 of those theorems are in the eight crates (the other
+  3 are `orca-policy`'s, added after the purge), 29 of them in the six crates
+  it credits the compiler with nothing in. None of the eight crates states a
+  bundle's property as a `trust::ensures` or `trust::requires`. `orca-git`'s
+  four contracts are in `git_history*.rs` and `source_control_ai.rs`, not in
   `status_stream.rs` or `orca-core`'s `git_cquoted_path.rs`, which its bundles
   model. So no bundle meets the retirement rule below today.
 - **The overflow blind spot that motivated it is closed without it.** The

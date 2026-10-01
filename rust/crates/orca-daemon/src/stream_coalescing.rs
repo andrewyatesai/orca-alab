@@ -51,7 +51,8 @@ pub fn encode_stream_item(item: &StreamItem, format: StreamWireFormat) -> Vec<u8
         }
         // An event over the client's FRAME_MAX_PAYLOAD would be discarded by its
         // frame parser unread; nothing is written for it rather than a frame
-        // that cannot be delivered (exit events are a few dozen bytes).
+        // that cannot be delivered (exit events are a few dozen bytes; only a
+        // ~1 MiB session id gets here). event_frame records and logs the drop.
         (StreamItem::Event { json }, StreamWireFormat::Binary) => {
             event_frame(json).unwrap_or_default()
         }
@@ -326,6 +327,18 @@ mod tests {
             ],
             "NDJSON: adjacent data coalesces into ONE line, pending data flushes before the event, post-event data stays after"
         );
+    }
+
+    #[test]
+    fn binary_event_over_the_frame_cap_writes_nothing_and_is_recorded() {
+        let huge = StreamItem::Event {
+            json: exit_event(&"s".repeat(crate::protocol::FRAME_MAX_PAYLOAD), 0),
+        };
+        let before = crate::protocol::dropped_stream_frames();
+        assert!(encode_stream_item(&huge, StreamWireFormat::Binary).is_empty());
+        assert!(crate::protocol::dropped_stream_frames() > before);
+        // NDJSON has its own (16 MiB) line cap and is unaffected.
+        assert!(!encode_stream_item(&huge, StreamWireFormat::Ndjson).is_empty());
     }
 
     #[test]

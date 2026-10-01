@@ -874,6 +874,17 @@ fn spawn_ready_timeout(
     });
 }
 
+/// One PTY read: the bytes read, or `None` at EOF, on a read error, or when the
+/// reader reports more bytes than `buf` holds. `Read` promises `n <= buf.len()`
+/// but the PTY reader is a trait object, so an over-reported count ends the
+/// pump like a read error instead of panicking on the slice.
+fn read_pty_chunk<'b>(reader: &mut dyn Read, buf: &'b mut [u8]) -> Option<&'b [u8]> {
+    match reader.read(buf) {
+        Ok(0) | Err(_) => None,
+        Ok(n) => buf.get(..n),
+    }
+}
+
 fn pump_output(
     mut reader: Box<dyn Read + Send>,
     registry: Arc<Registry>,
@@ -895,13 +906,9 @@ fn pump_output(
     let frame_bytes = frame_batch_bytes();
     let mut route_acc = String::new();
     loop {
-        match reader.read(&mut buf) {
-            Ok(0) | Err(_) => break,
-            Ok(n) => {
-                // `Read` promises `n <= buf.len()` but the PTY reader is a trait
-                // object; an over-reported count ends the pump like a read error
-                // instead of panicking on the slice.
-                let Some(read) = buf.get(..n) else { break };
+        match read_pty_chunk(&mut *reader, &mut buf) {
+            None => break,
+            Some(read) => {
                 let data = decoder.decode(read);
                 // While the barrier scans for the ready marker, the SCANNED text
                 // (marker stripped, partial prefix withheld) replaces the chunk
@@ -1123,6 +1130,38 @@ mod tests {
             parse_frame_batch_bytes(Some(&(usize::MAX / 1024).to_string())),
             usize::MAX / 1024 * 1024
         );
+    }
+
+    #[test]
+    fn pty_read_ends_on_eof_error_or_an_over_reported_count() {
+        struct Reports(std::io::Result<usize>);
+        impl Read for Reports {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                buf.iter_mut().for_each(|b| *b = b'z');
+                match &self.0 {
+                    Ok(n) => Ok(*n),
+                    Err(e) => Err(std::io::Error::new(e.kind(), "read failed")),
+                }
+            }
+        }
+        let mut buf = [0u8; 8];
+        assert_eq!(
+            read_pty_chunk(&mut Reports(Ok(3)), &mut buf),
+            Some(&b"zzz"[..])
+        );
+        assert_eq!(
+            read_pty_chunk(&mut Reports(Ok(8)), &mut buf),
+            Some(&[b'z'; 8][..])
+        );
+        assert_eq!(read_pty_chunk(&mut Reports(Ok(0)), &mut buf), None, "EOF");
+        let err = Err(std::io::Error::other("x"));
+        assert_eq!(
+            read_pty_chunk(&mut Reports(err), &mut buf),
+            None,
+            "read error"
+        );
+        // A reader claiming more than the buffer holds ends the pump, no panic.
+        assert_eq!(read_pty_chunk(&mut Reports(Ok(9)), &mut buf), None);
     }
 
     fn rows(payload: Value) -> usize {

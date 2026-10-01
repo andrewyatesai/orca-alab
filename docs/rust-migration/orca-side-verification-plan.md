@@ -296,9 +296,13 @@ against `3c9500365`, and is not taken:
   conflicts in 25 paths (22 for `ac5f15358`, 3 for `94b532c03`, by
   `git merge-tree`): the bundle drivers main has edited since, the Rust files
   whose tests already landed, the rate-limit backoff TS and the gauntlet
-  files. Its capability-gap list was
-  measured on the 2026-08-08 stage 1 and stays on the branch. Re-measure it
-  before quoting it.
+  files. Its capability-gap list
+  (`docs/trust/capability-gaps-from-the-smt-purge.md` in `ac5f15358`) asks
+  Trust for seven things: container length tied to its buffer (S1), callee
+  postconditions (C1), struct invariants (I1), relational properties (R1),
+  floating point (F1), vacuity and reachability reports (N1), and a `tippy`
+  lint against hand-coded solver logic (T1). It was measured on the
+  2026-08-08 stage 1. Re-measure it before quoting it.
 
 Retire bundles one crate at a time, never all at once. A bundle may go only when
 `targo trust check` at `certify` proves the same property on the real code, as a

@@ -83,13 +83,17 @@ impl<S: Read> LineReader<S> {
             if n == 0 {
                 return None; // peer closed
             }
+            // `Read` promises `n <= buf.len()` but cannot enforce it (S is any
+            // transport); a reader that over-reports is treated like a read error
+            // (connection closed) instead of panicking on the slice.
+            let read = self.buf.get(..n)?;
             // Decode carrying any partial multibyte char across the read boundary
             // BEFORE the splitter frames on '\n' (0x0A never occurs inside a multibyte
             // sequence, so line-splitting the decoded text stays correct). Feed into a
             // scratch Vec so the borrow of `self.buf`/`self.carry` ends before the
             // &mut-self splitter call.
             let mut events = Vec::new();
-            let chunk = decode_streaming(&mut self.carry, &self.buf[..n]);
+            let chunk = decode_streaming(&mut self.carry, read);
             self.splitter.feed(chunk.as_ref(), &mut events);
             drop(chunk);
             for event in events {
@@ -113,31 +117,57 @@ fn decode_streaming<'a>(carry: &mut Vec<u8>, bytes: &'a [u8]) -> Cow<'a, str> {
     if carry.is_empty() {
         return match std::str::from_utf8(bytes) {
             Ok(s) => Cow::Borrowed(s),
-            // Incomplete trailing char (error at end, ≤ 3 bytes): emit the valid
-            // prefix, carry the tail for the next read.
-            Err(e) if e.error_len().is_none() && bytes.len() - e.valid_up_to() <= 3 => {
-                let vut = e.valid_up_to();
-                *carry = bytes[vut..].to_vec();
-                Cow::Borrowed(std::str::from_utf8(&bytes[..vut]).expect("valid_up_to is a boundary"))
-            }
-            // A real mid-stream invalid byte — lossy-replace as before (rare).
-            Err(_) => Cow::Owned(String::from_utf8_lossy(bytes).into_owned()),
+            Err(e) => match split_incomplete_tail(bytes, &e) {
+                // Incomplete trailing char (error at end, ≤ 3 bytes): emit the valid
+                // prefix, carry the tail for the next read.
+                Some((good, tail)) => {
+                    *carry = tail.to_vec();
+                    Cow::Borrowed(good)
+                }
+                // A real mid-stream invalid byte — lossy-replace as before (rare).
+                None => Cow::Owned(String::from_utf8_lossy(bytes).into_owned()),
+            },
         };
     }
     // A tail was carried: prepend it, then decode the joined bytes.
     let mut combined = std::mem::take(carry);
     combined.extend_from_slice(bytes);
-    match std::str::from_utf8(&combined) {
-        Ok(_) => Cow::Owned(String::from_utf8(combined).expect("checked valid")),
-        Err(e) if e.error_len().is_none() && combined.len() - e.valid_up_to() <= 3 => {
-            let vut = e.valid_up_to();
-            let good = std::str::from_utf8(&combined[..vut]).expect("valid_up_to is a boundary");
-            let good = good.to_string();
-            *carry = combined[vut..].to_vec();
-            Cow::Owned(good)
+    match String::from_utf8(combined) {
+        // Valid as a whole: the buffer moves into the String without a copy.
+        Ok(s) => Cow::Owned(s),
+        Err(err) => {
+            let e = err.utf8_error();
+            let combined = err.into_bytes();
+            match split_incomplete_tail(&combined, &e) {
+                Some((good, tail)) => {
+                    let good = good.to_string();
+                    *carry = tail.to_vec();
+                    Cow::Owned(good)
+                }
+                None => Cow::Owned(String::from_utf8_lossy(&combined).into_owned()),
+            }
         }
-        Err(_) => Cow::Owned(String::from_utf8_lossy(&combined).into_owned()),
     }
+}
+
+/// When `e` (from decoding `bytes`) is only an incomplete multibyte char at the
+/// very end — no invalid byte, at most 3 trailing bytes — split `bytes` into its
+/// valid prefix and that tail. `None` means a genuinely invalid sequence (the
+/// caller lossy-replaces). Uses checked splitting so the decoder's contract
+/// (`valid_up_to` is an in-bounds char boundary) is relied on for the result,
+/// never for memory safety or a panic.
+fn split_incomplete_tail<'b>(
+    bytes: &'b [u8],
+    e: &std::str::Utf8Error,
+) -> Option<(&'b str, &'b [u8])> {
+    if e.error_len().is_some() {
+        return None;
+    }
+    let (good, tail) = bytes.split_at_checked(e.valid_up_to())?;
+    if tail.len() > 3 {
+        return None;
+    }
+    Some((std::str::from_utf8(good).ok()?, tail))
 }
 
 pub fn handle_connection<S: DaemonStream>(
@@ -330,6 +360,35 @@ mod tests {
         let out = decode_streaming(&mut carry, &[b'a', 0xFF, b'b']); // 0xFF never valid
         assert!(out.contains('\u{FFFD}'), "a real invalid byte is lossy-replaced: {out:?}");
         assert!(carry.is_empty(), "invalid (non-boundary) bytes are not carried");
+    }
+
+    #[test]
+    fn carried_tail_followed_by_an_invalid_byte_is_lossy_and_clears_carry() {
+        let mut carry = vec![0xE2u8]; // partial '€' ...
+        let out = decode_streaming(&mut carry, &[0xFF, b'z']); // ... then a never-valid byte
+        assert!(
+            out.contains('\u{FFFD}'),
+            "invalid continuation is lossy-replaced: {out:?}"
+        );
+        assert!(out.ends_with('z'));
+        assert!(
+            carry.is_empty(),
+            "nothing is carried past a genuinely invalid byte"
+        );
+    }
+
+    /// A transport whose `read` over-reports its byte count (a `Read` contract
+    /// violation) closes the connection instead of panicking on `buf[..n]`.
+    #[test]
+    fn reader_over_reporting_its_byte_count_closes_instead_of_panicking() {
+        struct OverReporting;
+        impl Read for OverReporting {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                Ok(buf.len() + 1)
+            }
+        }
+        let mut reader = LineReader::new(OverReporting);
+        assert_eq!(reader.next_line(), None);
     }
 
     /// End-to-end: a JSON line whose multibyte char straddles the read boundary must

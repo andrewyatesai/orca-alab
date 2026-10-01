@@ -27,6 +27,14 @@ fn main() -> std::io::Result<()> {
         .next()
         .map(|s| s.parse().expect("chunk_bytes"))
         .unwrap_or(65536);
+    // `chunks(0)` panics: refuse a zero chunk size up front as a usage error
+    // instead of dying inside the send loop.
+    if chunk_bytes == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "chunk_bytes must be a positive byte count",
+        ));
+    }
     let binary = match mode.as_str() {
         "binary" => true,
         "ndjson" => false,
@@ -56,7 +64,9 @@ fn main() -> std::io::Result<()> {
     }
     let exit_json = exit_event(session_id, 0);
     if binary {
-        writer.write_all(&event_frame(&exit_json))?;
+        let frame = event_frame(&exit_json)
+            .ok_or_else(|| std::io::Error::other("exit event exceeds FRAME_MAX_PAYLOAD"))?;
+        writer.write_all(&frame)?;
     } else {
         writer.write_all(encode_ndjson_line(&exit_json).as_bytes())?;
     }

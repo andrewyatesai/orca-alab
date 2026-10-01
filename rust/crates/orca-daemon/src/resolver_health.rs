@@ -30,15 +30,15 @@ pub fn classify_mac_resolver(scutil_output: &str) -> &'static str {
 /// followed by optional spaces and a colon (anywhere on the line).
 fn line_is_nameserver(line: &str) -> bool {
     let mut rest = line.trim_start();
-    while let Some(idx) = rest.find("nameserver[") {
-        let after = &rest[idx + "nameserver[".len()..];
-        if let Some(close) = after.find(']') {
-            let digits = &after[..close];
-            if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
-                let tail = after[close + 1..].trim_start();
-                if tail.starts_with(':') {
-                    return true;
-                }
+    // `split_once` splits at the first occurrence exactly like `find` + slicing,
+    // without hand-computed offsets.
+    while let Some((_, after)) = rest.split_once("nameserver[") {
+        if let Some((digits, tail)) = after.split_once(']') {
+            if !digits.is_empty()
+                && digits.bytes().all(|b| b.is_ascii_digit())
+                && tail.trim_start().starts_with(':')
+            {
+                return true;
             }
         }
         rest = after;
@@ -150,5 +150,14 @@ mod tests {
         assert!(line_is_nameserver("    nameserver[10]   : 1.1.1.1"));
         assert!(!line_is_nameserver("    nameserver[] : x"));
         assert!(!line_is_nameserver("    nameserverX : x"));
+    }
+
+    #[test]
+    fn nameserver_match_keeps_scanning_past_a_false_occurrence() {
+        // The first token has no digits / no colon; a later one on the line matches.
+        assert!(line_is_nameserver("nameserver[x] nameserver[2] : 9.9.9.9"));
+        assert!(line_is_nameserver("nameserver[1] = nameserver[2]:"));
+        assert!(!line_is_nameserver("nameserver[1] = nameserver[2"));
+        assert!(!line_is_nameserver("nameserver["));
     }
 }

@@ -54,25 +54,17 @@ fn usage() -> ! {
 }
 
 fn main() {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut socket_path: Option<String> = None;
     let mut token_path: Option<String> = None;
     let mut insecure = false;
-    let mut i = 0;
-    while i < argv.len() {
-        match argv[i].as_str() {
-            "--socket" => {
-                socket_path = argv.get(i + 1).cloned();
-                i += 2;
-            }
-            "--token" => {
-                token_path = argv.get(i + 1).cloned();
-                i += 2;
-            }
-            INSECURE_FLAG => {
-                insecure = true;
-                i += 1;
-            }
+    // A consuming iterator rather than an index walk: a value flag takes the
+    // next argument (or nothing, when it is last), with no cursor arithmetic.
+    let mut argv = std::env::args().skip(1);
+    while let Some(arg) = argv.next() {
+        match arg.as_str() {
+            "--socket" => socket_path = argv.next(),
+            "--token" => token_path = argv.next(),
+            INSECURE_FLAG => insecure = true,
             other => {
                 // Unknown flags stay inert (daemon-init passes --login-session-watch
                 // ahead of the engine-side watch landing) — but only a bare word can
@@ -80,7 +72,6 @@ fn main() {
                 if socket_path.is_none() && !other.starts_with('-') {
                     socket_path = Some(other.to_string());
                 }
-                i += 1;
             }
         }
     }

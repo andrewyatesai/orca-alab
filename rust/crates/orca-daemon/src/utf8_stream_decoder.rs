@@ -32,10 +32,10 @@ impl Utf8StreamDecoder {
             }
         }
 
-        let mut combined: Vec<u8> = Vec::with_capacity(self.tail.len() + bytes.len());
-        combined.extend_from_slice(&self.tail);
+        // Append onto the carried tail itself (leaving `self.tail` empty): no
+        // separately sized buffer, so no length sum to trust.
+        let mut combined: Vec<u8> = std::mem::take(&mut self.tail);
         combined.extend_from_slice(bytes);
-        self.tail.clear();
 
         let mut out = String::with_capacity(combined.len());
         let mut rest: &[u8] = &combined;
@@ -46,17 +46,25 @@ impl Utf8StreamDecoder {
                     break;
                 }
                 Err(e) => {
-                    let valid = e.valid_up_to();
-                    // [..valid] is valid UTF-8 by definition of valid_up_to, so this
-                    // never panics (the crate forbids unsafe, so no _unchecked).
-                    if let Ok(s) = std::str::from_utf8(&rest[..valid]) {
+                    // `valid_up_to` is an in-bounds char boundary and `error_len`
+                    // fits after it (the decoder's contract); checked splits rely on
+                    // that only for the result, never for a panic. Were it ever
+                    // violated, the remainder is lossy-decoded — the same output
+                    // class as any other invalid input.
+                    let Some((valid, after)) = rest.split_at_checked(e.valid_up_to()) else {
+                        out.push_str(&String::from_utf8_lossy(rest));
+                        break;
+                    };
+                    // `valid` is UTF-8 by definition of valid_up_to (the crate
+                    // forbids unsafe, so no _unchecked).
+                    if let Ok(s) = std::str::from_utf8(valid) {
                         out.push_str(s);
                     }
                     match e.error_len() {
                         // Incomplete trailing char (split across the boundary): carry
                         // the remainder for the next chunk instead of replacing it.
                         None => {
-                            self.tail.extend_from_slice(&rest[valid..]);
+                            self.tail.extend_from_slice(after);
                             break;
                         }
                         // Genuinely invalid sequence: emit U+FFFD, skip it, continue —
@@ -64,7 +72,7 @@ impl Utf8StreamDecoder {
                         // corruption.
                         Some(bad) => {
                             out.push('\u{FFFD}');
-                            rest = &rest[valid + bad..];
+                            rest = after.get(bad..).unwrap_or_default();
                         }
                     }
                 }
@@ -113,6 +121,29 @@ mod tests {
         let mut d = Utf8StreamDecoder::new();
         // 0xFF is never valid in UTF-8; surrounding ASCII must survive.
         assert_eq!(d.decode(b"a\xffb"), "a\u{FFFD}b");
+    }
+
+    #[test]
+    fn invalid_runs_match_from_utf8_lossy_including_after_a_carried_tail() {
+        let cases: [&[u8]; 6] = [
+            b"\xff\xfe",
+            b"a\xe2\x82b\xf0\x9f\xa6c",
+            b"\xc3\x28",
+            b"\xed\xa0\x80x",
+            b"ok\x80\x80\x80",
+            b"\xf4\x90\x80\x80!",
+        ];
+        for case in cases {
+            let mut d = Utf8StreamDecoder::new();
+            assert_eq!(d.decode(case), String::from_utf8_lossy(case), "{case:?}");
+            // The same bytes after a carried lead byte that they fail to complete.
+            let mut d = Utf8StreamDecoder::new();
+            let mut out = d.decode(b"\xe2");
+            out.push_str(&d.decode(case));
+            let mut joined = vec![0xe2u8];
+            joined.extend_from_slice(case);
+            assert_eq!(out, String::from_utf8_lossy(&joined), "carried + {case:?}");
+        }
     }
 
     #[test]

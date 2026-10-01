@@ -33,11 +33,23 @@ const KILL_TIMEOUT: Duration = Duration::from_secs(5);
 /// read — this measures whether fewer/bigger frames lift the full path. Read once.
 /// NOTE: with N>0, live output is delayed up to one batch (fine for a flood; a
 /// shipping version would also time-bound the flush for interactive latency).
-fn frame_batch_kib() -> usize {
-    static FRAME_KIB: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *FRAME_KIB.get_or_init(|| {
-        std::env::var("ORCA_PUMP_FRAME_KIB").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+///
+/// Returned in BYTES (0 = off). The KiB→bytes conversion is checked once here: a
+/// value whose byte count does not fit `usize` is treated like any other
+/// unparsable value (off), rather than overflowing the per-read threshold test.
+fn frame_batch_bytes() -> usize {
+    static FRAME_BYTES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *FRAME_BYTES.get_or_init(|| {
+        parse_frame_batch_bytes(std::env::var("ORCA_PUMP_FRAME_KIB").ok().as_deref())
     })
+}
+
+/// `ORCA_PUMP_FRAME_KIB` → coalescing threshold in bytes; absent, unparsable, or
+/// overflowing values are 0 (off).
+fn parse_frame_batch_bytes(raw: Option<&str>) -> usize {
+    raw.and_then(|v| v.trim().parse::<usize>().ok())
+        .and_then(|kib| kib.checked_mul(1024))
+        .unwrap_or(0)
 }
 
 pub(crate) fn field_str<'a>(payload: &'a Value, key: &str) -> &'a str {
@@ -879,14 +891,18 @@ fn pump_output(
     // (correct) engine grid.
     let mut decoder = Utf8StreamDecoder::new();
     // Bench instrument: 0 = route per read (default, byte-identical); N>0 =
-    // coalesce routed frames to ~N KiB. See frame_batch_kib().
-    let frame_kib = frame_batch_kib();
+    // coalesce routed frames to ~N KiB. See frame_batch_bytes().
+    let frame_bytes = frame_batch_bytes();
     let mut route_acc = String::new();
     loop {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
-                let data = decoder.decode(&buf[..n]);
+                // `Read` promises `n <= buf.len()` but the PTY reader is a trait
+                // object; an over-reported count ends the pump like a read error
+                // instead of panicking on the slice.
+                let Some(read) = buf.get(..n) else { break };
+                let data = decoder.decode(read);
                 // While the barrier scans for the ready marker, the SCANNED text
                 // (marker stripped, partial prefix withheld) replaces the chunk
                 // everywhere downstream — engine, records, and stream — matching
@@ -923,7 +939,7 @@ fn pump_output(
                         if barrier.is_some() {
                             engine.terminal.process(text.as_bytes());
                         } else {
-                            engine.terminal.process(&buf[..n]);
+                            engine.terminal.process(read);
                         }
                         engine.pending.record_output(text);
                         // E1: read the deferred-compression backlog under the lock
@@ -941,13 +957,13 @@ fn pump_output(
                     }
                     // Stream the same boundary-safe copy live to the attached client
                     // (dropped if detached — the reattach snapshot restores it).
-                    // frame_kib==0: route per read (unchanged). N>0: coalesce to
+                    // frame_bytes==0: route per read (unchanged). N>0: coalesce to
                     // ~N KiB per socket frame (bench instrument).
-                    if frame_kib == 0 {
+                    if frame_bytes == 0 {
                         registry.route_output(&session_id, text);
                     } else {
                         route_acc.push_str(text);
-                        if route_acc.len() >= frame_kib * 1024 {
+                        if route_acc.len() >= frame_bytes {
                             registry.route_output(&session_id, &route_acc);
                             route_acc.clear();
                         }
@@ -1093,6 +1109,21 @@ mod tests {
     use super::*;
 
     const DEFAULT: usize = DEFAULT_SCROLLBACK;
+
+    #[test]
+    fn frame_batch_threshold_is_kib_in_bytes_and_off_when_invalid() {
+        assert_eq!(parse_frame_batch_bytes(None), 0);
+        assert_eq!(parse_frame_batch_bytes(Some("0")), 0);
+        assert_eq!(parse_frame_batch_bytes(Some(" 32 ")), 32 * 1024);
+        assert_eq!(parse_frame_batch_bytes(Some("lots")), 0);
+        // A KiB count whose byte size does not fit usize is off, not a wrapped
+        // (or, with overflow checks, panicking) threshold.
+        assert_eq!(parse_frame_batch_bytes(Some(&usize::MAX.to_string())), 0);
+        assert_eq!(
+            parse_frame_batch_bytes(Some(&(usize::MAX / 1024).to_string())),
+            usize::MAX / 1024 * 1024
+        );
+    }
 
     fn rows(payload: Value) -> usize {
         scrollback_rows(&payload)

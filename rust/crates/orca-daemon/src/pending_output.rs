@@ -80,15 +80,21 @@ impl PendingOutput {
     /// Charge `bytes` against the cap. Returns true if it overflowed (caller must
     /// then skip the record) — the batch is dropped and flagged so the next take
     /// forces a full-snapshot checkpoint.
+    /// The sum is checked, not assumed: a total that does not even fit `usize`
+    /// is past the cap by definition, so it takes the same overflow path.
     fn charge(&mut self, bytes: usize) -> bool {
-        if self.bytes + bytes > MAX_BYTES {
-            self.records.clear();
-            self.bytes = 0;
-            self.overflowed = true;
-            return true;
+        match self.bytes.checked_add(bytes) {
+            Some(total) if total <= MAX_BYTES => {
+                self.bytes = total;
+                false
+            }
+            _ => {
+                self.records.clear();
+                self.bytes = 0;
+                self.overflowed = true;
+                true
+            }
         }
-        self.bytes += bytes;
-        false
     }
 
     /// Drain the batch as JSON records with a fresh monotonic seq, resetting the
@@ -133,6 +139,29 @@ mod tests {
             json!({ "kind": "resize", "cols": 100, "rows": 30 })
         );
         assert_eq!(seq, 2);
+    }
+
+    #[test]
+    fn a_charge_whose_sum_overflows_usize_takes_the_overflow_path() {
+        let mut p = PendingOutput::default();
+        p.record_output("seed");
+        assert!(
+            p.charge(usize::MAX),
+            "an unrepresentable total is over the cap"
+        );
+        let (records, _, overflowed) = p.take();
+        assert!(
+            records.is_empty(),
+            "the batch is dropped, as for any overflow"
+        );
+        assert!(overflowed);
+    }
+
+    #[test]
+    fn a_charge_exactly_at_the_cap_is_accepted() {
+        let mut p = PendingOutput::default();
+        assert!(!p.charge(MAX_BYTES));
+        assert!(p.charge(1), "one byte past the cap overflows");
     }
 
     #[test]

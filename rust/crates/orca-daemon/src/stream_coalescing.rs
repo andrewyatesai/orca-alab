@@ -49,7 +49,12 @@ pub fn encode_stream_item(item: &StreamItem, format: StreamWireFormat) -> Vec<u8
         (StreamItem::Event { json }, StreamWireFormat::Ndjson) => {
             encode_ndjson_line(json).into_bytes()
         }
-        (StreamItem::Event { json }, StreamWireFormat::Binary) => event_frame(json),
+        // An event over the client's FRAME_MAX_PAYLOAD would be discarded by its
+        // frame parser unread; nothing is written for it rather than a frame
+        // that cannot be delivered (exit events are a few dozen bytes).
+        (StreamItem::Event { json }, StreamWireFormat::Binary) => {
+            event_frame(json).unwrap_or_default()
+        }
     }
 }
 
@@ -290,7 +295,7 @@ mod tests {
         );
         assert_eq!(
             encode_stream_item(&exit, StreamWireFormat::Binary),
-            event_frame(&exit_event("sess", 3))
+            event_frame(&exit_event("sess", 3)).expect("exit event fits a frame")
         );
     }
 

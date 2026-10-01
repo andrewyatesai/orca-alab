@@ -52,42 +52,43 @@ impl MarkerScanState {
     fn scan(&mut self, data: &str) -> ScanOutcome {
         let prefix = SHELL_READY_MARKER_PREFIX.as_bytes();
         let mut output = String::new();
-        for (i, ch) in data.char_indices() {
-            if self.match_pos < prefix.len() {
-                if ch as u32 == prefix[self.match_pos] as u32 {
+        // `chars()` (not index arithmetic): after the BEL, `as_str()` is exactly
+        // the unscanned remainder of the chunk.
+        let mut chars = data.chars();
+        while let Some(ch) = chars.next() {
+            match prefix.get(self.match_pos) {
+                // The next prefix byte matched: hold it.
+                Some(&expected) if ch as u32 == expected as u32 => {
                     self.held.push(ch);
                     self.match_pos += 1;
-                } else {
+                }
+                // Full prefix then BEL: the marker. Strip it, emit the rest.
+                None if ch == '\x07' => {
+                    let remaining = chars.as_str();
+                    self.held.clear();
+                    self.match_pos = 0;
+                    output.push_str(remaining);
+                    return ScanOutcome {
+                        output,
+                        matched: true,
+                        post_marker_bytes_observed: !remaining.is_empty(),
+                    };
+                }
+                // A mismatch mid-prefix, or a full prefix with no BEL (a false
+                // marker): release what was held, then restart the match on `ch`.
+                _ => {
                     output.push_str(&self.held);
                     self.held.clear();
                     self.match_pos = 0;
-                    if ch as u32 == prefix[0] as u32 {
+                    if prefix
+                        .first()
+                        .is_some_and(|&first| ch as u32 == first as u32)
+                    {
                         self.held.push(ch);
                         self.match_pos = 1;
                     } else {
                         output.push(ch);
                     }
-                }
-            } else if ch == '\x07' {
-                let remaining = &data[i + 1..];
-                self.held.clear();
-                self.match_pos = 0;
-                output.push_str(remaining);
-                return ScanOutcome {
-                    output,
-                    matched: true,
-                    post_marker_bytes_observed: !remaining.is_empty(),
-                };
-            } else {
-                // Full prefix but no BEL: a false marker — release it.
-                output.push_str(&self.held);
-                self.held.clear();
-                self.match_pos = 0;
-                if ch as u32 == prefix[0] as u32 {
-                    self.held.push(ch);
-                    self.match_pos = 1;
-                } else {
-                    output.push(ch);
                 }
             }
         }

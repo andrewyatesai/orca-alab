@@ -99,15 +99,35 @@ impl PendingOutput {
 
     /// Drain the batch as JSON records with a fresh monotonic seq, resetting the
     /// accumulator. `(records, seq, overflowed)`.
-    pub fn take(&mut self) -> (Vec<Value>, u64, bool) {
+    ///
+    /// The seq orders batches in the client's on-disk history log, so it must
+    /// never repeat or go backwards: the increment is checked, and a seq that
+    /// cannot advance is an error, not a wrap. On that error nothing is drained —
+    /// the batch, the byte charge and the overflow flag are left as they were.
+    pub fn take(&mut self) -> Result<(Vec<Value>, u64, bool), CheckpointSeqExhausted> {
+        let seq = self.seq.checked_add(1).ok_or(CheckpointSeqExhausted)?;
         let records: Vec<Value> = self.records.drain(..).map(|r| r.to_json()).collect();
         let overflowed = self.overflowed;
         self.bytes = 0;
         self.overflowed = false;
-        self.seq += 1;
-        (records, self.seq, overflowed)
+        self.seq = seq;
+        Ok((records, seq, overflowed))
     }
 }
+
+/// `PendingOutput::take` was called after `u64::MAX` batches: no fresh seq is
+/// left to order the next one. (At one take per checkpoint tick that is far
+/// beyond any session's life; it is reported, never wrapped.)
+#[derive(Debug, PartialEq, Eq)]
+pub struct CheckpointSeqExhausted;
+
+impl std::fmt::Display for CheckpointSeqExhausted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("checkpoint sequence exhausted: no seq left to order the next batch")
+    }
+}
+
+impl std::error::Error for CheckpointSeqExhausted {}
 
 #[cfg(test)]
 mod tests {
@@ -118,7 +138,7 @@ mod tests {
         let mut p = PendingOutput::default();
         p.record_output("ab");
         p.record_output("cd");
-        let (records, seq, overflowed) = p.take();
+        let (records, seq, overflowed) = p.take().unwrap();
         assert_eq!(
             records.len(),
             1,
@@ -132,13 +152,32 @@ mod tests {
         p.record_output("x");
         p.record_resize(100, 30);
         p.record_output("y");
-        let (records, seq, _) = p.take();
+        let (records, seq, _) = p.take().unwrap();
         assert_eq!(records.len(), 3);
         assert_eq!(
             records[1],
             json!({ "kind": "resize", "cols": 100, "rows": 30 })
         );
         assert_eq!(seq, 2);
+    }
+
+    /// The seq never wraps: the last representable seq is issued, then take
+    /// errors and leaves the batch in place.
+    #[test]
+    fn an_exhausted_seq_errors_and_drains_nothing() {
+        let mut p = PendingOutput {
+            seq: u64::MAX - 1,
+            ..PendingOutput::default()
+        };
+        p.record_output("a");
+        let (records, seq, _) = p.take().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(seq, u64::MAX);
+        p.record_output("b");
+        assert_eq!(p.take(), Err(CheckpointSeqExhausted));
+        assert_eq!(p.records.len(), 1, "the batch is kept on error");
+        assert_eq!(p.bytes, 1);
+        assert_eq!(p.seq, u64::MAX);
     }
 
     #[test]
@@ -149,7 +188,7 @@ mod tests {
             p.charge(usize::MAX),
             "an unrepresentable total is over the cap"
         );
-        let (records, _, overflowed) = p.take();
+        let (records, _, overflowed) = p.take().unwrap();
         assert!(
             records.is_empty(),
             "the batch is dropped, as for any overflow"
@@ -170,12 +209,12 @@ mod tests {
         let big = "z".repeat(MAX_BYTES + 1);
         p.record_output(&big);
         p.record_output("more"); // ignored while overflowed
-        let (records, _, overflowed) = p.take();
+        let (records, _, overflowed) = p.take().unwrap();
         assert!(records.is_empty(), "overflowed batch is dropped");
         assert!(overflowed, "overflow flagged for the caller");
         // Reset after drain: new output accumulates again.
         p.record_output("fresh");
-        let (records, _, overflowed) = p.take();
+        let (records, _, overflowed) = p.take().unwrap();
         assert_eq!(records.len(), 1);
         assert!(!overflowed);
     }

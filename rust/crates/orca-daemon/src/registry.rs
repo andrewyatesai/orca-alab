@@ -13,7 +13,7 @@
 //! `takePendingOutput` can drain records + serialize a snapshot atomically.
 
 use crate::bounded_stream_channel::StreamSender;
-use crate::pending_output::PendingOutput;
+use crate::pending_output::{CheckpointSeqExhausted, PendingOutput};
 use crate::protocol::exit_event;
 use crate::shell_ready_barrier::ShellReadyBarrier;
 use crate::stream_coalescing::StreamItem;
@@ -22,6 +22,9 @@ use orca_terminal::HeadlessTerminal;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+/// One `take_pending_output` drain: `(records, seq, overflowed, snapshot)`.
+pub type PendingOutputTake = (Vec<Value>, u64, bool, Value);
 
 /// The per-session engine state, behind one lock: the headless aterm terminal (the
 /// daemon answers getSnapshot/getCwd from it, no napi hop) plus the incremental
@@ -393,7 +396,7 @@ impl Registry {
         session_id: &str,
         include_snapshot: bool,
         teardown_snapshot: bool,
-    ) -> Option<(Vec<Value>, u64, bool, Value)> {
+    ) -> Option<Result<PendingOutputTake, CheckpointSeqExhausted>> {
         let (engine, barrier) = {
             let inner = self.inner.lock().unwrap();
             let entry = inner.sessions.get(session_id)?;
@@ -419,7 +422,10 @@ impl Registry {
         // records, matching session.ts (which returns [] when includeSnapshot — held
         // bytes are the one exception, as a post-checkpoint tail). A plain
         // incremental take returns the records with no snapshot.
-        let (records, seq, overflowed) = engine.pending.take();
+        let (records, seq, overflowed) = match engine.pending.take() {
+            Ok(batch) => batch,
+            Err(exhausted) => return Some(Err(exhausted)),
+        };
         if include_snapshot {
             let snapshot = crate::rpc::build_snapshot(&mut engine.terminal);
             let records = if released_held.is_empty() {
@@ -427,9 +433,9 @@ impl Registry {
             } else {
                 vec![json!({ "kind": "output", "data": released_held })]
             };
-            Some((records, seq, overflowed, snapshot))
+            Some(Ok((records, seq, overflowed, snapshot)))
         } else {
-            Some((records, seq, overflowed, Value::Null))
+            Some(Ok((records, seq, overflowed, Value::Null)))
         }
     }
 

@@ -37,7 +37,12 @@ impl Utf8StreamDecoder {
         let mut combined: Vec<u8> = std::mem::take(&mut self.tail);
         combined.extend_from_slice(bytes);
 
-        let mut out = String::with_capacity(combined.len());
+        // No up-front reservation sized from the input: the first `push_str` of
+        // the valid prefix allocates exactly what it needs (the common split-char
+        // case is that one push, then the carry), and only invalid sequences grow
+        // it further. Output is identical; no input length becomes an allocation
+        // request on its own.
+        let mut out = String::new();
         let mut rest: &[u8] = &combined;
         loop {
             match std::str::from_utf8(rest) {

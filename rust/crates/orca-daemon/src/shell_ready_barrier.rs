@@ -233,8 +233,7 @@ impl ShellReadyBarrier {
             return self.notify_data();
         }
         self.fallback_armed = true;
-        self.generation += 1;
-        Some(GateTimer::Fallback(self.generation))
+        Some(GateTimer::Fallback(self.advance_generation()))
     }
 
     fn notify_data(&mut self) -> Option<GateTimer> {
@@ -243,12 +242,27 @@ impl ShellReadyBarrier {
         }
         self.awaiting_prompt_draw = false;
         self.fallback_armed = false;
-        self.generation += 1; // invalidates the outstanding fallback timer
+        let generation = self.advance_generation(); // invalidates the outstanding fallback timer
         if !self.post_data_armed {
             self.post_data_armed = true;
-            return Some(GateTimer::PostData(self.generation));
+            return Some(GateTimer::PostData(generation));
         }
         None
+    }
+
+    /// Issue a fresh timer generation, invalidating every timer issued before it.
+    ///
+    /// A generation is a stale-timer token: it is only ever compared for equality
+    /// with the one outstanding timer, never ordered, counted or sent anywhere. So
+    /// it advances with wrapping semantics. Wrapping cannot alias a live timer in
+    /// practice: a barrier advances at most twice in its whole life (the marker
+    /// arms the fallback, then the first post-marker chunk swaps it for the settle
+    /// timer; or the ready timeout fires once while still pending), and even a
+    /// barrier advanced 2^64 times would only collide with a timer 2^64
+    /// generations stale.
+    fn advance_generation(&mut self) -> u64 {
+        self.generation = self.generation.wrapping_add(1);
+        self.generation
     }
 
     /// The `POST_READY_FLUSH_DELAY_MS` timer fired. True → the caller flushes
@@ -279,7 +293,7 @@ impl ShellReadyBarrier {
             return None;
         }
         self.state = ShellReadyState::TimedOut;
-        self.generation += 1;
+        self.advance_generation();
         Some(self.take_held())
     }
 
@@ -444,6 +458,48 @@ mod tests {
         let (out, timer) = b.process_output(&input);
         assert_eq!(out, "$ ");
         assert!(matches!(timer, Some(GateTimer::PostData(_))));
+    }
+
+    /// The wrapping generation's safety argument: a barrier issues at most two
+    /// generations in its whole life, however much output follows.
+    #[test]
+    fn a_barrier_issues_at_most_two_timer_generations() {
+        let mut b = ShellReadyBarrier::new_pending();
+        b.push_queued("cmd\n".to_string());
+        let (_, timer) = b.process_output(MARKER);
+        assert_eq!(timer, Some(GateTimer::Fallback(1)));
+        let (_, timer) = b.process_output("$ ");
+        assert_eq!(timer, Some(GateTimer::PostData(2)));
+        for _ in 0..1000 {
+            assert_eq!(b.process_output("more").1, None);
+            assert_eq!(b.notify_output(), None);
+        }
+        assert!(b.on_post_data_elapsed(2));
+        assert_eq!(b.on_ready_timeout_elapsed(), None, "readiness resolved");
+        assert_eq!(b.generation, 2);
+
+        let mut b = ShellReadyBarrier::new_pending();
+        assert!(b.on_ready_timeout_elapsed().is_some());
+        assert_eq!(b.on_ready_timeout_elapsed(), None);
+        assert_eq!(b.generation, 1);
+    }
+
+    /// Wrapping keeps the equality-only contract: the token issued at the wrap
+    /// fires its timer, and the pre-wrap token is stale.
+    #[test]
+    fn a_wrapped_generation_still_invalidates_the_previous_timer() {
+        let mut b = ShellReadyBarrier::new_pending();
+        b.generation = u64::MAX - 1;
+        b.push_queued("cmd\n".to_string());
+        let (_, timer) = b.process_output(MARKER);
+        let Some(GateTimer::Fallback(stale)) = timer else {
+            panic!("expected fallback, got {timer:?}");
+        };
+        assert_eq!(stale, u64::MAX);
+        let (_, timer) = b.process_output("$ ");
+        assert_eq!(timer, Some(GateTimer::PostData(0)));
+        assert!(!b.on_fallback_elapsed(stale));
+        assert!(b.on_post_data_elapsed(0));
     }
 
     #[test]

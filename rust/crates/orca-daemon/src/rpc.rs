@@ -250,10 +250,13 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             match registry.take_pending_output(&sid(), include_snapshot, teardown_snapshot) {
-                Some((records, seq, overflowed, snapshot)) => rpc_ok(
+                Some(Ok((records, seq, overflowed, snapshot))) => rpc_ok(
                     id,
                     json!({ "records": records, "seq": seq, "overflowed": overflowed, "snapshot": snapshot }),
                 ),
+                // The checkpoint seq cannot advance (see `CheckpointSeqExhausted`):
+                // an error, never a repeated or wrapped seq in the history log.
+                Some(Err(exhausted)) => rpc_err(id, &exhausted.to_string()),
                 // Missing/just-reaped session → ok+null, NOT an error. The Node host
                 // is null-not-throw here (terminal-host.ts), and the client's
                 // checkpoint loop relies on it (`if (!take) return 'done'`): an error

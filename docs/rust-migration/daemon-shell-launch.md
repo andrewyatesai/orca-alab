@@ -70,6 +70,24 @@ the runtime half (`src/shell_ready_barrier.rs`, wired in `rpc.rs`):
   post-ready gate (30ms settle after prompt bytes / 200ms wall-clock
   fallback — port of `post-ready-flush-gate.ts`), bounded by
   `shellReadyTimeoutMs` (Codex markerless: 300ms) or the 15s default;
+- `shellReadyTimeoutMs` has Node `setTimeout` semantics, exactly as the Node
+  daemon applied it (`setTimeout(fn, opts.shellReadyTimeoutMs ?? 15000)`):
+  absent/`null` is 15 s; any other value goes through JS `Number()`; a result
+  above `TIMEOUT_MAX` (2^31-1 ms), below 1, or NaN waits **1 ms**; fractions
+  truncate (`rpc.rs` `shell_ready_timeout_ms`,
+  `shell_ready_barrier.rs` `node_set_timeout_delay_ms`). Before 2026-10-02 the
+  daemon slept the client's `u64` verbatim — `u64::MAX` meant a barrier that
+  never timed out — and sent negative/float values to the 15 s default;
+- the pre-ready stdin queue is bounded: a write is admitted while the queue
+  holds less than `PRE_READY_QUEUE_CAP_BYTES` (8 MiB, the stream queue's
+  `STREAM_QUEUE_DROP_CAP_BYTES`), so the queue never exceeds 8 MiB plus one
+  wire line (16 MiB). Past it the write is **refused** with
+  `shell-ready stdin queue full: <n> bytes queued, limit 8388608 bytes` —
+  never shed, since shedding oldest-first (as the output queue does) would drop
+  the startup command. The Node queue is unbounded; only a client writing
+  8 MiB before the shell's first prompt can see the difference.
+  Both decisions were made 2026-10-02 by the orchestrating agent under the
+  owner's "decide for yourself" instruction;
 - `createOrAttach`/`listSessions` report the live `shellState`
   (`pending`/`ready`/`timed_out`/`unsupported`);
 - barrier sessions feed the engine DECODED text for their whole lifetime

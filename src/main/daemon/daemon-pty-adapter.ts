@@ -46,6 +46,7 @@ import type {
 } from '../providers/types'
 import type { PtyProcessInspection } from '../providers/pty-process-inspection'
 import { isShellProcess } from '../../shared/agent-detection'
+import { capTerminalGridDim } from '../../shared/terminal-grid-limits'
 import { resolveWslSessionContext } from './wsl-session-context'
 import { normalizeWslColdRestoreCwd } from './wsl-cold-restore-cwd'
 import { recognizeAgentProcessFromCommandLine } from '../../shared/agent-process-recognition'
@@ -475,8 +476,10 @@ export class DaemonPtyAdapter implements IPtyProvider {
       }
     }
     let effectiveCwd = restoreInfo?.cwd ?? opts.cwd
-    let effectiveCols = restoreInfo?.cols ?? opts.cols
-    let effectiveRows = restoreInfo?.rows ?? opts.rows
+    // Why capped: the Rust daemon refuses a spawn above 4096 per dimension, and a
+    // checkpoint or caller could carry more (terminal-grid-limits.ts).
+    let effectiveCols = capTerminalGridDim(restoreInfo?.cols ?? opts.cols)
+    let effectiveRows = capTerminalGridDim(restoreInfo?.rows ?? opts.rows)
 
     const shellReadySupported = opts.command ? supportsPtyStartupBarrier(opts.env ?? {}) : false
     const isCodexStartupCommand =
@@ -650,8 +653,8 @@ export class DaemonPtyAdapter implements IPtyProvider {
         operation.ignoreNextExit = true
         await this.client.request('kill', { sessionId, immediate: true })
         effectiveCwd = restoreInfo.cwd
-        effectiveCols = restoreInfo.cols
-        effectiveRows = restoreInfo.rows
+        effectiveCols = capTerminalGridDim(restoreInfo.cols)
+        effectiveRows = capTerminalGridDim(restoreInfo.rows)
         result = await createOrAttach(scrollback)
         await adoptSpawnResultSession(result)
         const exitedRetryResult = this.resultForExitBeforeSpawnReply(sessionId, result, operation)
@@ -909,7 +912,13 @@ export class DaemonPtyAdapter implements IPtyProvider {
 
   resize(id: string, cols: number, rows: number): void {
     this.markSessionDirty(id)
-    this.client.notify('resize', { sessionId: id, cols, rows })
+    // Why capped: the daemon refuses a resize above 4096 per dimension, and a
+    // refused fire-and-forget resize would leave the PTY at its old size silently.
+    this.client.notify('resize', {
+      sessionId: id,
+      cols: capTerminalGridDim(cols),
+      rows: capTerminalGridDim(rows)
+    })
   }
 
   pauseProducer(id: string): void {

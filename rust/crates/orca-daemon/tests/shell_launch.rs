@@ -265,6 +265,97 @@ fn barrier_timeout_flushes_the_queue() {
     );
 }
 
+/// shellReadyTimeoutMs has Node `setTimeout` semantics: above TIMEOUT_MAX
+/// (2^31-1 ms), negative, or zero, the wait is 1 ms — so the queued command
+/// flushes at once. Before, the daemon slept the u64 verbatim (u64::MAX: the
+/// barrier never timed out and stdin queued for the life of the session) and
+/// sent negatives to the 15 s default.
+#[test]
+fn out_of_range_shell_ready_timeouts_fire_after_one_ms_like_node() {
+    let reg = Arc::new(Registry::new());
+    let client = "c-node-timeout";
+    let cases = [
+        json!(2_147_483_648_u64),
+        json!(u64::MAX),
+        json!(-1),
+        json!(0),
+    ];
+    for (i, timeout) in cases.iter().enumerate() {
+        let sid = format!("s-node-timeout-{i}");
+        let created = dispatch(
+            &reg,
+            client,
+            json!({ "id": "t", "type": "createOrAttach",
+                "payload": { "sessionId": sid, "cols": 100, "rows": 24,
+                    "shellOverride": "/bin/sh",
+                    "shellArgs": ["-c", "exec cat"],
+                    "command": "FLUSHED_AT_ONCE",
+                    "shellReadySupported": true,
+                    "shellReadyTimeoutMs": timeout } }),
+        );
+        assert_eq!(created["ok"], json!(true));
+        // Well under the 15 s default: only the 1 ms Node clamp flushes this fast.
+        assert!(
+            wait_until(
+                || snapshot_ansi(&reg, client, &sid).contains("FLUSHED_AT_ONCE"),
+                Duration::from_secs(5)
+            ),
+            "shellReadyTimeoutMs={timeout} must time out after 1 ms"
+        );
+        dispatch(
+            &reg,
+            client,
+            json!({ "id": "k", "type": "kill", "payload": { "sessionId": sid, "immediate": true } }),
+        );
+    }
+}
+
+/// The pre-ready stdin queue is bounded at 8 MiB (the stream queue's drop
+/// cap): once it holds that much, further writes are refused with an error
+/// naming the limit instead of queueing without bound for the whole wait.
+#[test]
+fn pre_ready_write_queue_is_bounded() {
+    use orca_daemon::shell_ready_barrier::PRE_READY_QUEUE_CAP_BYTES;
+    let reg = Arc::new(Registry::new());
+    let client = "c-queue-cap";
+    let created = dispatch(
+        &reg,
+        client,
+        json!({ "id": "q", "type": "createOrAttach",
+            "payload": { "sessionId": "s-queue-cap", "cols": 80, "rows": 24,
+                "shellOverride": "/bin/sh",
+                "shellArgs": ["-c", "exec cat"],
+                "shellReadySupported": true,
+                "shellReadyTimeoutMs": 60_000 } }),
+    );
+    assert_eq!(created["ok"], json!(true));
+    let fill = "x".repeat(PRE_READY_QUEUE_CAP_BYTES);
+    let first = dispatch(
+        &reg,
+        client,
+        json!({ "id": "w1", "type": "write",
+            "payload": { "sessionId": "s-queue-cap", "data": fill } }),
+    );
+    assert_eq!(first["ok"], json!(true), "a write into an empty queue is admitted");
+    let refused = dispatch(
+        &reg,
+        client,
+        json!({ "id": "w2", "type": "write",
+            "payload": { "sessionId": "s-queue-cap", "data": "y" } }),
+    );
+    assert_eq!(refused["ok"], json!(false));
+    assert_eq!(
+        refused["error"],
+        json!("shell-ready stdin queue full: 8388608 bytes queued, limit 8388608 bytes")
+    );
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "k", "type": "kill",
+            "payload": { "sessionId": "s-queue-cap", "immediate": true } }),
+    );
+}
+
 /// A multibyte char split exactly across the barrier's scan→post-scan
 /// transition must render as ONE glyph in the engine grid: while scanning, the
 /// engine ate DECODED text (the utf8 decoder held the lead byte as carry), so

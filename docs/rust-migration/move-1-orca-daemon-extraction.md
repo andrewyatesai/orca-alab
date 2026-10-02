@@ -54,6 +54,17 @@ must be indistinguishable from the Node one at this boundary.**
   `listSessions`, `detach`, `getCwd`, `getForegroundProcess`, `clearScrollback`,
   `shutdown`, `ping`, `systemResolverHealth`, `ptySpawnHealth`, `getSnapshot`,
   `getSize`, `takePendingOutput`.
+- **Grid-size limit** (Rust daemon, 2026-10-02): `cols` and `rows` are each
+  capped at **4096** (`rpc.rs` `MAX_GRID_DIM`; 16.7M cells). A `createOrAttach`
+  that spawns, or a `resize`, above it is refused with
+  `invalid terminal size: <cols|rows> <n> exceeds the maximum of 4096` — not
+  clamped, so the client's grid and the PTY winsize never silently disagree. An
+  explicit `0` still means 1 and an absent/non-integer value still means the
+  80x24 default; an attach to a live session ignores the dims, as before.
+  Clients cap first (`src/shared/terminal-grid-limits.ts`: the renderer's
+  `computeGrid` and `DaemonPtyAdapter` spawn/resize), so a normal client never
+  sees the refusal. Decided by the orchestrating agent under the owner's
+  "decide for yourself" instruction.
 - **Events** (daemon → client, stream socket): `data` (session bytes), `exit`
   (code), `terminalError`.
 - **Session model**: `SessionState = created | spawning | running | exiting |

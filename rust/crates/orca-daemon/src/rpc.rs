@@ -9,8 +9,8 @@ use crate::protocol::{rpc_err, rpc_ok, SUBSCRIBER_READ_ONLY_ERROR};
 use crate::registry::{ReattachOutcome, Registry, SessionEngine, SessionEntry};
 use crate::scrollback_compress::{spawn_compress_worker, COMPRESS_SIGNAL_AT};
 use crate::shell_ready_barrier::{
-    GateTimer, ShellReadyBarrier, POST_READY_FLUSH_DELAY_MS, POST_READY_FLUSH_FALLBACK_MS,
-    SHELL_READY_TIMEOUT_MS,
+    node_set_timeout_delay_ms, GateTimer, ShellReadyBarrier, POST_READY_FLUSH_DELAY_MS,
+    POST_READY_FLUSH_FALLBACK_MS, SHELL_READY_TIMEOUT_MS,
 };
 use crate::utf8_stream_decoder::Utf8StreamDecoder;
 use orca_pty::{PtyCommand, PtySession, PtySize};
@@ -68,6 +68,107 @@ pub(crate) fn field_u16(payload: &Value, key: &str, default: u16) -> u16 {
         Some(v) => v.clamp(1, u16::MAX as u64) as u16,
         None => default,
     }
+}
+
+/// The largest terminal grid dimension (rows, and separately cols) a session
+/// may be created or resized to: 4096 x 4096 = 16.7M cells. Each live session
+/// allocates its grid in the engine (orca-terminal / aterm) on create and on
+/// every resize, so the unclamped `1..=u16::MAX` band let one request size a
+/// 65535 x 65535 grid (4.3G cells). Mirrors `TERMINAL_GRID_MAX_DIM` in
+/// src/shared/terminal-grid-limits.ts, which the renderer and the PTY adapter
+/// clamp to, so a well-behaved client never sends more.
+///
+/// Decision (2026-10-02, made by the orchestrating agent under the owner's
+/// "decide for yourself" instruction): above the cap the request is REFUSED with
+/// a protocol error naming the limit, not silently clamped — a clamped grid
+/// would desync the client's grid from the PTY winsize without telling it.
+pub const MAX_GRID_DIM: u16 = 4096;
+
+/// A grid dimension (`cols`/`rows`) for `createOrAttach` (spawn) and `resize`.
+/// Absent/non-integer keeps the caller's default and an explicit `0` becomes
+/// `1`, exactly as `field_u16`; a value above `MAX_GRID_DIM` is an `Err`
+/// carrying the protocol error text.
+pub(crate) fn field_grid_dim(payload: &Value, key: &str, default: u16) -> Result<u16, String> {
+    match payload.get(key).and_then(Value::as_u64) {
+        Some(v) if v > u64::from(MAX_GRID_DIM) => Err(format!(
+            "invalid terminal size: {key} {v} exceeds the maximum of {MAX_GRID_DIM}"
+        )),
+        // 1..=MAX_GRID_DIM after the max(1), so the cast is exact.
+        Some(v) => Ok(v.max(1) as u16),
+        None => Ok(default),
+    }
+}
+
+/// `(cols, rows)` for a spawn or resize, or the protocol error for the first
+/// dimension over `MAX_GRID_DIM` (cols is checked first).
+pub(crate) fn grid_size(payload: &Value) -> Result<(u16, u16), String> {
+    Ok((
+        field_grid_dim(payload, "cols", 80)?,
+        field_grid_dim(payload, "rows", 24)?,
+    ))
+}
+
+/// The shell-ready barrier's timeout for a `createOrAttach` payload, with the
+/// Node daemon's semantics: absent or `null` is `SHELL_READY_TIMEOUT_MS`
+/// (session.ts `opts.shellReadyTimeoutMs ?? SHELL_READY_TIMEOUT_MS`); any other
+/// value goes through JS `Number()` and then `setTimeout`'s clamp, so a delay
+/// above 2^31-1 ms, below 1 ms, negative or NaN fires after 1 ms. Before this
+/// the daemon slept `u64` ms verbatim (u64::MAX: a barrier that never times
+/// out, queueing stdin for the life of the session) and sent negative/float
+/// values to the 15 s default where Node fired at once.
+pub(crate) fn shell_ready_timeout_ms(payload: &Value) -> u64 {
+    match payload.get("shellReadyTimeoutMs") {
+        None | Some(Value::Null) => SHELL_READY_TIMEOUT_MS,
+        Some(v) => node_set_timeout_delay_ms(js_to_number(v)),
+    }
+}
+
+/// JS `Number(v)` for a JSON value (ECMA-262 ToNumber, through ToPrimitive /
+/// Array.prototype.toString for arrays).
+fn js_to_number(v: &Value) -> f64 {
+    match v {
+        Value::Null => 0.0,
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::String(s) => js_string_to_number(s),
+        Value::Array(items) => match items.as_slice() {
+            [] => 0.0,
+            // String([x]) is String(x), but String(null) inside an array is ""
+            // and String(true) is "true" (NaN), unlike Number(null)/Number(true).
+            [Value::Null] => 0.0,
+            [Value::Bool(_)] | [Value::Object(_)] => f64::NAN,
+            [one] => js_to_number(one),
+            _ => f64::NAN, // "a,b": never numeric
+        },
+        Value::Object(_) => f64::NAN, // "[object Object]"
+    }
+}
+
+/// JS StringToNumber: trimmed (JS whitespace includes U+FEFF), empty is 0,
+/// `0x`/`0o`/`0b` integer literals (unsigned only), otherwise a decimal
+/// literal. Rust's float grammar also accepts `inf`/`nan` spellings JS rejects,
+/// but both sides then land outside `1..=TIMEOUT_MAX`, i.e. 1 ms either way.
+fn js_string_to_number(s: &str) -> f64 {
+    let t = s.trim_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}');
+    if t.is_empty() {
+        return 0.0;
+    }
+    const PREFIXES: [(&str, u32); 6] =
+        [("0x", 16), ("0X", 16), ("0o", 8), ("0O", 8), ("0b", 2), ("0B", 2)];
+    let prefixed = PREFIXES
+        .iter()
+        .find_map(|&(prefix, radix)| t.strip_prefix(prefix).map(|digits| (radix, digits)));
+    if let Some((radix, digits)) = prefixed {
+        if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+            return f64::NAN;
+        }
+        // Digit-by-digit in f64: a value past u128 is still a (huge) number.
+        return digits
+            .chars()
+            .filter_map(|c| c.to_digit(radix))
+            .fold(0.0, |acc, d| acc * f64::from(radix) + f64::from(d));
+    }
+    t.parse::<f64>().unwrap_or(f64::NAN)
 }
 
 /// Bounds mirror src/shared/terminal-scrollback-policy.ts so both daemons
@@ -149,8 +250,10 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                     &format!("{SUBSCRIBER_READ_ONLY_ERROR}: subscribers cannot resize"),
                 );
             }
-            let cols = field_u16(payload, "cols", 80);
-            let rows = field_u16(payload, "rows", 24);
+            let (cols, rows) = match grid_size(payload) {
+                Ok(size) => size,
+                Err(e) => return rpc_err(id, &e),
+            };
             match registry.with_session(&session_id, |e| {
                 e.cols = cols;
                 e.rows = rows;
@@ -454,11 +557,15 @@ fn create_or_attach(
         // Unknown id: fall through to spawn fresh.
         ReattachOutcome::Unknown => {}
     }
+    // The dims are consumed only by a spawn (an attach rides the session's own
+    // grid), so the size cap is enforced here, before any side effect.
+    let (cols, rows) = match grid_size(payload) {
+        Ok(size) => size,
+        Err(e) => return rpc_err(id, &e),
+    };
     // Not a live session: drop any lingering dead entry for this id, then spawn fresh.
     registry.remove_session(&session_id);
 
-    let cols = field_u16(payload, "cols", 80);
-    let rows = field_u16(payload, "rows", 24);
     let launch = build_command(payload);
     let pty = match PtySession::spawn(&launch.command, PtySize { rows, cols }) {
         Ok(p) => p,
@@ -549,10 +656,7 @@ fn create_or_attach(
     // entry exists, and route_output / the timeout's flush would no-op on the
     // missing session, dropping its first bytes (or stranding the queue).
     if let Some(barrier) = &barrier {
-        let timeout_ms = payload
-            .get("shellReadyTimeoutMs")
-            .and_then(Value::as_u64)
-            .unwrap_or(SHELL_READY_TIMEOUT_MS);
+        let timeout_ms = shell_ready_timeout_ms(payload);
         spawn_ready_timeout(
             registry.clone(),
             session_id.clone(),
@@ -770,8 +874,13 @@ fn session_write(
     if let Some(barrier) = &barrier {
         let mut barrier = barrier.lock().unwrap();
         if barrier.should_queue() {
-            barrier.push_queued(data.to_string());
-            return Some(Ok(()));
+            // Bounded (PRE_READY_QUEUE_CAP_BYTES): past the cap the write is
+            // refused with an error, never queued without limit.
+            return Some(
+                barrier
+                    .push_queued(data.to_string())
+                    .map_err(std::io::Error::other),
+            );
         }
     }
     Some(write_pty(&mut **w, data.as_bytes()))
@@ -1243,5 +1352,91 @@ mod tests {
         assert_eq!(cols(json!({ "cols": -1 })), 80);
         assert_eq!(cols(json!({ "cols": "120" })), 80);
         assert_eq!(cols(json!({ "cols": null })), 80);
+    }
+
+    fn dim(payload: Value) -> Result<u16, String> {
+        field_grid_dim(&payload, "cols", 80)
+    }
+
+    /// The grid cap: 1..=4096 forwarded, 0 still becomes 1, absent/non-integer
+    /// keeps the default, and anything above 4096 is an error naming the limit.
+    #[test]
+    fn field_grid_dim_caps_at_4096_and_refuses_above() {
+        assert_eq!(dim(json!({})), Ok(80));
+        assert_eq!(dim(json!({ "cols": null })), Ok(80));
+        assert_eq!(dim(json!({ "cols": "5000" })), Ok(80));
+        assert_eq!(dim(json!({ "cols": -1 })), Ok(80));
+        assert_eq!(dim(json!({ "cols": 0 })), Ok(1));
+        assert_eq!(dim(json!({ "cols": 1 })), Ok(1));
+        assert_eq!(dim(json!({ "cols": 4095 })), Ok(4095));
+        assert_eq!(dim(json!({ "cols": 4096 })), Ok(4096));
+        let err = dim(json!({ "cols": 4097 })).unwrap_err();
+        assert_eq!(err, "invalid terminal size: cols 4097 exceeds the maximum of 4096");
+        assert!(dim(json!({ "cols": 65_535 })).is_err());
+        assert!(dim(json!({ "cols": 65_536 })).is_err(), "no u16 wrap to 0");
+        assert!(dim(json!({ "cols": u64::MAX })).is_err());
+        // Both dimensions; cols is reported first.
+        assert_eq!(grid_size(&json!({ "cols": 4096, "rows": 4096 })), Ok((4096, 4096)));
+        assert_eq!(grid_size(&json!({})), Ok((80, 24)));
+        assert_eq!(
+            grid_size(&json!({ "cols": 5000, "rows": 5000 })).unwrap_err(),
+            "invalid terminal size: cols 5000 exceeds the maximum of 4096"
+        );
+        assert_eq!(
+            grid_size(&json!({ "cols": 80, "rows": 4097 })).unwrap_err(),
+            "invalid terminal size: rows 4097 exceeds the maximum of 4096"
+        );
+        // The capped grid is 16.7M cells, under the 2^28 bulk-allocation bound.
+        assert_eq!(u64::from(MAX_GRID_DIM) * u64::from(MAX_GRID_DIM), 16_777_216);
+    }
+
+    fn timeout(v: Value) -> u64 {
+        shell_ready_timeout_ms(&json!({ "shellReadyTimeoutMs": v }))
+    }
+
+    /// shellReadyTimeoutMs = Node's `setTimeout(fn, opts.shellReadyTimeoutMs ??
+    /// 15000)`: absent/null → 15 s; values outside 1..=2^31-1 → 1 ms;
+    /// fractions truncate; non-numbers go through JS `Number()`.
+    #[test]
+    fn shell_ready_timeout_matches_node_set_timeout() {
+        assert_eq!(shell_ready_timeout_ms(&json!({})), SHELL_READY_TIMEOUT_MS);
+        assert_eq!(timeout(Value::Null), SHELL_READY_TIMEOUT_MS);
+        assert_eq!(timeout(json!(300)), 300);
+        assert_eq!(timeout(json!(15_000)), 15_000);
+        assert_eq!(timeout(json!(1)), 1);
+        assert_eq!(timeout(json!(0)), 1);
+        assert_eq!(timeout(json!(-1)), 1);
+        assert_eq!(timeout(json!(-0.0)), 1);
+        assert_eq!(timeout(json!(0.4)), 1);
+        assert_eq!(timeout(json!(300.9)), 300);
+        assert_eq!(timeout(json!(2_147_483_647_u64)), 2_147_483_647);
+        assert_eq!(timeout(json!(2_147_483_648_u64)), 1);
+        assert_eq!(timeout(json!(u64::MAX)), 1);
+        assert_eq!(timeout(json!(i64::MIN)), 1);
+        assert_eq!(timeout(json!(1e300)), 1);
+        // JS Number() coercion of non-number JSON.
+        assert_eq!(timeout(json!("300")), 300);
+        assert_eq!(timeout(json!(" 300\n")), 300);
+        assert_eq!(timeout(json!("\u{feff}300")), 300);
+        assert_eq!(timeout(json!("3e2")), 300);
+        assert_eq!(timeout(json!("0x12c")), 300);
+        assert_eq!(timeout(json!("0o454")), 300);
+        assert_eq!(timeout(json!("0b100101100")), 300);
+        assert_eq!(timeout(json!("-0x12c")), 1, "JS: a signed hex literal is NaN");
+        assert_eq!(timeout(json!("0x")), 1);
+        assert_eq!(timeout(json!("")), 1);
+        assert_eq!(timeout(json!("abc")), 1);
+        assert_eq!(timeout(json!("Infinity")), 1);
+        assert_eq!(timeout(json!("2147483648")), 1);
+        assert_eq!(timeout(json!(true)), 1);
+        assert_eq!(timeout(json!(false)), 1);
+        assert_eq!(timeout(json!([])), 1);
+        assert_eq!(timeout(json!([300])), 300);
+        assert_eq!(timeout(json!(["300"])), 300);
+        assert_eq!(timeout(json!([[300]])), 300);
+        assert_eq!(timeout(json!([true])), 1);
+        assert_eq!(timeout(json!([null])), 1);
+        assert_eq!(timeout(json!([300, 400])), 1);
+        assert_eq!(timeout(json!({ "ms": 300 })), 1);
     }
 }

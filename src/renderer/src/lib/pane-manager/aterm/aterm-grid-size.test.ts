@@ -2,7 +2,13 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest'
-import { computeGrid, MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
+import {
+  computeGrid,
+  MAX_GRID_COLS,
+  MAX_GRID_ROWS,
+  MIN_GRID_COLS,
+  MIN_GRID_ROWS
+} from './aterm-grid-size'
 
 // computeGrid is the renderer<->DOM measurement seam that lives OUTSIDE the Rust
 // engine's verification boundary (dpr + container.clientWidth are not inputs to any
@@ -51,6 +57,28 @@ describe('computeGrid', () => {
     expect(computeGrid(container(10, 20), 1, 8, 16)).toEqual({
       cols: MIN_GRID_COLS,
       rows: MIN_GRID_ROWS,
+      measured: true
+    })
+  })
+
+  // The daemon refuses a create/resize above 4096 per dimension, so the grid the
+  // renderer reports is capped there (a wider canvas leaves unused pixels).
+  it('caps cols/rows at 4096 for a huge container or tiny cells', () => {
+    expect(MAX_GRID_COLS).toBe(4096)
+    expect(MAX_GRID_ROWS).toBe(4096)
+    expect(computeGrid(container(4096, 4096), 1, 1, 1)).toEqual({
+      cols: 4096,
+      rows: 4096,
+      measured: true
+    })
+    expect(computeGrid(container(4097, 10_000), 1, 1, 1)).toEqual({
+      cols: 4096,
+      rows: 4096,
+      measured: true
+    })
+    expect(computeGrid(container(8000, 600), 2, 1, 16)).toEqual({
+      cols: 4096,
+      rows: 75,
       measured: true
     })
   })

@@ -622,6 +622,16 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       await new Promise((r) => setTimeout(r, 50))
       expect(lastSubprocess.resize).toHaveBeenCalledWith(120, 40)
     })
+
+    // Why: the Rust daemon refuses a grid above 4096 per dimension; the adapter
+    // caps first so a well-behaved client never sends one (terminal-grid-limits.ts).
+    it('caps each dimension at 4096 before sending the resize', async () => {
+      const { id } = await adapter.spawn({ cols: 80, rows: 24 })
+      adapter.resize(id, 5000, 4096)
+
+      await new Promise((r) => setTimeout(r, 50))
+      expect(lastSubprocess.resize).toHaveBeenCalledWith(4096, 4096)
+    })
   })
 
   describe('producer flow control', () => {
@@ -1370,6 +1380,11 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
     it('reports the spawn dims before any resize', async () => {
       const { id } = await adapter.spawn({ cols: 80, rows: 24 })
       expect(await adapter.getAppliedSize(id)).toEqual({ cols: 80, rows: 24 })
+    })
+
+    it('caps oversized spawn dims at 4096 per dimension', async () => {
+      const { id } = await adapter.spawn({ cols: 4097, rows: 100_000 })
+      expect(await adapter.getAppliedSize(id)).toEqual({ cols: 4096, rows: 4096 })
     })
 
     it('reflects the size the daemon actually applied after a resize', async () => {

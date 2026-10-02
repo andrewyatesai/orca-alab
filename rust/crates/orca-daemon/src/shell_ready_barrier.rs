@@ -33,6 +33,57 @@ pub const POST_READY_FLUSH_DELAY_MS: u64 = 30;
 /// where no further prompt bytes arrive.
 pub const POST_READY_FLUSH_FALLBACK_MS: u64 = 200;
 
+/// Node's `TIMEOUT_MAX` (lib/internal/timers.js): the largest delay
+/// `setTimeout` honours. Anything outside `1..=TIMEOUT_MAX` (and NaN) runs
+/// after 1 ms instead.
+pub const NODE_TIMEOUT_MAX_MS: u64 = 2_147_483_647;
+
+/// Bytes of stdin the pre-ready queue holds before it refuses further writes.
+/// The same figure as the per-client stream queue's drop cap
+/// (`STREAM_QUEUE_DROP_CAP_BYTES`, 8 MiB): the daemon's one memory bound on
+/// bytes waiting for a slow party. A write is admitted while the queue holds
+/// LESS than this, so one write of any wire-legal size (`NDJSON_MAX_LINE_BYTES`)
+/// still queues behind a short startup command; the queue therefore never
+/// exceeds `PRE_READY_QUEUE_CAP_BYTES + NDJSON_MAX_LINE_BYTES`. Past the cap a
+/// write is REFUSED (an error to the writer), never shed: dropping the oldest
+/// entries, as the output queue does, would drop the startup command itself.
+/// The Node `preReadyStdinQueue` is unbounded; this is a deliberate divergence
+/// that only a client writing 8 MiB to a shell that has not drawn its first
+/// prompt can observe.
+pub const PRE_READY_QUEUE_CAP_BYTES: usize =
+    crate::bounded_stream_channel::STREAM_QUEUE_DROP_CAP_BYTES;
+
+/// A pre-ready stdin write that the queue refused because it already holds
+/// `PRE_READY_QUEUE_CAP_BYTES` or more.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PreReadyQueueFull {
+    pub queued_bytes: usize,
+}
+
+impl std::fmt::Display for PreReadyQueueFull {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "shell-ready stdin queue full: {} bytes queued, limit {} bytes",
+            self.queued_bytes, PRE_READY_QUEUE_CAP_BYTES
+        )
+    }
+}
+
+impl std::error::Error for PreReadyQueueFull {}
+
+/// The delay Node's `setTimeout(fn, after)` actually waits, in whole ms:
+/// `after` outside `1..=TIMEOUT_MAX`, or NaN, becomes 1; otherwise it is
+/// truncated (timers.js `insert` does `MathTrunc(msecs)`).
+pub fn node_set_timeout_delay_ms(after: f64) -> u64 {
+    if after >= 1.0 && after <= NODE_TIMEOUT_MAX_MS as f64 {
+        // In 1..=2^31-1, so the truncating cast is exact and cannot saturate.
+        after.trunc() as u64
+    } else {
+        1
+    }
+}
+
 // ── Marker scanner ──────────────────────────────────────────────────────────
 
 /// Streaming scanner state (`ShellReadyScanState`): the held
@@ -145,6 +196,9 @@ pub struct ShellReadyBarrier {
     state: ShellReadyState,
     scanner: Option<MarkerScanState>,
     queue: Vec<String>,
+    /// Σ `queue[i].len()` — what `PRE_READY_QUEUE_CAP_BYTES` bounds. Reset
+    /// with the queue in `drain_queue`, so the two cannot drift apart.
+    queued_bytes: usize,
     // PostReadyFlushGate state: armed-but-no-prompt-bytes-yet, plus which
     // timer is outstanding. `generation` invalidates stale timers.
     awaiting_prompt_draw: bool,
@@ -159,6 +213,7 @@ impl ShellReadyBarrier {
             state: ShellReadyState::Pending,
             scanner: Some(MarkerScanState::default()),
             queue: Vec::new(),
+            queued_bytes: 0,
             awaiting_prompt_draw: false,
             fallback_armed: false,
             post_data_armed: false,
@@ -180,11 +235,28 @@ impl ShellReadyBarrier {
             || self.post_data_armed
     }
 
-    pub fn push_queued(&mut self, data: String) {
+    /// Queue one stdin write behind the barrier, unless the queue already
+    /// holds `PRE_READY_QUEUE_CAP_BYTES` or more (see that constant).
+    pub fn push_queued(&mut self, data: String) -> Result<(), PreReadyQueueFull> {
+        if self.queued_bytes >= PRE_READY_QUEUE_CAP_BYTES {
+            return Err(PreReadyQueueFull {
+                queued_bytes: self.queued_bytes,
+            });
+        }
+        // Every queued string lives in this address space, so the true sum is
+        // at most isize::MAX; saturating keeps it at/over the cap regardless.
+        self.queued_bytes = self.queued_bytes.saturating_add(data.len());
         self.queue.push(data);
+        Ok(())
+    }
+
+    /// Bytes currently queued (Σ of the queued writes' lengths).
+    pub fn queued_bytes(&self) -> usize {
+        self.queued_bytes
     }
 
     pub fn drain_queue(&mut self) -> Vec<String> {
+        self.queued_bytes = 0;
         std::mem::take(&mut self.queue)
     }
 
@@ -414,7 +486,7 @@ mod tests {
     fn barrier_queues_until_marker_then_flushes_via_fallback() {
         let mut b = ShellReadyBarrier::new_pending();
         assert!(b.should_queue());
-        b.push_queued("cmd\n".to_string());
+        b.push_queued("cmd\n".to_string()).unwrap();
 
         // Marker-only chunk → ready, fallback timer armed (no post bytes).
         let (out, timer) = b.process_output(MARKER);
@@ -433,7 +505,7 @@ mod tests {
     #[test]
     fn prompt_bytes_swap_the_fallback_for_the_short_settle() {
         let mut b = ShellReadyBarrier::new_pending();
-        b.push_queued("cmd\n".to_string());
+        b.push_queued("cmd\n".to_string()).unwrap();
         let (_, timer) = b.process_output(MARKER);
         let Some(GateTimer::Fallback(stale)) = timer else {
             panic!("expected fallback");
@@ -453,7 +525,7 @@ mod tests {
     #[test]
     fn post_marker_bytes_go_straight_to_the_short_settle() {
         let mut b = ShellReadyBarrier::new_pending();
-        b.push_queued("cmd\n".to_string());
+        b.push_queued("cmd\n".to_string()).unwrap();
         let input = format!("{MARKER}$ ");
         let (out, timer) = b.process_output(&input);
         assert_eq!(out, "$ ");
@@ -465,7 +537,7 @@ mod tests {
     #[test]
     fn a_barrier_issues_at_most_two_timer_generations() {
         let mut b = ShellReadyBarrier::new_pending();
-        b.push_queued("cmd\n".to_string());
+        b.push_queued("cmd\n".to_string()).unwrap();
         let (_, timer) = b.process_output(MARKER);
         assert_eq!(timer, Some(GateTimer::Fallback(1)));
         let (_, timer) = b.process_output("$ ");
@@ -490,7 +562,7 @@ mod tests {
     fn a_wrapped_generation_still_invalidates_the_previous_timer() {
         let mut b = ShellReadyBarrier::new_pending();
         b.generation = u64::MAX - 1;
-        b.push_queued("cmd\n".to_string());
+        b.push_queued("cmd\n".to_string()).unwrap();
         let (_, timer) = b.process_output(MARKER);
         let Some(GateTimer::Fallback(stale)) = timer else {
             panic!("expected fallback, got {timer:?}");
@@ -513,7 +585,7 @@ mod tests {
     #[test]
     fn timeout_releases_held_bytes_and_unblocks_writes() {
         let mut b = ShellReadyBarrier::new_pending();
-        b.push_queued("cmd\n".to_string());
+        b.push_queued("cmd\n".to_string()).unwrap();
         let (out, _) = b.process_output("\x1b]777;orca-she");
         assert_eq!(out, "", "partial prefix is withheld");
         let held = b.on_ready_timeout_elapsed().expect("was pending");
@@ -532,5 +604,58 @@ mod tests {
         // Scanner gone: later output passes through verbatim.
         let (out, _) = b.process_output("\x1b]777;x");
         assert_eq!(out, "\x1b]777;x");
+    }
+
+    /// The pre-ready queue is bounded: writes are admitted while it holds less
+    /// than the cap (so one large write still queues), refused once it holds
+    /// the cap or more, and the bound resets when the queue drains.
+    #[test]
+    fn pre_ready_queue_refuses_writes_at_the_cap_and_resets_on_drain() {
+        let mut b = ShellReadyBarrier::new_pending();
+        b.push_queued("cmd\n".to_string()).unwrap();
+        let fill = PRE_READY_QUEUE_CAP_BYTES - 4 - 1;
+        b.push_queued("x".repeat(fill)).unwrap();
+        assert_eq!(b.queued_bytes(), PRE_READY_QUEUE_CAP_BYTES - 1);
+        // One byte under the cap: a write of any size is still admitted.
+        b.push_queued("y".repeat(1024)).unwrap();
+        assert_eq!(b.queued_bytes(), PRE_READY_QUEUE_CAP_BYTES - 1 + 1024);
+        // At/over the cap: refused, and nothing is added or shed.
+        let err = b.push_queued("z".to_string()).unwrap_err();
+        assert_eq!(err.queued_bytes, PRE_READY_QUEUE_CAP_BYTES - 1 + 1024);
+        assert!(err.to_string().contains("8388608"), "{err}");
+        assert_eq!(b.queued_bytes(), PRE_READY_QUEUE_CAP_BYTES - 1 + 1024);
+        let drained = b.drain_queue();
+        assert_eq!(drained.len(), 3);
+        assert_eq!(drained[0], "cmd\n", "the startup command is never shed");
+        assert_eq!(b.queued_bytes(), 0);
+        b.push_queued("again".to_string()).unwrap();
+        assert_eq!(b.queued_bytes(), 5);
+    }
+
+    #[test]
+    fn pre_ready_queue_cap_matches_the_stream_drop_cap() {
+        assert_eq!(PRE_READY_QUEUE_CAP_BYTES, 8 * 1024 * 1024);
+    }
+
+    /// Node setTimeout semantics at every boundary.
+    #[test]
+    fn node_set_timeout_delay_boundaries() {
+        assert_eq!(node_set_timeout_delay_ms(0.0), 1);
+        assert_eq!(node_set_timeout_delay_ms(-0.0), 1);
+        assert_eq!(node_set_timeout_delay_ms(-1.0), 1);
+        assert_eq!(node_set_timeout_delay_ms(0.5), 1);
+        assert_eq!(node_set_timeout_delay_ms(0.999), 1);
+        assert_eq!(node_set_timeout_delay_ms(1.0), 1);
+        assert_eq!(node_set_timeout_delay_ms(1.9), 1);
+        assert_eq!(node_set_timeout_delay_ms(300.0), 300);
+        assert_eq!(node_set_timeout_delay_ms(300.7), 300);
+        assert_eq!(node_set_timeout_delay_ms(15_000.0), 15_000);
+        assert_eq!(node_set_timeout_delay_ms(2_147_483_647.0), 2_147_483_647);
+        assert_eq!(node_set_timeout_delay_ms(2_147_483_647.5), 1);
+        assert_eq!(node_set_timeout_delay_ms(2_147_483_648.0), 1);
+        assert_eq!(node_set_timeout_delay_ms(u64::MAX as f64), 1);
+        assert_eq!(node_set_timeout_delay_ms(f64::INFINITY), 1);
+        assert_eq!(node_set_timeout_delay_ms(f64::NEG_INFINITY), 1);
+        assert_eq!(node_set_timeout_delay_ms(f64::NAN), 1);
     }
 }

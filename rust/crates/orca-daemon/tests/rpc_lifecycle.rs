@@ -441,3 +441,88 @@ fn protocol_version_is_pinned() {
     assert_eq!(orca_daemon::protocol::MIN_SUPPORTED_PROTOCOL_VERSION, 1018);
     assert_eq!(orca_daemon::protocol::SESSION_SEARCH_PROTOCOL_VERSION, 1021);
 }
+
+/// Grid-size cap (MAX_GRID_DIM = 4096 per dimension): a create or resize above
+/// it is REFUSED with an error naming the limit — never clamped — and leaves no
+/// session / the existing grid untouched. 4096 itself is accepted.
+#[cfg(unix)]
+#[test]
+fn grid_size_cap_refuses_oversized_create_and_resize() {
+    use orca_daemon::rpc::MAX_GRID_DIM;
+    assert_eq!(MAX_GRID_DIM, 4096);
+    let reg = Arc::new(Registry::new());
+    let client = "c-grid";
+
+    for (cols, rows, key, value) in [
+        (4097_u64, 24_u64, "cols", 4097_u64),
+        (80, 4097, "rows", 4097),
+        (65_535, 65_535, "cols", 65_535),
+        (80, u64::MAX, "rows", u64::MAX),
+    ] {
+        let refused = dispatch(
+            &reg,
+            client,
+            json!({ "id": "big", "type": "createOrAttach",
+                "payload": { "sessionId": "s-big", "cols": cols, "rows": rows } }),
+        );
+        assert_eq!(refused["ok"], json!(false), "{cols}x{rows} must be refused");
+        assert_eq!(
+            refused["error"],
+            json!(format!(
+                "invalid terminal size: {key} {value} exceeds the maximum of 4096"
+            ))
+        );
+        assert_eq!(reg.session_size("s-big"), None, "a refused create spawns nothing");
+    }
+
+    let created = dispatch(
+        &reg,
+        client,
+        json!({ "id": "c", "type": "createOrAttach",
+            "payload": { "sessionId": "s-grid", "cols": 4096, "rows": 4096,
+                "shellOverride": "/bin/sh", "shellArgs": ["-c", "exec cat"] } }),
+    );
+    assert_eq!(created["ok"], json!(true), "the cap itself is accepted: {created}");
+    assert_eq!(reg.session_size("s-grid"), Some((4096, 4096)));
+
+    let shrink = dispatch(
+        &reg,
+        client,
+        json!({ "id": "r1", "type": "resize",
+            "payload": { "sessionId": "s-grid", "cols": 120, "rows": 40 } }),
+    );
+    assert_eq!(shrink["ok"], json!(true));
+    assert_eq!(reg.session_size("s-grid"), Some((120, 40)));
+
+    let grow = dispatch(
+        &reg,
+        client,
+        json!({ "id": "r2", "type": "resize",
+            "payload": { "sessionId": "s-grid", "cols": 120, "rows": 4097 } }),
+    );
+    assert_eq!(grow["ok"], json!(false));
+    assert_eq!(
+        grow["error"],
+        json!("invalid terminal size: rows 4097 exceeds the maximum of 4096")
+    );
+    assert_eq!(
+        reg.session_size("s-grid"),
+        Some((120, 40)),
+        "a refused resize leaves the grid as it was"
+    );
+    // Explicit 0 still means 1 (unchanged), not a refusal.
+    let zero = dispatch(
+        &reg,
+        client,
+        json!({ "id": "r3", "type": "resize",
+            "payload": { "sessionId": "s-grid", "cols": 0, "rows": 4096 } }),
+    );
+    assert_eq!(zero["ok"], json!(true));
+    assert_eq!(reg.session_size("s-grid"), Some((1, 4096)));
+
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-grid", "immediate": true } }),
+    );
+}

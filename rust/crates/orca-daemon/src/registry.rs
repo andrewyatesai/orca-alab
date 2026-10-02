@@ -406,17 +406,18 @@ impl Registry {
         // — session.ts prepareForFinalSnapshot. They are fed to the engine (its
         // parser just buffers the incomplete OSC, so the snapshot won't render
         // them) and returned as a post-checkpoint log-tail record below.
-        let released_held = if include_snapshot && teardown_snapshot {
-            barrier
-                .map(|b| b.lock().unwrap().release_held_bytes())
-                .unwrap_or_default()
+        //
+        // The barrier is locked BEFORE the engine (the pump's order: barrier →
+        // engine) but its bytes are released only AFTER the drain succeeds: a
+        // take that fails (`CheckpointSeqExhausted`) must drain nothing, and the
+        // held bytes — which reach the history log only as this take's tail
+        // record — would otherwise be consumed and lost.
+        let mut held_barrier = if include_snapshot && teardown_snapshot {
+            barrier.as_ref().map(|b| b.lock().unwrap())
         } else {
-            String::new()
+            None
         };
         let mut engine = engine.lock().unwrap();
-        if !released_held.is_empty() {
-            engine.terminal.process(released_held.as_bytes());
-        }
         // Always drain (resets the accumulator + advances seq), but a full-snapshot
         // checkpoint SUPERSEDES the incremental log: return the snapshot and DROP the
         // records, matching session.ts (which returns [] when includeSnapshot — held
@@ -426,6 +427,14 @@ impl Registry {
             Ok(batch) => batch,
             Err(exhausted) => return Some(Err(exhausted)),
         };
+        let released_held = held_barrier
+            .as_mut()
+            .map(|b| b.release_held_bytes())
+            .unwrap_or_default();
+        drop(held_barrier);
+        if !released_held.is_empty() {
+            engine.terminal.process(released_held.as_bytes());
+        }
         if include_snapshot {
             let snapshot = crate::rpc::build_snapshot(&mut engine.terminal);
             let records = if released_held.is_empty() {
@@ -618,6 +627,48 @@ mod tests {
             barrier: None,
             terminating: false,
         }
+    }
+
+    /// A teardown take whose seq cannot advance drains NOTHING — not the
+    /// pending batch and not the barrier's held partial-marker bytes, which
+    /// reach the history log only as a successful take's tail record. A later
+    /// take (here, after the seq is no longer exhausted) still returns them.
+    #[cfg(unix)]
+    #[test]
+    fn an_exhausted_teardown_take_keeps_the_held_bytes() {
+        let reg = Registry::new();
+        let mut entry = make_entry("c", "sleep 30");
+        let mut barrier = ShellReadyBarrier::new_pending();
+        let (passed, _) = barrier.process_output("\x1b]777;orca-she");
+        assert_eq!(passed, "", "the partial marker is held");
+        let barrier = Arc::new(Mutex::new(barrier));
+        entry.barrier = Some(Arc::clone(&barrier));
+        entry.engine.lock().unwrap().pending = PendingOutput::with_exhausted_seq();
+        let engine = Arc::clone(&entry.engine);
+        reg.insert_session("s".to_string(), entry);
+
+        assert!(matches!(
+            reg.take_pending_output("s", true, true),
+            Some(Err(CheckpointSeqExhausted))
+        ));
+        assert!(
+            barrier.lock().unwrap().is_scanning(),
+            "the failed take did not release the held bytes"
+        );
+
+        engine.lock().unwrap().pending = PendingOutput::default();
+        let (records, seq, _, _) = reg
+            .take_pending_output("s", true, true)
+            .expect("known session")
+            .expect("seq advances");
+        assert_eq!(seq, 1);
+        assert_eq!(
+            records,
+            vec![json!({ "kind": "output", "data": "\x1b]777;orca-she" })],
+            "the held bytes come back as the tail record"
+        );
+        reg.kill_all_sessions();
+        reg.remove_session("s");
     }
 
     /// Finding #2 fence: a session mid-teardown must NOT be reattached — the caller

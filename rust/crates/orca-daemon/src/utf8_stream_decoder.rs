@@ -40,8 +40,12 @@ impl Utf8StreamDecoder {
         // No up-front reservation sized from the input: the first `push_str` of
         // the valid prefix allocates exactly what it needs (the common split-char
         // case is that one push, then the carry), and only invalid sequences grow
-        // it further. Output is identical; no input length becomes an allocation
-        // request on its own.
+        // it further. Output is identical. This does NOT bound the allocation: an
+        // input-sized request still happens inside `push_str` (and `to_string` on
+        // the fast path), in std code the verifier does not model, so the
+        // obligation moved there rather than being discharged. The real bound is
+        // the caller's: the pump reads into a 64 KiB buffer, plus at most a
+        // 3-byte carried tail.
         let mut out = String::new();
         let mut rest: &[u8] = &combined;
         loop {

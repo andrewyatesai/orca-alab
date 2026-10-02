@@ -45,6 +45,17 @@ pub struct PendingOutput {
 }
 
 impl PendingOutput {
+    /// An empty accumulator whose seq has been used up, so the next `take`
+    /// fails with `CheckpointSeqExhausted` — for tests of that path outside
+    /// this module.
+    #[cfg(test)]
+    pub(crate) fn with_exhausted_seq() -> Self {
+        PendingOutput {
+            seq: u64::MAX,
+            ..PendingOutput::default()
+        }
+    }
+
     /// Append PTY output, coalescing into the trailing output record while it is
     /// under the segment cap. No-op once overflowed (until the next drain).
     /// Empty chunks (a decode-carry read, a fully-stripped ready marker) are

@@ -63,8 +63,12 @@ must be indistinguishable from the Node one at this boundary.**
   80x24 default; an attach to a live session ignores the dims, as before.
   Clients cap first (`src/shared/terminal-grid-limits.ts`: the renderer's
   `computeGrid` and `DaemonPtyAdapter` spawn/resize), so a normal client never
-  sees the refusal. Decided by the orchestrating agent under the owner's
-  "decide for yourself" instruction.
+  sees the refusal. `searchReplay`/`searchReplayContext` build their transient
+  replay grid from the client-supplied checkpoint `rows`/`cols`; those are
+  **clamped** to 4096 (`session_search.rs` `replay_grid`), not refused — no PTY
+  can desync there, and refusing would make a legacy or corrupt checkpoint
+  unsearchable instead of re-wrapped. Decided by the orchestrating agent under
+  the owner's "decide for yourself" instruction.
 - **Events** (daemon → client, stream socket): `data` (session bytes), `exit`
   (code), `terminalError`.
 - **Session model**: `SessionState = created | spawning | running | exiting |

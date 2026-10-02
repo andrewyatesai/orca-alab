@@ -11,7 +11,7 @@
 
 use crate::protocol::{rpc_err, rpc_ok};
 use crate::registry::Registry;
-use crate::rpc::{field_str, field_u16, scrollback_rows};
+use crate::rpc::{field_str, field_u16, scrollback_rows, MAX_GRID_DIM};
 use orca_terminal::{replay_for_search, HeadlessTerminal, MatchSummary, SearchOptions};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -195,6 +195,23 @@ fn result_with_ok(id: &str, mut payload: Value) -> String {
     rpc_ok(id, payload)
 }
 
+/// `(rows, cols)` of the transient replay grid: the checkpoint's own size
+/// (`field_u16`: absent → 24x80, 0 → 1) CLAMPED to `MAX_GRID_DIM` per
+/// dimension. The replay grid is allocated eagerly, and `content` is
+/// client-supplied checkpoint data, so without the clamp a crafted or corrupt
+/// checkpoint (rows = cols = 65535) sized a 4.3G-cell grid. Clamped rather than
+/// refused (the live spawn/resize path refuses): there is no PTY here whose
+/// winsize could desync, and every checkpoint a capped client writes is already
+/// within the cap, so a clamp only re-wraps an out-of-range legacy/corrupt
+/// checkpoint instead of making it unsearchable.
+///
+/// Decision (2026-10-02, made by the orchestrating agent under the owner's
+/// "decide for yourself" instruction).
+fn replay_grid(content: &Value) -> (usize, usize) {
+    let dim = |key, default| usize::from(field_u16(content, key, default).min(MAX_GRID_DIM));
+    (dim("rows", 24), dim("cols", 80))
+}
+
 /// Feed `content.chunks` (checkpoint scrollbackAnsi + snapshotAnsi + log-record
 /// tail, in order) through a fresh headless parse — the policy-mandated Rust
 /// ANSI strip for cold/parked search.
@@ -211,8 +228,7 @@ fn build_replay(
     if total > MAX_REPLAY_CONTENT_BYTES {
         return Err("replay content too large");
     }
-    let rows = field_u16(content, "rows", 24) as usize;
-    let cols = field_u16(content, "cols", 80) as usize;
+    let (rows, cols) = replay_grid(content);
     let terminal = replay_for_search(
         rows,
         cols,
@@ -438,6 +454,26 @@ mod tests {
         }), &registry));
         assert_eq!(v["ok"], false);
         assert_eq!(v["error"], "replay content too large");
+    }
+
+    /// The replay grid is clamped at MAX_GRID_DIM per dimension (a crafted
+    /// checkpoint cannot size a 65535x65535 grid); in-range sizes, the 24x80
+    /// default and 0 → 1 are unchanged.
+    #[test]
+    fn replay_grid_clamps_each_dimension_at_the_grid_cap() {
+        assert_eq!(replay_grid(&json!({})), (24, 80));
+        assert_eq!(replay_grid(&json!({ "rows": 0, "cols": 0 })), (1, 1));
+        assert_eq!(replay_grid(&json!({ "rows": 50, "cols": 200 })), (50, 200));
+        assert_eq!(replay_grid(&json!({ "rows": 4096, "cols": 4096 })), (4096, 4096));
+        assert_eq!(replay_grid(&json!({ "rows": 4097, "cols": 65_535 })), (4096, 4096));
+        assert_eq!(replay_grid(&json!({ "rows": u64::MAX, "cols": 70_000 })), (4096, 4096));
+        let entry = build_replay(
+            "s",
+            1,
+            &json!({ "rows": 65_535, "cols": 65_535, "chunks": ["needle"] }),
+        )
+        .expect("replay builds");
+        assert_eq!(entry.terminal.size(), (4096, 4096));
     }
 
     #[test]

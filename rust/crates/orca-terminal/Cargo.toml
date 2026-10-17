@@ -23,9 +23,10 @@ description = "Headless terminal emulation for Orca (replaces @xterm/headless): 
 aterm-core = { path = "../../aterm/crates/aterm-core", features = ["sixel"] }
 aterm-grid = { path = "../../aterm/crates/aterm-grid" }
 aterm-types = { path = "../../aterm/crates/aterm-types" }
-# Color-scheme (DEC mode 2031) sequence scanning. Literal/char-class matching
-# only — no unicode tables needed.
-regex = { version = "1", default-features = false, features = ["std", "perf"] }
+# Color-scheme (DEC mode 2031) scanning and user scrollback-search patterns. The
+# search needs `unicode` (case folding, `\d`, `\p{..}`); declared here since
+# aterm no longer unifies regex's default features in.
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode"] }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -10,7 +10,7 @@
 //! shells need no changes — only the engine underneath them is upgraded.
 
 use aterm_core::terminal::{Terminal, TerminalBuilder};
-use aterm_grid::{CellFlags, Grid, PackedColor, PackedColors};
+use aterm_grid::{CellFlags, Grid, PackedColors};
 use aterm_types::mouse::{MouseEncoding, MouseMode};
 
 /// A run of columns on one row that share an OSC-8 hyperlink URL. Mirrors the
@@ -619,10 +619,9 @@ impl HeadlessTerminal {
 
 /// Resolve a grid cell into Orca's `Cell` (char + SGR attrs + colour kind).
 ///
-/// Mirrors aterm's own render resolution (`render_cells.rs`) — style-interned
-/// cells rehydrate via the style table, inline cells read their packed colours
-/// plus the RGB overflow table — but yields Orca's `Color` enum so the
-/// Default/Indexed/Rgb distinction survives instead of being flattened to RGB.
+/// Reads the cell's packed colours plus the RGB overflow table, like aterm's
+/// own render resolution (`render_cells.rs`), but yields Orca's `Color` enum so
+/// the Default/Indexed/Rgb distinction survives instead of being flattened to RGB.
 fn resolve_cell(grid: &Grid, row: u16, col: u16) -> Option<Cell> {
     let grid_row = grid.row(row)?;
     if col >= grid_row.len() {
@@ -634,16 +633,10 @@ fn resolve_cell(grid: &Grid, row: u16, col: u16) -> Option<Cell> {
         .map(|c| if c == '\0' { ' ' } else { c })
         .unwrap_or(' ');
 
-    let (fg, bg, flags) = if cell.uses_style_id() {
-        let extra = cell.flags().difference(CellFlags::USES_STYLE_ID);
-        let (fg_pc, bg_pc, merged) = grid.resolve_style_to_colors(cell.style_id(), extra);
-        (legacy_color(fg_pc), legacy_color(bg_pc), merged)
-    } else {
-        let colors = cell.colors();
-        let fg = packed_color(colors, true, grid.fg_rgb_at(row, col));
-        let bg = packed_color(colors, false, grid.bg_rgb_at(row, col));
-        (fg, bg, cell.flags())
-    };
+    let colors = cell.colors();
+    let fg = packed_color(colors, true, grid.fg_rgb_at(row, col));
+    let bg = packed_color(colors, false, grid.bg_rgb_at(row, col));
+    let flags = cell.flags();
 
     Some(Cell {
         ch,
@@ -661,18 +654,6 @@ fn resolve_cell(grid: &Grid, row: u16, col: u16) -> Option<Cell> {
             bg,
         },
     })
-}
-
-/// Map a legacy `PackedColor` (the style-table resolution format) to `Color`.
-fn legacy_color(p: PackedColor) -> Color {
-    if p.is_rgb() {
-        let (r, g, b) = p.rgb_components();
-        Color::Rgb(r, g, b)
-    } else if p.is_indexed() {
-        Color::Indexed(p.index())
-    } else {
-        Color::Default
-    }
 }
 
 /// Map an inline cell's `PackedColors` field (`fg` or `bg`) to `Color`. RGB
